@@ -20,14 +20,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
 
 const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
-  requestedById: z.string(),
   departmentId: z.string().optional(),
   items: z.array(z.object({
-    name: z.string().min(1, "Item name is required"),
-    description: z.string().optional(),
+    description: z.string().min(1, "Item description is required"),
     quantity: z.number().min(1, "Quantity must be at least 1"),
     unitPrice: z.number().min(0, "Unit price must be positive"),
-    category: z.string().optional()
+    assetId: z.string().optional()
   })).min(1, "At least one item is required")
 });
 
@@ -51,10 +49,7 @@ export default function PurchaseOrders() {
     queryKey: ["/api/purchase-orders"],
   });
 
-  // Fetch employees for requester selection
-  const { data: employees = [] } = useQuery<Employee[]>({
-    queryKey: ["/api/employees"],
-  });
+  // Note: No longer using employees for requestedById as it's not in the schema
 
   // Fetch departments for department selection
   const { data: departments = [] } = useQuery<Department[]>({
@@ -104,24 +99,28 @@ export default function PurchaseOrders() {
   const createForm = useForm<PurchaseOrderFormData>({
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: {
-      title: "",
-      description: "",
-      requestedById: "",
+      poNumber: "",
+      vendor: "",
+      orderDate: new Date().toISOString().split('T')[0],
       departmentId: "none",
       status: "pending",
-      items: [{ name: "", description: "", quantity: 1, unitPrice: 0, category: "" }]
+      notes: "",
+      totalAmount: "0",
+      items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
     },
   });
 
   const editForm = useForm<PurchaseOrderFormData>({
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: {
-      title: "",
-      description: "",
-      requestedById: "",
+      poNumber: "",
+      vendor: "",
+      orderDate: new Date().toISOString().split('T')[0],
       departmentId: "none",
       status: "pending",
-      items: [{ name: "", description: "", quantity: 1, unitPrice: 0, category: "" }]
+      notes: "",
+      totalAmount: "0",
+      items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
     },
   });
 
@@ -138,12 +137,19 @@ export default function PurchaseOrders() {
   const handleEdit = (order: PurchaseOrderWithDetails) => {
     setEditingOrder(order);
     editForm.reset({
-      title: order.title,
-      description: order.description || "",
-      requestedById: order.requestedById,
+      poNumber: order.poNumber,
+      vendor: order.vendor,
+      orderDate: order.orderDate,
       departmentId: order.departmentId || "none",
       status: order.status,
-      items: order.items || [{ name: "", description: "", quantity: 1, unitPrice: 0, category: "" }]
+      notes: order.notes || "",
+      totalAmount: order.totalAmount,
+      items: order.items?.map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unitPrice),
+        assetId: item.assetId || ""
+      })) || [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
     });
   };
 
@@ -173,12 +179,12 @@ export default function PurchaseOrders() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="title"
+              name="poNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Order Title</FormLabel>
+                  <FormLabel>PO Number</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="e.g., Office Equipment Q1 2024" data-testid="input-title" />
+                    <Input {...field} placeholder="e.g., PO-2024-001" data-testid="input-po-number" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -214,24 +220,13 @@ export default function PurchaseOrders() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="requestedById"
+              name="vendor"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Requested By</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-requester">
-                        <SelectValue placeholder="Select requester" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {employees.map((employee) => (
-                        <SelectItem key={employee.id} value={employee.id}>
-                          {employee.firstName} {employee.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Vendor</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="e.g., Office Supplies Inc" data-testid="input-vendor" />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -264,14 +259,44 @@ export default function PurchaseOrders() {
             />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="orderDate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Order Date</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} data-testid="input-order-date" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              control={form.control}
+              name="expectedDelivery"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Expected Delivery</FormLabel>
+                  <FormControl>
+                    <Input type="date" {...field} data-testid="input-expected-delivery" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+          
           <FormField
             control={form.control}
-            name="description"
+            name="notes"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Description</FormLabel>
+                <FormLabel>Notes</FormLabel>
                 <FormControl>
-                  <Textarea {...field} data-testid="input-description" />
+                  <Textarea {...field} placeholder="Additional notes..." data-testid="input-notes" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -286,7 +311,7 @@ export default function PurchaseOrders() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => append({ name: "", description: "", quantity: 1, unitPrice: 0, category: "" })}
+                onClick={() => append({ description: "", quantity: 1, unitPrice: 0, assetId: "" })}
                 data-testid="button-add-item"
               >
                 <Plus className="w-4 h-4 mr-2" />
@@ -314,12 +339,12 @@ export default function PurchaseOrders() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name={`items.${index}.name`}
+                    name={`items.${index}.description`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Item Name</FormLabel>
+                        <FormLabel>Item Description</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid={`input-item-name-${index}`} />
+                          <Input {...field} placeholder="e.g., Dell Laptop 15-inch" data-testid={`input-item-description-${index}`} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -328,12 +353,12 @@ export default function PurchaseOrders() {
 
                   <FormField
                     control={form.control}
-                    name={`items.${index}.category`}
+                    name={`items.${index}.assetId`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Category</FormLabel>
+                        <FormLabel>Asset ID (Optional)</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="e.g., Hardware, Software" data-testid={`input-item-category-${index}`} />
+                          <Input {...field} placeholder="Link to existing asset" data-testid={`input-item-asset-${index}`} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -384,19 +409,6 @@ export default function PurchaseOrders() {
                   />
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name={`items.${index}.description`}
-                  render={({ field }) => (
-                    <FormItem className="mt-4">
-                      <FormLabel>Item Description</FormLabel>
-                      <FormControl>
-                        <Textarea {...field} data-testid={`input-item-description-${index}`} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </Card>
             ))}
           </div>
@@ -464,13 +476,13 @@ export default function PurchaseOrders() {
                     <div className="flex items-center space-x-2">
                       <ShoppingCart className="w-5 h-5 text-primary" />
                       <div>
-                        <CardTitle className="text-lg">{order.title}</CardTitle>
+                        <CardTitle className="text-lg">{order.poNumber}</CardTitle>
                         <CardDescription className="flex items-center space-x-2 mt-1">
                           <Badge className={statusColors[order.status as keyof typeof statusColors]}>
                             {order.status}
                           </Badge>
                           <span>•</span>
-                          <span>{format(new Date(order.createdAt), "MMM d, yyyy")}</span>
+                          <span>{format(new Date(order.orderDate), "MMM d, yyyy")}</span>
                         </CardDescription>
                       </div>
                     </div>
@@ -496,17 +508,15 @@ export default function PurchaseOrders() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {order.description && (
-                      <p className="text-sm text-muted-foreground">{order.description}</p>
+                    {order.notes && (
+                      <p className="text-sm text-muted-foreground">{order.notes}</p>
                     )}
                     
                     <div className="grid grid-cols-2 gap-4">
-                      {order.requestedBy && (
-                        <div className="flex items-center space-x-2 text-sm">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                          <span>{order.requestedBy.firstName} {order.requestedBy.lastName}</span>
-                        </div>
-                      )}
+                      <div className="flex items-center space-x-2 text-sm">
+                        <User className="w-4 h-4 text-muted-foreground" />
+                        <span>Vendor: {order.vendor}</span>
+                      </div>
                       
                       {order.department && (
                         <div className="flex items-center space-x-2 text-sm">
@@ -532,7 +542,7 @@ export default function PurchaseOrders() {
                         <div className="space-y-1">
                           {order.items.slice(0, 3).map((item, index) => (
                             <div key={index} className="text-sm text-muted-foreground flex justify-between">
-                              <span>{item.name} {item.category && `(${item.category})`}</span>
+                              <span>{item.description}</span>
                               <span>{item.quantity}x ${item.unitPrice}</span>
                             </div>
                           ))}

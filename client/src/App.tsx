@@ -11,6 +11,7 @@ import Assignments from "@/pages/assignments";
 import Locations from "@/pages/locations";
 import Departments from "@/pages/departments";
 import Vendors from "@/pages/vendors";
+import PurchaseOrders from "@/pages/purchase-orders";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -27,7 +28,7 @@ function Router() {
           <Route path="/locations" component={Locations} />
           <Route path="/departments" component={Departments} />
           <Route path="/vendors" component={Vendors} />
-          <Route path="/purchase-orders" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Purchase Orders</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/purchase-orders" component={PurchaseOrders} />
           <Route path="/budgets" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Budgets</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
           <Route path="/maintenance" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Maintenance</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
           <Route path="/reports" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Reports</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
