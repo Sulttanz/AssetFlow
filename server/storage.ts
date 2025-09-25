@@ -7,9 +7,13 @@ import {
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
-  type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails
+  type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails,
+  assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
+  budgets, maintenanceSchedules, maintenanceRecords
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, isNull, and } from "drizzle-orm";
 
 export interface IStorage {
   // Assets
@@ -1114,4 +1118,493 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// DatabaseStorage class that uses PostgreSQL via Drizzle ORM
+export class DatabaseStorage implements IStorage {
+  // Assets
+  async getAssets(): Promise<Asset[]> {
+    return await db.select().from(assets);
+  }
+
+  async getAssetsWithAssignments(): Promise<AssetWithAssignment[]> {
+    const allAssets = await db.select().from(assets);
+    const result: AssetWithAssignment[] = [];
+    
+    for (const asset of allAssets) {
+      const currentAssignment = await this.getCurrentAssignmentByAsset(asset.id);
+      const location = asset.locationId ? await db.select().from(locations).where(eq(locations.id, asset.locationId)).then(r => r[0] || undefined) : undefined;
+      const department = asset.departmentId ? await db.select().from(departments).where(eq(departments.id, asset.departmentId)).then(r => r[0] || undefined) : undefined;
+      
+      if (currentAssignment) {
+        const employee = await db.select().from(employees).where(eq(employees.id, currentAssignment.employeeId)).then(r => r[0] || undefined);
+        result.push({
+          ...asset,
+          assignedTo: employee,
+          assignmentDate: currentAssignment.assignedDate,
+          location,
+          department
+        });
+      } else {
+        result.push({
+          ...asset,
+          location,
+          department
+        });
+      }
+    }
+    
+    return result;
+  }
+
+  async getAsset(id: string): Promise<Asset | undefined> {
+    const result = await db.select().from(assets).where(eq(assets.id, id));
+    return result[0] || undefined;
+  }
+
+  async createAsset(asset: InsertAsset): Promise<Asset> {
+    const result = await db.insert(assets).values(asset).returning();
+    return result[0];
+  }
+
+  async updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset | undefined> {
+    const result = await db.update(assets).set(asset).where(eq(assets.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteAsset(id: string): Promise<boolean> {
+    const result = await db.delete(assets).where(eq(assets.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+  
+  // Employees
+  async getEmployees(): Promise<Employee[]> {
+    return await db.select().from(employees);
+  }
+
+  async getEmployeesWithDetails(): Promise<EmployeeWithDetails[]> {
+    const allEmployees = await db.select().from(employees);
+    const result: EmployeeWithDetails[] = [];
+    
+    for (const employee of allEmployees) {
+      const department = employee.departmentId ? await db.select().from(departments).where(eq(departments.id, employee.departmentId)).then(r => r[0] || undefined) : undefined;
+      const location = employee.locationId ? await db.select().from(locations).where(eq(locations.id, employee.locationId)).then(r => r[0] || undefined) : undefined;
+      const manager = employee.managerId ? await db.select().from(employees).where(eq(employees.id, employee.managerId)).then(r => r[0] || undefined) : undefined;
+      const assignedAssets = await db.select().from(assets).innerJoin(assignments, eq(assets.id, assignments.assetId)).where(eq(assignments.employeeId, employee.id));
+      
+      result.push({
+        ...employee,
+        departmentDetails: department || undefined,
+        locationDetails: location || undefined,
+        manager: manager || undefined,
+        assignedAssets: assignedAssets.map(a => a.assets)
+      });
+    }
+    
+    return result;
+  }
+
+  async getEmployee(id: string): Promise<Employee | undefined> {
+    const result = await db.select().from(employees).where(eq(employees.id, id));
+    return result[0] || undefined;
+  }
+
+  async createEmployee(employee: InsertEmployee): Promise<Employee> {
+    const result = await db.insert(employees).values(employee).returning();
+    return result[0];
+  }
+
+  async updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined> {
+    const result = await db.update(employees).set(employee).where(eq(employees.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteEmployee(id: string): Promise<boolean> {
+    const result = await db.delete(employees).where(eq(employees.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+  
+  // Assignments
+  async getAssignments(): Promise<Assignment[]> {
+    return await db.select().from(assignments);
+  }
+
+  async getAssignmentsWithDetails(): Promise<AssignmentWithDetails[]> {
+    const allAssignments = await db.select().from(assignments);
+    const result: AssignmentWithDetails[] = [];
+    
+    for (const assignment of allAssignments) {
+      const asset = await db.select().from(assets).where(eq(assets.id, assignment.assetId)).then(r => r[0]);
+      const employee = await db.select().from(employees).where(eq(employees.id, assignment.employeeId)).then(r => r[0]);
+      
+      if (asset && employee) {
+        result.push({
+          ...assignment,
+          asset,
+          employee
+        });
+      }
+    }
+    
+    return result;
+  }
+
+  async getAssignment(id: string): Promise<Assignment | undefined> {
+    const result = await db.select().from(assignments).where(eq(assignments.id, id));
+    return result[0] || undefined;
+  }
+
+  async createAssignment(assignment: InsertAssignment): Promise<Assignment> {
+    const result = await db.insert(assignments).values(assignment).returning();
+    return result[0];
+  }
+
+  async updateAssignment(id: string, assignment: Partial<InsertAssignment>): Promise<Assignment | undefined> {
+    const result = await db.update(assignments).set(assignment).where(eq(assignments.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteAssignment(id: string): Promise<boolean> {
+    const result = await db.delete(assignments).where(eq(assignments.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getAssignmentsByAsset(assetId: string): Promise<Assignment[]> {
+    return await db.select().from(assignments).where(eq(assignments.assetId, assetId));
+  }
+
+  async getAssignmentsByEmployee(employeeId: string): Promise<Assignment[]> {
+    return await db.select().from(assignments).where(eq(assignments.employeeId, employeeId));
+  }
+
+  async getCurrentAssignmentByAsset(assetId: string): Promise<Assignment | undefined> {
+    const result = await db.select().from(assignments).where(and(eq(assignments.assetId, assetId), isNull(assignments.returnedDate)));
+    return result[0] || undefined;
+  }
+
+  // Locations
+  async getLocations(): Promise<Location[]> {
+    return await db.select().from(locations);
+  }
+
+  async getLocationsWithDetails(): Promise<LocationWithDetails[]> {
+    const allLocations = await db.select().from(locations);
+    const result: LocationWithDetails[] = [];
+    
+    for (const location of allLocations) {
+      const manager = location.managerId ? await db.select().from(employees).where(eq(employees.id, location.managerId)).then(r => r[0] || undefined) : undefined;
+      const assetCount = await db.select().from(assets).where(eq(assets.locationId, location.id)).then(r => r.length);
+      const departmentCount = await db.select().from(departments).where(eq(departments.locationId, location.id)).then(r => r.length);
+      
+      result.push({
+        ...location,
+        manager: manager || undefined,
+        assetCount,
+        departmentCount
+      });
+    }
+    
+    return result;
+  }
+
+  async getLocation(id: string): Promise<Location | undefined> {
+    const result = await db.select().from(locations).where(eq(locations.id, id));
+    return result[0] || undefined;
+  }
+
+  async createLocation(location: InsertLocation): Promise<Location> {
+    const result = await db.insert(locations).values(location).returning();
+    return result[0];
+  }
+
+  async updateLocation(id: string, location: Partial<InsertLocation>): Promise<Location | undefined> {
+    const result = await db.update(locations).set(location).where(eq(locations.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteLocation(id: string): Promise<boolean> {
+    const result = await db.delete(locations).where(eq(locations.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Departments
+  async getDepartments(): Promise<Department[]> {
+    return await db.select().from(departments);
+  }
+
+  async getDepartmentsWithDetails(): Promise<DepartmentWithDetails[]> {
+    const allDepartments = await db.select().from(departments);
+    const result: DepartmentWithDetails[] = [];
+    
+    for (const department of allDepartments) {
+      const manager = department.managerId ? await db.select().from(employees).where(eq(employees.id, department.managerId)).then(r => r[0] || undefined) : undefined;
+      const employeeCount = await db.select().from(employees).where(eq(employees.departmentId, department.id)).then(r => r.length);
+      const assetCount = await db.select().from(assets).where(eq(assets.departmentId, department.id)).then(r => r.length);
+      
+      result.push({
+        ...department,
+        manager: manager || undefined,
+        employeeCount,
+        assetCount
+      });
+    }
+    
+    return result;
+  }
+
+  async getDepartment(id: string): Promise<Department | undefined> {
+    const result = await db.select().from(departments).where(eq(departments.id, id));
+    return result[0] || undefined;
+  }
+
+  async createDepartment(department: InsertDepartment): Promise<Department> {
+    const result = await db.insert(departments).values(department).returning();
+    return result[0];
+  }
+
+  async updateDepartment(id: string, department: Partial<InsertDepartment>): Promise<Department | undefined> {
+    const result = await db.update(departments).set(department).where(eq(departments.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteDepartment(id: string): Promise<boolean> {
+    const result = await db.delete(departments).where(eq(departments.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Vendors
+  async getVendors(): Promise<Vendor[]> {
+    return await db.select().from(vendors);
+  }
+
+  async getVendorsWithDetails(): Promise<VendorWithDetails[]> {
+    const allVendors = await db.select().from(vendors);
+    const result: VendorWithDetails[] = [];
+    
+    for (const vendor of allVendors) {
+      const purchaseOrderCount = await db.select().from(purchaseOrders).where(eq(purchaseOrders.vendor, vendor.name)).then(r => r.length);
+      const totalSpentResult = await db.select().from(purchaseOrders).where(eq(purchaseOrders.vendor, vendor.name));
+      const totalSpent = totalSpentResult.reduce((sum, po) => sum + parseFloat(po.totalAmount || "0"), 0);
+      const lastOrderResult = await db.select().from(purchaseOrders).where(eq(purchaseOrders.vendor, vendor.name));
+      const lastOrderDate = lastOrderResult.length > 0 ? lastOrderResult.sort((a, b) => b.orderDate.localeCompare(a.orderDate))[0].orderDate : undefined;
+      
+      result.push({
+        ...vendor,
+        purchaseOrderCount,
+        totalSpent,
+        lastOrderDate
+      });
+    }
+    
+    return result;
+  }
+
+  async getVendor(id: string): Promise<Vendor | undefined> {
+    const result = await db.select().from(vendors).where(eq(vendors.id, id));
+    return result[0] || undefined;
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    const result = await db.insert(vendors).values(vendor).returning();
+    return result[0];
+  }
+
+  async updateVendor(id: string, vendor: Partial<InsertVendor>): Promise<Vendor | undefined> {
+    const result = await db.update(vendors).set(vendor).where(eq(vendors.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteVendor(id: string): Promise<boolean> {
+    const result = await db.delete(vendors).where(eq(vendors.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Purchase Orders
+  async getPurchaseOrders(): Promise<PurchaseOrder[]> {
+    return await db.select().from(purchaseOrders);
+  }
+
+  async getPurchaseOrdersWithDetails(): Promise<PurchaseOrderWithDetails[]> {
+    const allPurchaseOrders = await db.select().from(purchaseOrders);
+    const result: PurchaseOrderWithDetails[] = [];
+    
+    for (const purchaseOrder of allPurchaseOrders) {
+      const department = purchaseOrder.departmentId ? await db.select().from(departments).where(eq(departments.id, purchaseOrder.departmentId)).then(r => r[0] || undefined) : undefined;
+      const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrder.id));
+      
+      result.push({
+        ...purchaseOrder,
+        department: department || undefined,
+        items: items || [],
+        itemCount: items.length
+      });
+    }
+    
+    return result;
+  }
+
+  async getPurchaseOrder(id: string): Promise<PurchaseOrder | undefined> {
+    const result = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, id));
+    return result[0] || undefined;
+  }
+
+  async createPurchaseOrder(purchaseOrder: InsertPurchaseOrder): Promise<PurchaseOrder> {
+    const result = await db.insert(purchaseOrders).values(purchaseOrder).returning();
+    return result[0];
+  }
+
+  async updatePurchaseOrder(id: string, purchaseOrder: Partial<InsertPurchaseOrder>): Promise<PurchaseOrder | undefined> {
+    const result = await db.update(purchaseOrders).set(purchaseOrder).where(eq(purchaseOrders.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deletePurchaseOrder(id: string): Promise<boolean> {
+    const result = await db.delete(purchaseOrders).where(eq(purchaseOrders.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Purchase Order Items
+  async getPurchaseOrderItems(purchaseOrderId: string): Promise<PurchaseOrderItem[]> {
+    return await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrderId));
+  }
+
+  async createPurchaseOrderItem(item: InsertPurchaseOrderItem): Promise<PurchaseOrderItem> {
+    const result = await db.insert(purchaseOrderItems).values(item).returning();
+    return result[0];
+  }
+
+  async updatePurchaseOrderItem(id: string, item: Partial<InsertPurchaseOrderItem>): Promise<PurchaseOrderItem | undefined> {
+    const result = await db.update(purchaseOrderItems).set(item).where(eq(purchaseOrderItems.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deletePurchaseOrderItem(id: string): Promise<boolean> {
+    const result = await db.delete(purchaseOrderItems).where(eq(purchaseOrderItems.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Budgets
+  async getBudgets(): Promise<Budget[]> {
+    return await db.select().from(budgets);
+  }
+
+  async getBudget(id: string): Promise<Budget | undefined> {
+    const result = await db.select().from(budgets).where(eq(budgets.id, id));
+    return result[0] || undefined;
+  }
+
+  async createBudget(budget: InsertBudget): Promise<Budget> {
+    const result = await db.insert(budgets).values(budget).returning();
+    return result[0];
+  }
+
+  async updateBudget(id: string, budget: Partial<InsertBudget>): Promise<Budget | undefined> {
+    const result = await db.update(budgets).set(budget).where(eq(budgets.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteBudget(id: string): Promise<boolean> {
+    const result = await db.delete(budgets).where(eq(budgets.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getBudgetsByDepartment(departmentId: string): Promise<Budget[]> {
+    return await db.select().from(budgets).where(eq(budgets.departmentId, departmentId));
+  }
+
+  async getBudgetsByLocation(locationId: string): Promise<Budget[]> {
+    return await db.select().from(budgets).where(eq(budgets.locationId, locationId));
+  }
+
+  // Maintenance Schedules
+  async getMaintenanceSchedules(): Promise<MaintenanceSchedule[]> {
+    return await db.select().from(maintenanceSchedules);
+  }
+
+  async getMaintenanceSchedulesWithDetails(): Promise<MaintenanceScheduleWithDetails[]> {
+    const allSchedules = await db.select().from(maintenanceSchedules);
+    const result: MaintenanceScheduleWithDetails[] = [];
+    
+    for (const schedule of allSchedules) {
+      const asset = await db.select().from(assets).where(eq(assets.id, schedule.assetId)).then(r => r[0] || undefined);
+      
+      result.push({
+        ...schedule,
+        asset: asset || undefined
+      });
+    }
+    
+    return result;
+  }
+
+  async getMaintenanceSchedule(id: string): Promise<MaintenanceSchedule | undefined> {
+    const result = await db.select().from(maintenanceSchedules).where(eq(maintenanceSchedules.id, id));
+    return result[0] || undefined;
+  }
+
+  async createMaintenanceSchedule(schedule: InsertMaintenanceSchedule): Promise<MaintenanceSchedule> {
+    const result = await db.insert(maintenanceSchedules).values(schedule).returning();
+    return result[0];
+  }
+
+  async updateMaintenanceSchedule(id: string, schedule: Partial<InsertMaintenanceSchedule>): Promise<MaintenanceSchedule | undefined> {
+    const result = await db.update(maintenanceSchedules).set(schedule).where(eq(maintenanceSchedules.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteMaintenanceSchedule(id: string): Promise<boolean> {
+    const result = await db.delete(maintenanceSchedules).where(eq(maintenanceSchedules.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getMaintenanceSchedulesByAsset(assetId: string): Promise<MaintenanceSchedule[]> {
+    return await db.select().from(maintenanceSchedules).where(eq(maintenanceSchedules.assetId, assetId));
+  }
+
+  // Maintenance Records
+  async getMaintenanceRecords(): Promise<MaintenanceRecord[]> {
+    return await db.select().from(maintenanceRecords);
+  }
+
+  async getMaintenanceRecordsWithDetails(): Promise<MaintenanceRecordWithDetails[]> {
+    const allRecords = await db.select().from(maintenanceRecords);
+    const result: MaintenanceRecordWithDetails[] = [];
+    
+    for (const record of allRecords) {
+      const asset = await db.select().from(assets).where(eq(assets.id, record.assetId)).then(r => r[0] || undefined);
+      const schedule = record.scheduleId ? await db.select().from(maintenanceSchedules).where(eq(maintenanceSchedules.id, record.scheduleId)).then(r => r[0] || undefined) : undefined;
+      
+      result.push({
+        ...record,
+        asset: asset || undefined,
+        schedule: schedule || undefined
+      });
+    }
+    
+    return result;
+  }
+
+  async getMaintenanceRecord(id: string): Promise<MaintenanceRecord | undefined> {
+    const result = await db.select().from(maintenanceRecords).where(eq(maintenanceRecords.id, id));
+    return result[0] || undefined;
+  }
+
+  async createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord> {
+    const result = await db.insert(maintenanceRecords).values(record).returning();
+    return result[0];
+  }
+
+  async updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord | undefined> {
+    const result = await db.update(maintenanceRecords).set(record).where(eq(maintenanceRecords.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteMaintenanceRecord(id: string): Promise<boolean> {
+    const result = await db.delete(maintenanceRecords).where(eq(maintenanceRecords.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getMaintenanceRecordsByAsset(assetId: string): Promise<MaintenanceRecord[]> {
+    return await db.select().from(maintenanceRecords).where(eq(maintenanceRecords.assetId, assetId));
+  }
+}
+
+export const storage = new DatabaseStorage();
