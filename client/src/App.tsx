@@ -8,6 +8,7 @@ import Dashboard from "@/pages/dashboard";
 import Assets from "@/pages/assets";
 import Employees from "@/pages/employees";
 import Assignments from "@/pages/assignments";
+import Locations from "@/pages/locations";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -21,6 +22,13 @@ function Router() {
           <Route path="/assets" component={Assets} />
           <Route path="/employees" component={Employees} />
           <Route path="/assignments" component={Assignments} />
+          <Route path="/locations" component={Locations} />
+          <Route path="/departments" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Departments</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/purchase-orders" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Purchase Orders</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/budgets" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Budgets</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/maintenance" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Maintenance</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/reports" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Reports</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/settings" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Settings</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
           <Route component={NotFound} />
         </Switch>
       </div>
