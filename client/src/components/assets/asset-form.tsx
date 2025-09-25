@@ -177,14 +177,39 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       return converted || undefined;
     };
 
+    // Helper function to process numeric fields - convert empty strings to undefined (null in JSON)
+    const processNumericField = (numericValue: string | undefined): string | undefined => {
+      if (!numericValue || numericValue.trim() === "") {
+        return undefined; // Send undefined for form compatibility, which becomes null in JSON
+      }
+      return numericValue;
+    };
+
     // Convert DD-MM-YYYY date formats to YYYY-MM-DD (ISO format) for database
+    // and handle empty numeric fields properly
     const processedData = {
       ...data,
+      // Date fields
       purchaseDate: processDateField(data.purchaseDate),
       warrantyExpiry: processDateField(data.warrantyExpiry),
       lastAuditDate: processDateField(data.lastAuditDate),
       nextAuditDate: processDateField(data.nextAuditDate),
       plannedDisposalDate: processDateField(data.plannedDisposalDate),
+      // Numeric fields - convert empty strings to undefined to prevent DB errors
+      purchasePrice: processNumericField(data.purchasePrice),
+      currentBookValue: processNumericField(data.currentBookValue),
+      currentValue: processNumericField(data.currentValue),
+      depreciationRate: processNumericField(data.depreciationRate),
+      licenseQuantity: processNumericField(data.licenseQuantity),
+      maintenanceCosts: processNumericField(data.maintenanceCosts),
+      annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
+      yearToDateSpend: processNumericField(data.yearToDateSpend),
+      remainingBudget: processNumericField(data.remainingBudget),
+      budgetUtilizationPercent: processNumericField(data.budgetUtilizationPercent),
+      forecastAnnualCost: processNumericField(data.forecastAnnualCost),
+      budgetAlertThreshold: processNumericField(data.budgetAlertThreshold),
+      budgetOverage: processNumericField(data.budgetOverage),
+      nextYearBudgetRequest: processNumericField(data.nextYearBudgetRequest),
     };
 
     console.log("Submitting asset data:", processedData);

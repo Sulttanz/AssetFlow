@@ -170,7 +170,26 @@ export default function Budgets() {
   });
 
   const handleCreate = (data: BudgetFormData) => {
-    createMutation.mutate(data);
+    // Helper function to process numeric fields - convert empty strings to default values
+    const processStringNumericField = (numericValue: string | null | undefined, defaultValue: string = "0"): string => {
+      if (numericValue === null || numericValue === undefined) {
+        return defaultValue;
+      }
+      if (typeof numericValue === "string" && numericValue.trim() === "") {
+        return defaultValue; // Use default value instead of undefined
+      }
+      return String(numericValue);
+    };
+
+    // Process numeric fields to prevent database errors with empty strings
+    const processedData = {
+      ...data,
+      budgetAmount: processStringNumericField(data.budgetAmount),
+      spentAmount: processStringNumericField(data.spentAmount),
+      fiscalYear: typeof data.fiscalYear === 'number' ? data.fiscalYear : (data.fiscalYear && !isNaN(Number(data.fiscalYear)) ? Number(data.fiscalYear) : new Date().getFullYear()),
+    };
+
+    createMutation.mutate(processedData);
   };
 
   const handleEdit = (budget: Budget) => {
@@ -190,7 +209,33 @@ export default function Budgets() {
 
   const handleUpdate = (data: BudgetFormData) => {
     if (editingBudget) {
-      updateMutation.mutate({ id: editingBudget.id, data });
+      // Helper function to process numeric fields - convert empty strings to default values
+      const processStringNumericField = (numericValue: string | null | undefined, defaultValue: string = "0"): string => {
+        if (numericValue === null || numericValue === undefined) {
+          return defaultValue;
+        }
+        if (typeof numericValue === "string" && numericValue.trim() === "") {
+          return defaultValue; // Use default value instead of undefined
+        }
+        return String(numericValue);
+      };
+
+      // Process numeric fields to prevent database errors with empty strings
+      const processedData = {
+        ...data,
+        budgetAmount: processStringNumericField(data.budgetAmount),
+        spentAmount: processStringNumericField(data.spentAmount),
+        fiscalYear: typeof data.fiscalYear === 'number' ? data.fiscalYear : (data.fiscalYear && !isNaN(Number(data.fiscalYear)) ? Number(data.fiscalYear) : new Date().getFullYear()),
+      };
+
+      updateMutation.mutate({ 
+        id: editingBudget.id, 
+        data: {
+          ...processedData,
+          departmentId: processedData.departmentId === "" ? undefined : processedData.departmentId,
+          locationId: processedData.locationId === "" ? undefined : processedData.locationId,
+        }
+      });
     }
   };
 
