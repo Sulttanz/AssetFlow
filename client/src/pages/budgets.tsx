@@ -414,7 +414,6 @@ export default function Budgets() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">No Department</SelectItem>
                             {departments.map((dept) => (
                               <SelectItem key={dept.id} value={dept.id}>
                                 {dept.name}
@@ -441,7 +440,6 @@ export default function Budgets() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">No Location</SelectItem>
                           {locations.map((location) => (
                             <SelectItem key={location.id} value={location.id}>
                               {location.name}
