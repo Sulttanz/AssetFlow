@@ -167,7 +167,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
 
   const onSubmit = (data: FormData) => {
     // Helper function to process date fields - convert DD-MM-YYYY to YYYY-MM-DD and handle empty strings
-    const processDateField = (dateValue: string | undefined): string | undefined => {
+    const processDateField = (dateValue: string | null | undefined): string | undefined => {
       if (!dateValue || dateValue.trim() === "") {
         return undefined; // Send undefined for form compatibility, which becomes null in JSON
       }
@@ -178,11 +178,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     };
 
     // Helper function to process numeric fields - convert empty strings to undefined (null in JSON)
-    const processNumericField = (numericValue: string | undefined): string | undefined => {
-      if (!numericValue || numericValue.trim() === "") {
+    const processNumericField = (numericValue: string | null | undefined): string | undefined => {
+      if (!numericValue || (typeof numericValue === "string" && numericValue.trim() === "")) {
         return undefined; // Send undefined for form compatibility, which becomes null in JSON
       }
-      return numericValue;
+      return String(numericValue);
     };
 
     // Convert DD-MM-YYYY date formats to YYYY-MM-DD (ISO format) for database
@@ -200,7 +200,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       currentBookValue: processNumericField(data.currentBookValue),
       currentValue: processNumericField(data.currentValue),
       depreciationRate: processNumericField(data.depreciationRate),
-      licenseQuantity: processNumericField(data.licenseQuantity),
+      licenseQuantity: data.licenseQuantity ? Number(data.licenseQuantity) : undefined,
       maintenanceCosts: processNumericField(data.maintenanceCosts),
       annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
       yearToDateSpend: processNumericField(data.yearToDateSpend),
