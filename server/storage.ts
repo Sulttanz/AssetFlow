@@ -173,24 +173,167 @@ export class MemStorage implements IStorage {
 
   async createAsset(insertAsset: InsertAsset): Promise<Asset> {
     const id = randomUUID();
+    
+    // Helper function to normalize empty strings to null
+    const normalizeField = (value: any) => value === "" ? null : (value ?? null);
+    
     const asset: Asset = { 
       ...insertAsset, 
       id,
+      // Core fields
       status: insertAsset.status || "available",
       condition: insertAsset.condition || "good",
-      serialNumber: insertAsset.serialNumber === "" ? null : (insertAsset.serialNumber ?? null),
-      purchaseDate: insertAsset.purchaseDate === "" ? null : (insertAsset.purchaseDate ?? null),
-      warrantyExpiry: insertAsset.warrantyExpiry === "" ? null : (insertAsset.warrantyExpiry ?? null),
-      purchasePrice: insertAsset.purchasePrice === "" ? null : (insertAsset.purchasePrice ?? null),
-      depreciationRate: insertAsset.depreciationRate === "" ? null : (insertAsset.depreciationRate ?? null),
-      currentValue: insertAsset.currentValue === "" ? null : (insertAsset.currentValue ?? null),
-      vendor: insertAsset.vendor === "" ? null : (insertAsset.vendor ?? null),
-      model: insertAsset.model === "" ? null : (insertAsset.model ?? null),
-      specifications: insertAsset.specifications === "" ? null : (insertAsset.specifications ?? null),
-      locationId: insertAsset.locationId === "" ? null : (insertAsset.locationId ?? null),
-      departmentId: insertAsset.departmentId === "" ? null : (insertAsset.departmentId ?? null),
-      nextMaintenanceDate: insertAsset.nextMaintenanceDate === "" ? null : (insertAsset.nextMaintenanceDate ?? null),
-      lastMaintenanceDate: insertAsset.lastMaintenanceDate === "" ? null : (insertAsset.lastMaintenanceDate ?? null)
+      
+      // Core Asset Identification
+      assetTag: normalizeField(insertAsset.assetTag),
+      category: normalizeField(insertAsset.category),
+      serialNumber: normalizeField(insertAsset.serialNumber),
+      model: normalizeField(insertAsset.model),
+      version: normalizeField(insertAsset.version),
+      barcode: normalizeField(insertAsset.barcode),
+      qrCode: normalizeField(insertAsset.qrCode),
+      
+      // Security Classification & Risk
+      informationClassification: normalizeField(insertAsset.informationClassification),
+      securityLevel: normalizeField(insertAsset.securityLevel),
+      criticalityRating: normalizeField(insertAsset.criticalityRating),
+      threatLevel: normalizeField(insertAsset.threatLevel),
+      vulnerabilityStatus: normalizeField(insertAsset.vulnerabilityStatus),
+      riskAssessmentScore: normalizeField(insertAsset.riskAssessmentScore),
+      dataSensitivityLevel: normalizeField(insertAsset.dataSensitivityLevel),
+      
+      // Ownership & Responsibility
+      assetOwner: normalizeField(insertAsset.assetOwner),
+      assetCustodian: normalizeField(insertAsset.assetCustodian),
+      responsibleManager: normalizeField(insertAsset.responsibleManager),
+      technicalContact: normalizeField(insertAsset.technicalContact),
+      locationId: normalizeField(insertAsset.locationId),
+      departmentId: normalizeField(insertAsset.departmentId),
+      siteBuilding: normalizeField(insertAsset.siteBuilding),
+      
+      // Vendor/Supplier Management
+      primaryVendorId: normalizeField(insertAsset.primaryVendorId),
+      vendor: normalizeField(insertAsset.vendor),
+      contractNumber: normalizeField(insertAsset.contractNumber),
+      contractStartDate: normalizeField(insertAsset.contractStartDate),
+      contractEndDate: normalizeField(insertAsset.contractEndDate),
+      supportLevel: normalizeField(insertAsset.supportLevel),
+      
+      // Technical Specifications
+      operatingSystem: normalizeField(insertAsset.operatingSystem),
+      ipAddress: normalizeField(insertAsset.ipAddress),
+      macAddress: normalizeField(insertAsset.macAddress),
+      specifications: normalizeField(insertAsset.specifications),
+      configurationDetails: normalizeField(insertAsset.configurationDetails),
+      dependencies: normalizeField(insertAsset.dependencies),
+      interfaces: normalizeField(insertAsset.interfaces),
+      networkZone: normalizeField(insertAsset.networkZone),
+      domainWorkgroup: normalizeField(insertAsset.domainWorkgroup),
+      installedSoftware: normalizeField(insertAsset.installedSoftware),
+      hardwareSpecifications: normalizeField(insertAsset.hardwareSpecifications),
+      
+      // Lifecycle Management
+      acquisitionDate: normalizeField(insertAsset.acquisitionDate),
+      purchaseDate: normalizeField(insertAsset.purchaseDate),
+      installationDate: normalizeField(insertAsset.installationDate),
+      goLiveDate: normalizeField(insertAsset.goLiveDate),
+      lastUpdateDate: normalizeField(insertAsset.lastUpdateDate),
+      nextScheduledUpdate: normalizeField(insertAsset.nextScheduledUpdate),
+      warrantyStartDate: normalizeField(insertAsset.warrantyStartDate),
+      warrantyExpiry: normalizeField(insertAsset.warrantyExpiry),
+      plannedDisposalDate: normalizeField(insertAsset.plannedDisposalDate),
+      lifecycleStatus: normalizeField(insertAsset.lifecycleStatus),
+      disposalMethod: normalizeField(insertAsset.disposalMethod),
+      dataDestructionRequirements: normalizeField(insertAsset.dataDestructionRequirements),
+      
+      // Compliance & Security Controls
+      applicableRegulations: normalizeField(insertAsset.applicableRegulations),
+      securityControlsImplemented: normalizeField(insertAsset.securityControlsImplemented),
+      encryptionStatus: normalizeField(insertAsset.encryptionStatus),
+      accessControlMethod: normalizeField(insertAsset.accessControlMethod),
+      backupStatus: normalizeField(insertAsset.backupStatus),
+      monitoringStatus: normalizeField(insertAsset.monitoringStatus),
+      antivirusEdrStatus: normalizeField(insertAsset.antivirusEdrStatus),
+      patchManagementStatus: normalizeField(insertAsset.patchManagementStatus),
+      configurationBaseline: normalizeField(insertAsset.configurationBaseline),
+      securityScanResults: normalizeField(insertAsset.securityScanResults),
+      
+      // Financial & Procurement
+      purchasePrice: normalizeField(insertAsset.purchasePrice),
+      currentBookValue: normalizeField(insertAsset.currentBookValue),
+      currentValue: normalizeField(insertAsset.currentValue),
+      depreciationRate: normalizeField(insertAsset.depreciationRate),
+      depreciationSchedule: normalizeField(insertAsset.depreciationSchedule),
+      licenseType: normalizeField(insertAsset.licenseType),
+      licenseQuantity: insertAsset.licenseQuantity ?? null,
+      licenseExpiryDate: normalizeField(insertAsset.licenseExpiryDate),
+      maintenanceCosts: normalizeField(insertAsset.maintenanceCosts),
+      budgetCode: normalizeField(insertAsset.budgetCode),
+      costCenter: normalizeField(insertAsset.costCenter),
+      purchaseOrderNumber: normalizeField(insertAsset.purchaseOrderNumber),
+      invoiceNumber: normalizeField(insertAsset.invoiceNumber),
+      annualBudgetAllocation: normalizeField(insertAsset.annualBudgetAllocation),
+      budgetCategory: normalizeField(insertAsset.budgetCategory),
+      budgetApprovalStatus: normalizeField(insertAsset.budgetApprovalStatus),
+      budgetApprovalDate: normalizeField(insertAsset.budgetApprovalDate),
+      budgetApprovedBy: normalizeField(insertAsset.budgetApprovedBy),
+      yearToDateSpend: normalizeField(insertAsset.yearToDateSpend),
+      remainingBudget: normalizeField(insertAsset.remainingBudget),
+      budgetUtilizationPercent: normalizeField(insertAsset.budgetUtilizationPercent),
+      forecastAnnualCost: normalizeField(insertAsset.forecastAnnualCost),
+      budgetAlertThreshold: normalizeField(insertAsset.budgetAlertThreshold),
+      budgetOverage: normalizeField(insertAsset.budgetOverage),
+      nextYearBudgetRequest: normalizeField(insertAsset.nextYearBudgetRequest),
+      budgetOwner: normalizeField(insertAsset.budgetOwner),
+      budgetJustification: normalizeField(insertAsset.budgetJustification),
+      roiBusinessValue: normalizeField(insertAsset.roiBusinessValue),
+      
+      // Access Management & Usage
+      authorizedUsers: normalizeField(insertAsset.authorizedUsers),
+      accessRightsMatrix: normalizeField(insertAsset.accessRightsMatrix),
+      administratorAccounts: normalizeField(insertAsset.administratorAccounts),
+      usageRestrictions: normalizeField(insertAsset.usageRestrictions),
+      dataClassificationHandled: normalizeField(insertAsset.dataClassificationHandled),
+      businessPurpose: normalizeField(insertAsset.businessPurpose),
+      approvedUseCases: normalizeField(insertAsset.approvedUseCases),
+      geographicRestrictions: normalizeField(insertAsset.geographicRestrictions),
+      
+      // Monitoring & Performance
+      monitoringTools: normalizeField(insertAsset.monitoringTools),
+      performanceMetrics: normalizeField(insertAsset.performanceMetrics),
+      availabilityRequirements: normalizeField(insertAsset.availabilityRequirements),
+      recoveryTimeObjective: normalizeField(insertAsset.recoveryTimeObjective),
+      recoveryPointObjective: normalizeField(insertAsset.recoveryPointObjective),
+      backupFrequency: normalizeField(insertAsset.backupFrequency),
+      backupRetentionPeriod: normalizeField(insertAsset.backupRetentionPeriod),
+      lastSuccessfulBackup: normalizeField(insertAsset.lastSuccessfulBackup),
+      disasterRecoveryPriority: normalizeField(insertAsset.disasterRecoveryPriority),
+      
+      // Documentation & Audit Trail
+      documentationLinks: normalizeField(insertAsset.documentationLinks),
+      cmdbId: normalizeField(insertAsset.cmdbId),
+      changeManagementHistory: normalizeField(insertAsset.changeManagementHistory),
+      incidentHistory: normalizeField(insertAsset.incidentHistory),
+      lastSecurityAssessmentDate: normalizeField(insertAsset.lastSecurityAssessmentDate),
+      lastAuditDate: normalizeField(insertAsset.lastAuditDate),
+      auditFindings: normalizeField(insertAsset.auditFindings),
+      remediationStatus: normalizeField(insertAsset.remediationStatus),
+      assetRegistryEntryDate: normalizeField(insertAsset.assetRegistryEntryDate),
+      lastUpdatedDate: insertAsset.lastUpdatedDate ?? new Date(),
+      updatedBy: normalizeField(insertAsset.updatedBy),
+      
+      // Environmental & Physical Security
+      physicalSecurityLevel: normalizeField(insertAsset.physicalSecurityLevel),
+      environmentalRequirements: normalizeField(insertAsset.environmentalRequirements),
+      powerRequirements: normalizeField(insertAsset.powerRequirements),
+      fireSuppression: normalizeField(insertAsset.fireSuppression),
+      physicalAccessControls: normalizeField(insertAsset.physicalAccessControls),
+      assetCondition: normalizeField(insertAsset.assetCondition),
+      maintenanceHistory: normalizeField(insertAsset.maintenanceHistory),
+      
+      // Legacy fields
+      nextMaintenanceDate: normalizeField(insertAsset.nextMaintenanceDate),
+      lastMaintenanceDate: normalizeField(insertAsset.lastMaintenanceDate)
     };
     this.assets.set(id, asset);
     return asset;
@@ -241,8 +384,8 @@ export class MemStorage implements IStorage {
       
       result.push({
         ...employee,
-        department,
-        manager,
+        departmentDetails: department || undefined,
+        manager: manager || undefined,
         assignedAssets
       });
     }
@@ -552,24 +695,137 @@ export class MemStorage implements IStorage {
 
   async createVendor(insertVendor: InsertVendor): Promise<Vendor> {
     const id = randomUUID();
+    
+    // Helper function to normalize empty strings to null
+    const normalizeField = (value: any) => value === "" ? null : (value ?? null);
+    const normalizeBooleanField = (value: any) => value ?? false;
+    
     const vendor: Vendor = { 
       ...insertVendor, 
       id,
-      contactPerson: insertVendor.contactPerson === "" ? null : (insertVendor.contactPerson ?? null),
-      email: insertVendor.email === "" ? null : (insertVendor.email ?? null),
-      phone: insertVendor.phone === "" ? null : (insertVendor.phone ?? null),
-      address: insertVendor.address === "" ? null : (insertVendor.address ?? null),
-      city: insertVendor.city === "" ? null : (insertVendor.city ?? null),
-      state: insertVendor.state === "" ? null : (insertVendor.state ?? null),
-      zipCode: insertVendor.zipCode === "" ? null : (insertVendor.zipCode ?? null),
+      name: insertVendor.name, // Ensure name is included - required field
+      
+      // Basic Vendor Information
+      contactPerson: normalizeField(insertVendor.contactPerson),
+      email: normalizeField(insertVendor.email),
+      phone: normalizeField(insertVendor.phone),
+      alternatePhone: normalizeField(insertVendor.alternatePhone),
+      address: normalizeField(insertVendor.address),
+      city: normalizeField(insertVendor.city),
+      state: normalizeField(insertVendor.state),
+      zipCode: normalizeField(insertVendor.zipCode),
       country: insertVendor.country || "USA",
-      website: insertVendor.website === "" ? null : (insertVendor.website ?? null),
-      taxId: insertVendor.taxId === "" ? null : (insertVendor.taxId ?? null),
+      website: normalizeField(insertVendor.website),
+      taxId: normalizeField(insertVendor.taxId),
+      
+      // Enhanced Contact Information
+      technicalContactName: normalizeField(insertVendor.technicalContactName),
+      technicalContactEmail: normalizeField(insertVendor.technicalContactEmail),
+      technicalContactPhone: normalizeField(insertVendor.technicalContactPhone),
+      supportContactName: normalizeField(insertVendor.supportContactName),
+      supportContactEmail: normalizeField(insertVendor.supportContactEmail),
+      supportContactPhone: normalizeField(insertVendor.supportContactPhone),
+      emergencyContactName: normalizeField(insertVendor.emergencyContactName),
+      emergencyContactEmail: normalizeField(insertVendor.emergencyContactEmail),
+      emergencyContactPhone: normalizeField(insertVendor.emergencyContactPhone),
+      
+      // Vendor Classification & Risk
+      vendorType: normalizeField(insertVendor.vendorType),
+      category: normalizeField(insertVendor.category),
+      vendorRiskRating: normalizeField(insertVendor.vendorRiskRating),
+      businessCriticalityLevel: normalizeField(insertVendor.businessCriticalityLevel),
+      dataAccessLevel: normalizeField(insertVendor.dataAccessLevel),
+      geographicLocation: normalizeField(insertVendor.geographicLocation),
+      
+      // Security & Compliance
+      vendorSecurityCertification: normalizeField(insertVendor.vendorSecurityCertification),
+      securityAssessmentDate: normalizeField(insertVendor.securityAssessmentDate),
+      securityAssessmentStatus: normalizeField(insertVendor.securityAssessmentStatus),
+      complianceStatus: normalizeField(insertVendor.complianceStatus),
+      dataProcessingAgreement: normalizeBooleanField(insertVendor.dataProcessingAgreement),
+      dpaSignedDate: normalizeField(insertVendor.dpaSignedDate),
+      dpaExpiryDate: normalizeField(insertVendor.dpaExpiryDate),
+      cybersecurityInsurance: normalizeBooleanField(insertVendor.cybersecurityInsurance),
+      backgroundCheckCompleted: normalizeBooleanField(insertVendor.backgroundCheckCompleted),
+      
+      // Contract Management
+      contractNumber: normalizeField(insertVendor.contractNumber),
+      contractType: normalizeField(insertVendor.contractType),
+      contractStartDate: normalizeField(insertVendor.contractStartDate),
+      contractEndDate: normalizeField(insertVendor.contractEndDate),
+      contractValue: normalizeField(insertVendor.contractValue),
       paymentTerms: insertVendor.paymentTerms || "Net 30",
-      category: insertVendor.category === "" ? null : (insertVendor.category ?? null),
+      renewalTerms: normalizeField(insertVendor.renewalTerms),
+      terminationClause: normalizeField(insertVendor.terminationClause),
+      contractOwner: normalizeField(insertVendor.contractOwner),
+      
+      // Service Level Agreements
+      slaLevel: normalizeField(insertVendor.slaLevel),
+      uptimeRequirement: normalizeField(insertVendor.uptimeRequirement),
+      responseTimeRequirement: normalizeField(insertVendor.responseTimeRequirement),
+      resolutionTimeRequirement: normalizeField(insertVendor.resolutionTimeRequirement),
+      penaltyClause: normalizeField(insertVendor.penaltyClause),
+      supportHours: normalizeField(insertVendor.supportHours),
+      supportLevel: normalizeField(insertVendor.supportLevel),
+      escalationProcess: normalizeField(insertVendor.escalationProcess),
+      
+      // Performance & Monitoring
+      performanceRating: normalizeField(insertVendor.performanceRating),
       rating: insertVendor.rating || 5,
-      notes: insertVendor.notes === "" ? null : (insertVendor.notes ?? null),
-      isActive: insertVendor.isActive || "true"
+      lastPerformanceReview: normalizeField(insertVendor.lastPerformanceReview),
+      kpiMet: normalizeBooleanField(insertVendor.kpiMet),
+      issueResolutionRate: normalizeField(insertVendor.issueResolutionRate),
+      customerSatisfactionScore: normalizeField(insertVendor.customerSatisfactionScore),
+      
+      // Third-Party Risk Management
+      subcontractorsUsed: normalizeBooleanField(insertVendor.subcontractorsUsed),
+      subcontractorDetails: normalizeField(insertVendor.subcontractorDetails),
+      thirdPartyRiskAssessment: normalizeField(insertVendor.thirdPartyRiskAssessment),
+      supplyChainRisk: normalizeField(insertVendor.supplyChainRisk),
+      geopoliticalRisk: normalizeField(insertVendor.geopoliticalRisk),
+      financialStability: normalizeField(insertVendor.financialStability),
+      businessContinuityPlan: normalizeBooleanField(insertVendor.businessContinuityPlan),
+      disasterRecoveryPlan: normalizeBooleanField(insertVendor.disasterRecoveryPlan),
+      
+      // Audit & Compliance Tracking
+      lastAuditDate: normalizeField(insertVendor.lastAuditDate),
+      nextAuditDate: normalizeField(insertVendor.nextAuditDate),
+      auditFindings: normalizeField(insertVendor.auditFindings),
+      correctionPlanStatus: normalizeField(insertVendor.correctionPlanStatus),
+      regulatoryRequirements: normalizeField(insertVendor.regulatoryRequirements),
+      industryStandards: normalizeField(insertVendor.industryStandards),
+      certificationExpiryDates: normalizeField(insertVendor.certificationExpiryDates),
+      
+      // Financial & Procurement
+      preferredVendor: normalizeBooleanField(insertVendor.preferredVendor),
+      volumeDiscounts: normalizeField(insertVendor.volumeDiscounts),
+      currencyCode: insertVendor.currencyCode || "USD",
+      bankingDetails: normalizeField(insertVendor.bankingDetails),
+      creditRating: normalizeField(insertVendor.creditRating),
+      insuranceCoverage: normalizeField(insertVendor.insuranceCoverage),
+      bondingRequirement: normalizeBooleanField(insertVendor.bondingRequirement),
+      diversityClassification: normalizeField(insertVendor.diversityClassification),
+      
+      // Administrative
+      status: insertVendor.status || "active",
+      isActive: insertVendor.isActive || "true", // Legacy field
+      onboardingStatus: normalizeField(insertVendor.onboardingStatus),
+      offboardingDate: normalizeField(insertVendor.offboardingDate),
+      onboardingDate: normalizeField(insertVendor.onboardingDate),
+      lastContactDate: normalizeField(insertVendor.lastContactDate),
+      nextReviewDate: normalizeField(insertVendor.nextReviewDate),
+      
+      // Documentation & Notes
+      notes: normalizeField(insertVendor.notes),
+      internalNotes: normalizeField(insertVendor.internalNotes),
+      documentationLinks: normalizeField(insertVendor.documentationLinks),
+      attachments: normalizeField(insertVendor.attachments),
+      
+      // System Fields
+      createdDate: insertVendor.createdDate ?? new Date(),
+      lastUpdatedDate: insertVendor.lastUpdatedDate ?? new Date(),
+      createdBy: normalizeField(insertVendor.createdBy),
+      lastUpdatedBy: normalizeField(insertVendor.lastUpdatedBy)
     };
     this.vendors.set(id, vendor);
     return vendor;
@@ -829,6 +1085,7 @@ export class MemStorage implements IStorage {
       notes: record.notes ?? null,
       scheduleId: record.scheduleId ?? null,
       cost: record.cost ?? null,
+      workPerformed: record.workPerformed ?? null,
       partsReplaced: record.partsReplaced ?? null
     };
     this.maintenanceRecords.set(id, newRecord);

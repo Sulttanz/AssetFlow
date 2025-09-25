@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -212,10 +212,13 @@ export const assignments = pgTable("assignments", {
 // Vendor Management
 export const vendors = pgTable("vendors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Basic Vendor Information
   name: text("name").notNull().unique(),
   contactPerson: text("contact_person"),
   email: text("email"),
   phone: text("phone"),
+  alternatePhone: text("alternate_phone"), // Secondary contact number
   address: text("address"),
   city: text("city"),
   state: text("state"),
@@ -223,11 +226,115 @@ export const vendors = pgTable("vendors", {
   country: text("country").default("USA"),
   website: text("website"),
   taxId: text("tax_id"),
+  
+  // Enhanced Contact Information
+  technicalContactName: text("technical_contact_name"),
+  technicalContactEmail: text("technical_contact_email"),
+  technicalContactPhone: text("technical_contact_phone"),
+  supportContactName: text("support_contact_name"),
+  supportContactEmail: text("support_contact_email"),
+  supportContactPhone: text("support_contact_phone"),
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactEmail: text("emergency_contact_email"),
+  emergencyContactPhone: text("emergency_contact_phone"),
+  
+  // Vendor Classification & Risk
+  vendorType: text("vendor_type"), // Manufacturer, Reseller, Service Provider, Cloud Provider, Subcontractor
+  category: text("category"), // Hardware, Software, Services, etc.
+  vendorRiskRating: text("vendor_risk_rating"), // High, Medium, Low
+  businessCriticalityLevel: text("business_criticality_level"), // Critical, High, Medium, Low
+  dataAccessLevel: text("data_access_level"), // Full, Limited, None
+  geographicLocation: text("geographic_location"), // Vendor's primary location
+  
+  // Security & Compliance
+  vendorSecurityCertification: text("vendor_security_certification"), // ISO 27001, SOC 2, PCI DSS, etc.
+  securityAssessmentDate: date("security_assessment_date"), // Last security evaluation
+  securityAssessmentStatus: text("security_assessment_status"), // Passed, Failed, Pending, Overdue
+  complianceStatus: text("compliance_status"), // Compliant, Non-compliant, Under Review
+  dataProcessingAgreement: boolean("data_processing_agreement").default(false), // DPA signed
+  dpaSignedDate: date("dpa_signed_date"), // When DPA was signed
+  dpaExpiryDate: date("dpa_expiry_date"), // When DPA expires
+  cybersecurityInsurance: boolean("cybersecurity_insurance").default(false),
+  backgroundCheckCompleted: boolean("background_check_completed").default(false),
+  
+  // Contract Management
+  contractNumber: text("contract_number"),
+  contractType: text("contract_type"), // Master Agreement, Statement of Work, Purchase Order, etc.
+  contractStartDate: date("contract_start_date"),
+  contractEndDate: date("contract_end_date"),
+  contractValue: decimal("contract_value", { precision: 15, scale: 2 }),
   paymentTerms: text("payment_terms").default("Net 30"), // Net 30, Net 60, COD, etc.
-  category: text("category"), // hardware, software, services, etc.
-  rating: integer("rating").default(5), // 1-5 star rating
+  renewalTerms: text("renewal_terms"), // Auto-renewal, manual, etc.
+  terminationClause: text("termination_clause"), // Termination conditions
+  contractOwner: text("contract_owner"), // Person responsible for contract
+  
+  // Service Level Agreements
+  slaLevel: text("sla_level"), // Basic, Standard, Premium, Enterprise
+  uptimeRequirement: text("uptime_requirement"), // 99.9%, 99.99%, etc.
+  responseTimeRequirement: text("response_time_requirement"), // 4 hours, 24 hours, etc.
+  resolutionTimeRequirement: text("resolution_time_requirement"),
+  penaltyClause: text("penalty_clause"), // SLA breach penalties
+  supportHours: text("support_hours"), // 8x5, 24x7, business hours
+  supportLevel: text("support_level"), // Basic, Premium, 24/7
+  escalationProcess: text("escalation_process"), // Support escalation procedures
+  
+  // Performance & Monitoring
+  performanceRating: decimal("performance_rating", { precision: 3, scale: 2 }), // Performance score
+  rating: integer("rating").default(5), // 1-5 star rating (legacy field)
+  lastPerformanceReview: date("last_performance_review"),
+  kpiMet: boolean("kpi_met"), // Are KPIs being met
+  issueResolutionRate: decimal("issue_resolution_rate", { precision: 5, scale: 2 }), // Percentage
+  customerSatisfactionScore: decimal("customer_satisfaction_score", { precision: 3, scale: 2 }),
+  
+  // Third-Party Risk Management
+  subcontractorsUsed: boolean("subcontractors_used").default(false),
+  subcontractorDetails: text("subcontractor_details"), // Fourth-party relationships
+  thirdPartyRiskAssessment: text("third_party_risk_assessment"), // Risk analysis
+  supplyChainRisk: text("supply_chain_risk"), // Supply chain risk level
+  geopoliticalRisk: text("geopolitical_risk"), // Country/region risks
+  financialStability: text("financial_stability"), // Vendor financial health
+  businessContinuityPlan: boolean("business_continuity_plan").default(false),
+  disasterRecoveryPlan: boolean("disaster_recovery_plan").default(false),
+  
+  // Audit & Compliance Tracking
+  lastAuditDate: date("last_audit_date"),
+  nextAuditDate: date("next_audit_date"),
+  auditFindings: text("audit_findings"), // Issues from last audit
+  correctionPlanStatus: text("correction_plan_status"), // Status of remediation
+  regulatoryRequirements: text("regulatory_requirements"), // GDPR, HIPAA, etc.
+  industryStandards: text("industry_standards"), // Standards vendor follows
+  certificationExpiryDates: text("certification_expiry_dates"), // When certs expire
+  
+  // Financial & Procurement
+  preferredVendor: boolean("preferred_vendor").default(false),
+  volumeDiscounts: text("volume_discounts"), // Available discounts
+  currencyCode: text("currency_code").default("USD"),
+  bankingDetails: text("banking_details"), // Encrypted banking info
+  creditRating: text("credit_rating"), // Vendor credit score
+  insuranceCoverage: text("insurance_coverage"), // Liability coverage
+  bondingRequirement: boolean("bonding_requirement").default(false),
+  diversityClassification: text("diversity_classification"), // MBE, WBE, etc.
+  
+  // Administrative
+  status: text("status").default("active"), // active, inactive, suspended, terminated
+  isActive: text("is_active").default("true"), // Legacy field - true, false
+  onboardingStatus: text("onboarding_status"), // Pending, In Progress, Complete
+  offboardingDate: date("offboarding_date"), // When vendor was terminated
+  onboardingDate: date("onboarding_date"), // When vendor was approved
+  lastContactDate: date("last_contact_date"), // Last communication
+  nextReviewDate: date("next_review_date"), // Scheduled review
+  
+  // Documentation & Notes
   notes: text("notes"),
-  isActive: text("is_active").default("true"), // true, false
+  internalNotes: text("internal_notes"), // Internal-only notes
+  documentationLinks: text("documentation_links"), // Links to contracts, certs
+  attachments: text("attachments"), // File references
+  
+  // System Fields
+  createdDate: timestamp("created_date").defaultNow(),
+  lastUpdatedDate: timestamp("last_updated_date").defaultNow(),
+  createdBy: text("created_by"),
+  lastUpdatedBy: text("last_updated_by"),
 });
 
 // Financial Management
@@ -367,7 +474,7 @@ export type VendorWithDetails = Vendor & {
 };
 
 export type EmployeeWithDetails = Employee & {
-  department?: Department;
+  departmentDetails?: Department;
   manager?: Employee;
   assignedAssets?: Asset[];
 };
