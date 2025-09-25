@@ -42,21 +42,159 @@ export const departments = pgTable("departments", {
 
 export const assets = pgTable("assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Core Asset Identification
   name: text("name").notNull(),
+  assetTag: text("asset_tag").unique(), // Unique identifier/tag
   type: text("type").notNull(), // laptop, desktop, monitor, phone, software
+  category: text("category"), // Servers, Laptops, Applications, etc.
   serialNumber: text("serial_number"),
-  status: text("status").notNull().default("available"), // available, assigned, maintenance, retired
-  condition: text("condition").default("good"), // excellent, good, fair, poor
-  purchaseDate: date("purchase_date"),
-  warrantyExpiry: date("warranty_expiry"),
-  purchasePrice: decimal("purchase_price", { precision: 10, scale: 2 }),
-  depreciationRate: decimal("depreciation_rate", { precision: 5, scale: 2 }).default("20.00"), // % per year
-  currentValue: decimal("current_value", { precision: 10, scale: 2 }),
-  vendor: text("vendor"),
   model: text("model"),
-  specifications: text("specifications"),
+  version: text("version"), // Product version details
+  barcode: text("barcode"), // Physical tracking identifier
+  qrCode: text("qr_code"), // QR code identifier
+  
+  // Security Classification & Risk
+  informationClassification: text("information_classification"), // Public, Internal, Confidential, Restricted
+  securityLevel: text("security_level"), // High, Medium, Low
+  criticalityRating: text("criticality_rating"), // Critical, High, Medium, Low
+  threatLevel: text("threat_level"), // Current threat assessment
+  vulnerabilityStatus: text("vulnerability_status"), // Known vulnerabilities
+  riskAssessmentScore: text("risk_assessment_score"), // Overall risk rating
+  dataSensitivityLevel: text("data_sensitivity_level"), // Personal data, financial data, etc.
+  
+  // Ownership & Responsibility
+  assetOwner: text("asset_owner"), // Business owner
+  assetCustodian: text("asset_custodian"), // Technical person managing
+  responsibleManager: text("responsible_manager"), // Management accountability
+  technicalContact: text("technical_contact"), // Primary technical support
   locationId: varchar("location_id").references(() => locations.id),
   departmentId: varchar("department_id").references(() => departments.id),
+  siteBuilding: text("site_building"), // Specific location details
+  
+  // Vendor/Supplier Management (basic - detailed info in vendors table)
+  primaryVendorId: varchar("primary_vendor_id").references(() => vendors.id),
+  vendor: text("vendor"), // Legacy field for backward compatibility
+  contractNumber: text("contract_number"),
+  contractStartDate: date("contract_start_date"),
+  contractEndDate: date("contract_end_date"),
+  supportLevel: text("support_level"), // Basic, Premium, 24/7
+  
+  // Technical Specifications
+  operatingSystem: text("operating_system"), // OS type and version
+  ipAddress: text("ip_address"), // Network identification
+  macAddress: text("mac_address"), // Hardware network identifier
+  specifications: text("specifications"), // Legacy field
+  configurationDetails: text("configuration_details"), // Technical specifications
+  dependencies: text("dependencies"), // Related assets and services
+  interfaces: text("interfaces"), // Network connections
+  networkZone: text("network_zone"), // DMZ, Internal, External
+  domainWorkgroup: text("domain_workgroup"), // Network domain membership
+  installedSoftware: text("installed_software"), // Applications and versions
+  hardwareSpecifications: text("hardware_specifications"), // CPU, RAM, Storage
+  
+  // Lifecycle Management
+  acquisitionDate: date("acquisition_date"), // When asset was obtained
+  purchaseDate: date("purchase_date"), // Legacy field
+  installationDate: date("installation_date"), // When put into service
+  goLiveDate: date("go_live_date"), // When asset became operational
+  lastUpdateDate: date("last_update_date"), // Recent maintenance
+  nextScheduledUpdate: date("next_scheduled_update"), // Planned maintenance
+  warrantyStartDate: date("warranty_start_date"),
+  warrantyExpiry: date("warranty_expiry"), // Legacy field
+  plannedDisposalDate: date("planned_disposal_date"), // Expected retirement
+  lifecycleStatus: text("lifecycle_status"), // Planning, Development, Production, Maintenance, Retirement
+  disposalMethod: text("disposal_method"), // Planned decommissioning
+  dataDestructionRequirements: text("data_destruction_requirements"), // Secure disposal
+  
+  // Compliance & Security Controls
+  applicableRegulations: text("applicable_regulations"), // GDPR, HIPAA, SOX, PCI DSS
+  securityControlsImplemented: text("security_controls_implemented"),
+  encryptionStatus: text("encryption_status"), // Data at rest/in transit
+  accessControlMethod: text("access_control_method"), // Authentication mechanisms
+  backupStatus: text("backup_status"), // Backup configuration
+  monitoringStatus: text("monitoring_status"), // Security monitoring coverage
+  antivirusEdrStatus: text("antivirus_edr_status"), // Endpoint protection
+  patchManagementStatus: text("patch_management_status"), // Update compliance
+  configurationBaseline: text("configuration_baseline"), // Approved configuration
+  securityScanResults: text("security_scan_results"), // Vulnerability assessment
+  
+  // Financial & Procurement
+  purchasePrice: decimal("purchase_price", { precision: 10, scale: 2 }),
+  currentBookValue: decimal("current_book_value", { precision: 10, scale: 2 }),
+  currentValue: decimal("current_value", { precision: 10, scale: 2 }), // Legacy field
+  depreciationRate: decimal("depreciation_rate", { precision: 5, scale: 2 }).default("20.00"),
+  depreciationSchedule: text("depreciation_schedule"),
+  licenseType: text("license_type"), // Software licensing model
+  licenseQuantity: integer("license_quantity"), // Number of licenses
+  licenseExpiryDate: date("license_expiry_date"),
+  maintenanceCosts: decimal("maintenance_costs", { precision: 10, scale: 2 }),
+  budgetCode: text("budget_code"), // Financial allocation reference
+  costCenter: text("cost_center"), // Department budget allocation
+  purchaseOrderNumber: text("purchase_order_number"),
+  invoiceNumber: text("invoice_number"),
+  annualBudgetAllocation: decimal("annual_budget_allocation", { precision: 15, scale: 2 }),
+  budgetCategory: text("budget_category"), // CapEx, OpEx, Maintenance
+  budgetApprovalStatus: text("budget_approval_status"), // Approved, Pending, Rejected
+  budgetApprovalDate: date("budget_approval_date"),
+  budgetApprovedBy: text("budget_approved_by"),
+  yearToDateSpend: decimal("year_to_date_spend", { precision: 15, scale: 2 }),
+  remainingBudget: decimal("remaining_budget", { precision: 15, scale: 2 }),
+  budgetUtilizationPercent: decimal("budget_utilization_percent", { precision: 5, scale: 2 }),
+  forecastAnnualCost: decimal("forecast_annual_cost", { precision: 15, scale: 2 }),
+  budgetAlertThreshold: decimal("budget_alert_threshold", { precision: 5, scale: 2 }),
+  budgetOverage: decimal("budget_overage", { precision: 15, scale: 2 }),
+  nextYearBudgetRequest: decimal("next_year_budget_request", { precision: 15, scale: 2 }),
+  budgetOwner: text("budget_owner"),
+  budgetJustification: text("budget_justification"),
+  roiBusinessValue: text("roi_business_value"), // ROI metrics
+  
+  // Access Management & Usage
+  authorizedUsers: text("authorized_users"), // List of approved personnel
+  accessRightsMatrix: text("access_rights_matrix"), // Permission levels
+  administratorAccounts: text("administrator_accounts"), // Privileged access
+  usageRestrictions: text("usage_restrictions"), // Limitations
+  dataClassificationHandled: text("data_classification_handled"), // Data types processed
+  businessPurpose: text("business_purpose"), // Reason for asset existence
+  approvedUseCases: text("approved_use_cases"), // Sanctioned usage
+  geographicRestrictions: text("geographic_restrictions"), // Location limitations
+  
+  // Monitoring & Performance
+  monitoringTools: text("monitoring_tools"), // Surveillance systems
+  performanceMetrics: text("performance_metrics"), // KPIs
+  availabilityRequirements: text("availability_requirements"), // Uptime expectations
+  recoveryTimeObjective: text("recovery_time_objective"), // RTO
+  recoveryPointObjective: text("recovery_point_objective"), // RPO
+  backupFrequency: text("backup_frequency"), // How often backups occur
+  backupRetentionPeriod: text("backup_retention_period"), // Backup retention
+  lastSuccessfulBackup: date("last_successful_backup"), // Recent backup
+  disasterRecoveryPriority: text("disaster_recovery_priority"), // Recovery sequence
+  
+  // Documentation & Audit Trail
+  documentationLinks: text("documentation_links"), // Procedures, manuals
+  cmdbId: text("cmdb_id"), // ITIL reference
+  changeManagementHistory: text("change_management_history"), // Modification records
+  incidentHistory: text("incident_history"), // Security events
+  lastSecurityAssessmentDate: date("last_security_assessment_date"),
+  lastAuditDate: date("last_audit_date"), // Compliance verification
+  auditFindings: text("audit_findings"), // Issues identified
+  remediationStatus: text("remediation_status"), // Action plan progress
+  assetRegistryEntryDate: date("asset_registry_entry_date"), // When first recorded
+  lastUpdatedDate: timestamp("last_updated_date").defaultNow(), // Recent refresh
+  updatedBy: text("updated_by"), // Person who made last change
+  
+  // Environmental & Physical Security
+  physicalSecurityLevel: text("physical_security_level"), // Locked room, cabinet
+  environmentalRequirements: text("environmental_requirements"), // Temperature, humidity
+  powerRequirements: text("power_requirements"), // UPS, redundant power
+  fireSuppression: text("fire_suppression"), // Protection systems
+  physicalAccessControls: text("physical_access_controls"), // Physical access
+  condition: text("condition").default("good"), // excellent, good, fair, poor
+  assetCondition: text("asset_condition"), // Physical state assessment
+  maintenanceHistory: text("maintenance_history"), // Physical maintenance records
+  
+  // Legacy fields for backward compatibility
+  status: text("status").notNull().default("available"), // available, assigned, maintenance, retired
   nextMaintenanceDate: date("next_maintenance_date"),
   lastMaintenanceDate: date("last_maintenance_date"),
 });

@@ -1,0 +1,163 @@
+Complete IT Asset Management Fields for ISO 27001 Compliance
+Core Asset Identification
+
+Asset ID/Tag - Unique identifier
+Asset Name - Descriptive name
+Asset Type - Hardware, Software, Data, Services, People, etc.
+Category/Classification - Servers, Laptops, Applications, etc.
+Serial Number - Manufacturer serial number
+Model/Version - Product model and version details
+Barcode/QR Code - Physical tracking identifier
+
+Security Classification & Risk
+
+Information Classification - Public, Internal, Confidential, Restricted
+Security Level - High, Medium, Low risk classification
+Criticality Rating - Business impact assessment (Critical, High, Medium, Low)
+Threat Level - Current threat assessment
+Vulnerability Status - Known vulnerabilities and patches
+Risk Assessment Score - Overall risk rating
+Data Sensitivity Level - Personal data, financial data, etc.
+
+Ownership & Responsibility
+
+Asset Owner - Business owner responsible for the asset
+Asset Custodian - Technical person managing day-to-day operations
+Department/Business Unit - Organizational ownership
+Location - Physical or logical location
+Site/Building - Specific location details
+Responsible Manager - Management accountability
+Technical Contact - Primary technical support person
+
+Vendor/Supplier Management
+
+Primary Vendor/Supplier - Main vendor providing the asset
+Secondary Vendors - Additional suppliers/partners
+Vendor Contact Information - Support contacts, phone, email
+Vendor Type - Manufacturer, Reseller, Service Provider, Cloud Provider
+Vendor Risk Rating - Security and business risk assessment
+Vendor Security Certification - ISO 27001, SOC 2, PCI DSS, etc.
+Contract Number - Reference to vendor agreement
+Contract Start/End Date - Agreement validity period
+Service Level Agreement (SLA) - Performance commitments
+Data Processing Agreement (DPA) - GDPR/privacy compliance
+Support Level - Basic, Premium, 24/7, etc.
+Support Contact Details - Technical support information
+Vendor Security Assessment Date - Last security evaluation
+Third-Party Risk Assessment - Risk analysis documentation
+Subcontractor Information - Fourth-party relationships
+
+Technical Specifications
+
+Operating System - OS type and version
+IP Address - Network identification (static/dynamic)
+MAC Address - Hardware network identifier
+Configuration Details - Technical specifications
+Dependencies - Related assets and services
+Interfaces - Network connections and integrations
+Network Zone - DMZ, Internal, External, etc.
+Domain/Workgroup - Network domain membership
+Installed Software - Applications and versions
+Hardware Specifications - CPU, RAM, Storage details
+
+Lifecycle Management
+
+Acquisition Date - When asset was obtained
+Installation Date - When put into service
+Go-Live Date - When asset became operational
+Last Update/Patch Date - Recent maintenance
+Next Scheduled Update - Planned maintenance
+Warranty Start/End Date - Support coverage period
+Planned Disposal Date - Expected retirement
+Lifecycle Status - Planning, Development, Production, Maintenance, Retirement
+Disposal Method - Planned decommissioning approach
+Data Destruction Requirements - Secure disposal needs
+
+Compliance & Security Controls
+
+Applicable Regulations - GDPR, HIPAA, SOX, PCI DSS, etc.
+Security Controls Implemented - Technical and administrative controls
+Encryption Status - Data at rest/in transit encryption
+Access Control Method - Authentication mechanisms
+Backup Status - Backup configuration and frequency
+Monitoring Status - Security monitoring coverage
+Antivirus/EDR Status - Endpoint protection details
+Patch Management Status - Update compliance level
+Configuration Baseline - Approved configuration standard
+Security Scan Results - Vulnerability assessment findings
+
+Financial & Procurement
+
+Purchase Cost - Initial investment
+Current Book Value - Depreciated value
+Depreciation Schedule - Asset value reduction plan
+License Type - Software licensing model
+License Quantity - Number of licenses owned
+License Expiry Date - When licenses expire
+Maintenance Costs - Annual support costs
+Budget Code - Financial allocation reference
+Cost Center - Department budget allocation
+Purchase Order Number - Procurement reference
+Invoice Number - Payment reference
+Annual Budget Allocation - Yearly budget assigned to this asset
+Budget Category - CapEx, OpEx, Maintenance, etc.
+Budget Approval Status - Approved, Pending, Rejected
+Budget Approval Date - When budget was authorized
+Budget Approved By - Manager who approved the budget
+Year-to-Date Spend - Actual costs incurred this fiscal year
+Remaining Budget - Available budget balance
+Budget Utilization % - Percentage of budget consumed
+Forecast Annual Cost - Projected total yearly cost
+Budget Alert Threshold - Warning level for overspend (e.g., 80%)
+Budget Overage - Amount exceeded beyond allocation
+Next Year Budget Request - Proposed budget for following year
+Budget Owner - Person responsible for budget management
+Budget Justification - Business case for budget allocation
+ROI/Business Value - Return on investment metrics
+
+Access Management & Usage
+
+Authorized Users - List of approved personnel
+Access Rights Matrix - Detailed permission levels
+Administrator Accounts - Privileged access details
+Usage Restrictions - Limitations and constraints
+Data Classification Handled - Types of data processed
+Business Purpose - Reason for asset existence
+Approved Use Cases - Sanctioned usage scenarios
+Geographic Restrictions - Location-based limitations
+
+Monitoring & Performance
+
+Monitoring Tools - Surveillance systems in use
+Performance Metrics - Key performance indicators
+Availability Requirements - Uptime expectations (99.9%, etc.)
+Recovery Time Objective (RTO) - Acceptable downtime
+Recovery Point Objective (RPO) - Acceptable data loss
+Backup Frequency - How often backups occur
+Backup Retention Period - How long backups are kept
+Last Successful Backup - Recent backup verification
+Disaster Recovery Priority - Recovery sequence order
+
+Documentation & Audit Trail
+
+Documentation Links - Procedures, manuals, diagrams
+Configuration Management Database (CMDB) ID - ITIL reference
+Change Management History - Modification records
+Incident History - Security events and operational issues
+Last Security Assessment Date - Recent security review
+Last Audit Date - Compliance verification date
+Audit Findings - Issues identified in audits
+Remediation Status - Action plan progress
+Asset Registry Entry Date - When first recorded
+Last Updated Date/Time - Recent information refresh
+Updated By - Person who made last change
+
+Environmental & Physical Security
+
+Physical Security Level - Locked room, cabinet, etc.
+Environmental Requirements - Temperature, humidity needs
+Power Requirements - UPS, redundant power needs
+Fire Suppression - Protection systems in place
+Physical Access Controls - Who can physically access
+Asset Condition - Physical state assessment
+Maintenance History - Physical maintenance records
