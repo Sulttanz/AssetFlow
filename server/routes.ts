@@ -459,6 +459,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.put("/api/budgets/:id", async (req, res) => {
+    try {
+      const validatedData = insertBudgetSchema.partial().parse(req.body);
+      const budget = await storage.updateBudget(req.params.id, validatedData);
+      if (!budget) {
+        return res.status(404).json({ message: "Budget not found" });
+      }
+      res.json(budget);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid budget data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update budget" });
+    }
+  });
+
+  app.delete("/api/budgets/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteBudget(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Budget not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete budget" });
+    }
+  });
+
   // Maintenance Schedules routes
   app.get("/api/maintenance-schedules", async (req, res) => {
     try {
@@ -482,6 +510,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.put("/api/maintenance-schedules/:id", async (req, res) => {
+    try {
+      const validatedData = insertMaintenanceScheduleSchema.partial().parse(req.body);
+      const schedule = await storage.updateMaintenanceSchedule(req.params.id, validatedData);
+      if (!schedule) {
+        return res.status(404).json({ message: "Maintenance schedule not found" });
+      }
+      res.json(schedule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update maintenance schedule" });
+    }
+  });
+
+  app.delete("/api/maintenance-schedules/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteMaintenanceSchedule(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Maintenance schedule not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete maintenance schedule" });
+    }
+  });
+
   // Maintenance Records routes
   app.get("/api/maintenance-records", async (req, res) => {
     try {
@@ -502,6 +558,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid maintenance record data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create maintenance record" });
+    }
+  });
+
+  app.put("/api/maintenance-records/:id", async (req, res) => {
+    try {
+      const validatedData = insertMaintenanceRecordSchema.partial().parse(req.body);
+      const record = await storage.updateMaintenanceRecord(req.params.id, validatedData);
+      if (!record) {
+        return res.status(404).json({ message: "Maintenance record not found" });
+      }
+      res.json(record);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid maintenance record data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update maintenance record" });
+    }
+  });
+
+  app.delete("/api/maintenance-records/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteMaintenanceRecord(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Maintenance record not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete maintenance record" });
     }
   });
 

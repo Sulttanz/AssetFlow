@@ -12,6 +12,8 @@ import Locations from "@/pages/locations";
 import Departments from "@/pages/departments";
 import Vendors from "@/pages/vendors";
 import PurchaseOrders from "@/pages/purchase-orders";
+import Budgets from "@/pages/budgets";
+import Maintenance from "@/pages/maintenance";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -29,8 +31,8 @@ function Router() {
           <Route path="/departments" component={Departments} />
           <Route path="/vendors" component={Vendors} />
           <Route path="/purchase-orders" component={PurchaseOrders} />
-          <Route path="/budgets" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Budgets</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
-          <Route path="/maintenance" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Maintenance</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+          <Route path="/budgets" component={Budgets} />
+          <Route path="/maintenance" component={Maintenance} />
           <Route path="/reports" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Reports</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
           <Route path="/settings" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Settings</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
           <Route component={NotFound} />
