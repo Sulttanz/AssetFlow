@@ -12,13 +12,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
-import { Eye, Edit, Trash2, Package } from "lucide-react";
+import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle } from "lucide-react";
 import type { AssetWithAssignment, Asset } from "@shared/schema";
 
 export default function Assets() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [classificationFilter, setClassificationFilter] = useState("all");
+  const [complianceFilter, setComplianceFilter] = useState("all");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const { toast } = useToast();
@@ -63,6 +65,51 @@ export default function Assets() {
     }
   };
 
+  const getClassificationBadge = (classification: string) => {
+    switch (classification) {
+      case "public":
+        return <Badge className="bg-green-100 text-green-800"><Shield className="h-3 w-3 mr-1" />Public</Badge>;
+      case "internal":
+        return <Badge className="bg-blue-100 text-blue-800"><Shield className="h-3 w-3 mr-1" />Internal</Badge>;
+      case "confidential":
+        return <Badge className="bg-orange-100 text-orange-800"><Shield className="h-3 w-3 mr-1" />Confidential</Badge>;
+      case "restricted":
+        return <Badge className="bg-red-100 text-red-800"><Shield className="h-3 w-3 mr-1" />Restricted</Badge>;
+      default:
+        return <Badge variant="secondary"><Shield className="h-3 w-3 mr-1" />Not Set</Badge>;
+    }
+  };
+
+  const getComplianceBadge = (status: string) => {
+    switch (status) {
+      case "compliant":
+        return <Badge className="bg-green-100 text-green-800"><CheckCircle className="h-3 w-3 mr-1" />Compliant</Badge>;
+      case "non-compliant":
+        return <Badge className="bg-red-100 text-red-800"><AlertTriangle className="h-3 w-3 mr-1" />Non-Compliant</Badge>;
+      case "under-review":
+        return <Badge className="bg-yellow-100 text-yellow-800"><AlertTriangle className="h-3 w-3 mr-1" />Under Review</Badge>;
+      case "not-assessed":
+        return <Badge variant="secondary"><AlertTriangle className="h-3 w-3 mr-1" />Not Assessed</Badge>;
+      default:
+        return <Badge variant="secondary"><AlertTriangle className="h-3 w-3 mr-1" />Unknown</Badge>;
+    }
+  };
+
+  const getRiskBadge = (riskScore: string) => {
+    switch (riskScore) {
+      case "low":
+        return <Badge className="bg-green-100 text-green-800">Low Risk</Badge>;
+      case "medium":
+        return <Badge className="bg-yellow-100 text-yellow-800">Medium Risk</Badge>;
+      case "high":
+        return <Badge className="bg-orange-100 text-orange-800">High Risk</Badge>;
+      case "critical":
+        return <Badge className="bg-red-100 text-red-800">Critical Risk</Badge>;
+      default:
+        return <Badge variant="secondary">Not Assessed</Badge>;
+    }
+  };
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "laptop":
@@ -86,8 +133,10 @@ export default function Assets() {
                          asset.type.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || asset.status === statusFilter;
     const matchesType = typeFilter === "all" || asset.type === typeFilter;
+    const matchesClassification = classificationFilter === "all" || (asset as any).informationClassification === classificationFilter;
+    const matchesCompliance = complianceFilter === "all" || (asset as any).complianceStatus === complianceFilter;
     
-    return matchesSearch && matchesStatus && matchesType;
+    return matchesSearch && matchesStatus && matchesType && matchesClassification && matchesCompliance;
   });
 
   const handleAddAsset = () => {
@@ -126,9 +175,9 @@ export default function Assets() {
         <Card>
           <CardContent className="p-6">
             {/* Filters */}
-            <div className="flex items-center space-x-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-48" data-testid="status-filter">
+                <SelectTrigger data-testid="status-filter">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -141,7 +190,7 @@ export default function Assets() {
               </Select>
 
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-48" data-testid="type-filter">
+                <SelectTrigger data-testid="type-filter">
                   <SelectValue placeholder="Filter by type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -151,6 +200,32 @@ export default function Assets() {
                   <SelectItem value="monitor">Monitor</SelectItem>
                   <SelectItem value="phone">Phone</SelectItem>
                   <SelectItem value="software">Software</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={classificationFilter} onValueChange={setClassificationFilter}>
+                <SelectTrigger data-testid="classification-filter">
+                  <SelectValue placeholder="Filter by classification" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Classifications</SelectItem>
+                  <SelectItem value="public">Public</SelectItem>
+                  <SelectItem value="internal">Internal</SelectItem>
+                  <SelectItem value="confidential">Confidential</SelectItem>
+                  <SelectItem value="restricted">Restricted</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={complianceFilter} onValueChange={setComplianceFilter}>
+                <SelectTrigger data-testid="compliance-filter">
+                  <SelectValue placeholder="Filter by compliance" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Compliance Status</SelectItem>
+                  <SelectItem value="compliant">Compliant</SelectItem>
+                  <SelectItem value="non-compliant">Non-Compliant</SelectItem>
+                  <SelectItem value="under-review">Under Review</SelectItem>
+                  <SelectItem value="not-assessed">Not Assessed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -171,9 +246,10 @@ export default function Assets() {
                       <TableHead>Asset Name</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Classification</TableHead>
+                      <TableHead>Compliance</TableHead>
+                      <TableHead>Risk Level</TableHead>
                       <TableHead>Assigned To</TableHead>
-                      <TableHead>Purchase Date</TableHead>
-                      <TableHead>Warranty</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -192,17 +268,16 @@ export default function Assets() {
                         </TableCell>
                         <TableCell>{getStatusBadge(asset.status)}</TableCell>
                         <TableCell>
-                          {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : "-"}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {asset.purchaseDate || "-"}
+                          {getClassificationBadge((asset as any).informationClassification || "")}
                         </TableCell>
                         <TableCell>
-                          {asset.warrantyExpiry ? (
-                            <span className={new Date(asset.warrantyExpiry) > new Date() ? "text-green-600" : "text-red-600"}>
-                              {new Date(asset.warrantyExpiry) > new Date() ? "Valid until" : "Expired"} {asset.warrantyExpiry}
-                            </span>
-                          ) : "-"}
+                          {getComplianceBadge((asset as any).complianceStatus || "")}
+                        </TableCell>
+                        <TableCell>
+                          {getRiskBadge((asset as any).riskAssessmentScore || "")}
+                        </TableCell>
+                        <TableCell>
+                          {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : "-"}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
