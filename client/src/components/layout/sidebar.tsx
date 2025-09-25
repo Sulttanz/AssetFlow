@@ -8,18 +8,67 @@ import {
   Link as LinkIcon, 
   Settings, 
   User, 
-  MoreVertical 
+  MoreVertical,
+  MapPin,
+  Building2,
+  ShoppingCart,
+  DollarSign,
+  Wrench,
+  FileText,
+  Calendar,
+  FileBarChart
 } from "lucide-react";
 
 export default function Sidebar() {
   const [location] = useLocation();
 
-  const navigation = [
-    { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
-    { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
-    { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
-    { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
-    { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
+  const navigationSections = [
+    {
+      title: "Overview",
+      items: [
+        { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
+      ]
+    },
+    {
+      title: "Asset Management",
+      items: [
+        { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
+        { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
+        { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
+      ]
+    },
+    {
+      title: "Organization",
+      items: [
+        { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
+        { name: "Departments", href: "/departments", icon: Building2, current: location === "/departments" },
+      ]
+    },
+    {
+      title: "Financial",
+      items: [
+        { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, current: location === "/purchase-orders" },
+        { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
+      ]
+    },
+    {
+      title: "Maintenance",
+      items: [
+        { name: "Maintenance", href: "/maintenance", icon: Wrench, current: location === "/maintenance" },
+      ]
+    },
+    {
+      title: "Analytics",
+      items: [
+        { name: "Reports", href: "/reports", icon: FileBarChart, current: location === "/reports" },
+      ]
+    },
+    {
+      title: "System",
+      items: [
+        { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
+      ]
+    }
   ];
 
   return (
@@ -38,26 +87,35 @@ export default function Sidebar() {
       </div>
       
       {/* Navigation Menu */}
-      <nav className="flex-1 p-4 space-y-1" data-testid="navigation-menu">
-        {navigation.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                "flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium",
-                item.current
-                  ? "bg-primary/10 text-primary border-r-3 border-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              )}
-              data-testid={`nav-${item.name.toLowerCase()}`}
-            >
-              <Icon className="w-5 h-5" />
-              <span>{item.name}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 p-4 space-y-6 overflow-y-auto" data-testid="navigation-menu">
+        {navigationSections.map((section) => (
+          <div key={section.title}>
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-3">
+              {section.title}
+            </h3>
+            <div className="space-y-1">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium",
+                      item.current
+                        ? "bg-primary/10 text-primary border-r-3 border-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    )}
+                    data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
       
       {/* User Profile */}
