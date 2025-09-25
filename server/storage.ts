@@ -376,6 +376,7 @@ export class MemStorage implements IStorage {
     
     for (const employee of employees) {
       const department = employee.departmentId ? this.departments.get(employee.departmentId) : undefined;
+      const location = employee.locationId ? this.locations.get(employee.locationId) : undefined;
       const manager = employee.managerId ? this.employees.get(employee.managerId) : undefined;
       const assignedAssets = Array.from(this.assets.values()).filter(asset => {
         const currentAssignment = Array.from(this.assignments.values()).find(a => a.assetId === asset.id && !a.returnedDate);
@@ -385,6 +386,7 @@ export class MemStorage implements IStorage {
       result.push({
         ...employee,
         departmentDetails: department || undefined,
+        locationDetails: location || undefined,
         manager: manager || undefined,
         assignedAssets
       });
@@ -406,7 +408,8 @@ export class MemStorage implements IStorage {
       startDate: insertEmployee.startDate === "" ? null : (insertEmployee.startDate ?? null),
       salary: insertEmployee.salary === "" ? null : (insertEmployee.salary ?? null),
       managerId: insertEmployee.managerId === "" ? null : (insertEmployee.managerId ?? null),
-      departmentId: insertEmployee.departmentId === "" ? null : (insertEmployee.departmentId ?? null)
+      departmentId: insertEmployee.departmentId === "" ? null : (insertEmployee.departmentId ?? null),
+      locationId: insertEmployee.locationId === "" ? null : (insertEmployee.locationId ?? null)
     };
     this.employees.set(id, employee);
     return employee;
@@ -421,6 +424,8 @@ export class MemStorage implements IStorage {
       ...updateData,
       phone: updateData.phone === undefined ? employee.phone : (updateData.phone === "" ? null : (updateData.phone ?? null)),
       startDate: updateData.startDate === undefined ? employee.startDate : (updateData.startDate === "" ? null : (updateData.startDate ?? null)),
+      departmentId: updateData.departmentId === undefined ? employee.departmentId : (updateData.departmentId === "" ? null : (updateData.departmentId ?? null)),
+      locationId: updateData.locationId === undefined ? employee.locationId : (updateData.locationId === "" ? null : (updateData.locationId ?? null)),
     };
     
     const updatedEmployee = { ...employee, ...normalizedData };

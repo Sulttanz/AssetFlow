@@ -545,6 +545,7 @@ export type VendorWithDetails = Vendor & {
 
 export type EmployeeWithDetails = Employee & {
   departmentDetails?: Department;
+  locationDetails?: Location;
   manager?: Employee;
   assignedAssets?: Asset[];
 };
