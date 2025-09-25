@@ -505,6 +505,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ISO 27001 Compliance Routes
+  
+  // Get assets by security classification
+  app.get("/api/compliance/assets/security-classification/:classification", async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const filtered = assets.filter((asset: any) => 
+        asset.informationClassification === req.params.classification
+      );
+      res.json(filtered);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch assets by security classification" });
+    }
+  });
+
+  // Get assets due for compliance audit
+  app.get("/api/compliance/assets/audit-due", async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const today = new Date();
+      const filtered = assets.filter((asset: any) => {
+        if (!asset.nextAuditDate) return false;
+        const auditDate = new Date(asset.nextAuditDate);
+        return auditDate <= today;
+      });
+      res.json(filtered);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch assets due for audit" });
+    }
+  });
+
+  // Get assets by compliance status
+  app.get("/api/compliance/assets/status/:status", async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const filtered = assets.filter((asset: any) => 
+        asset.complianceStatus === req.params.status
+      );
+      res.json(filtered);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch assets by compliance status" });
+    }
+  });
+
+  // Get vendors by risk level
+  app.get("/api/compliance/vendors/risk/:level", async (req, res) => {
+    try {
+      const vendors = await storage.getVendors();
+      const filtered = vendors.filter((vendor: any) => 
+        vendor.riskAssessmentScore === req.params.level
+      );
+      res.json(filtered);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch vendors by risk level" });
+    }
+  });
+
+  // Get compliance dashboard summary
+  app.get("/api/compliance/dashboard", async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const vendors = await storage.getVendors();
+      
+      // Security classification breakdown
+      const securityBreakdown = {
+        public: assets.filter((a: any) => a.informationClassification === 'public').length,
+        internal: assets.filter((a: any) => a.informationClassification === 'internal').length,
+        confidential: assets.filter((a: any) => a.informationClassification === 'confidential').length,
+        restricted: assets.filter((a: any) => a.informationClassification === 'restricted').length
+      };
+
+      // Compliance status breakdown
+      const complianceBreakdown = {
+        compliant: assets.filter((a: any) => a.complianceStatus === 'compliant').length,
+        'non-compliant': assets.filter((a: any) => a.complianceStatus === 'non-compliant').length,
+        'under-review': assets.filter((a: any) => a.complianceStatus === 'under-review').length,
+        'not-assessed': assets.filter((a: any) => a.complianceStatus === 'not-assessed').length
+      };
+
+      // Vendor risk breakdown
+      const vendorRiskBreakdown = {
+        low: vendors.filter((v: any) => v.riskAssessmentScore === 'low').length,
+        medium: vendors.filter((v: any) => v.riskAssessmentScore === 'medium').length,
+        high: vendors.filter((v: any) => v.riskAssessmentScore === 'high').length,
+        critical: vendors.filter((v: any) => v.riskAssessmentScore === 'critical').length
+      };
+
+      // Assets due for audit
+      const today = new Date();
+      const assetsDueForAudit = assets.filter((asset: any) => {
+        if (!asset.nextAuditDate) return false;
+        const auditDate = new Date(asset.nextAuditDate);
+        return auditDate <= today;
+      }).length;
+
+      res.json({
+        securityBreakdown,
+        complianceBreakdown,
+        vendorRiskBreakdown,
+        assetsDueForAudit,
+        totalAssets: assets.length,
+        totalVendors: vendors.length
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch compliance dashboard data" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
