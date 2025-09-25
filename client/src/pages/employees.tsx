@@ -11,15 +11,15 @@ import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import { Eye, Edit, Trash2, Users } from "lucide-react";
-import type { Employee } from "@shared/schema";
+import type { EmployeeWithDetails } from "@shared/schema";
 
 export default function Employees() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: employees, isLoading } = useQuery<Employee[]>({
+  const { data: employees, isLoading } = useQuery<EmployeeWithDetails[]>({
     queryKey: ["/api/employees"],
   });
 
@@ -45,12 +45,15 @@ export default function Employees() {
 
   const filteredEmployees = employees?.filter(employee => {
     const searchLower = searchQuery.toLowerCase();
+    const departmentName = employee.departmentDetails?.name || employee.department || '';
+    const locationName = employee.locationDetails?.name || '';
     return (
       employee.firstName.toLowerCase().includes(searchLower) ||
       employee.lastName.toLowerCase().includes(searchLower) ||
       employee.email.toLowerCase().includes(searchLower) ||
-      employee.department.toLowerCase().includes(searchLower) ||
-      employee.position.toLowerCase().includes(searchLower)
+      departmentName.toLowerCase().includes(searchLower) ||
+      employee.position.toLowerCase().includes(searchLower) ||
+      locationName.toLowerCase().includes(searchLower)
     );
   });
 
@@ -59,7 +62,7 @@ export default function Employees() {
     setIsFormOpen(true);
   };
 
-  const handleEditEmployee = (employee: Employee) => {
+  const handleEditEmployee = (employee: EmployeeWithDetails) => {
     setSelectedEmployee(employee);
     setIsFormOpen(true);
   };
@@ -104,6 +107,7 @@ export default function Employees() {
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Department</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Position</TableHead>
                       <TableHead>Phone</TableHead>
                       <TableHead>Start Date</TableHead>
@@ -117,7 +121,12 @@ export default function Employees() {
                           {employee.firstName} {employee.lastName}
                         </TableCell>
                         <TableCell>{employee.email}</TableCell>
-                        <TableCell>{employee.department}</TableCell>
+                        <TableCell data-testid={`employee-department-${employee.id}`}>
+                          {employee.departmentDetails?.name || employee.department || "-"}
+                        </TableCell>
+                        <TableCell data-testid={`employee-location-${employee.id}`}>
+                          {employee.locationDetails?.name || "-"}
+                        </TableCell>
                         <TableCell>{employee.position}</TableCell>
                         <TableCell>{employee.phone || "-"}</TableCell>
                         <TableCell className="text-muted-foreground">
@@ -149,7 +158,7 @@ export default function Employees() {
                       </TableRow>
                     )) || (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8">
+                        <TableCell colSpan={8} className="text-center py-8">
                           <div className="text-muted-foreground">
                             <Users className="mx-auto h-12 w-12 mb-4" />
                             <p>No employees found</p>
