@@ -1,18 +1,21 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { insertEmployeeSchema, type Employee } from "@shared/schema";
+import { insertEmployeeSchema, type Employee, type Department, type Location } from "@shared/schema";
 import { z } from "zod";
 
 const formSchema = insertEmployeeSchema.extend({
   startDate: z.string().optional(),
   phone: z.string().optional(),
+  departmentId: z.string().optional(),
+  locationId: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -27,6 +30,15 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
   const { toast } = useToast();
   const isEdit = !!employee;
 
+  // Fetch departments and locations for dropdowns
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ["/api/departments"],
+  });
+
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+  });
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -37,6 +49,8 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
       position: employee?.position || "",
       phone: employee?.phone ?? "",
       startDate: employee?.startDate ?? "",
+      departmentId: employee?.departmentId ?? "",
+      locationId: employee?.locationId ?? "",
     },
   });
 
@@ -144,13 +158,34 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
         <div className="grid grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="department"
+            name="departmentId"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Department</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter department" {...field} data-testid="input-department" />
-                </FormControl>
+                <Select 
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    // Update legacy department field for backward compatibility
+                    const selectedDept = departments.find(d => d.id === value);
+                    form.setValue('department', selectedDept?.name ?? '');
+                  }} 
+                  value={field.value} 
+                  data-testid="select-department"
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="" data-testid="option-department-none">No Department</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id} data-testid={`option-department-${dept.id}`}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
@@ -158,18 +193,44 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
 
           <FormField
             control={form.control}
-            name="position"
+            name="locationId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Position</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter position" {...field} data-testid="input-position" />
-                </FormControl>
+                <FormLabel>Location</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value} data-testid="select-location">
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="" data-testid="option-location-none">No Location</SelectItem>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id} data-testid={`option-location-${location.id}`}>
+                        {location.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="position"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Position</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter position" {...field} data-testid="input-position" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
