@@ -11,6 +11,7 @@ import {
   MoreVertical,
   MapPin,
   Building2,
+  Building,
   ShoppingCart,
   DollarSign,
   Wrench,
@@ -42,6 +43,7 @@ export default function Sidebar() {
       items: [
         { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
         { name: "Departments", href: "/departments", icon: Building2, current: location === "/departments" },
+        { name: "Vendors", href: "/vendors", icon: Building, current: location === "/vendors" },
       ]
     },
     {

@@ -71,6 +71,27 @@ export const assignments = pgTable("assignments", {
   notes: text("notes"),
 });
 
+// Vendor Management
+export const vendors = pgTable("vendors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  contactPerson: text("contact_person"),
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  country: text("country").default("USA"),
+  website: text("website"),
+  taxId: text("tax_id"),
+  paymentTerms: text("payment_terms").default("Net 30"), // Net 30, Net 60, COD, etc.
+  category: text("category"), // hardware, software, services, etc.
+  rating: integer("rating").default(5), // 1-5 star rating
+  notes: text("notes"),
+  isActive: text("is_active").default("true"), // true, false
+});
+
 // Financial Management
 export const purchaseOrders = pgTable("purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -142,6 +163,7 @@ export const insertDepartmentSchema = createInsertSchema(departments).omit({ id:
 export const insertAssetSchema = createInsertSchema(assets).omit({ id: true });
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
 export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });
@@ -154,6 +176,7 @@ export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
 export type InsertAsset = z.infer<typeof insertAssetSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
 export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
 export type InsertBudget = z.infer<typeof insertBudgetSchema>;
@@ -166,6 +189,7 @@ export type Department = typeof departments.$inferSelect;
 export type Asset = typeof assets.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
+export type Vendor = typeof vendors.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
 export type Budget = typeof budgets.$inferSelect;
@@ -196,6 +220,12 @@ export type DepartmentWithDetails = Department & {
   location?: Location;
   employeeCount?: number;
   assetCount?: number;
+};
+
+export type VendorWithDetails = Vendor & {
+  purchaseOrderCount?: number;
+  totalSpent?: number;
+  lastOrderDate?: string;
 };
 
 export type EmployeeWithDetails = Employee & {

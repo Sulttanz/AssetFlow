@@ -1,12 +1,12 @@
 import { 
   type Asset, type Employee, type Assignment, type Location, type Department,
-  type PurchaseOrder, type PurchaseOrderItem, type Budget, 
+  type Vendor, type PurchaseOrder, type PurchaseOrderItem, type Budget, 
   type MaintenanceSchedule, type MaintenanceRecord,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
-  type InsertDepartment, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
+  type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
-  type DepartmentWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
+  type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -54,6 +54,14 @@ export interface IStorage {
   createDepartment(department: InsertDepartment): Promise<Department>;
   updateDepartment(id: string, department: Partial<InsertDepartment>): Promise<Department | undefined>;
   deleteDepartment(id: string): Promise<boolean>;
+
+  // Vendors
+  getVendors(): Promise<Vendor[]>;
+  getVendorsWithDetails(): Promise<VendorWithDetails[]>;
+  getVendor(id: string): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: string, vendor: Partial<InsertVendor>): Promise<Vendor | undefined>;
+  deleteVendor(id: string): Promise<boolean>;
 
   // Purchase Orders
   getPurchaseOrders(): Promise<PurchaseOrder[]>;
@@ -103,6 +111,7 @@ export class MemStorage implements IStorage {
   private assignments: Map<string, Assignment>;
   private locations: Map<string, Location>;
   private departments: Map<string, Department>;
+  private vendors: Map<string, Vendor>;
   private purchaseOrders: Map<string, PurchaseOrder>;
   private purchaseOrderItems: Map<string, PurchaseOrderItem>;
   private budgets: Map<string, Budget>;
@@ -115,6 +124,7 @@ export class MemStorage implements IStorage {
     this.assignments = new Map();
     this.locations = new Map();
     this.departments = new Map();
+    this.vendors = new Map();
     this.purchaseOrders = new Map();
     this.purchaseOrderItems = new Map();
     this.budgets = new Map();
@@ -509,6 +519,88 @@ export class MemStorage implements IStorage {
 
   async deleteDepartment(id: string): Promise<boolean> {
     return this.departments.delete(id);
+  }
+
+  // Vendors
+  async getVendors(): Promise<Vendor[]> {
+    return Array.from(this.vendors.values());
+  }
+
+  async getVendorsWithDetails(): Promise<VendorWithDetails[]> {
+    const vendors = Array.from(this.vendors.values());
+    const result: VendorWithDetails[] = [];
+    
+    for (const vendor of vendors) {
+      const purchaseOrders = Array.from(this.purchaseOrders.values()).filter(po => po.vendor === vendor.name);
+      const totalSpent = purchaseOrders.reduce((sum, po) => sum + parseFloat(po.totalAmount), 0);
+      const lastOrder = purchaseOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())[0];
+      
+      result.push({
+        ...vendor,
+        purchaseOrderCount: purchaseOrders.length,
+        totalSpent,
+        lastOrderDate: lastOrder?.orderDate || undefined
+      });
+    }
+    
+    return result;
+  }
+
+  async getVendor(id: string): Promise<Vendor | undefined> {
+    return this.vendors.get(id);
+  }
+
+  async createVendor(insertVendor: InsertVendor): Promise<Vendor> {
+    const id = randomUUID();
+    const vendor: Vendor = { 
+      ...insertVendor, 
+      id,
+      contactPerson: insertVendor.contactPerson === "" ? null : (insertVendor.contactPerson ?? null),
+      email: insertVendor.email === "" ? null : (insertVendor.email ?? null),
+      phone: insertVendor.phone === "" ? null : (insertVendor.phone ?? null),
+      address: insertVendor.address === "" ? null : (insertVendor.address ?? null),
+      city: insertVendor.city === "" ? null : (insertVendor.city ?? null),
+      state: insertVendor.state === "" ? null : (insertVendor.state ?? null),
+      zipCode: insertVendor.zipCode === "" ? null : (insertVendor.zipCode ?? null),
+      country: insertVendor.country || "USA",
+      website: insertVendor.website === "" ? null : (insertVendor.website ?? null),
+      taxId: insertVendor.taxId === "" ? null : (insertVendor.taxId ?? null),
+      paymentTerms: insertVendor.paymentTerms || "Net 30",
+      category: insertVendor.category === "" ? null : (insertVendor.category ?? null),
+      rating: insertVendor.rating || 5,
+      notes: insertVendor.notes === "" ? null : (insertVendor.notes ?? null),
+      isActive: insertVendor.isActive || "true"
+    };
+    this.vendors.set(id, vendor);
+    return vendor;
+  }
+
+  async updateVendor(id: string, updateData: Partial<InsertVendor>): Promise<Vendor | undefined> {
+    const vendor = this.vendors.get(id);
+    if (!vendor) return undefined;
+    
+    const normalizedData = {
+      ...updateData,
+      contactPerson: updateData.contactPerson === undefined ? vendor.contactPerson : (updateData.contactPerson === "" ? null : (updateData.contactPerson ?? null)),
+      email: updateData.email === undefined ? vendor.email : (updateData.email === "" ? null : (updateData.email ?? null)),
+      phone: updateData.phone === undefined ? vendor.phone : (updateData.phone === "" ? null : (updateData.phone ?? null)),
+      address: updateData.address === undefined ? vendor.address : (updateData.address === "" ? null : (updateData.address ?? null)),
+      city: updateData.city === undefined ? vendor.city : (updateData.city === "" ? null : (updateData.city ?? null)),
+      state: updateData.state === undefined ? vendor.state : (updateData.state === "" ? null : (updateData.state ?? null)),
+      zipCode: updateData.zipCode === undefined ? vendor.zipCode : (updateData.zipCode === "" ? null : (updateData.zipCode ?? null)),
+      website: updateData.website === undefined ? vendor.website : (updateData.website === "" ? null : (updateData.website ?? null)),
+      taxId: updateData.taxId === undefined ? vendor.taxId : (updateData.taxId === "" ? null : (updateData.taxId ?? null)),
+      category: updateData.category === undefined ? vendor.category : (updateData.category === "" ? null : (updateData.category ?? null)),
+      notes: updateData.notes === undefined ? vendor.notes : (updateData.notes === "" ? null : (updateData.notes ?? null))
+    };
+    
+    const updatedVendor = { ...vendor, ...normalizedData };
+    this.vendors.set(id, updatedVendor);
+    return updatedVendor;
+  }
+
+  async deleteVendor(id: string): Promise<boolean> {
+    return this.vendors.delete(id);
   }
 
   // Purchase Orders (abbreviated for space - would continue with all methods)
