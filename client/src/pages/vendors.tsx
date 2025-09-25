@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { insertVendorSchema, type VendorWithDetails } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
+import ComprehensiveVendorForm from "@/components/vendors/vendor-form";
 
 const vendorFormSchema = insertVendorSchema.extend({
   rating: z.number().min(1).max(5).default(5)
@@ -489,10 +490,11 @@ export default function Vendors() {
                   Add a new vendor to your supplier network
                 </DialogDescription>
               </DialogHeader>
-              <VendorForm 
-                form={createForm} 
-                onSubmit={handleCreate} 
-                submitText="Create Vendor" 
+              <ComprehensiveVendorForm 
+                vendor={null}
+                onSubmit={async (data) => await createMutation.mutateAsync(data)}
+                onSuccess={() => setIsCreateDialogOpen(false)}
+                onCancel={() => setIsCreateDialogOpen(false)}
               />
             </DialogContent>
           </Dialog>
@@ -633,10 +635,11 @@ export default function Vendors() {
                 Update vendor information and contact details
               </DialogDescription>
             </DialogHeader>
-            <VendorForm 
-              form={editForm} 
-              onSubmit={handleUpdate} 
-              submitText="Update Vendor" 
+            <ComprehensiveVendorForm 
+              vendor={editingVendor}
+              onSubmit={async (data) => await updateMutation.mutateAsync({ id: editingVendor!.id, data })}
+              onSuccess={() => setEditingVendor(null)}
+              onCancel={() => setEditingVendor(null)}
             />
           </DialogContent>
         </Dialog>
