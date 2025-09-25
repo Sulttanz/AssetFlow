@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -16,6 +16,7 @@ export const employees = pgTable("employees", {
   salary: decimal("salary", { precision: 10, scale: 2 }),
   managerId: varchar("manager_id"),
   departmentId: varchar("department_id"),
+  locationId: varchar("location_id"),
 });
 
 // Locations & Departments
@@ -28,16 +29,16 @@ export const locations = pgTable("locations", {
   zipCode: text("zip_code"),
   country: text("country").default("USA"),
   description: text("description"),
-  managerId: varchar("manager_id").references(() => employees.id),
+  managerId: varchar("manager_id"),
 });
 
 export const departments = pgTable("departments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
   description: text("description"),
-  managerId: varchar("manager_id").references(() => employees.id),
+  managerId: varchar("manager_id"),
   budget: decimal("budget", { precision: 15, scale: 2 }),
-  locationId: varchar("location_id").references(() => locations.id),
+  locationId: varchar("location_id"),
 });
 
 export const assets = pgTable("assets", {
@@ -440,6 +441,75 @@ export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
 export type Budget = typeof budgets.$inferSelect;
 export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
+
+// Relations definitions
+export const employeesRelations = relations(employees, ({ one, many }) => ({
+  manager: one(employees, {
+    fields: [employees.managerId],
+    references: [employees.id],
+  }),
+  department: one(departments, {
+    fields: [employees.departmentId],
+    references: [departments.id],
+  }),
+  location: one(locations, {
+    fields: [employees.locationId],
+    references: [locations.id],
+  }),
+  managedDepartments: many(departments),
+  managedLocations: many(locations),
+  assignments: many(assignments),
+}));
+
+export const departmentsRelations = relations(departments, ({ one, many }) => ({
+  manager: one(employees, {
+    fields: [departments.managerId],
+    references: [employees.id],
+  }),
+  location: one(locations, {
+    fields: [departments.locationId],
+    references: [locations.id],
+  }),
+  employees: many(employees),
+  assets: many(assets),
+}));
+
+export const locationsRelations = relations(locations, ({ one, many }) => ({
+  manager: one(employees, {
+    fields: [locations.managerId],
+    references: [employees.id],
+  }),
+  departments: many(departments),
+  employees: many(employees),
+  assets: many(assets),
+}));
+
+export const assetsRelations = relations(assets, ({ one, many }) => ({
+  location: one(locations, {
+    fields: [assets.locationId],
+    references: [locations.id],
+  }),
+  department: one(departments, {
+    fields: [assets.departmentId],
+    references: [departments.id],
+  }),
+  primaryVendor: one(vendors, {
+    fields: [assets.primaryVendorId],
+    references: [vendors.id],
+  }),
+  assignments: many(assignments),
+}));
+
+export const assignmentsRelations = relations(assignments, ({ one }) => ({
+  asset: one(assets, {
+    fields: [assignments.assetId],
+    references: [assets.id],
+  }),
+  employee: one(employees, {
+    fields: [assignments.employeeId],
+    references: [employees.id],
+  }),
+}));
 
 // Extended types with relationships
 export type AssetWithAssignment = Asset & {
