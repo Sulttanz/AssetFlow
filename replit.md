@@ -1,8 +1,17 @@
 # Overview
 
-This is an IT Asset Management System built as a full-stack web application. The system allows organizations to track and manage their IT assets (laptops, desktops, monitors, phones, software), employees, and asset assignments. It provides a comprehensive dashboard with statistics, CRUD operations for all entities, and relationship management between assets and employees through assignments.
+This is a comprehensive IT Asset Management System built as a full-stack web application. The system allows organizations to track and manage their IT assets (laptops, desktops, monitors, phones, software), employees, asset assignments, budgets, maintenance schedules, and purchase orders. It provides a comprehensive dashboard with statistics, full CRUD operations for all entities, and complete relationship management between assets, employees, budgets, and maintenance tracking.
 
 The application follows a modern web development architecture with a React-based frontend using shadcn/ui components for a professional interface, an Express.js backend with RESTful APIs, and PostgreSQL for data persistence using Drizzle ORM.
+
+## Core Features
+- **Asset Management**: Complete lifecycle tracking for IT equipment
+- **Employee Management**: Staff records with department and location tracking  
+- **Budget Management**: Financial planning with spending progress and department allocation
+- **Maintenance Management**: Preventive maintenance scheduling and maintenance record tracking
+- **Purchase Orders**: Procurement workflow with vendor and approval management
+- **Assignment Tracking**: Asset-to-employee relationships with temporal data
+- **Dashboard Analytics**: Real-time statistics and insights across all modules
 
 # User Preferences
 
