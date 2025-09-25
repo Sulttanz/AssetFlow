@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { DateInput } from "@/components/ui/date-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { insertAssetSchema, type Asset } from "@shared/schema";
 import { z } from "zod";
+import { convertToISODate } from "@/lib/date-utils";
 
 const formSchema = insertAssetSchema.extend({
   // Basic fields
@@ -164,10 +166,31 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   });
 
   const onSubmit = (data: FormData) => {
+    // Helper function to process date fields - convert DD-MM-YYYY to YYYY-MM-DD and handle empty strings
+    const processDateField = (dateValue: string | undefined): string | undefined => {
+      if (!dateValue || dateValue.trim() === "") {
+        return undefined; // Send undefined for form compatibility, which becomes null in JSON
+      }
+      const converted = convertToISODate(dateValue);
+      return converted || undefined;
+    };
+
+    // Convert DD-MM-YYYY date formats to YYYY-MM-DD (ISO format) for database
+    const processedData = {
+      ...data,
+      purchaseDate: processDateField(data.purchaseDate),
+      warrantyExpiry: processDateField(data.warrantyExpiry),
+      lastAuditDate: processDateField(data.lastAuditDate),
+      nextAuditDate: processDateField(data.nextAuditDate),
+      plannedDisposalDate: processDateField(data.plannedDisposalDate),
+    };
+
+    console.log("Submitting asset data:", processedData);
+
     if (isEdit) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(processedData);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(processedData);
     }
   };
 
@@ -578,7 +601,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Last Audit Date</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} data-testid="input-last-audit" />
+                          <DateInput {...field} data-testid="input-last-audit" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -592,7 +615,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Next Audit Date</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} data-testid="input-next-audit" />
+                          <DateInput {...field} data-testid="input-next-audit" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -641,7 +664,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Purchase Date</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} data-testid="input-purchase-date" />
+                          <DateInput {...field} data-testid="input-purchase-date" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -655,7 +678,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Warranty Expiry</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} data-testid="input-warranty" />
+                          <DateInput {...field} data-testid="input-warranty" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -727,7 +750,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Planned Disposal Date</FormLabel>
                         <FormControl>
-                          <Input type="date" {...field} data-testid="input-disposal-date" />
+                          <DateInput {...field} data-testid="input-disposal-date" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

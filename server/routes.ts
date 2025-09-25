@@ -34,11 +34,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/assets", async (req, res) => {
     try {
+      console.log("Asset creation request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.parse(req.body);
+      console.log("Validated data:", JSON.stringify(validatedData, null, 2));
       const asset = await storage.createAsset(validatedData);
       res.status(201).json(asset);
     } catch (error) {
+      console.error("Asset creation error:", error);
       if (error instanceof z.ZodError) {
+        console.error("Validation errors:", error.errors);
         return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create asset" });
