@@ -164,12 +164,13 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
                 <FormLabel>Department</FormLabel>
                 <Select 
                   onValueChange={(value) => {
-                    field.onChange(value);
+                    const finalValue = value === 'none' ? '' : value;
+                    field.onChange(finalValue);
                     // Update legacy department field for backward compatibility
-                    const selectedDept = departments.find(d => d.id === value);
+                    const selectedDept = departments.find(d => d.id === finalValue);
                     form.setValue('department', selectedDept?.name ?? '');
                   }} 
-                  value={field.value} 
+                  value={field.value || 'none'} 
                   data-testid="select-department"
                 >
                   <FormControl>
@@ -178,7 +179,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="" data-testid="option-department-none">No Department</SelectItem>
+                    <SelectItem value="none" data-testid="option-department-none">No Department</SelectItem>
                     {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id} data-testid={`option-department-${dept.id}`}>
                         {dept.name}
@@ -197,14 +198,17 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Location</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value} data-testid="select-location">
+                <Select onValueChange={(value) => {
+                    const finalValue = value === 'none' ? '' : value;
+                    field.onChange(finalValue);
+                  }} value={field.value || 'none'} data-testid="select-location">
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select location" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="" data-testid="option-location-none">No Location</SelectItem>
+                    <SelectItem value="none" data-testid="option-location-none">No Location</SelectItem>
                     {locations.map((location) => (
                       <SelectItem key={location.id} value={location.id} data-testid={`option-location-${location.id}`}>
                         {location.name}
