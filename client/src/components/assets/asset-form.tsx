@@ -171,7 +171,9 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       if (!dateValue || dateValue.trim() === "") {
         return undefined; // Send undefined for form compatibility, which becomes null in JSON
       }
+      console.log("Processing date field:", dateValue);
       const converted = convertToISODate(dateValue);
+      console.log("Converted date:", converted);
       return converted || undefined;
     };
 

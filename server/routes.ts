@@ -51,14 +51,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/assets/:id", async (req, res) => {
     try {
+      console.log("Asset update request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.partial().parse(req.body);
+      console.log("Validated update data:", JSON.stringify(validatedData, null, 2));
       const asset = await storage.updateAsset(req.params.id, validatedData);
       if (!asset) {
         return res.status(404).json({ message: "Asset not found" });
       }
       res.json(asset);
     } catch (error) {
+      console.error("Asset update error:", error);
       if (error instanceof z.ZodError) {
+        console.error("Update validation errors:", error.errors);
         return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to update asset" });
