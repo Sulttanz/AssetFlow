@@ -17,7 +17,8 @@ import {
   Wrench,
   FileText,
   Calendar,
-  FileBarChart
+  FileBarChart,
+  Shield
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -68,6 +69,7 @@ export default function Sidebar() {
     {
       title: "System",
       items: [
+        { name: "User Management", href: "/users", icon: Shield, current: location === "/users" },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]
     }

@@ -17,6 +17,7 @@ import Vendors from "@/pages/vendors";
 import PurchaseOrders from "@/pages/purchase-orders";
 import Budgets from "@/pages/budgets";
 import Maintenance from "@/pages/maintenance";
+import Users from "@/pages/users";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -38,6 +39,7 @@ function Router() {
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
                   <ProtectedRoute path="/assets" component={Assets} />
                   <ProtectedRoute path="/employees" component={Employees} />
+                  <ProtectedRoute path="/users" component={Users} />
                   <ProtectedRoute path="/assignments" component={Assignments} />
                   <ProtectedRoute path="/locations" component={Locations} />
                   <ProtectedRoute path="/departments" component={Departments} />
