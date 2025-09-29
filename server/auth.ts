@@ -85,18 +85,39 @@ export function setupAuth(app: Express) {
     })
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
+  passport.serializeUser((user, done) => {
+    console.log(`📝 SerializeUser: *** CALLED *** with user:`, { id: user?.id, username: user?.username, type: typeof user });
+    try {
+      if (!user || !user.id) {
+        console.error(`💥 SerializeUser: Invalid user object:`, user);
+        return done(new Error("Invalid user object for serialization"));
+      }
+      
+      console.log(`📝 SerializeUser: Successfully serializing user ${user.username} with ID ${user.id}`);
+      done(null, user.id);
+    } catch (error) {
+      console.error(`💥 SerializeUser: Error during serialization:`, error);
+      done(error);
+    }
+  });
   
   passport.deserializeUser(async (id: string, done) => {
     try {
       console.log(`👤 DeserializeUser: Starting lookup for user ID: ${id}`);
+      
       const user = await storage.getUser(id);
       console.log(`👤 DeserializeUser: User lookup result:`, user ? `Found user ${user.username}` : 'User not found');
-      done(null, user);
-      console.log(`👤 DeserializeUser: Completed successfully for ID: ${id}`);
+      
+      if (!user) {
+        console.log(`👤 DeserializeUser: No user found for ID ${id}, returning null`);
+        return process.nextTick(() => done(null, null));
+      }
+      
+      console.log(`👤 DeserializeUser: Successfully deserialized user ${user.username}`);
+      process.nextTick(() => done(null, user));
     } catch (error) {
       console.error(`💥 DeserializeUser: Error during lookup for ID ${id}:`, error);
-      done(error);
+      process.nextTick(() => done(error, null));
     }
   });
 
@@ -156,34 +177,55 @@ export function setupAuth(app: Express) {
       
       console.log(`✅ Login route: User authenticated successfully, starting req.login for ${user.username}`);
       
-      // Temporarily bypass session regeneration to fix timeout issue
-      // TODO: Fix session store regenerate method implementation
-      req.login(user, (loginErr) => {
-        console.log(`🔐 Login route: req.login callback - error=${!!loginErr}`);
+      try {
+        // Log user object structure before req.login
+        console.log(`🔍 Login route: User object structure:`, {
+          id: user?.id,
+          username: user?.username,
+          email: user?.email,
+          isActive: user?.isActive,
+          keys: Object.keys(user || {}),
+          type: typeof user,
+          constructor: user?.constructor?.name
+        });
         
-        if (loginErr) {
-          console.error(`💥 Login route: req.login error:`, loginErr);
-          return next(loginErr);
-        }
+        // Add detailed logging and error handling for req.login
+        console.log(`🔐 Login route: About to call req.login for ${user.username}`);
         
-        console.log(`💾 Login route: Starting session.save for ${user.username}`);
-        
-        // Save the session
-        req.session.save((saveErr) => {
-          console.log(`💾 Login route: session.save callback - error=${!!saveErr}`);
+        req.login(user, { session: true }, (loginErr) => {
+          console.log(`🔐 Login route: *** req.login CALLBACK TRIGGERED *** - error=${!!loginErr}`);
           
-          if (saveErr) {
-            console.error(`💥 Login route: Session save error:`, saveErr);
-            return next(saveErr);
+          if (loginErr) {
+            console.error(`💥 Login route: req.login error:`, loginErr);
+            return res.status(500).json({ error: "Login failed during session creation" });
           }
           
-          console.log(`🎉 Login route: Login complete! Sending response for ${user.username}`);
+          console.log(`💾 Login route: req.login successful, starting session.save for ${user.username}`);
+          console.log(`💾 Login route: Session ID: ${req.sessionID}`);
+          console.log(`💾 Login route: User in session: ${JSON.stringify(req.user?.username)}`);
           
-          // Remove password from response
-          const { password, ...safeUser } = user;
-          res.status(200).json(safeUser);
+          // Save the session explicitly
+          req.session.save((saveErr) => {
+            console.log(`💾 Login route: session.save callback triggered - error=${!!saveErr}`);
+            
+            if (saveErr) {
+              console.error(`💥 Login route: Session save error:`, saveErr);
+              return res.status(500).json({ error: "Failed to save session" });
+            }
+            
+            console.log(`🎉 Login route: Login complete! Sending response for ${user.username}`);
+            
+            // Remove password from response
+            const { password, ...safeUser } = user;
+            res.status(200).json(safeUser);
+          });
         });
-      });
+        
+        console.log(`🔐 Login route: req.login call completed (async) for ${user.username}`);
+      } catch (error) {
+        console.error(`💥 Login route: Exception during req.login setup:`, error);
+        return res.status(500).json({ error: "Login setup failed" });
+      }
     })(req, res, next);
   });
 

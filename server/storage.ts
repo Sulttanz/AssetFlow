@@ -209,61 +209,102 @@ export class MemStorage implements IStorage {
       private sessions = new Map<string, any>();
 
       get(sid: string, callback: (err: any, session?: any) => void) {
-        setImmediate(() => {
-          callback(null, this.sessions.get(sid) || null);
-        });
+        try {
+          const session = this.sessions.get(sid) || null;
+          process.nextTick(() => callback(null, session));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       set(sid: string, session: any, callback?: (err?: any) => void) {
-        setImmediate(() => {
+        try {
           this.sessions.set(sid, session);
-          callback?.();
-        });
+          if (callback) {
+            process.nextTick(() => callback());
+          }
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       destroy(sid: string, callback?: (err?: any) => void) {
-        setImmediate(() => {
+        try {
           this.sessions.delete(sid);
-          callback?.();
-        });
+          if (callback) {
+            process.nextTick(() => callback());
+          }
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       all(callback: (err: any, obj?: any) => void) {
-        setImmediate(() => {
+        try {
           const allSessions = Object.fromEntries(this.sessions.entries());
-          callback(null, allSessions);
-        });
+          process.nextTick(() => callback(null, allSessions));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       length(callback: (err: any, length?: number) => void) {
-        setImmediate(() => {
-          callback(null, this.sessions.size);
-        });
+        try {
+          const length = this.sessions.size;
+          process.nextTick(() => callback(null, length));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       clear(callback?: (err?: any) => void) {
-        setImmediate(() => {
+        try {
           this.sessions.clear();
-          callback?.();
-        });
+          if (callback) {
+            process.nextTick(() => callback());
+          }
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       touch(sid: string, session: any, callback?: (err?: any) => void) {
-        setImmediate(() => {
+        try {
           if (this.sessions.has(sid)) {
             this.sessions.set(sid, session);
           }
-          callback?.();
-        });
+          if (callback) {
+            process.nextTick(() => callback());
+          }
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       regenerate(callback?: (err?: any) => void) {
-        setImmediate(() => {
-          // Regenerate method just needs to indicate success/failure
-          if (typeof callback === 'function') {
-            callback(null);
+        try {
+          // Session regeneration - we don't need to do anything special for memory store
+          console.log('🔄 SessionStore: Regenerate called');
+          if (callback) {
+            process.nextTick(() => {
+              console.log('🔄 SessionStore: Regenerate completed successfully');
+              callback(null);
+            });
           }
-        });
+        } catch (error) {
+          console.error('💥 SessionStore: Error during regenerate:', error);
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
     }
 
@@ -2241,88 +2282,128 @@ export class DatabaseStorage implements IStorage {
       private sessions = new Map<string, any>();
 
       get(sid: string, callback: (err: any, session?: any) => void) {
-        setImmediate(() => {
-          callback(null, this.sessions.get(sid) || null);
-        });
+        try {
+          const session = this.sessions.get(sid) || null;
+          process.nextTick(() => callback(null, session));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       set(sid: string, session: any, callback?: (err?: any) => void) {
-        setImmediate(() => {
-          try {
-            this.sessions.set(sid, session);
-            if (callback) callback(null); // Express-session requires callback(null) for success
-          } catch (err) {
-            if (callback) callback(err);
+        try {
+          this.sessions.set(sid, session);
+          if (callback) {
+            process.nextTick(() => callback(null));
           }
-        });
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       destroy(sid: string, callback?: (err?: any) => void) {
-        setImmediate(() => {
-          try {
-            this.sessions.delete(sid);
-            if (callback) callback(null); // Express-session requires callback(null) for success
-          } catch (err) {
-            if (callback) callback(err);
+        try {
+          this.sessions.delete(sid);
+          if (callback) {
+            process.nextTick(() => callback(null));
           }
-        });
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       all(callback: (err: any, obj?: any) => void) {
-        setImmediate(() => {
-          try {
-            const allSessions = Object.fromEntries(this.sessions.entries());
-            callback(null, allSessions);
-          } catch (err) {
-            callback(err);
-          }
-        });
+        try {
+          const allSessions = Object.fromEntries(this.sessions.entries());
+          process.nextTick(() => callback(null, allSessions));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       length(callback: (err: any, length?: number) => void) {
-        setImmediate(() => {
-          try {
-            callback(null, this.sessions.size);
-          } catch (err) {
-            callback(err);
-          }
-        });
+        try {
+          const length = this.sessions.size;
+          process.nextTick(() => callback(null, length));
+        } catch (error) {
+          process.nextTick(() => callback(error));
+        }
       }
 
       clear(callback?: (err?: any) => void) {
-        setImmediate(() => {
-          try {
-            this.sessions.clear();
-            if (callback) callback(null); // Express-session requires callback(null) for success
-          } catch (err) {
-            if (callback) callback(err);
+        try {
+          this.sessions.clear();
+          if (callback) {
+            process.nextTick(() => callback(null));
           }
-        });
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
       touch(sid: string, session: any, callback?: (err?: any) => void) {
-        setImmediate(() => {
-          try {
-            // Touch method - just call callback to indicate success
-            if (callback) callback(null); // Express-session requires callback(null) for success
-          } catch (err) {
-            if (callback) callback(err);
+        try {
+          if (this.sessions.has(sid)) {
+            this.sessions.set(sid, session);
           }
-        });
+          if (callback) {
+            process.nextTick(() => callback(null));
+          }
+        } catch (error) {
+          if (callback) {
+            process.nextTick(() => callback(error));
+          }
+        }
       }
 
-      // Add regenerate method with proper defensive handling
-      regenerate(callback?: (err?: any) => void) {
-        setImmediate(() => {
-          try {
-            // Defensive implementation - just invoke callback for success
-            if (callback && typeof callback === 'function') {
-              callback(null); // Express-session requires callback(null) for success
-            }
-          } catch (err) {
-            if (callback) callback(err);
+      regenerate(req: any, callback?: (err?: any) => void) {
+        try {
+          console.log('🔄 SessionStore: Regenerate called with correct signature');
+          if (callback && typeof callback === 'function') {
+            const cb = callback; // Capture callback in closure
+            process.nextTick(() => {
+              console.log('🔄 SessionStore: Regenerate completed successfully - callback invoked!');
+              cb(null);
+            });
           }
-        });
+        } catch (error) {
+          console.error('💥 SessionStore: Error during regenerate:', error);
+          if (callback && typeof callback === 'function') {
+            const cb = callback; // Capture callback in closure
+            process.nextTick(() => cb(error));
+          }
+        }
+      }
+
+      createSession(req: any, session: any) {
+        try {
+          console.log('🔄 SessionStore: CreateSession called');
+          // Add required session methods that express-session expects
+          if (session && typeof session === 'object') {
+            session.reload = session.reload || function(callback) { 
+              if (callback) process.nextTick(() => callback(null)); 
+            };
+            session.destroy = session.destroy || function(callback) { 
+              if (callback) process.nextTick(() => callback(null)); 
+            };
+            session.regenerate = session.regenerate || function(callback) { 
+              if (callback) process.nextTick(() => callback(null)); 
+            };
+            session.save = session.save || function(callback) { 
+              if (callback) process.nextTick(() => callback(null)); 
+            };
+          }
+          return session;
+        } catch (error) {
+          console.error('💥 SessionStore: Error during createSession:', error);
+          throw error;
+        }
       }
     }
 
