@@ -219,13 +219,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // System settings routes - for Asset ID configuration and data management
   app.get("/api/system-settings", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
-      // For now, return hardcoded system settings structure
-      // This will be expanded when we implement the system settings storage methods
+      const allSettings = await storage.getSystemSettings();
+      
+      // Convert to the format expected by frontend
       const settings = {
-        assetIdPrefix: "AST",
-        assetIdStartingNumber: 1000,
-        dateFormat: "DD-MM-YYYY"
+        assetIdPrefix: allSettings.find(s => s.key === 'asset_id_prefix')?.value || "AST",
+        assetIdStartingNumber: parseInt(allSettings.find(s => s.key === 'asset_id_starting_number')?.value || "1000"),
+        dateFormat: allSettings.find(s => s.key === 'date_format')?.value || "DD-MM-YYYY"
       };
+      
       res.json(settings);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch system settings" });
@@ -234,13 +236,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/system-settings", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
-      // For now, just validate the input and return it
-      // This will be expanded when we implement the system settings storage methods
       const validatedData = z.object({
         assetIdPrefix: z.string().min(1).max(10),
         assetIdStartingNumber: z.number().int().min(1),
         dateFormat: z.enum(["DD-MM-YYYY", "MM-DD-YYYY", "YYYY-MM-DD"])
       }).parse(req.body);
+      
+      const userId = (req.user as any)?.id;
+      
+      // Update each setting in storage
+      await storage.updateSystemSetting('asset_id_prefix', validatedData.assetIdPrefix, userId);
+      await storage.updateSystemSetting('asset_id_starting_number', validatedData.assetIdStartingNumber.toString(), userId);
+      await storage.updateSystemSetting('date_format', validatedData.dateFormat, userId);
       
       res.json(validatedData);
     } catch (error) {

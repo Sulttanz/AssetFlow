@@ -70,7 +70,7 @@ export default function Sidebar() {
       title: "System",
       items: [
         { name: "User Management", href: "/users", icon: Shield, current: location === "/users" },
-        { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
+        { name: "System Settings", href: "/system-settings", icon: Settings, current: location === "/system-settings" },
       ]
     }
   ];
