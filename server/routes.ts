@@ -24,7 +24,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const users = await storage.getUsersWithDetails();
       // Remove passwords from response for security
-      const usersWithoutPasswords = users.map(({ passwordHash, ...user }) => user);
+      const usersWithoutPasswords = users.map(({ password, ...user }) => user);
       res.json(usersWithoutPasswords);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch users" });
@@ -38,7 +38,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
       // Remove password from response for security
-      const { passwordHash, ...userWithoutPassword } = user;
+      const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch user" });
@@ -50,7 +50,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertUserSchema.parse(req.body);
       const user = await storage.createUser(validatedData);
       // Remove password from response for security
-      const { passwordHash, ...userWithoutPassword } = user;
+      const { password, ...userWithoutPassword } = user;
       res.status(201).json(userWithoutPassword);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -68,7 +68,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
       // Remove password from response for security
-      const { passwordHash, ...userWithoutPassword } = user;
+      const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -406,7 +406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Assign permissions to role
         for (const permissionId of permissionIds) {
-          await storage.assignPermissionToRole(role.id, permissionId);
+          await storage.assignRolePermission(role.id, permissionId);
         }
       }
 
@@ -415,7 +415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const adminUser = await storage.createUser({
         username: 'ahmad.sulttan',
         email: 'ahmad.sulttan@gmail.com',
-        passwordHash: adminPasswordHash,
+        password: adminPasswordHash,
         firstName: 'Ahmad',
         lastName: 'Sulttan',
         isActive: true,
@@ -423,7 +423,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Assign System Administrator role to admin user
       const adminRole = createdRoles.get('System Administrator');
-      await storage.assignRoleToUser(adminUser.id, adminRole.id);
+      await storage.assignUserRole(adminUser.id, adminRole.id);
 
       // Create default system settings
       await storage.createSystemSetting({
@@ -451,7 +451,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Seed data created successfully at ${new Date().toISOString()}`);
       console.log(`- ${permissions.length} permissions created`);
       console.log(`- ${roles.length} roles created`);
-      console.log(`- 1 admin user created (username: admin)`);
+      console.log(`- 1 admin user created (username: ahmad.sulttan)`);
       console.log(`- 3 system settings created`);
 
       res.json({
@@ -497,7 +497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Verify the provided password matches the user's current password
       const { comparePasswords } = await import("./auth");
-      const passwordValid = await comparePasswords(confirmPassword, user.passwordHash);
+      const passwordValid = await comparePasswords(confirmPassword, user.password);
       if (!passwordValid) {
         return res.status(403).json({ message: "Invalid password confirmation" });
       }

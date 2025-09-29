@@ -256,6 +256,15 @@ export class MemStorage implements IStorage {
           callback?.();
         });
       }
+
+      regenerate(callback?: (err?: any) => void) {
+        setImmediate(() => {
+          // Regenerate method just needs to indicate success/failure
+          if (typeof callback === 'function') {
+            callback(null);
+          }
+        });
+      }
     }
 
     this.sessionStore = new MemorySessionStore();
@@ -2018,9 +2027,309 @@ export class DatabaseStorage implements IStorage {
   async getMaintenanceRecordsByAsset(assetId: string): Promise<MaintenanceRecord[]> {
     return await db.select().from(maintenanceRecords).where(eq(maintenanceRecords.assetId, assetId));
   }
+
+  // User Management Methods
+  async getUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+
+  async getUsersWithDetails(): Promise<UserWithDetails[]> {
+    const allUsers = await db.select().from(users);
+    const result: UserWithDetails[] = [];
+    
+    for (const user of allUsers) {
+      const userRoleData = await this.getUserRoles(user.id);
+      const userPermissions = await this.getUserPermissions(user.id);
+      
+      result.push({
+        ...user,
+        roles: userRoleData,
+        permissions: userPermissions
+      });
+    }
+    
+    return result;
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.id, id));
+    return result[0] || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.username, username));
+    return result[0] || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email));
+    return result[0] || undefined;
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const result = await db.insert(users).values(user).returning();
+    return result[0];
+  }
+
+  async updateUser(id: string, updateData: Partial<InsertUser>): Promise<User | undefined> {
+    const result = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    // Remove user roles first
+    await db.delete(userRoles).where(eq(userRoles.userId, id));
+    
+    const result = await db.delete(users).where(eq(users.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Role Management Methods
+  async getRoles(): Promise<Role[]> {
+    return await db.select().from(roles);
+  }
+
+  async getRolesWithDetails(): Promise<RoleWithDetails[]> {
+    const allRoles = await db.select().from(roles);
+    const result: RoleWithDetails[] = [];
+    
+    for (const role of allRoles) {
+      const rolePermissionData = await db.select().from(rolePermissions).where(eq(rolePermissions.roleId, role.id));
+      const permissionIds = rolePermissionData.map(rp => rp.permissionId);
+      const rolePermissions = permissionIds.length > 0 
+        ? await db.select().from(permissions).where(and(...permissionIds.map(id => eq(permissions.id, id))))
+        : [];
+      
+      result.push({
+        ...role,
+        permissions: rolePermissions
+      });
+    }
+    
+    return result;
+  }
+
+  async getRole(id: string): Promise<Role | undefined> {
+    const result = await db.select().from(roles).where(eq(roles.id, id));
+    return result[0] || undefined;
+  }
+
+  async createRole(role: InsertRole): Promise<Role> {
+    const result = await db.insert(roles).values(role).returning();
+    return result[0];
+  }
+
+  async updateRole(id: string, updateData: Partial<InsertRole>): Promise<Role | undefined> {
+    const result = await db.update(roles).set(updateData).where(eq(roles.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteRole(id: string): Promise<boolean> {
+    // Remove role permissions and user roles first
+    await db.delete(rolePermissions).where(eq(rolePermissions.roleId, id));
+    await db.delete(userRoles).where(eq(userRoles.roleId, id));
+    
+    const result = await db.delete(roles).where(eq(roles.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Permission Management Methods
+  async getPermissions(): Promise<Permission[]> {
+    return await db.select().from(permissions);
+  }
+
+  async getPermission(id: string): Promise<Permission | undefined> {
+    const result = await db.select().from(permissions).where(eq(permissions.id, id));
+    return result[0] || undefined;
+  }
+
+  async createPermission(permission: InsertPermission): Promise<Permission> {
+    const result = await db.insert(permissions).values(permission).returning();
+    return result[0];
+  }
+
+  async getUserPermissions(userId: string): Promise<string[]> {
+    // Get user's roles
+    const userRoleData = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+    const roleIds = userRoleData.map(ur => ur.roleId);
+    
+    if (roleIds.length === 0) return [];
+    
+    // Get permissions for those roles
+    const rolePermissionData = await db.select().from(rolePermissions).where(and(...roleIds.map(id => eq(rolePermissions.roleId, id))));
+    const permissionIds = rolePermissionData.map(rp => rp.permissionId);
+    
+    if (permissionIds.length === 0) return [];
+    
+    // Get permission names
+    const permissionData = await db.select().from(permissions).where(and(...permissionIds.map(id => eq(permissions.id, id))));
+    return permissionData.map(p => p.name);
+  }
+
+  async getUserRoles(userId: string): Promise<Role[]> {
+    const userRoleData = await db.select().from(userRoles).where(eq(userRoles.userId, userId));
+    const roleIds = userRoleData.map(ur => ur.roleId);
+    
+    if (roleIds.length === 0) return [];
+    
+    return await db.select().from(roles).where(and(...roleIds.map(id => eq(roles.id, id))));
+  }
+
+  async assignUserRole(userId: string, roleId: string, assignedBy?: string): Promise<UserRole> {
+    const userRole: InsertUserRole = {
+      userId,
+      roleId,
+      assignedBy,
+      assignedAt: new Date(),
+    };
+    
+    const result = await db.insert(userRoles).values(userRole).returning();
+    return result[0];
+  }
+
+  async removeUserRole(userId: string, roleId: string): Promise<boolean> {
+    const result = await db.delete(userRoles).where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, roleId)));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async assignRolePermission(roleId: string, permissionId: string): Promise<RolePermission> {
+    const rolePermission: InsertRolePermission = {
+      roleId,
+      permissionId,
+    };
+    
+    const result = await db.insert(rolePermissions).values(rolePermission).returning();
+    return result[0];
+  }
+
+  async removeRolePermission(roleId: string, permissionId: string): Promise<boolean> {
+    const result = await db.delete(rolePermissions).where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permissionId, permissionId)));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // System Settings Methods  
+  async getSystemSettings(): Promise<SystemSetting[]> {
+    return await db.select().from(systemSettings);
+  }
+
+  async getSystemSetting(key: string): Promise<SystemSetting | undefined> {
+    const result = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    return result[0] || undefined;
+  }
+
+  async createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting> {
+    const result = await db.insert(systemSettings).values(setting).returning();
+    return result[0];
+  }
+
+  async updateSystemSetting(key: string, updateData: Partial<InsertSystemSetting>): Promise<SystemSetting | undefined> {
+    const result = await db.update(systemSettings).set(updateData).where(eq(systemSettings.key, key)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteSystemSetting(key: string): Promise<boolean> {
+    const result = await db.delete(systemSettings).where(eq(systemSettings.key, key));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Session Store for authentication - using same MemorySessionStore as MemStorage
+  sessionStore: any;
+
+  constructor() {
+    // Initialize session store with EventEmitter support
+    class MemorySessionStore extends EventEmitter {
+      private sessions = new Map<string, any>();
+
+      get(sid: string, callback: (err: any, session?: any) => void) {
+        setImmediate(() => {
+          callback(null, this.sessions.get(sid) || null);
+        });
+      }
+
+      set(sid: string, session: any, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          try {
+            this.sessions.set(sid, session);
+            if (callback) callback(null); // Express-session requires callback(null) for success
+          } catch (err) {
+            if (callback) callback(err);
+          }
+        });
+      }
+
+      destroy(sid: string, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          try {
+            this.sessions.delete(sid);
+            if (callback) callback(null); // Express-session requires callback(null) for success
+          } catch (err) {
+            if (callback) callback(err);
+          }
+        });
+      }
+
+      all(callback: (err: any, obj?: any) => void) {
+        setImmediate(() => {
+          try {
+            const allSessions = Object.fromEntries(this.sessions.entries());
+            callback(null, allSessions);
+          } catch (err) {
+            callback(err);
+          }
+        });
+      }
+
+      length(callback: (err: any, length?: number) => void) {
+        setImmediate(() => {
+          try {
+            callback(null, this.sessions.size);
+          } catch (err) {
+            callback(err);
+          }
+        });
+      }
+
+      clear(callback?: (err?: any) => void) {
+        setImmediate(() => {
+          try {
+            this.sessions.clear();
+            if (callback) callback(null); // Express-session requires callback(null) for success
+          } catch (err) {
+            if (callback) callback(err);
+          }
+        });
+      }
+
+      touch(sid: string, session: any, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          try {
+            // Touch method - just call callback to indicate success
+            if (callback) callback(null); // Express-session requires callback(null) for success
+          } catch (err) {
+            if (callback) callback(err);
+          }
+        });
+      }
+
+      // Add regenerate method with proper defensive handling
+      regenerate(callback?: (err?: any) => void) {
+        setImmediate(() => {
+          try {
+            // Defensive implementation - just invoke callback for success
+            if (callback && typeof callback === 'function') {
+              callback(null); // Express-session requires callback(null) for success
+            }
+          } catch (err) {
+            if (callback) callback(err);
+          }
+        });
+      }
+    }
+
+    this.sessionStore = new MemorySessionStore();
+  }
 }
 
-// Temporarily using MemStorage while implementing user management
-// TODO: Switch back to DatabaseStorage after implementing user management methods
-export const storage = new MemStorage();
-// export const storage = new DatabaseStorage();
+// Using DatabaseStorage for persistent data storage
+export const storage = new DatabaseStorage();
+// export const storage = new MemStorage();

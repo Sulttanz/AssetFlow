@@ -20,11 +20,17 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
+type SystemStatus = {
+  initialized: boolean;
+  userCount: number;
+  needsSetup: boolean;
+};
+
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
 
   // Check system initialization status
-  const { data: systemStatus, isLoading: statusLoading } = useQuery({
+  const { data: systemStatus, isLoading: statusLoading } = useQuery<SystemStatus>({
     queryKey: ["/api/system/status"],
     retry: false,
   });

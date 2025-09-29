@@ -73,7 +73,7 @@ export default function SystemInitialization() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Username</label>
                   <div className="p-3 bg-muted rounded-md font-mono" data-testid="admin-username">
-                    admin
+                    {adminCredentials?.username || 'ahmad.sulttan'}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -86,7 +86,7 @@ export default function SystemInitialization() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-muted-foreground">Temporary Password</label>
                 <div className="p-3 bg-muted rounded-md font-mono" data-testid="admin-password">
-                  admin123
+                  123456
                 </div>
               </div>
 
@@ -158,7 +158,7 @@ export default function SystemInitialization() {
                   <ul className="text-blue-700 dark:text-blue-300 mt-2 space-y-1 list-disc list-inside">
                     <li><span className="font-medium">34 system permissions</span> for all operations (assets, users, budgets, etc.)</li>
                     <li><span className="font-medium">4 default roles</span>: System Administrator, IT Manager, Asset Manager, Read Only User</li>
-                    <li><span className="font-medium">Admin user account</span> with username 'admin' and email 'admin@company.com'</li>
+                    <li><span className="font-medium">Admin user account</span> with username 'ahmad.sulttan' and email 'ahmad.sulttan@gmail.com'</li>
                     <li><span className="font-medium">Default system settings</span> for asset ID generation and date formats</li>
                   </ul>
                 </div>
@@ -206,7 +206,7 @@ export default function SystemInitialization() {
                     </div>
                     <div className="flex justify-between">
                       <span>Admin User:</span>
-                      <span className="font-medium">admin@company.com</span>
+                      <span className="font-medium">ahmad.sulttan@gmail.com</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Settings:</span>
@@ -216,8 +216,8 @@ export default function SystemInitialization() {
                   
                   <div className="p-3 bg-muted rounded-md">
                     <p className="text-sm font-medium mb-1">Admin Login Details:</p>
-                    <p className="text-sm text-muted-foreground">Username: <span className="font-mono">admin</span></p>
-                    <p className="text-sm text-muted-foreground">Password: <span className="font-mono">admin123</span> (change after login)</p>
+                    <p className="text-sm text-muted-foreground">Username: <span className="font-mono">ahmad.sulttan</span></p>
+                    <p className="text-sm text-muted-foreground">Password: <span className="font-mono">123456</span></p>
                   </div>
                 </div>
                 

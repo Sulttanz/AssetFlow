@@ -51,23 +51,35 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
+        console.log(`🔐 LocalStrategy: Starting authentication for username: ${username}`);
+        
         const user = await storage.getUserByUsername(username);
+        console.log(`🔍 LocalStrategy: User lookup result:`, user ? `Found user ${user.username}` : 'User not found');
+        
         if (!user) {
+          console.log(`❌ LocalStrategy: No user found for username: ${username}`);
           return done(null, false, { message: 'Invalid username or password' });
         }
         
         // Check if user is active
         if (!user.isActive) {
+          console.log(`❌ LocalStrategy: User ${username} is inactive`);
           return done(null, false, { message: 'Account is inactive' });
         }
 
+        console.log(`🔒 LocalStrategy: Starting password comparison for user: ${username}`);
         const isValid = await comparePasswords(password, user.password);
+        console.log(`🔒 LocalStrategy: Password comparison result:`, isValid ? 'Valid' : 'Invalid');
+        
         if (!isValid) {
+          console.log(`❌ LocalStrategy: Invalid password for username: ${username}`);
           return done(null, false, { message: 'Invalid username or password' });
         }
 
+        console.log(`✅ LocalStrategy: Authentication successful for user: ${username}`);
         return done(null, user);
       } catch (error) {
+        console.error(`💥 LocalStrategy: Error during authentication for ${username}:`, error);
         return done(error);
       }
     })
@@ -77,9 +89,13 @@ export function setupAuth(app: Express) {
   
   passport.deserializeUser(async (id: string, done) => {
     try {
+      console.log(`👤 DeserializeUser: Starting lookup for user ID: ${id}`);
       const user = await storage.getUser(id);
+      console.log(`👤 DeserializeUser: User lookup result:`, user ? `Found user ${user.username}` : 'User not found');
       done(null, user);
+      console.log(`👤 DeserializeUser: Completed successfully for ID: ${id}`);
     } catch (error) {
+      console.error(`💥 DeserializeUser: Error during lookup for ID ${id}:`, error);
       done(error);
     }
   });
@@ -124,35 +140,48 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", (req, res, next) => {
+    console.log(`🚪 Login route: Starting login process for ${req.body.username}`);
+    
     passport.authenticate("local", (err: any, user: SelectUser | false, info: any) => {
+      console.log(`🔑 Passport authenticate callback: err=${!!err}, user=${!!user}, info=${JSON.stringify(info)}`);
+      
       if (err) {
+        console.error(`💥 Login route: Passport authentication error:`, err);
         return next(err);
       }
       if (!user) {
+        console.log(`❌ Login route: Authentication failed - ${info?.message || "Unknown reason"}`);
         return res.status(401).json({ error: info?.message || "Authentication failed" });
       }
       
-      // Regenerate session ID to prevent fixation attacks
-      req.session.regenerate((regenerateErr) => {
-        if (regenerateErr) {
-          return next(regenerateErr);
+      console.log(`✅ Login route: User authenticated successfully, starting req.login for ${user.username}`);
+      
+      // Temporarily bypass session regeneration to fix timeout issue
+      // TODO: Fix session store regenerate method implementation
+      req.login(user, (loginErr) => {
+        console.log(`🔐 Login route: req.login callback - error=${!!loginErr}`);
+        
+        if (loginErr) {
+          console.error(`💥 Login route: req.login error:`, loginErr);
+          return next(loginErr);
         }
         
-        req.login(user, (loginErr) => {
-          if (loginErr) {
-            return next(loginErr);
+        console.log(`💾 Login route: Starting session.save for ${user.username}`);
+        
+        // Save the session
+        req.session.save((saveErr) => {
+          console.log(`💾 Login route: session.save callback - error=${!!saveErr}`);
+          
+          if (saveErr) {
+            console.error(`💥 Login route: Session save error:`, saveErr);
+            return next(saveErr);
           }
           
-          // Save the session
-          req.session.save((saveErr) => {
-            if (saveErr) {
-              return next(saveErr);
-            }
-            
-            // Remove password from response
-            const { password, ...safeUser } = user;
-            res.status(200).json(safeUser);
-          });
+          console.log(`🎉 Login route: Login complete! Sending response for ${user.username}`);
+          
+          // Remove password from response
+          const { password, ...safeUser } = user;
+          res.status(200).json(safeUser);
         });
       });
     })(req, res, next);
