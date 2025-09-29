@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, inArray } from "drizzle-orm";
 import { EventEmitter } from "events";
 
 export interface IStorage {
@@ -2197,13 +2197,13 @@ export class DatabaseStorage implements IStorage {
     if (roleIds.length === 0) return [];
     
     // Get permissions for those roles
-    const rolePermissionData = await db.select().from(rolePermissions).where(and(...roleIds.map(id => eq(rolePermissions.roleId, id))));
+    const rolePermissionData = await db.select().from(rolePermissions).where(inArray(rolePermissions.roleId, roleIds));
     const permissionIds = rolePermissionData.map(rp => rp.permissionId);
     
     if (permissionIds.length === 0) return [];
     
     // Get permission names
-    const permissionData = await db.select().from(permissions).where(and(...permissionIds.map(id => eq(permissions.id, id))));
+    const permissionData = await db.select().from(permissions).where(inArray(permissions.id, permissionIds));
     return permissionData.map(p => p.name);
   }
 
@@ -2213,7 +2213,7 @@ export class DatabaseStorage implements IStorage {
     
     if (roleIds.length === 0) return [];
     
-    return await db.select().from(roles).where(and(...roleIds.map(id => eq(roles.id, id))));
+    return await db.select().from(roles).where(inArray(roles.id, roleIds));
   }
 
   async assignUserRole(userId: string, roleId: string, assignedBy?: string): Promise<UserRole> {
