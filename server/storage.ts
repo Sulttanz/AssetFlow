@@ -2283,8 +2283,16 @@ export class DatabaseStorage implements IStorage {
 
       get(sid: string, callback: (err: any, session?: any) => void) {
         try {
-          const session = this.sessions.get(sid) || null;
-          console.log('🔄 SessionStore: get() called for session', sid, session ? 'found' : 'not found');
+          const rawSession = this.sessions.get(sid);
+          if (!rawSession) {
+            console.log('🔄 SessionStore: get() called for session', sid, 'not found');
+            process.nextTick(() => callback(null, null));
+            return;
+          }
+          
+          // Return a clean copy of the session data as a plain object
+          const session = JSON.parse(JSON.stringify(rawSession));
+          console.log('🔄 SessionStore: get() called for session', sid, 'found - returning clean session object');
           process.nextTick(() => callback(null, session));
         } catch (error) {
           console.error('💥 SessionStore: get() error:', error);
@@ -2294,11 +2302,15 @@ export class DatabaseStorage implements IStorage {
 
       set(sid: string, session: any, callback?: (err?: any) => void) {
         try {
-          this.sessions.set(sid, session);
+          // Store a clean copy of the session data
+          const cleanSession = JSON.parse(JSON.stringify(session));
+          this.sessions.set(sid, cleanSession);
+          console.log('🔄 SessionStore: set() called for session', sid, '- stored clean session data');
           if (callback) {
             process.nextTick(() => callback(null));
           }
         } catch (error) {
+          console.error('💥 SessionStore: set() error:', error);
           if (callback) {
             process.nextTick(() => callback(error));
           }
@@ -2384,28 +2396,10 @@ export class DatabaseStorage implements IStorage {
       }
 
       createSession(req: any, session: any) {
-        try {
-          console.log('🔄 SessionStore: createSession() called');
-          // Return simple session object and let express-session handle method wrapping
-          const sessionObj = session || {};
-          
-          // Ensure basic cookie property exists
-          if (!sessionObj.cookie) {
-            sessionObj.cookie = {
-              originalMaxAge: 24 * 60 * 60 * 1000, // 24 hours
-              expires: null,
-              httpOnly: true,
-              path: '/',
-              secure: false
-            };
-          }
-          
-          return sessionObj;
-        } catch (error) {
-          console.error('💥 SessionStore: createSession() error:', error);
-          throw error;
-        }
+        // Return a plain object that express-session can wrap with methods
+        return Object.assign({}, session || {});
       }
+
     }
 
     this.sessionStore = new MemorySessionStore();
