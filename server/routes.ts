@@ -6,13 +6,270 @@ import {
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
-  insertMaintenanceRecordSchema
+  insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
+  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema
 } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication system
   setupAuth(app);
+
+  // ====================
+  // USER MANAGEMENT ROUTES
+  // ====================
+
+  // Users CRUD routes
+  app.get("/api/users", requireAuth, requirePermission('user_view'), async (req, res) => {
+    try {
+      const users = await storage.getUsersWithDetails();
+      // Remove passwords from response for security
+      const usersWithoutPasswords = users.map(({ passwordHash, ...user }) => user);
+      res.json(usersWithoutPasswords);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.get("/api/users/:id", requireAuth, requirePermission('user_view'), async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Remove password from response for security
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.post("/api/users", requireAuth, requirePermission('user_create'), async (req, res) => {
+    try {
+      const validatedData = insertUserSchema.parse(req.body);
+      const user = await storage.createUser(validatedData);
+      // Remove password from response for security
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create user" });
+    }
+  });
+
+  app.put("/api/users/:id", requireAuth, requirePermission('user_update'), async (req, res) => {
+    try {
+      const validatedData = insertUserSchema.partial().parse(req.body);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Remove password from response for security
+      const { passwordHash, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/users/:id", requireAuth, requirePermission('user_delete'), async (req, res) => {
+    try {
+      const deleted = await storage.deleteUser(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete user" });
+    }
+  });
+
+  // Roles CRUD routes
+  app.get("/api/roles", requireAuth, requirePermission('role_view'), async (req, res) => {
+    try {
+      const roles = await storage.getRolesWithDetails();
+      res.json(roles);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch roles" });
+    }
+  });
+
+  app.get("/api/roles/:id", requireAuth, requirePermission('role_view'), async (req, res) => {
+    try {
+      const role = await storage.getRole(req.params.id);
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+      res.json(role);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch role" });
+    }
+  });
+
+  app.post("/api/roles", requireAuth, requirePermission('role_create'), async (req, res) => {
+    try {
+      const validatedData = insertRoleSchema.parse(req.body);
+      const role = await storage.createRole(validatedData);
+      res.status(201).json(role);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid role data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create role" });
+    }
+  });
+
+  app.put("/api/roles/:id", requireAuth, requirePermission('role_update'), async (req, res) => {
+    try {
+      const validatedData = insertRoleSchema.partial().parse(req.body);
+      const role = await storage.updateRole(req.params.id, validatedData);
+      if (!role) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+      res.json(role);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid role data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
+  app.delete("/api/roles/:id", requireAuth, requirePermission('role_delete'), async (req, res) => {
+    try {
+      const deleted = await storage.deleteRole(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Role not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete role" });
+    }
+  });
+
+  // Permissions routes (read-only for now)
+  app.get("/api/permissions", requireAuth, requirePermission('permission_view'), async (req, res) => {
+    try {
+      const permissions = await storage.getPermissions();
+      res.json(permissions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch permissions" });
+    }
+  });
+
+  // User-Role assignment routes
+  app.post("/api/users/:userId/roles", requireAuth, requirePermission('user_role_assign'), async (req, res) => {
+    try {
+      const validatedData = insertUserRoleSchema.parse({
+        ...req.body,
+        userId: req.params.userId
+      });
+      
+      const userRole = await storage.assignUserRole(
+        validatedData.userId, 
+        validatedData.roleId, 
+        req.user?.id
+      );
+      res.status(201).json(userRole);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid role assignment data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to assign role to user" });
+    }
+  });
+
+  app.delete("/api/users/:userId/roles/:roleId", requireAuth, requirePermission('user_role_assign'), async (req, res) => {
+    try {
+      const removed = await storage.removeUserRole(req.params.userId, req.params.roleId);
+      if (!removed) {
+        return res.status(404).json({ message: "User role assignment not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to remove role from user" });
+    }
+  });
+
+  // Get user's roles and permissions
+  app.get("/api/users/:id/roles", requireAuth, requirePermission('user_view'), async (req, res) => {
+    try {
+      const roles = await storage.getUserRoles(req.params.id);
+      res.json(roles);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch user roles" });
+    }
+  });
+
+  app.get("/api/users/:id/permissions", requireAuth, requirePermission('user_view'), async (req, res) => {
+    try {
+      const permissions = await storage.getUserPermissions(req.params.id);
+      res.json(permissions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch user permissions" });
+    }
+  });
+
+  // System settings routes - for Asset ID configuration and data management
+  app.get("/api/system-settings", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      // For now, return hardcoded system settings structure
+      // This will be expanded when we implement the system settings storage methods
+      const settings = {
+        assetIdPrefix: "AST",
+        assetIdStartingNumber: 1000,
+        dateFormat: "DD-MM-YYYY"
+      };
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch system settings" });
+    }
+  });
+
+  app.put("/api/system-settings", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      // For now, just validate the input and return it
+      // This will be expanded when we implement the system settings storage methods
+      const validatedData = z.object({
+        assetIdPrefix: z.string().min(1).max(10),
+        assetIdStartingNumber: z.number().int().min(1),
+        dateFormat: z.enum(["DD-MM-YYYY", "MM-DD-YYYY", "YYYY-MM-DD"])
+      }).parse(req.body);
+      
+      res.json(validatedData);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid system settings", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update system settings" });
+    }
+  });
+
+  // Data management routes - for clearing system data
+  app.post("/api/system/clear-data", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const { confirmPassword } = req.body;
+      if (!confirmPassword) {
+        return res.status(400).json({ message: "Password confirmation is required" });
+      }
+      
+      // This will be implemented when we add the actual data clearing functionality
+      res.json({ message: "Data clearing functionality to be implemented" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to clear system data" });
+    }
+  });
+
+  // ====================
+  // EXISTING ROUTES
+  // ====================
+
   // Assets routes - all require authentication
   app.get("/api/assets", requireAuth, async (req, res) => {
     try {
