@@ -19,13 +19,15 @@ import Budgets from "@/pages/budgets";
 import Maintenance from "@/pages/maintenance";
 import Users from "@/pages/users";
 import SystemSettings from "@/pages/system-settings";
+import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
   return (
     <Switch>
-      {/* Public auth route */}
+      {/* Public routes */}
       <Route path="/auth" component={AuthPage} />
+      <Route path="/initialize" component={SystemInitialization} />
       
       {/* Protected routes with layout */}
       <Route>

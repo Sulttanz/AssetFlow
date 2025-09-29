@@ -258,6 +258,223 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // System status route - check if system is initialized
+  app.get("/api/system/status", async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      const isInitialized = users.length > 0;
+      
+      res.json({
+        initialized: isInitialized,
+        userCount: users.length,
+        needsSetup: !isInitialized
+      });
+    } catch (error) {
+      console.error("Error checking system status:", error);
+      res.status(500).json({ message: "Failed to check system status" });
+    }
+  });
+
+  // Seed data route - for initializing system with default data
+  app.post("/api/system/seed-data", async (req, res) => {
+    try {
+      const { hashPassword } = await import("./auth");
+      
+      // Check if system is already seeded (if admin user exists)
+      const existingUsers = await storage.getUsers();
+      if (existingUsers.length > 0) {
+        return res.status(400).json({ message: "System is already initialized with seed data" });
+      }
+
+      // Define all permissions used in the system
+      const permissions = [
+        // User Management Permissions
+        { name: 'user_view', description: 'View users and user details', resource: 'users', action: 'view' },
+        { name: 'user_create', description: 'Create new users', resource: 'users', action: 'create' },
+        { name: 'user_update', description: 'Update existing users', resource: 'users', action: 'update' },
+        { name: 'user_delete', description: 'Delete users', resource: 'users', action: 'delete' },
+        { name: 'role_view', description: 'View roles and role details', resource: 'roles', action: 'view' },
+        { name: 'role_create', description: 'Create new roles', resource: 'roles', action: 'create' },
+        { name: 'role_update', description: 'Update existing roles', resource: 'roles', action: 'update' },
+        { name: 'role_delete', description: 'Delete roles', resource: 'roles', action: 'delete' },
+        { name: 'permission_view', description: 'View permissions', resource: 'permissions', action: 'view' },
+        { name: 'user_role_assign', description: 'Assign roles to users', resource: 'users', action: 'manage' },
+        { name: 'system_admin', description: 'System administration access', resource: 'system', action: 'manage' },
+        
+        // Asset Management Permissions
+        { name: 'asset_create', description: 'Create new assets', resource: 'assets', action: 'create' },
+        { name: 'asset_update', description: 'Update existing assets', resource: 'assets', action: 'update' },
+        { name: 'asset_delete', description: 'Delete assets', resource: 'assets', action: 'delete' },
+        { name: 'compliance_view', description: 'View compliance information', resource: 'assets', action: 'view' },
+        
+        // Employee Management Permissions
+        { name: 'employee_create', description: 'Create new employees', resource: 'employees', action: 'create' },
+        { name: 'employee_update', description: 'Update existing employees', resource: 'employees', action: 'update' },
+        { name: 'employee_delete', description: 'Delete employees', resource: 'employees', action: 'delete' },
+        
+        // Assignment Management Permissions
+        { name: 'assignment_create', description: 'Create asset assignments', resource: 'assignments', action: 'create' },
+        { name: 'assignment_update', description: 'Update asset assignments', resource: 'assignments', action: 'update' },
+        { name: 'assignment_delete', description: 'Delete asset assignments', resource: 'assignments', action: 'delete' },
+        { name: 'assignment_return', description: 'Process asset returns', resource: 'assignments', action: 'manage' },
+        
+        // Location Management Permissions
+        { name: 'location_create', description: 'Create new locations', resource: 'locations', action: 'create' },
+        { name: 'location_update', description: 'Update existing locations', resource: 'locations', action: 'update' },
+        { name: 'location_delete', description: 'Delete locations', resource: 'locations', action: 'delete' },
+        
+        // Department Management Permissions
+        { name: 'department_create', description: 'Create new departments', resource: 'departments', action: 'create' },
+        { name: 'department_update', description: 'Update existing departments', resource: 'departments', action: 'update' },
+        { name: 'department_delete', description: 'Delete departments', resource: 'departments', action: 'delete' },
+        
+        // Vendor Management Permissions
+        { name: 'vendor_create', description: 'Create new vendors', resource: 'vendors', action: 'create' },
+        { name: 'vendor_update', description: 'Update existing vendors', resource: 'vendors', action: 'update' },
+        { name: 'vendor_delete', description: 'Delete vendors', resource: 'vendors', action: 'delete' },
+        
+        // Purchase Order Permissions
+        { name: 'purchase_order_create', description: 'Create purchase orders', resource: 'purchase_orders', action: 'create' },
+        
+        // Budget Management Permissions
+        { name: 'budget_create', description: 'Create new budgets', resource: 'budgets', action: 'create' },
+        { name: 'budget_update', description: 'Update existing budgets', resource: 'budgets', action: 'update' },
+        { name: 'budget_delete', description: 'Delete budgets', resource: 'budgets', action: 'delete' },
+        
+        // Maintenance Management Permissions
+        { name: 'maintenance_create', description: 'Create maintenance schedules and records', resource: 'maintenance', action: 'create' },
+        { name: 'maintenance_update', description: 'Update maintenance schedules and records', resource: 'maintenance', action: 'update' },
+        { name: 'maintenance_delete', description: 'Delete maintenance schedules and records', resource: 'maintenance', action: 'delete' },
+      ];
+
+      // Create all permissions
+      const createdPermissions = new Map();
+      for (const permissionData of permissions) {
+        const permission = await storage.createPermission(permissionData);
+        createdPermissions.set(permissionData.name, permission);
+      }
+
+      // Define default roles
+      const roles = [
+        {
+          name: 'System Administrator',
+          description: 'Full system access with all permissions',
+          permissions: Array.from(createdPermissions.values()).map(p => p.id), // All permissions
+        },
+        {
+          name: 'IT Manager',
+          description: 'IT operations management with most permissions except user management',
+          permissions: [
+            'asset_create', 'asset_update', 'asset_delete', 'compliance_view',
+            'employee_create', 'employee_update', 'employee_delete',
+            'assignment_create', 'assignment_update', 'assignment_delete', 'assignment_return',
+            'location_create', 'location_update', 'location_delete',
+            'department_create', 'department_update', 'department_delete',
+            'vendor_create', 'vendor_update', 'vendor_delete',
+            'purchase_order_create',
+            'budget_create', 'budget_update', 'budget_delete',
+            'maintenance_create', 'maintenance_update', 'maintenance_delete'
+          ].map(name => createdPermissions.get(name).id),
+        },
+        {
+          name: 'Asset Manager',
+          description: 'Asset and assignment management',
+          permissions: [
+            'asset_create', 'asset_update', 'compliance_view',
+            'employee_create', 'employee_update',
+            'assignment_create', 'assignment_update', 'assignment_return',
+            'location_create', 'location_update',
+            'department_create', 'department_update',
+            'maintenance_create', 'maintenance_update'
+          ].map(name => createdPermissions.get(name).id),
+        },
+        {
+          name: 'Read Only User',
+          description: 'View-only access to system data',
+          permissions: [
+            'compliance_view'
+          ].map(name => createdPermissions.get(name).id),
+        },
+      ];
+
+      // Create roles and assign permissions
+      const createdRoles = new Map();
+      for (const roleData of roles) {
+        const { permissions: permissionIds, ...roleInfo } = roleData;
+        const role = await storage.createRole(roleInfo);
+        createdRoles.set(roleData.name, role);
+
+        // Assign permissions to role
+        for (const permissionId of permissionIds) {
+          await storage.assignPermissionToRole(role.id, permissionId);
+        }
+      }
+
+      // Create default admin user
+      const adminPasswordHash = await hashPassword('admin123');
+      const adminUser = await storage.createUser({
+        username: 'admin',
+        email: 'admin@company.com',
+        passwordHash: adminPasswordHash,
+        firstName: 'System',
+        lastName: 'Administrator',
+        isActive: true,
+      });
+
+      // Assign System Administrator role to admin user
+      const adminRole = createdRoles.get('System Administrator');
+      await storage.assignRoleToUser(adminUser.id, adminRole.id);
+
+      // Create default system settings
+      await storage.createSystemSetting({
+        key: 'asset_id_prefix',
+        value: 'AST',
+        description: 'Default prefix for asset IDs',
+        category: 'asset_management',
+      });
+
+      await storage.createSystemSetting({
+        key: 'asset_id_starting_number',
+        value: '1000',
+        description: 'Starting number for asset ID sequences',
+        category: 'asset_management',
+      });
+
+      await storage.createSystemSetting({
+        key: 'date_format',
+        value: 'DD-MM-YYYY',
+        description: 'Default date format used throughout the application',
+        category: 'system',
+      });
+
+      // Log successful seed data creation
+      console.log(`Seed data created successfully at ${new Date().toISOString()}`);
+      console.log(`- ${permissions.length} permissions created`);
+      console.log(`- ${roles.length} roles created`);
+      console.log(`- 1 admin user created (username: admin)`);
+      console.log(`- 3 system settings created`);
+
+      res.json({
+        message: "Seed data created successfully",
+        summary: {
+          permissions: permissions.length,
+          roles: roles.length,
+          users: 1,
+          systemSettings: 3,
+          adminCredentials: {
+            username: 'admin',
+            email: 'admin@company.com',
+            note: 'Please change the default password after first login'
+          }
+        },
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error creating seed data:", error);
+      res.status(500).json({ message: "Failed to create seed data" });
+    }
+  });
+
   // Data management routes - for clearing system data
   app.post("/api/system/clear-data", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {

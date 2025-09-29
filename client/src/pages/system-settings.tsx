@@ -100,6 +100,7 @@ export default function SystemSettings() {
     },
   });
 
+
   const onSubmit = (data: SystemSettingsFormData) => {
     updateMutation.mutate(data);
   };
@@ -283,6 +284,7 @@ export default function SystemSettings() {
           </div>
         </form>
       </Form>
+
 
       {/* Dangerous Operations Card */}
       <Card data-testid="card-dangerous-operations" className="border-destructive/50 bg-destructive/5 dark:bg-destructive/10">

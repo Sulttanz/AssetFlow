@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Shield, Users, BarChart3, Package } from "lucide-react";
+import { Loader2, Shield, Users, BarChart3, Package, Settings } from "lucide-react";
 import { Redirect } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useQuery } from "@tanstack/react-query";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -21,6 +22,12 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
+
+  // Check system initialization status
+  const { data: systemStatus, isLoading: statusLoading } = useQuery({
+    queryKey: ["/api/system/status"],
+    retry: false,
+  });
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -33,6 +40,23 @@ export default function AuthPage() {
   // Redirect if already logged in
   if (user) {
     return <Redirect to="/" />;
+  }
+
+  // Show loading while checking system status
+  if (statusLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+        <div className="flex flex-col items-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Checking system status...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to initialization if system is not set up
+  if (systemStatus && !systemStatus.initialized) {
+    return <Redirect to="/initialize" />;
   }
 
   const onSubmit = (data: LoginFormData) => {
