@@ -206,7 +206,6 @@ export default function Maintenance() {
   // Record mutations
   const createRecordMutation = useMutation({
     mutationFn: (data: RecordFormData) => {
-      console.log('Creating maintenance record with data:', data);
       const payload = {
         ...data,
         scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
@@ -218,11 +217,9 @@ export default function Maintenance() {
         condition: data.condition === "" ? undefined : data.condition,
         notes: data.notes === "" ? undefined : data.notes,
       };
-      console.log('Processed payload:', payload);
       return apiRequest("POST", `/api/maintenance-records`, payload);
     },
     onSuccess: () => {
-      console.log('Maintenance record created successfully');
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-records"] });
       setRecordCreateOpen(false);
       recordCreateForm.reset();
@@ -231,9 +228,7 @@ export default function Maintenance() {
         description: "Maintenance record created successfully.",
       });
     },
-    onError: (error) => {
-      console.log('Maintenance record creation failed:', error);
-      console.error('Full error:', error);
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to create maintenance record.",
