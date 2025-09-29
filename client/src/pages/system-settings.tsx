@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings, Save, RotateCcw, Info } from "lucide-react";
+import { Settings, Save, RotateCcw, Info, Trash2, AlertTriangle } from "lucide-react";
 
 const systemSettingsSchema = z.object({
   assetIdPrefix: z.string().min(1, "Asset ID prefix is required").max(10, "Prefix must be 10 characters or less"),
@@ -29,6 +30,8 @@ interface SystemSettings {
 
 export default function SystemSettings() {
   const { toast } = useToast();
+  const [clearDataPassword, setClearDataPassword] = useState("");
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
 
   const { data: settings, isLoading } = useQuery<SystemSettings>({
     queryKey: ["/api/system-settings"],
@@ -71,6 +74,32 @@ export default function SystemSettings() {
     },
   });
 
+  const clearDataMutation = useMutation({
+    mutationFn: async (confirmPassword: string) => {
+      const response = await apiRequest("POST", "/api/system/clear-data", {
+        confirmPassword
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Data Cleared Successfully",
+        description: `All system data has been cleared by ${data.clearedBy} at ${new Date(data.clearedAt).toLocaleString()}.`,
+      });
+      setClearDataPassword("");
+      setIsAlertOpen(false);
+      // Invalidate all queries to refresh the UI
+      queryClient.invalidateQueries();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Clear Data Failed",
+        description: error?.response?.data?.message || "Failed to clear system data. Please check your password and try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const onSubmit = (data: SystemSettingsFormData) => {
     updateMutation.mutate(data);
   };
@@ -81,6 +110,18 @@ export default function SystemSettings() {
       assetIdStartingNumber: 1000,
       dateFormat: "DD-MM-YYYY"
     });
+  };
+
+  const handleClearData = () => {
+    if (!clearDataPassword.trim()) {
+      toast({
+        title: "Password Required",
+        description: "Please enter your password to confirm data clearing.",
+        variant: "destructive",
+      });
+      return;
+    }
+    clearDataMutation.mutate(clearDataPassword);
   };
 
   if (isLoading) {
@@ -242,6 +283,112 @@ export default function SystemSettings() {
           </div>
         </form>
       </Form>
+
+      {/* Dangerous Operations Card */}
+      <Card data-testid="card-dangerous-operations" className="border-destructive/50 bg-destructive/5 dark:bg-destructive/10">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+            Dangerous Operations
+          </CardTitle>
+          <CardDescription className="text-muted-foreground">
+            These operations are irreversible and should be used with extreme caution. They are intended for system maintenance and testing purposes only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-sm font-medium text-destructive mb-2">Clear All System Data</h4>
+              <p className="text-sm text-muted-foreground mb-4">
+                This will permanently delete all assets, employees, assignments, locations, departments, vendors, purchase orders, budgets, and maintenance records. 
+                <span className="font-semibold text-destructive"> This action cannot be undone.</span>
+              </p>
+              <div className="rounded-md bg-amber-50 dark:bg-amber-950 p-4 mb-4">
+                <div className="flex">
+                  <AlertTriangle className="h-5 w-5 text-amber-400 mr-3 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="text-amber-800 dark:text-amber-200 font-medium">
+                      Warning: Data Loss Risk
+                    </p>
+                    <ul className="text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
+                      <li>All business data will be permanently deleted</li>
+                      <li>System settings and user accounts will be preserved</li>
+                      <li>This operation requires your current password</li>
+                      <li>Consider creating a backup before proceeding</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  data-testid="button-clear-data"
+                  className="flex items-center gap-2"
+                  disabled={clearDataMutation.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear All System Data
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent data-testid="dialog-clear-data">
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                    <AlertTriangle className="h-5 w-5" />
+                    Confirm Data Clearing
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all system data including assets, employees, assignments, and all related records. 
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                
+                <div className="py-4">
+                  <Label htmlFor="confirm-password" className="text-sm font-medium">
+                    Enter your current password to confirm:
+                  </Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="Your current password"
+                    value={clearDataPassword}
+                    onChange={(e) => setClearDataPassword(e.target.value)}
+                    data-testid="input-confirm-password"
+                    className="mt-2"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !clearDataMutation.isPending) {
+                        handleClearData();
+                      }
+                    }}
+                  />
+                </div>
+                
+                <AlertDialogFooter>
+                  <AlertDialogCancel 
+                    onClick={() => {
+                      setClearDataPassword("");
+                      setIsAlertOpen(false);
+                    }}
+                    data-testid="button-cancel-clear"
+                  >
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleClearData}
+                    disabled={clearDataMutation.isPending || !clearDataPassword.trim()}
+                    data-testid="button-confirm-clear"
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {clearDataMutation.isPending ? "Clearing Data..." : "Clear All Data"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
