@@ -105,12 +105,18 @@ export default function Budgets() {
 
   // Mutations
   const createMutation = useMutation({
-    mutationFn: (data: BudgetFormData) => apiRequest(`/api/budgets`, "POST", {
-      ...data,
-      departmentId: data.departmentId === "" ? undefined : data.departmentId,
-      locationId: data.locationId === "" ? undefined : data.locationId,
-    }),
+    mutationFn: (data: BudgetFormData) => {
+      console.log('Mutation function called with:', data);
+      const payload = {
+        ...data,
+        departmentId: data.departmentId === "" ? undefined : data.departmentId,
+        locationId: data.locationId === "" ? undefined : data.locationId,
+      };
+      console.log('API payload:', payload);
+      return apiRequest(`/api/budgets`, "POST", payload);
+    },
     onSuccess: () => {
+      console.log('Budget created successfully!');
       queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
       setCreateOpen(false);
       createForm.reset();
@@ -119,7 +125,9 @@ export default function Budgets() {
         description: "Budget created successfully.",
       });
     },
-    onError: () => {
+    onError: (error) => {
+      console.log('Budget creation failed:', error);
+      console.error('Full error object:', error);
       toast({
         title: "Error",
         description: "Failed to create budget.",
