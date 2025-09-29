@@ -30,6 +30,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } = useQuery<UserWithDetails | undefined, Error>({
     queryKey: ["/api/user"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    gcTime: 1000 * 60 * 10, // 10 minutes (previously cacheTime)
   });
 
   const loginMutation = useMutation({
@@ -37,8 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await apiRequest("POST", "/api/login", credentials);
       return await res.json();
     },
-    onSuccess: (user: UserWithDetails) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: () => {
+      // Don't cache the login response - let AuthProvider fetch complete user data with permissions
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       toast({
         title: "Login successful",
         description: "Welcome back!",

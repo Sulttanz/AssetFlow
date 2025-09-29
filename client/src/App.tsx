@@ -18,6 +18,8 @@ import PurchaseOrders from "@/pages/purchase-orders";
 import Budgets from "@/pages/budgets";
 import Maintenance from "@/pages/maintenance";
 import Users from "@/pages/users";
+import Roles from "@/pages/roles";
+import Permissions from "@/pages/permissions";
 import SystemSettings from "@/pages/system-settings";
 import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
@@ -42,7 +44,9 @@ function Router() {
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
                   <ProtectedRoute path="/assets" component={Assets} />
                   <ProtectedRoute path="/employees" component={Employees} />
-                  <ProtectedRoute path="/users" component={Users} />
+                  <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
+                  <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
+                  <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
                   <ProtectedRoute path="/assignments" component={Assignments} />
                   <ProtectedRoute path="/locations" component={Locations} />

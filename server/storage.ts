@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, isNull, and, inArray } from "drizzle-orm";
+import { eq, isNull, and, inArray, sql } from "drizzle-orm";
 import { EventEmitter } from "events";
 
 export interface IStorage {
@@ -2137,13 +2137,18 @@ export class DatabaseStorage implements IStorage {
     for (const role of allRoles) {
       const rolePermissionData = await db.select().from(rolePermissions).where(eq(rolePermissions.roleId, role.id));
       const permissionIds = rolePermissionData.map(rp => rp.permissionId);
-      const rolePermissions = permissionIds.length > 0 
-        ? await db.select().from(permissions).where(and(...permissionIds.map(id => eq(permissions.id, id))))
+      const rolePermissionsData = permissionIds.length > 0 
+        ? await db.select().from(permissions).where(inArray(permissions.id, permissionIds))
         : [];
+      
+      const userCount = await db.select({ count: sql<number>`count(*)` })
+        .from(userRoles)
+        .where(eq(userRoles.roleId, role.id));
       
       result.push({
         ...role,
-        permissions: rolePermissions
+        permissions: rolePermissionsData,
+        userCount: userCount[0]?.count || 0
       });
     }
     
