@@ -145,7 +145,7 @@ export default function Maintenance() {
 
   // Schedule mutations
   const createScheduleMutation = useMutation({
-    mutationFn: (data: ScheduleFormData) => apiRequest(`/api/maintenance-schedules`, "POST", data),
+    mutationFn: (data: ScheduleFormData) => apiRequest("POST", `/api/maintenance-schedules`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-schedules"] });
       setScheduleCreateOpen(false);
@@ -166,7 +166,7 @@ export default function Maintenance() {
 
   const updateScheduleMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: ScheduleFormData }) =>
-      apiRequest(`/api/maintenance-schedules/${id}`, "PUT", data),
+      apiRequest("PUT", `/api/maintenance-schedules/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-schedules"] });
       setScheduleEditOpen(false);
@@ -186,7 +186,7 @@ export default function Maintenance() {
   });
 
   const deleteScheduleMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/maintenance-schedules/${id}`, "DELETE"),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/maintenance-schedules/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-schedules"] });
       toast({
@@ -205,7 +205,7 @@ export default function Maintenance() {
 
   // Record mutations
   const createRecordMutation = useMutation({
-    mutationFn: (data: RecordFormData) => apiRequest(`/api/maintenance-records`, "POST", {
+    mutationFn: (data: RecordFormData) => apiRequest("POST", `/api/maintenance-records`, {
       ...data,
       scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
     }),
@@ -229,7 +229,7 @@ export default function Maintenance() {
 
   const updateRecordMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: RecordFormData }) =>
-      apiRequest(`/api/maintenance-records/${id}`, "PUT", {
+      apiRequest("PUT", `/api/maintenance-records/${id}`, {
         ...data,
         scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
       }),
@@ -252,7 +252,7 @@ export default function Maintenance() {
   });
 
   const deleteRecordMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/maintenance-records/${id}`, "DELETE"),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/maintenance-records/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-records"] });
       toast({
