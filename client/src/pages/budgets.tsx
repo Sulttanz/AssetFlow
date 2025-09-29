@@ -173,6 +173,10 @@ export default function Budgets() {
   });
 
   const handleCreate = (data: BudgetFormData) => {
+    console.log('Form submitted with data:', data);
+    console.log('Form validation errors:', createForm.formState.errors);
+    console.log('Form is valid:', createForm.formState.isValid);
+
     // Helper function to process numeric fields - convert empty strings to default values
     const processStringNumericField = (numericValue: string | null | undefined, defaultValue: string = "0"): string => {
       if (numericValue === null || numericValue === undefined) {
@@ -192,6 +196,9 @@ export default function Budgets() {
       fiscalYear: typeof data.fiscalYear === 'number' ? data.fiscalYear : (data.fiscalYear && !isNaN(Number(data.fiscalYear)) ? Number(data.fiscalYear) : new Date().getFullYear()),
     };
 
+    console.log('Processed data to send to API:', processedData);
+    console.log('About to call createMutation.mutate...');
+    
     createMutation.mutate(processedData);
   };
 
