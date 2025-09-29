@@ -48,6 +48,9 @@ import {
 const budgetFormSchema = insertBudgetSchema.extend({
   departmentId: z.string().optional(),
   locationId: z.string().optional(),
+  fiscalYear: z.union([z.number(), z.string()]).transform(val => 
+    typeof val === 'string' ? parseInt(val, 10) : val
+  ),
 });
 
 type BudgetFormData = z.infer<typeof budgetFormSchema>;
