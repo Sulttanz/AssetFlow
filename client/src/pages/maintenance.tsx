@@ -210,6 +210,13 @@ export default function Maintenance() {
       const payload = {
         ...data,
         scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
+        cost: data.cost && data.cost !== "" ? parseFloat(data.cost) : undefined,
+        description: data.description === "" ? undefined : data.description,
+        workPerformed: data.workPerformed === "" ? undefined : data.workPerformed,
+        partsReplaced: data.partsReplaced === "" ? undefined : data.partsReplaced,
+        nextMaintenanceDate: data.nextMaintenanceDate === "" ? undefined : data.nextMaintenanceDate,
+        condition: data.condition === "" ? undefined : data.condition,
+        notes: data.notes === "" ? undefined : data.notes,
       };
       console.log('Processed payload:', payload);
       return apiRequest("POST", `/api/maintenance-records`, payload);
