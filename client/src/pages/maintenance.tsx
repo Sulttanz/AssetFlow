@@ -210,7 +210,7 @@ export default function Maintenance() {
       const payload = {
         ...data,
         scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
-        cost: data.cost && data.cost !== "" ? parseFloat(data.cost) : undefined,
+        cost: data.cost === "" ? undefined : data.cost,
         description: data.description === "" ? undefined : data.description,
         workPerformed: data.workPerformed === "" ? undefined : data.workPerformed,
         partsReplaced: data.partsReplaced === "" ? undefined : data.partsReplaced,
