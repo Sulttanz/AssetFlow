@@ -106,17 +106,14 @@ export default function Budgets() {
   // Mutations
   const createMutation = useMutation({
     mutationFn: (data: BudgetFormData) => {
-      console.log('Mutation function called with:', data);
       const payload = {
         ...data,
         departmentId: data.departmentId === "" ? undefined : data.departmentId,
         locationId: data.locationId === "" ? undefined : data.locationId,
       };
-      console.log('API payload:', payload);
       return apiRequest("POST", `/api/budgets`, payload);
     },
     onSuccess: () => {
-      console.log('Budget created successfully!');
       queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
       setCreateOpen(false);
       createForm.reset();
@@ -125,9 +122,7 @@ export default function Budgets() {
         description: "Budget created successfully.",
       });
     },
-    onError: (error) => {
-      console.log('Budget creation failed:', error);
-      console.error('Full error object:', error);
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to create budget.",
@@ -181,10 +176,6 @@ export default function Budgets() {
   });
 
   const handleCreate = (data: BudgetFormData) => {
-    console.log('Form submitted with data:', data);
-    console.log('Form validation errors:', createForm.formState.errors);
-    console.log('Form is valid:', createForm.formState.isValid);
-
     // Helper function to process numeric fields - convert empty strings to default values
     const processStringNumericField = (numericValue: string | null | undefined, defaultValue: string = "0"): string => {
       if (numericValue === null || numericValue === undefined) {
@@ -204,9 +195,6 @@ export default function Budgets() {
       fiscalYear: typeof data.fiscalYear === 'number' ? data.fiscalYear : (data.fiscalYear && !isNaN(Number(data.fiscalYear)) ? Number(data.fiscalYear) : new Date().getFullYear()),
     };
 
-    console.log('Processed data to send to API:', processedData);
-    console.log('About to call createMutation.mutate...');
-    
     createMutation.mutate(processedData);
   };
 
