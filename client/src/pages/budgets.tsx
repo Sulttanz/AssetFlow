@@ -113,7 +113,7 @@ export default function Budgets() {
         locationId: data.locationId === "" ? undefined : data.locationId,
       };
       console.log('API payload:', payload);
-      return apiRequest(`/api/budgets`, "POST", payload);
+      return apiRequest("POST", `/api/budgets`, payload);
     },
     onSuccess: () => {
       console.log('Budget created successfully!');
@@ -138,7 +138,7 @@ export default function Budgets() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: BudgetFormData }) =>
-      apiRequest(`/api/budgets/${id}`, "PUT", {
+      apiRequest("PUT", `/api/budgets/${id}`, {
         ...data,
         departmentId: data.departmentId === "" ? undefined : data.departmentId,
         locationId: data.locationId === "" ? undefined : data.locationId,
@@ -163,7 +163,7 @@ export default function Budgets() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/budgets/${id}`, "DELETE"),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/budgets/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/budgets"] });
       toast({
