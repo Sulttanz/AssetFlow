@@ -173,9 +173,6 @@ export default function Budgets() {
   });
 
   const handleCreate = (data: BudgetFormData) => {
-    console.log('Form data received:', data);
-    console.log('Form errors:', createForm.formState.errors);
-
     // Helper function to process numeric fields - convert empty strings to default values
     const processStringNumericField = (numericValue: string | null | undefined, defaultValue: string = "0"): string => {
       if (numericValue === null || numericValue === undefined) {
@@ -195,7 +192,6 @@ export default function Budgets() {
       fiscalYear: typeof data.fiscalYear === 'number' ? data.fiscalYear : (data.fiscalYear && !isNaN(Number(data.fiscalYear)) ? Number(data.fiscalYear) : new Date().getFullYear()),
     };
 
-    console.log('Processed data to be sent:', processedData);
     createMutation.mutate(processedData);
   };
 
@@ -741,7 +737,6 @@ export default function Budgets() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">No Department</SelectItem>
                           {departments.map((dept) => (
                             <SelectItem key={dept.id} value={dept.id}>
                               {dept.name}
@@ -768,7 +763,6 @@ export default function Budgets() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">No Location</SelectItem>
                         {locations.map((location) => (
                           <SelectItem key={location.id} value={location.id}>
                             {location.name}
