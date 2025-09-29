@@ -411,13 +411,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create default admin user
-      const adminPasswordHash = await hashPassword('admin123');
+      const adminPasswordHash = await hashPassword('123456');
       const adminUser = await storage.createUser({
-        username: 'admin',
-        email: 'admin@company.com',
+        username: 'ahmad.sulttan',
+        email: 'ahmad.sulttan@gmail.com',
         passwordHash: adminPasswordHash,
-        firstName: 'System',
-        lastName: 'Administrator',
+        firstName: 'Ahmad',
+        lastName: 'Sulttan',
         isActive: true,
       });
 
@@ -462,9 +462,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           users: 1,
           systemSettings: 3,
           adminCredentials: {
-            username: 'admin',
-            email: 'admin@company.com',
-            note: 'Please change the default password after first login'
+            username: 'ahmad.sulttan',
+            email: 'ahmad.sulttan@gmail.com',
+            note: 'Your admin account is ready to use'
           }
         },
         createdAt: new Date().toISOString()
