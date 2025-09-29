@@ -2284,8 +2284,10 @@ export class DatabaseStorage implements IStorage {
       get(sid: string, callback: (err: any, session?: any) => void) {
         try {
           const session = this.sessions.get(sid) || null;
+          console.log('🔄 SessionStore: get() called for session', sid, session ? 'found' : 'not found');
           process.nextTick(() => callback(null, session));
         } catch (error) {
+          console.error('💥 SessionStore: get() error:', error);
           process.nextTick(() => callback(error));
         }
       }
@@ -2383,25 +2385,24 @@ export class DatabaseStorage implements IStorage {
 
       createSession(req: any, session: any) {
         try {
-          console.log('🔄 SessionStore: CreateSession called');
-          // Add required session methods that express-session expects
-          if (session && typeof session === 'object') {
-            session.reload = session.reload || function(callback) { 
-              if (callback) process.nextTick(() => callback(null)); 
-            };
-            session.destroy = session.destroy || function(callback) { 
-              if (callback) process.nextTick(() => callback(null)); 
-            };
-            session.regenerate = session.regenerate || function(callback) { 
-              if (callback) process.nextTick(() => callback(null)); 
-            };
-            session.save = session.save || function(callback) { 
-              if (callback) process.nextTick(() => callback(null)); 
+          console.log('🔄 SessionStore: createSession() called');
+          // Return simple session object and let express-session handle method wrapping
+          const sessionObj = session || {};
+          
+          // Ensure basic cookie property exists
+          if (!sessionObj.cookie) {
+            sessionObj.cookie = {
+              originalMaxAge: 24 * 60 * 60 * 1000, // 24 hours
+              expires: null,
+              httpOnly: true,
+              path: '/',
+              secure: false
             };
           }
-          return session;
+          
+          return sessionObj;
         } catch (error) {
-          console.error('💥 SessionStore: Error during createSession:', error);
+          console.error('💥 SessionStore: createSession() error:', error);
           throw error;
         }
       }
