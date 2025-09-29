@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { setupAuth, requireAuth, requirePermission } from "./auth";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
@@ -10,8 +11,10 @@ import {
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Assets routes
-  app.get("/api/assets", async (req, res) => {
+  // Setup authentication system
+  setupAuth(app);
+  // Assets routes - all require authentication
+  app.get("/api/assets", requireAuth, async (req, res) => {
     try {
       const assets = await storage.getAssetsWithAssignments();
       res.json(assets);
@@ -20,7 +23,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/assets/:id", async (req, res) => {
+  app.get("/api/assets/:id", requireAuth, async (req, res) => {
     try {
       const asset = await storage.getAsset(req.params.id);
       if (!asset) {
@@ -32,7 +35,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/assets", async (req, res) => {
+  app.post("/api/assets", requireAuth, requirePermission('asset_create'), async (req, res) => {
     try {
       console.log("Asset creation request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.parse(req.body);
@@ -49,7 +52,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/assets/:id", async (req, res) => {
+  app.put("/api/assets/:id", requireAuth, requirePermission('asset_update'), async (req, res) => {
     try {
       console.log("Asset update request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.partial().parse(req.body);
@@ -69,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/assets/:id", async (req, res) => {
+  app.delete("/api/assets/:id", requireAuth, requirePermission('asset_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteAsset(req.params.id);
       if (!deleted) {
@@ -82,7 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Employees routes
-  app.get("/api/employees", async (req, res) => {
+  app.get("/api/employees", requireAuth, async (req, res) => {
     try {
       const employees = await storage.getEmployeesWithDetails();
       res.json(employees);
@@ -91,7 +94,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/employees/:id", async (req, res) => {
+  app.get("/api/employees/:id", requireAuth, async (req, res) => {
     try {
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) {
@@ -103,7 +106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees", async (req, res) => {
+  app.post("/api/employees", requireAuth, requirePermission('employee_create'), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.parse(req.body);
       const employee = await storage.createEmployee(validatedData);
@@ -116,7 +119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/employees/:id", async (req, res) => {
+  app.put("/api/employees/:id", requireAuth, requirePermission('employee_update'), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.partial().parse(req.body);
       const employee = await storage.updateEmployee(req.params.id, validatedData);
@@ -132,7 +135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/employees/:id", async (req, res) => {
+  app.delete("/api/employees/:id", requireAuth, requirePermission('employee_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteEmployee(req.params.id);
       if (!deleted) {
@@ -145,7 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Assignments routes
-  app.get("/api/assignments", async (req, res) => {
+  app.get("/api/assignments", requireAuth, async (req, res) => {
     try {
       const assignments = await storage.getAssignmentsWithDetails();
       res.json(assignments);
@@ -154,7 +157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/assignments/:id", async (req, res) => {
+  app.get("/api/assignments/:id", requireAuth, async (req, res) => {
     try {
       const assignment = await storage.getAssignment(req.params.id);
       if (!assignment) {
@@ -166,7 +169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/assignments", async (req, res) => {
+  app.post("/api/assignments", requireAuth, requirePermission('assignment_create'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.parse(req.body);
       const assignment = await storage.createAssignment(validatedData);
@@ -179,7 +182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/assignments/:id", async (req, res) => {
+  app.put("/api/assignments/:id", requireAuth, requirePermission('assignment_update'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.partial().parse(req.body);
       const assignment = await storage.updateAssignment(req.params.id, validatedData);
@@ -195,7 +198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/assignments/:id", async (req, res) => {
+  app.delete("/api/assignments/:id", requireAuth, requirePermission('assignment_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteAssignment(req.params.id);
       if (!deleted) {
@@ -208,7 +211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Return asset (end assignment)
-  app.post("/api/assignments/:id/return", async (req, res) => {
+  app.post("/api/assignments/:id/return", requireAuth, requirePermission('assignment_return'), async (req, res) => {
     try {
       const assignment = await storage.getAssignment(req.params.id);
       if (!assignment) {
@@ -229,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dashboard stats
-  app.get("/api/dashboard/stats", async (req, res) => {
+  app.get("/api/dashboard/stats", requireAuth, async (req, res) => {
     try {
       const assets = await storage.getAssets();
       const employees = await storage.getEmployees();
@@ -257,7 +260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Locations routes
-  app.get("/api/locations", async (req, res) => {
+  app.get("/api/locations", requireAuth, async (req, res) => {
     try {
       const locations = await storage.getLocationsWithDetails();
       res.json(locations);
@@ -266,7 +269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/locations", async (req, res) => {
+  app.post("/api/locations", requireAuth, requirePermission('location_create'), async (req, res) => {
     try {
       const validatedData = insertLocationSchema.parse(req.body);
       const location = await storage.createLocation(validatedData);
@@ -279,7 +282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/locations/:id", async (req, res) => {
+  app.put("/api/locations/:id", requireAuth, requirePermission('location_update'), async (req, res) => {
     try {
       const validatedData = insertLocationSchema.partial().parse(req.body);
       const location = await storage.updateLocation(req.params.id, validatedData);
@@ -295,7 +298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/locations/:id", async (req, res) => {
+  app.delete("/api/locations/:id", requireAuth, requirePermission('location_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteLocation(req.params.id);
       if (!deleted) {
@@ -308,7 +311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Departments routes
-  app.get("/api/departments", async (req, res) => {
+  app.get("/api/departments", requireAuth, async (req, res) => {
     try {
       const departments = await storage.getDepartmentsWithDetails();
       res.json(departments);
@@ -317,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/departments", async (req, res) => {
+  app.post("/api/departments", requireAuth, requirePermission('department_create'), async (req, res) => {
     try {
       const validatedData = insertDepartmentSchema.parse(req.body);
       const department = await storage.createDepartment(validatedData);
@@ -330,7 +333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/departments/:id", async (req, res) => {
+  app.put("/api/departments/:id", requireAuth, requirePermission('department_update'), async (req, res) => {
     try {
       const validatedData = insertDepartmentSchema.partial().parse(req.body);
       const department = await storage.updateDepartment(req.params.id, validatedData);
@@ -346,7 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/departments/:id", async (req, res) => {
+  app.delete("/api/departments/:id", requireAuth, requirePermission('department_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteDepartment(req.params.id);
       if (!deleted) {
@@ -359,7 +362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Vendors routes
-  app.get("/api/vendors", async (req, res) => {
+  app.get("/api/vendors", requireAuth, async (req, res) => {
     try {
       const vendors = await storage.getVendorsWithDetails();
       res.json(vendors);
@@ -368,7 +371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/vendors", async (req, res) => {
+  app.post("/api/vendors", requireAuth, requirePermission('vendor_create'), async (req, res) => {
     try {
       const validatedData = insertVendorSchema.parse(req.body);
       const vendor = await storage.createVendor(validatedData);
@@ -381,7 +384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/vendors/:id", async (req, res) => {
+  app.get("/api/vendors/:id", requireAuth, async (req, res) => {
     try {
       const vendor = await storage.getVendor(req.params.id);
       if (!vendor) {
@@ -393,7 +396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/vendors/:id", async (req, res) => {
+  app.put("/api/vendors/:id", requireAuth, requirePermission('vendor_update'), async (req, res) => {
     try {
       const validatedData = insertVendorSchema.partial().parse(req.body);
       const vendor = await storage.updateVendor(req.params.id, validatedData);
@@ -409,7 +412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/vendors/:id", async (req, res) => {
+  app.delete("/api/vendors/:id", requireAuth, requirePermission('vendor_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteVendor(req.params.id);
       if (!deleted) {
@@ -422,7 +425,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Purchase Orders routes
-  app.get("/api/purchase-orders", async (req, res) => {
+  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
     try {
       const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
       res.json(purchaseOrders);
@@ -431,7 +434,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/purchase-orders", async (req, res) => {
+  app.post("/api/purchase-orders", requireAuth, requirePermission('purchase_order_create'), async (req, res) => {
     try {
       const validatedData = insertPurchaseOrderSchema.parse(req.body);
       const purchaseOrder = await storage.createPurchaseOrder(validatedData);
@@ -445,7 +448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Budgets routes
-  app.get("/api/budgets", async (req, res) => {
+  app.get("/api/budgets", requireAuth, async (req, res) => {
     try {
       const budgets = await storage.getBudgets();
       res.json(budgets);
@@ -454,7 +457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/budgets", async (req, res) => {
+  app.post("/api/budgets", requireAuth, requirePermission('budget_create'), async (req, res) => {
     try {
       const validatedData = insertBudgetSchema.parse(req.body);
       const budget = await storage.createBudget(validatedData);
@@ -467,7 +470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/budgets/:id", async (req, res) => {
+  app.put("/api/budgets/:id", requireAuth, requirePermission('budget_update'), async (req, res) => {
     try {
       const validatedData = insertBudgetSchema.partial().parse(req.body);
       const budget = await storage.updateBudget(req.params.id, validatedData);
@@ -483,7 +486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/budgets/:id", async (req, res) => {
+  app.delete("/api/budgets/:id", requireAuth, requirePermission('budget_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteBudget(req.params.id);
       if (!deleted) {
@@ -496,7 +499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Maintenance Schedules routes
-  app.get("/api/maintenance-schedules", async (req, res) => {
+  app.get("/api/maintenance-schedules", requireAuth, async (req, res) => {
     try {
       const schedules = await storage.getMaintenanceSchedulesWithDetails();
       res.json(schedules);
@@ -505,7 +508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/maintenance-schedules", async (req, res) => {
+  app.post("/api/maintenance-schedules", requireAuth, requirePermission('maintenance_create'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceScheduleSchema.parse(req.body);
       const schedule = await storage.createMaintenanceSchedule(validatedData);
@@ -518,7 +521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/maintenance-schedules/:id", async (req, res) => {
+  app.put("/api/maintenance-schedules/:id", requireAuth, requirePermission('maintenance_update'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceScheduleSchema.partial().parse(req.body);
       const schedule = await storage.updateMaintenanceSchedule(req.params.id, validatedData);
@@ -534,7 +537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/maintenance-schedules/:id", async (req, res) => {
+  app.delete("/api/maintenance-schedules/:id", requireAuth, requirePermission('maintenance_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteMaintenanceSchedule(req.params.id);
       if (!deleted) {
@@ -547,7 +550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Maintenance Records routes
-  app.get("/api/maintenance-records", async (req, res) => {
+  app.get("/api/maintenance-records", requireAuth, async (req, res) => {
     try {
       const records = await storage.getMaintenanceRecordsWithDetails();
       res.json(records);
@@ -556,7 +559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/maintenance-records", async (req, res) => {
+  app.post("/api/maintenance-records", requireAuth, requirePermission('maintenance_create'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceRecordSchema.parse(req.body);
       const record = await storage.createMaintenanceRecord(validatedData);
@@ -569,7 +572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/maintenance-records/:id", async (req, res) => {
+  app.put("/api/maintenance-records/:id", requireAuth, requirePermission('maintenance_update'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceRecordSchema.partial().parse(req.body);
       const record = await storage.updateMaintenanceRecord(req.params.id, validatedData);
@@ -585,7 +588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/maintenance-records/:id", async (req, res) => {
+  app.delete("/api/maintenance-records/:id", requireAuth, requirePermission('maintenance_delete'), async (req, res) => {
     try {
       const deleted = await storage.deleteMaintenanceRecord(req.params.id);
       if (!deleted) {
@@ -600,7 +603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ISO 27001 Compliance Routes
   
   // Get assets by security classification
-  app.get("/api/compliance/assets/security-classification/:classification", async (req, res) => {
+  app.get("/api/compliance/assets/security-classification/:classification", requireAuth, requirePermission('compliance_view'), async (req, res) => {
     try {
       const assets = await storage.getAssets();
       const filtered = assets.filter((asset: any) => 
@@ -613,7 +616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get assets due for compliance audit
-  app.get("/api/compliance/assets/audit-due", async (req, res) => {
+  app.get("/api/compliance/assets/audit-due", requireAuth, requirePermission('compliance_view'), async (req, res) => {
     try {
       const assets = await storage.getAssets();
       const today = new Date();
@@ -629,7 +632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get assets by compliance status
-  app.get("/api/compliance/assets/status/:status", async (req, res) => {
+  app.get("/api/compliance/assets/status/:status", requireAuth, requirePermission('compliance_view'), async (req, res) => {
     try {
       const assets = await storage.getAssets();
       const filtered = assets.filter((asset: any) => 
@@ -642,7 +645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get vendors by risk level
-  app.get("/api/compliance/vendors/risk/:level", async (req, res) => {
+  app.get("/api/compliance/vendors/risk/:level", requireAuth, requirePermission('compliance_view'), async (req, res) => {
     try {
       const vendors = await storage.getVendors();
       const filtered = vendors.filter((vendor: any) => 
@@ -655,7 +658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get compliance dashboard summary
-  app.get("/api/compliance/dashboard", async (req, res) => {
+  app.get("/api/compliance/dashboard", requireAuth, requirePermission('compliance_view'), async (req, res) => {
     try {
       const assets = await storage.getAssets();
       const vendors = await storage.getVendors();

@@ -1,19 +1,23 @@
 import { 
   type Asset, type Employee, type Assignment, type Location, type Department,
   type Vendor, type PurchaseOrder, type PurchaseOrderItem, type Budget, 
-  type MaintenanceSchedule, type MaintenanceRecord,
+  type MaintenanceSchedule, type MaintenanceRecord, type User, type Role, type Permission,
+  type UserRole, type RolePermission, type SystemSetting,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
+  type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
+  type InsertRolePermission, type InsertSystemSetting,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
-  type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails,
+  type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, isNull, and } from "drizzle-orm";
+import { EventEmitter } from "events";
 
 export interface IStorage {
   // Assets
@@ -107,6 +111,47 @@ export interface IStorage {
   updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord | undefined>;
   deleteMaintenanceRecord(id: string): Promise<boolean>;
   getMaintenanceRecordsByAsset(assetId: string): Promise<MaintenanceRecord[]>;
+
+  // User Management
+  getUsers(): Promise<User[]>;
+  getUsersWithDetails(): Promise<UserWithDetails[]>;
+  getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
+
+  // Role Management
+  getRoles(): Promise<Role[]>;
+  getRolesWithDetails(): Promise<RoleWithDetails[]>;
+  getRole(id: string): Promise<Role | undefined>;
+  createRole(role: InsertRole): Promise<Role>;
+  updateRole(id: string, role: Partial<InsertRole>): Promise<Role | undefined>;
+  deleteRole(id: string): Promise<boolean>;
+
+  // Permission Management
+  getPermissions(): Promise<Permission[]>;
+  getPermission(id: string): Promise<Permission | undefined>;
+  createPermission(permission: InsertPermission): Promise<Permission>;
+  getUserPermissions(userId: string): Promise<string[]>; // Returns permission names
+  getUserRoles(userId: string): Promise<Role[]>;
+  assignUserRole(userId: string, roleId: string, assignedBy?: string): Promise<UserRole>;
+  removeUserRole(userId: string, roleId: string): Promise<boolean>;
+  assignRolePermission(roleId: string, permissionId: string): Promise<RolePermission>;
+  removeRolePermission(roleId: string, permissionId: string): Promise<boolean>;
+
+  // System Settings
+  getSystemSettings(): Promise<SystemSetting[]>;
+  getSystemSetting(key: string): Promise<SystemSetting | undefined>;
+  updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting>;
+  createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting>;
+
+  // Data Management
+  clearAllData(): Promise<boolean>;
+
+  // Session Store (for authentication)
+  sessionStore: any; // session.SessionStore;
 }
 
 export class MemStorage implements IStorage {
@@ -121,6 +166,17 @@ export class MemStorage implements IStorage {
   private budgets: Map<string, Budget>;
   private maintenanceSchedules: Map<string, MaintenanceSchedule>;
   private maintenanceRecords: Map<string, MaintenanceRecord>;
+  
+  // User Management Collections
+  private users: Map<string, User>;
+  private roles: Map<string, Role>;
+  private permissions: Map<string, Permission>;
+  private userRoles: Map<string, UserRole>;
+  private rolePermissions: Map<string, RolePermission>;
+  private systemSettings: Map<string, SystemSetting>;
+  
+  // Session store for authentication
+  sessionStore: any;
 
   constructor() {
     this.assets = new Map();
@@ -134,6 +190,75 @@ export class MemStorage implements IStorage {
     this.budgets = new Map();
     this.maintenanceSchedules = new Map();
     this.maintenanceRecords = new Map();
+    
+    // Initialize user management collections
+    this.users = new Map();
+    this.roles = new Map(); 
+    this.permissions = new Map();
+    this.userRoles = new Map();
+    this.rolePermissions = new Map();
+    this.systemSettings = new Map();
+    
+    // Initialize session store for authentication
+    this.initializeSessionStore();
+  }
+
+  private initializeSessionStore() {
+    // Create a simple in-memory session store that extends EventEmitter
+    class MemorySessionStore extends EventEmitter {
+      private sessions = new Map<string, any>();
+
+      get(sid: string, callback: (err: any, session?: any) => void) {
+        setImmediate(() => {
+          callback(null, this.sessions.get(sid) || null);
+        });
+      }
+
+      set(sid: string, session: any, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          this.sessions.set(sid, session);
+          callback?.();
+        });
+      }
+
+      destroy(sid: string, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          this.sessions.delete(sid);
+          callback?.();
+        });
+      }
+
+      all(callback: (err: any, obj?: any) => void) {
+        setImmediate(() => {
+          const allSessions = Object.fromEntries(this.sessions.entries());
+          callback(null, allSessions);
+        });
+      }
+
+      length(callback: (err: any, length?: number) => void) {
+        setImmediate(() => {
+          callback(null, this.sessions.size);
+        });
+      }
+
+      clear(callback?: (err?: any) => void) {
+        setImmediate(() => {
+          this.sessions.clear();
+          callback?.();
+        });
+      }
+
+      touch(sid: string, session: any, callback?: (err?: any) => void) {
+        setImmediate(() => {
+          if (this.sessions.has(sid)) {
+            this.sessions.set(sid, session);
+          }
+          callback?.();
+        });
+      }
+    }
+
+    this.sessionStore = new MemorySessionStore();
   }
 
   // Assets
@@ -1116,6 +1241,294 @@ export class MemStorage implements IStorage {
   async getMaintenanceRecordsByAsset(assetId: string): Promise<MaintenanceRecord[]> {
     return Array.from(this.maintenanceRecords.values()).filter(r => r.assetId === assetId);
   }
+
+  // User Management Methods
+  async getUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
+  }
+
+  async getUsersWithDetails(): Promise<UserWithDetails[]> {
+    const users = Array.from(this.users.values());
+    const result: UserWithDetails[] = [];
+    
+    for (const user of users) {
+      const roles = await this.getUserRoles(user.id);
+      const permissions = await this.getUserPermissions(user.id);
+      result.push({
+        ...user,
+        roles,
+        permissions
+      });
+    }
+    return result;
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.username === username);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(u => u.email === email);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const newUser: User = { 
+      ...user, 
+      id,
+      createdAt: new Date()
+    };
+    this.users.set(id, newUser);
+    return newUser;
+  }
+
+  async updateUser(id: string, updateData: Partial<InsertUser>): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    const updatedUser = { ...user, ...updateData };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    // Remove user roles first
+    const userRoleIds = Array.from(this.userRoles.values())
+      .filter(ur => ur.userId === id)
+      .map(ur => ur.id);
+    userRoleIds.forEach(urId => this.userRoles.delete(urId));
+    
+    return this.users.delete(id);
+  }
+
+  // Role Management
+  async getRoles(): Promise<Role[]> {
+    return Array.from(this.roles.values());
+  }
+
+  async getRolesWithDetails(): Promise<RoleWithDetails[]> {
+    const roles = Array.from(this.roles.values());
+    const result: RoleWithDetails[] = [];
+    
+    for (const role of roles) {
+      const rolePermissionIds = Array.from(this.rolePermissions.values())
+        .filter(rp => rp.roleId === role.id)
+        .map(rp => rp.permissionId);
+      
+      const permissions = rolePermissionIds
+        .map(pid => this.permissions.get(pid))
+        .filter(p => p !== undefined) as Permission[];
+      
+      const userCount = Array.from(this.userRoles.values())
+        .filter(ur => ur.roleId === role.id).length;
+      
+      result.push({
+        ...role,
+        permissions,
+        userCount
+      });
+    }
+    return result;
+  }
+
+  async getRole(id: string): Promise<Role | undefined> {
+    return this.roles.get(id);
+  }
+
+  async createRole(role: InsertRole): Promise<Role> {
+    const id = randomUUID();
+    const newRole: Role = { 
+      ...role, 
+      id,
+      createdAt: new Date()
+    };
+    this.roles.set(id, newRole);
+    return newRole;
+  }
+
+  async updateRole(id: string, updateData: Partial<InsertRole>): Promise<Role | undefined> {
+    const role = this.roles.get(id);
+    if (!role) return undefined;
+    const updatedRole = { ...role, ...updateData };
+    this.roles.set(id, updatedRole);
+    return updatedRole;
+  }
+
+  async deleteRole(id: string): Promise<boolean> {
+    // Remove role permissions and user roles first
+    const rolePermissionIds = Array.from(this.rolePermissions.values())
+      .filter(rp => rp.roleId === id)
+      .map(rp => rp.id);
+    rolePermissionIds.forEach(rpId => this.rolePermissions.delete(rpId));
+    
+    const userRoleIds = Array.from(this.userRoles.values())
+      .filter(ur => ur.roleId === id)
+      .map(ur => ur.id);
+    userRoleIds.forEach(urId => this.userRoles.delete(urId));
+    
+    return this.roles.delete(id);
+  }
+
+  // Permission Management
+  async getPermissions(): Promise<Permission[]> {
+    return Array.from(this.permissions.values());
+  }
+
+  async getPermission(id: string): Promise<Permission | undefined> {
+    return this.permissions.get(id);
+  }
+
+  async createPermission(permission: InsertPermission): Promise<Permission> {
+    const id = randomUUID();
+    const newPermission: Permission = { ...permission, id };
+    this.permissions.set(id, newPermission);
+    return newPermission;
+  }
+
+  async getUserPermissions(userId: string): Promise<string[]> {
+    // Get user's roles
+    const userRoleIds = Array.from(this.userRoles.values())
+      .filter(ur => ur.userId === userId)
+      .map(ur => ur.roleId);
+    
+    // Get all permissions for those roles
+    const permissionIds = new Set<string>();
+    for (const roleId of userRoleIds) {
+      const rolePerms = Array.from(this.rolePermissions.values())
+        .filter(rp => rp.roleId === roleId)
+        .map(rp => rp.permissionId);
+      rolePerms.forEach(pid => permissionIds.add(pid));
+    }
+    
+    // Convert permission IDs to permission names
+    const permissions: string[] = [];
+    for (const permId of permissionIds) {
+      const permission = this.permissions.get(permId);
+      if (permission) {
+        permissions.push(permission.name);
+      }
+    }
+    
+    return permissions;
+  }
+
+  async getUserRoles(userId: string): Promise<Role[]> {
+    const userRoleIds = Array.from(this.userRoles.values())
+      .filter(ur => ur.userId === userId)
+      .map(ur => ur.roleId);
+    
+    return userRoleIds
+      .map(roleId => this.roles.get(roleId))
+      .filter(role => role !== undefined) as Role[];
+  }
+
+  async assignUserRole(userId: string, roleId: string, assignedBy?: string): Promise<UserRole> {
+    const id = randomUUID();
+    const userRole: UserRole = {
+      id,
+      userId,
+      roleId,
+      assignedBy: assignedBy || null,
+      assignedAt: new Date()
+    };
+    this.userRoles.set(id, userRole);
+    return userRole;
+  }
+
+  async removeUserRole(userId: string, roleId: string): Promise<boolean> {
+    const userRole = Array.from(this.userRoles.values())
+      .find(ur => ur.userId === userId && ur.roleId === roleId);
+    
+    if (!userRole) return false;
+    
+    return this.userRoles.delete(userRole.id);
+  }
+
+  async assignRolePermission(roleId: string, permissionId: string): Promise<RolePermission> {
+    const id = randomUUID();
+    const rolePermission: RolePermission = {
+      id,
+      roleId,
+      permissionId
+    };
+    this.rolePermissions.set(id, rolePermission);
+    return rolePermission;
+  }
+
+  async removeRolePermission(roleId: string, permissionId: string): Promise<boolean> {
+    const rolePermission = Array.from(this.rolePermissions.values())
+      .find(rp => rp.roleId === roleId && rp.permissionId === permissionId);
+    
+    if (!rolePermission) return false;
+    
+    return this.rolePermissions.delete(rolePermission.id);
+  }
+
+  // System Settings
+  async getSystemSettings(): Promise<SystemSetting[]> {
+    return Array.from(this.systemSettings.values());
+  }
+
+  async getSystemSetting(key: string): Promise<SystemSetting | undefined> {
+    return Array.from(this.systemSettings.values()).find(s => s.key === key);
+  }
+
+  async updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting> {
+    const existing = await this.getSystemSetting(key);
+    if (existing) {
+      const updated = {
+        ...existing,
+        value,
+        updatedAt: new Date(),
+        updatedBy: updatedBy || null
+      };
+      this.systemSettings.set(existing.id, updated);
+      return updated;
+    } else {
+      // Create new setting if it doesn't exist
+      return this.createSystemSetting({
+        key,
+        value,
+        updatedBy: updatedBy || null
+      });
+    }
+  }
+
+  async createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting> {
+    const id = randomUUID();
+    const newSetting: SystemSetting = {
+      ...setting,
+      id,
+      updatedAt: new Date()
+    };
+    this.systemSettings.set(id, newSetting);
+    return newSetting;
+  }
+
+  // Data Management
+  async clearAllData(): Promise<boolean> {
+    this.assets.clear();
+    this.employees.clear();
+    this.assignments.clear();
+    this.locations.clear();
+    this.departments.clear();
+    this.vendors.clear();
+    this.purchaseOrders.clear();
+    this.purchaseOrderItems.clear();
+    this.budgets.clear();
+    this.maintenanceSchedules.clear();
+    this.maintenanceRecords.clear();
+    this.users.clear();
+    this.roles.clear();
+    this.permissions.clear();
+    this.userRoles.clear();
+    this.rolePermissions.clear();
+    // Note: Don't clear system settings as they may contain important configuration
+    return true;
+  }
 }
 
 // DatabaseStorage class that uses PostgreSQL via Drizzle ORM
@@ -1607,4 +2020,7 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage = new DatabaseStorage();
+// Temporarily using MemStorage while implementing user management
+// TODO: Switch back to DatabaseStorage after implementing user management methods
+export const storage = new MemStorage();
+// export const storage = new DatabaseStorage();

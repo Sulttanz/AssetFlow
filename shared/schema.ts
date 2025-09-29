@@ -403,6 +403,66 @@ export const maintenanceRecords = pgTable("maintenance_records", {
   notes: text("notes"),
 });
 
+// User Management & Authentication Tables
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  username: text("username").notNull().unique(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(), // bcrypt hashed password
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  isActive: boolean("is_active").default(true),
+  lastLogin: timestamp("last_login"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  createdBy: varchar("created_by"), // ID of admin who created this user
+});
+
+export const roles = pgTable("roles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isSystemRole: boolean("is_system_role").default(false), // true for built-in roles like 'admin'
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const permissions = pgTable("permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(), // view_assets, edit_users, delete_budgets, etc.
+  description: text("description"),
+  resource: text("resource"), // assets, users, budgets, etc.
+  action: text("action"), // view, create, edit, delete, manage
+});
+
+export const userRoles = pgTable("user_roles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  roleId: varchar("role_id").notNull().references(() => roles.id),
+  assignedAt: timestamp("assigned_at").default(sql`now()`),
+  assignedBy: varchar("assigned_by"), // ID of admin who assigned this role
+});
+
+export const rolePermissions = pgTable("role_permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roleId: varchar("role_id").notNull().references(() => roles.id),
+  permissionId: varchar("permission_id").notNull().references(() => permissions.id),
+});
+
+export const sessions = pgTable("sessions", {
+  sid: varchar("sid").primaryKey(),
+  sess: text("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
+export const systemSettings = pgTable("system_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(), // asset_id_prefix, asset_id_start_number, etc.
+  value: text("value"), // configuration values stored as strings
+  description: text("description"),
+  category: text("category"), // asset_management, user_management, system
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+  updatedBy: varchar("updated_by"), // ID of admin who updated this setting
+});
+
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
@@ -415,6 +475,14 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });
 export const insertMaintenanceScheduleSchema = createInsertSchema(maintenanceSchedules).omit({ id: true });
 export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecords).omit({ id: true });
+
+// User Management Insert Schemas
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertRoleSchema = createInsertSchema(roles).omit({ id: true, createdAt: true });
+export const insertPermissionSchema = createInsertSchema(permissions).omit({ id: true });
+export const insertUserRoleSchema = createInsertSchema(userRoles).omit({ id: true, assignedAt: true });
+export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true });
+export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({ id: true, updatedAt: true });
 
 // Insert types
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
@@ -429,6 +497,14 @@ export type InsertBudget = z.infer<typeof insertBudgetSchema>;
 export type InsertMaintenanceSchedule = z.infer<typeof insertMaintenanceScheduleSchema>;
 export type InsertMaintenanceRecord = z.infer<typeof insertMaintenanceRecordSchema>;
 
+// User Management Insert Types
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type InsertPermission = z.infer<typeof insertPermissionSchema>;
+export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
+export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
+export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
+
 // Select types
 export type Location = typeof locations.$inferSelect;
 export type Department = typeof departments.$inferSelect;
@@ -441,6 +517,25 @@ export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
 export type Budget = typeof budgets.$inferSelect;
 export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
+
+// User Management Select Types
+export type User = typeof users.$inferSelect;
+export type Role = typeof roles.$inferSelect;
+export type Permission = typeof permissions.$inferSelect;
+export type UserRole = typeof userRoles.$inferSelect;
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type SystemSetting = typeof systemSettings.$inferSelect;
+
+// User Management Types with Details
+export type UserWithDetails = User & {
+  roles?: Role[];
+  permissions?: string[]; // Array of permission names
+};
+
+export type RoleWithDetails = Role & {
+  permissions?: Permission[];
+  userCount?: number;
+};
 
 // Relations definitions
 export const employeesRelations = relations(employees, ({ one, many }) => ({
