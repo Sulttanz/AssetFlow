@@ -2,6 +2,42 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+// Production startup logging
+console.log("🚀 Starting IT Asset Management System...");
+console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🔧 Port: ${process.env.PORT || '5000'}`);
+console.log(`💾 Database URL configured: ${!!process.env.DATABASE_URL}`);
+
+// Process error handlers to prevent crashes
+process.on('uncaughtException', (error: Error) => {
+  console.error('💥 UNCAUGHT EXCEPTION:', error);
+  console.error(error.stack);
+  // In production, log error but don't exit immediately - let health checks handle it
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('💥 UNHANDLED REJECTION at:', promise);
+  console.error('Reason:', reason);
+  // In production, log error but don't exit immediately
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
+});
+
+// Graceful shutdown handler
+process.on('SIGTERM', () => {
+  console.log('⚠️  SIGTERM signal received: closing HTTP server');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('⚠️  SIGINT signal received: closing HTTP server');
+  process.exit(0);
+});
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -37,35 +73,90 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    console.log("🔧 Initializing server...");
+    
+    // Verify required environment variables
+    if (!process.env.DATABASE_URL) {
+      console.error("❌ FATAL: DATABASE_URL environment variable is not set");
+      process.exit(1);
+    }
+    
+    console.log("✅ Environment variables validated");
+    
+    // Register routes and setup authentication
+    console.log("🛣️  Registering routes...");
+    const server = await registerRoutes(app);
+    console.log("✅ Routes registered successfully");
+    
+    // Test database connectivity early
+    console.log("🔌 Testing database connectivity...");
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`SELECT 1`);
+      console.log("✅ Database connection successful");
+    } catch (dbError) {
+      console.error("❌ Database connection failed:", dbError);
+      throw new Error("Database connectivity check failed");
+    }
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // Error handling middleware
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+      
+      console.error(`❌ Error ${status}:`, message);
+      if (err.stack) {
+        console.error(err.stack);
+      }
 
-    res.status(status).json({ message });
-    throw err;
-  });
+      res.status(status).json({ message });
+    });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    // Setup Vite in development or serve static files in production
+    if (app.get("env") === "development") {
+      console.log("🔨 Setting up Vite dev server...");
+      await setupVite(app, server);
+      console.log("✅ Vite dev server ready");
+    } else {
+      console.log("📦 Serving static files...");
+      serveStatic(app);
+      console.log("✅ Static files configured");
+    }
+
+    // Explicit port and host configuration for Cloud Run
+    const port = parseInt(process.env.PORT || '5000', 10);
+    const host = process.env.HOST || '0.0.0.0';
+    
+    console.log(`🌐 Starting server on ${host}:${port}...`);
+    
+    server.listen({
+      port,
+      host,
+      reusePort: true,
+    }, () => {
+      console.log(`✅ Server successfully started!`);
+      console.log(`🚀 Listening on http://${host}:${port}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`💾 Database: Connected`);
+      log(`serving on port ${port}`);
+    });
+    
+    // Handle server startup errors
+    server.on('error', (error: any) => {
+      console.error('💥 Server error:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${port} is already in use`);
+      }
+      process.exit(1);
+    });
+    
+  } catch (error) {
+    console.error("💥 FATAL: Failed to start server:", error);
+    if (error instanceof Error) {
+      console.error(error.stack);
+    }
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-  });
 })();
