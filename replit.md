@@ -49,7 +49,31 @@ The backend implements a clean separation between routes (API endpoints), storag
 The schema supports asset lifecycle tracking (available, assigned, maintenance, retired) and maintains historical assignment records even after assets are returned.
 
 ## Authentication & Authorization
-Currently, the application does not implement authentication or authorization mechanisms. All endpoints are publicly accessible, making this suitable for internal network deployment or as a foundation for adding authentication later.
+The application implements comprehensive authentication and authorization using Passport.js with local strategy. Features include:
+- **User Authentication**: Username/password authentication with bcrypt password hashing
+- **Session Management**: Persistent sessions using PostgreSQL session store (connect-pg-simple)
+- **Role-Based Access Control (RBAC)**: Complete role and permission system with granular permissions
+- **Protected Routes**: Frontend and backend routes protected by permission requirements
+- **Role Management**: Admin interface for creating roles and assigning permissions
+- **Permission Management**: 38 system permissions across all resource types (users, assets, roles, etc.)
+
+## Production Deployment
+The application is configured for deployment on Replit Cloud Run with the following setup:
+
+### Required Environment Variables
+- **DATABASE_URL**: PostgreSQL connection string (automatically provided by Replit)
+- **SESSION_SECRET**: Secret key for session encryption (automatically managed by Replit)
+- **NODE_ENV**: Set to "production" for production deployments (optional, defaults to "development")
+- **PORT**: Server port (automatically provided by Cloud Run, defaults to 5000)
+- **HOST**: Server host address (optional, defaults to 0.0.0.0)
+
+### Deployment Features
+- **Error Handling**: Process-level error handlers for uncaught exceptions and unhandled rejections
+- **Graceful Shutdown**: Proper handling of SIGTERM and SIGINT signals
+- **Database Connectivity Check**: Early database connection validation during startup
+- **Startup Logging**: Comprehensive logging for deployment diagnostics
+- **Cloud Run Compatibility**: Explicit port/host configuration for containerized deployment
+- **Production Error Handling**: Non-crashing error handlers in production environment
 
 ## Development Environment
 - **Hot Reloading**: Vite dev server with Express middleware integration
