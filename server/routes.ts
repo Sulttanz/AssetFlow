@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission } from "./auth";
+import { setupAuth, requireAuth, requirePermission, hashPassword } from "./auth";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
@@ -48,7 +48,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/users", requireAuth, requirePermission('user_create'), async (req, res) => {
     try {
       const validatedData = insertUserSchema.parse(req.body);
-      const user = await storage.createUser(validatedData);
+      
+      // Hash password before storing
+      const hashedPassword = await hashPassword(validatedData.password);
+      const user = await storage.createUser({
+        ...validatedData,
+        password: hashedPassword
+      });
+      
       // Remove password from response for security
       const { password, ...userWithoutPassword } = user;
       res.status(201).json(userWithoutPassword);
@@ -63,7 +70,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/users/:id", requireAuth, requirePermission('user_update'), async (req, res) => {
     try {
       const validatedData = insertUserSchema.partial().parse(req.body);
-      const user = await storage.updateUser(req.params.id, validatedData);
+      
+      // Hash password if it's being updated
+      let updateData = validatedData;
+      if (validatedData.password) {
+        const hashedPassword = await hashPassword(validatedData.password);
+        updateData = {
+          ...validatedData,
+          password: hashedPassword
+        };
+      }
+      
+      const user = await storage.updateUser(req.params.id, updateData);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
