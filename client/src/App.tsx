@@ -38,7 +38,7 @@ function Router() {
           return (
             <div className="flex h-screen bg-background">
               <Sidebar />
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-auto">
                 <Switch>
                   <ProtectedRoute path="/" component={Dashboard} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
