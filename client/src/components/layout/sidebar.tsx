@@ -20,11 +20,21 @@ import {
   FileBarChart,
   Shield,
   Key,
-  Lock
+  Lock,
+  LogOut
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Sidebar() {
   const [location] = useLocation();
+  const { user, logoutMutation } = useAuth();
 
   const navigationSections = [
     {
@@ -133,15 +143,33 @@ export default function Sidebar() {
             <User className="text-primary-foreground text-sm" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">Admin User</p>
-            <p className="text-xs text-muted-foreground">IT Administrator</p>
+            <p className="text-sm font-medium text-foreground" data-testid="user-name">
+              {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.username || 'User'}
+            </p>
+            <p className="text-xs text-muted-foreground" data-testid="user-role">
+              {user?.roles?.[0]?.name || 'User'}
+            </p>
           </div>
-          <button 
-            className="text-muted-foreground hover:text-foreground"
-            data-testid="user-menu-button"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button 
+                className="text-muted-foreground hover:text-foreground"
+                data-testid="user-menu-button"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem 
+                onClick={() => logoutMutation.mutate()}
+                className="text-destructive focus:text-destructive cursor-pointer"
+                data-testid="signout-button"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>

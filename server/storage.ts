@@ -2268,9 +2268,40 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async updateSystemSetting(key: string, updateData: Partial<InsertSystemSetting>): Promise<SystemSetting | undefined> {
+  async updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting> {
+    const updateData: any = { 
+      value,
+      updatedAt: new Date()
+    };
+    if (updatedBy) {
+      updateData.updatedBy = updatedBy;
+    }
     const result = await db.update(systemSettings).set(updateData).where(eq(systemSettings.key, key)).returning();
-    return result[0] || undefined;
+    if (!result[0]) {
+      throw new Error(`System setting with key ${key} not found`);
+    }
+    return result[0];
+  }
+
+  // Clear all data (for DatabaseStorage compatibility with interface)
+  async clearAllData(): Promise<boolean> {
+    try {
+      // Clear data from all tables except system settings and users
+      await db.delete(assignments);
+      await db.delete(maintenanceRecords);
+      await db.delete(maintenanceSchedules);
+      await db.delete(budgets);
+      await db.delete(purchaseOrders);
+      await db.delete(vendors);
+      await db.delete(departments);
+      await db.delete(locations);
+      await db.delete(assets);
+      await db.delete(employees);
+      return true;
+    } catch (error) {
+      console.error("Error clearing data:", error);
+      return false;
+    }
   }
 
   async deleteSystemSetting(key: string): Promise<boolean> {
