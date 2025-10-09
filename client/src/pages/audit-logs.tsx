@@ -9,8 +9,12 @@ import { format } from "date-fns";
 import type { AuditLog } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
 
+type AuditLogWithUsername = AuditLog & {
+  username?: string | null;
+};
+
 export default function AuditLogs() {
-  const { data: auditLogs = [], isLoading, refetch } = useQuery<AuditLog[]>({
+  const { data: auditLogs = [], isLoading, refetch } = useQuery<AuditLogWithUsername[]>({
     queryKey: ["/api/audit-logs"],
   });
 
@@ -170,7 +174,7 @@ export default function AuditLogs() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm">{(log as any).username || log.userId || "System"}</span>
+                              <span className="text-sm">{log.username || log.userId || "System"}</span>
                             </div>
                           </TableCell>
                         </TableRow>
