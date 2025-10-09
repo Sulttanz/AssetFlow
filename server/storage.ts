@@ -2,17 +2,17 @@ import {
   type Asset, type Employee, type Assignment, type Location, type Department,
   type Vendor, type PurchaseOrder, type PurchaseOrderItem, type Budget, 
   type MaintenanceSchedule, type MaintenanceRecord, type User, type Role, type Permission,
-  type UserRole, type RolePermission, type SystemSetting,
+  type UserRole, type RolePermission, type SystemSetting, type AuditLog,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
-  type InsertRolePermission, type InsertSystemSetting,
+  type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -146,6 +146,13 @@ export interface IStorage {
   getSystemSetting(key: string): Promise<SystemSetting | undefined>;
   updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting>;
   createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting>;
+
+  // Audit Logs
+  getAuditLogs(): Promise<AuditLog[]>;
+  getAuditLogsByUser(userId: string): Promise<AuditLog[]>;
+  getAuditLogsByTable(tableName: string): Promise<AuditLog[]>;
+  getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]>;
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
   // Data Management
   clearAllData(): Promise<boolean>;
@@ -1558,6 +1565,44 @@ export class MemStorage implements IStorage {
     return newSetting;
   }
 
+  // Audit Logs (in-memory storage)
+  private auditLogs: Map<string, AuditLog> = new Map();
+
+  async getAuditLogs(): Promise<AuditLog[]> {
+    return Array.from(this.auditLogs.values()).sort((a, b) => 
+      (b.timestamp?.getTime() || 0) - (a.timestamp?.getTime() || 0)
+    );
+  }
+
+  async getAuditLogsByUser(userId: string): Promise<AuditLog[]> {
+    return Array.from(this.auditLogs.values())
+      .filter(log => log.userId === userId)
+      .sort((a, b) => (b.timestamp?.getTime() || 0) - (a.timestamp?.getTime() || 0));
+  }
+
+  async getAuditLogsByTable(tableName: string): Promise<AuditLog[]> {
+    return Array.from(this.auditLogs.values())
+      .filter(log => log.tableName === tableName)
+      .sort((a, b) => (b.timestamp?.getTime() || 0) - (a.timestamp?.getTime() || 0));
+  }
+
+  async getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]> {
+    return Array.from(this.auditLogs.values())
+      .filter(log => log.tableName === tableName && log.recordId === recordId)
+      .sort((a, b) => (b.timestamp?.getTime() || 0) - (a.timestamp?.getTime() || 0));
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const id = randomUUID();
+    const newLog: AuditLog = {
+      ...log,
+      id,
+      timestamp: new Date()
+    };
+    this.auditLogs.set(id, newLog);
+    return newLog;
+  }
+
   // Data Management
   async clearAllData(): Promise<boolean> {
     this.assets.clear();
@@ -2280,6 +2325,30 @@ export class DatabaseStorage implements IStorage {
     if (!result[0]) {
       throw new Error(`System setting with key ${key} not found`);
     }
+    return result[0];
+  }
+
+  // Audit Logs
+  async getAuditLogs(): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).orderBy(sql`${auditLogs.timestamp} DESC`);
+  }
+
+  async getAuditLogsByUser(userId: string): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(sql`${auditLogs.timestamp} DESC`);
+  }
+
+  async getAuditLogsByTable(tableName: string): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).where(eq(auditLogs.tableName, tableName)).orderBy(sql`${auditLogs.timestamp} DESC`);
+  }
+
+  async getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]> {
+    return await db.select().from(auditLogs).where(
+      and(eq(auditLogs.tableName, tableName), eq(auditLogs.recordId, recordId))
+    ).orderBy(sql`${auditLogs.timestamp} DESC`);
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const result = await db.insert(auditLogs).values(log).returning();
     return result[0];
   }
 

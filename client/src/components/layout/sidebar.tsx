@@ -84,6 +84,7 @@ export default function Sidebar() {
         { name: "User Management", href: "/users", icon: Shield, current: location === "/users" },
         { name: "Roles", href: "/roles", icon: Key, current: location === "/roles" },
         { name: "Permissions", href: "/permissions", icon: Lock, current: location === "/permissions" },
+        { name: "Audit Logs", href: "/audit-logs", icon: FileText, current: location === "/audit-logs" },
         { name: "System Settings", href: "/system-settings", icon: Settings, current: location === "/system-settings" },
       ]
     }

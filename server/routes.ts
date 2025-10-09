@@ -11,6 +11,35 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 
+// Audit logging helper function
+async function logAudit(
+  userId: string | undefined,
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW',
+  tableName: string,
+  recordId: string,
+  recordName: string,
+  oldValues?: any,
+  newValues?: any,
+  req?: any
+) {
+  try {
+    await storage.createAuditLog({
+      userId: userId || null,
+      action,
+      tableName,
+      recordId,
+      recordName,
+      oldValues: oldValues ? JSON.stringify(oldValues) : null,
+      newValues: newValues ? JSON.stringify(newValues) : null,
+      ipAddress: req?.ip || null,
+      userAgent: req?.get('user-agent') || null
+    });
+  } catch (error) {
+    console.error('Failed to create audit log:', error);
+    // Don't throw - audit logging should not break the main operation
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication system
   setupAuth(app);
@@ -56,6 +85,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword
       });
       
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'users', user.id, user.username, null, { username: user.username, email: user.email }, req);
+      
       // Remove password from response for security
       const { password, ...userWithoutPassword } = user;
       res.status(201).json(userWithoutPassword);
@@ -72,6 +104,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertUserSchema.partial().parse(req.body);
       
+      // Get old user for audit log
+      const oldUser = await storage.getUser(req.params.id);
+      
       // Hash password if it's being updated
       let updateData = validatedData;
       if (validatedData.password) {
@@ -86,6 +121,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
+      
+      // Log audit
+      if (oldUser) {
+        await logAudit(req.user?.id, 'UPDATE', 'users', user.id, user.username, 
+          { username: oldUser.username, email: oldUser.email }, 
+          { username: user.username, email: user.email }, req);
+      }
+      
       // Remove password from response for security
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
@@ -99,10 +142,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/users/:id", requireAuth, requirePermission('user_delete'), async (req, res) => {
     try {
+      // Get user for audit log before deletion
+      const user = await storage.getUser(req.params.id);
+      
       const deleted = await storage.deleteUser(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "User not found" });
       }
+      
+      // Log audit
+      if (user) {
+        await logAudit(req.user?.id, 'DELETE', 'users', req.params.id, user.username, 
+          { username: user.username, email: user.email }, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete user" });
@@ -1237,6 +1290,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch compliance dashboard data" });
+    }
+  });
+
+  // Audit Logs API
+  app.get("/api/audit-logs", requireAuth, async (req, res) => {
+    try {
+      const logs = await storage.getAuditLogs();
+      res.json(logs);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch audit logs" });
     }
   });
 

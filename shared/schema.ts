@@ -463,6 +463,21 @@ export const systemSettings = pgTable("system_settings", {
   updatedBy: varchar("updated_by"), // ID of admin who updated this setting
 });
 
+// Audit Log Table - tracks all system changes
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id), // Who performed the action
+  action: text("action").notNull(), // CREATE, UPDATE, DELETE, VIEW
+  tableName: text("table_name").notNull(), // Which table was affected
+  recordId: text("record_id").notNull(), // ID of the affected record
+  recordName: text("record_name"), // Display name/identifier for the record (e.g., asset name, user email)
+  oldValues: text("old_values"), // JSON string of old values (for UPDATE/DELETE)
+  newValues: text("new_values"), // JSON string of new values (for CREATE/UPDATE)
+  timestamp: timestamp("timestamp").default(sql`now()`).notNull(),
+  ipAddress: text("ip_address"), // Optional: IP address of the user
+  userAgent: text("user_agent"), // Optional: Browser/client info
+});
+
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
@@ -483,6 +498,7 @@ export const insertPermissionSchema = createInsertSchema(permissions).omit({ id:
 export const insertUserRoleSchema = createInsertSchema(userRoles).omit({ id: true, assignedAt: true });
 export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true });
 export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({ id: true, updatedAt: true });
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, timestamp: true });
 
 // Insert types
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
@@ -504,6 +520,7 @@ export type InsertPermission = z.infer<typeof insertPermissionSchema>;
 export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 
 // Select types
 export type Location = typeof locations.$inferSelect;
@@ -525,6 +542,7 @@ export type Permission = typeof permissions.$inferSelect;
 export type UserRole = typeof userRoles.$inferSelect;
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
 
 // User Management Types with Details
 export type UserWithDetails = User & {

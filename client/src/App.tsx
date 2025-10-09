@@ -22,6 +22,7 @@ import Roles from "@/pages/roles";
 import Permissions from "@/pages/permissions";
 import SystemSettings from "@/pages/system-settings";
 import SystemInitialization from "@/pages/system-initialization";
+import AuditLogs from "@/pages/audit-logs";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -48,6 +49,7 @@ function Router() {
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
+                  <ProtectedRoute path="/audit-logs" component={AuditLogs} />
                   <ProtectedRoute path="/assignments" component={Assignments} />
                   <ProtectedRoute path="/locations" component={Locations} />
                   <ProtectedRoute path="/departments" component={Departments} />
