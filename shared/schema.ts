@@ -342,7 +342,9 @@ export const vendors = pgTable("vendors", {
 export const purchaseOrders = pgTable("purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   poNumber: text("po_number").notNull().unique(),
-  vendor: text("vendor").notNull(),
+  vendorId: varchar("vendor_id").references(() => vendors.id),
+  vendor: text("vendor"), // Legacy field for backward compatibility
+  reference: text("reference"), // Reference number or description
   orderDate: date("order_date").notNull(),
   expectedDelivery: date("expected_delivery"),
   actualDelivery: date("actual_delivery"),
