@@ -1170,14 +1170,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/purchase-orders", requireAuth, requirePermission('purchase_order_create'), async (req, res) => {
     try {
-      const validatedData = insertPurchaseOrderSchema.parse(req.body);
+      // Extract items from request body as they're not part of the purchase order schema
+      const { items, ...purchaseOrderData } = req.body;
+      
+      const validatedData = insertPurchaseOrderSchema.parse(purchaseOrderData);
       const purchaseOrder = await storage.createPurchaseOrder(validatedData);
+      
+      // Create purchase order items if provided
+      if (items && Array.isArray(items)) {
+        for (const item of items) {
+          const totalPrice = item.quantity * item.unitPrice;
+          await storage.createPurchaseOrderItem({
+            purchaseOrderId: purchaseOrder.id,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(),
+            totalPrice: totalPrice.toString(),
+            assetId: item.assetId || undefined
+          });
+        }
+      }
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, null, { poNumber: purchaseOrder.poNumber, totalAmount: purchaseOrder.totalAmount, status: purchaseOrder.status }, req);
       
       res.status(201).json(purchaseOrder);
     } catch (error) {
+      console.error("Purchase order creation error:", error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.errors });
       }
