@@ -1513,7 +1513,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/audit-logs", requireAuth, async (req, res) => {
     try {
       const logs = await storage.getAuditLogs();
-      res.json(logs);
+      
+      // Enrich logs with username
+      const enrichedLogs = await Promise.all(logs.map(async (log) => {
+        if (log.userId) {
+          const user = await storage.getUser(log.userId);
+          return {
+            ...log,
+            username: user?.username || null
+          };
+        }
+        return {
+          ...log,
+          username: null
+        };
+      }));
+      
+      res.json(enrichedLogs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch audit logs" });
     }
