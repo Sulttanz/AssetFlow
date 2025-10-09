@@ -666,6 +666,7 @@ export type EmployeeWithDetails = Employee & {
 };
 
 export type PurchaseOrderWithDetails = PurchaseOrder & {
+  vendor?: Vendor;
   department?: Department;
   items?: PurchaseOrderItem[];
   itemCount?: number;

@@ -1060,11 +1060,13 @@ export class MemStorage implements IStorage {
     const result: PurchaseOrderWithDetails[] = [];
     
     for (const po of purchaseOrders) {
+      const vendor = po.vendorId ? this.vendors.get(po.vendorId) : undefined;
       const department = po.departmentId ? this.departments.get(po.departmentId) : undefined;
       const items = Array.from(this.purchaseOrderItems.values()).filter(item => item.purchaseOrderId === po.id);
       
       result.push({
         ...po,
+        vendor,
         department,
         items,
         itemCount: items.length
@@ -1935,11 +1937,13 @@ export class DatabaseStorage implements IStorage {
     const result: PurchaseOrderWithDetails[] = [];
     
     for (const purchaseOrder of allPurchaseOrders) {
+      const vendor = purchaseOrder.vendorId ? await db.select().from(vendors).where(eq(vendors.id, purchaseOrder.vendorId)).then(r => r[0] || undefined) : undefined;
       const department = purchaseOrder.departmentId ? await db.select().from(departments).where(eq(departments.id, purchaseOrder.departmentId)).then(r => r[0] || undefined) : undefined;
       const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrder.id));
       
       result.push({
         ...purchaseOrder,
+        vendor,
         department: department || undefined,
         items: items || [],
         itemCount: items.length

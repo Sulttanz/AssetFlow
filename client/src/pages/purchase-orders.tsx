@@ -15,11 +15,12 @@ import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Employee, type Department } from "@shared/schema";
+import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Employee, type Department, type Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
 
 const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
+  vendorId: z.string().optional(),
   departmentId: z.string().optional(),
   items: z.array(z.object({
     description: z.string().min(1, "Item description is required"),
@@ -49,7 +50,10 @@ export default function PurchaseOrders() {
     queryKey: ["/api/purchase-orders"],
   });
 
-  // Note: No longer using employees for requestedById as it's not in the schema
+  // Fetch vendors for vendor selection
+  const { data: vendors = [] } = useQuery<Vendor[]>({
+    queryKey: ["/api/vendors"],
+  });
 
   // Fetch departments for department selection
   const { data: departments = [] } = useQuery<Department[]>({
@@ -64,7 +68,8 @@ export default function PurchaseOrders() {
       setIsCreateDialogOpen(false);
       createForm.reset({
         poNumber: generatePONumber(),
-        vendor: "",
+        vendorId: "",
+        reference: "",
         orderDate: new Date().toISOString().split('T')[0],
         departmentId: "none",
         status: "pending",
@@ -122,7 +127,8 @@ export default function PurchaseOrders() {
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: {
       poNumber: generatePONumber(),
-      vendor: "",
+      vendorId: "",
+      reference: "",
       orderDate: new Date().toISOString().split('T')[0],
       departmentId: "none",
       status: "pending",
@@ -136,7 +142,8 @@ export default function PurchaseOrders() {
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: {
       poNumber: "",
-      vendor: "",
+      vendorId: "",
+      reference: "",
       orderDate: new Date().toISOString().split('T')[0],
       departmentId: "none",
       status: "pending",
@@ -158,6 +165,7 @@ export default function PurchaseOrders() {
   const handleCreate = (data: PurchaseOrderFormData) => {
     const cleanData = {
       ...data,
+      vendorId: data.vendorId === "" ? undefined : data.vendorId,
       departmentId: data.departmentId === "none" ? undefined : data.departmentId,
       // Calculate total from items
       totalAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0).toString()
@@ -169,7 +177,8 @@ export default function PurchaseOrders() {
     setEditingOrder(order);
     editForm.reset({
       poNumber: order.poNumber,
-      vendor: order.vendor,
+      vendorId: order.vendorId || "",
+      reference: order.reference || "",
       orderDate: order.orderDate,
       departmentId: order.departmentId || "none",
       status: order.status,
@@ -188,6 +197,7 @@ export default function PurchaseOrders() {
     if (!editingOrder) return;
     const cleanData = {
       ...data,
+      vendorId: data.vendorId === "" ? undefined : data.vendorId,
       departmentId: data.departmentId === "none" ? undefined : data.departmentId,
       totalAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0).toString()
     };
@@ -251,12 +261,37 @@ export default function PurchaseOrders() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormField
               control={form.control}
-              name="vendor"
+              name="vendorId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Vendor</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-vendor">
+                        <SelectValue placeholder="Select vendor" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {vendors.map((vendor) => (
+                        <SelectItem key={vendor.id} value={vendor.id}>
+                          {vendor.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="reference"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Reference</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="e.g., Office Supplies Inc" data-testid="input-vendor" />
+                    <Input {...field} placeholder="e.g., Project XYZ" data-testid="input-reference" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -544,10 +579,19 @@ export default function PurchaseOrders() {
                     )}
                     
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="flex items-center space-x-2 text-sm">
-                        <User className="w-4 h-4 text-muted-foreground" />
-                        <span>Vendor: {order.vendor}</span>
-                      </div>
+                      {order.vendor && (
+                        <div className="flex items-center space-x-2 text-sm">
+                          <User className="w-4 h-4 text-muted-foreground" />
+                          <span>Vendor: {order.vendor.name}</span>
+                        </div>
+                      )}
+                      
+                      {order.reference && (
+                        <div className="flex items-center space-x-2 text-sm">
+                          <FileText className="w-4 h-4 text-muted-foreground" />
+                          <span>Ref: {order.reference}</span>
+                        </div>
+                      )}
                       
                       {order.department && (
                         <div className="flex items-center space-x-2 text-sm">
