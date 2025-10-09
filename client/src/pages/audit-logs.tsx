@@ -11,6 +11,7 @@ import { queryClient } from "@/lib/queryClient";
 
 type AuditLogWithUsername = AuditLog & {
   username?: string | null;
+  userFullName?: string | null;
 };
 
 export default function AuditLogs() {
@@ -174,7 +175,7 @@ export default function AuditLogs() {
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm">{log.username || log.userId || "System"}</span>
+                              <span className="text-sm font-medium">{log.userFullName || log.username || "System"}</span>
                             </div>
                           </TableCell>
                         </TableRow>

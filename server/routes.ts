@@ -1514,18 +1514,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const logs = await storage.getAuditLogs();
       
-      // Enrich logs with username
+      // Enrich logs with user information
       const enrichedLogs = await Promise.all(logs.map(async (log) => {
         if (log.userId) {
           const user = await storage.getUser(log.userId);
-          return {
-            ...log,
-            username: user?.username || null
-          };
+          if (user) {
+            // Create full name from first and last name, or fall back to username
+            const fullName = user.firstName && user.lastName 
+              ? `${user.firstName} ${user.lastName}`
+              : user.username;
+            
+            return {
+              ...log,
+              username: user.username,
+              userFullName: fullName
+            };
+          }
         }
         return {
           ...log,
-          username: null
+          username: null,
+          userFullName: null
         };
       }));
       
