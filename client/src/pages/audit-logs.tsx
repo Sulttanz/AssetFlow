@@ -153,32 +153,32 @@ export default function AuditLogs() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Timestamp</TableHead>
-                        <TableHead>Action</TableHead>
-                        <TableHead>Table</TableHead>
-                        <TableHead>Record</TableHead>
-                        <TableHead>Changes</TableHead>
-                        <TableHead>User</TableHead>
+                        <TableHead className="w-[135px]">Timestamp</TableHead>
+                        <TableHead className="w-[75px]">Action</TableHead>
+                        <TableHead className="w-[95px]">Table</TableHead>
+                        <TableHead className="w-[110px]">Record</TableHead>
+                        <TableHead className="w-[250px]">Changes</TableHead>
+                        <TableHead className="w-[135px]">User</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {auditLogs.map((log) => (
                         <TableRow key={log.id} data-testid={`audit-log-${log.id}`}>
-                          <TableCell className="font-mono text-xs">
+                          <TableCell className="font-mono text-xs w-[135px]">
                             {log.timestamp ? format(new Date(log.timestamp), "MMM dd, yyyy HH:mm:ss") : "-"}
                           </TableCell>
-                          <TableCell>{getActionBadge(log.action)}</TableCell>
-                          <TableCell>
-                            <code className="bg-muted px-2 py-1 rounded text-xs">{log.tableName}</code>
+                          <TableCell className="w-[75px]">{getActionBadge(log.action)}</TableCell>
+                          <TableCell className="w-[95px]">
+                            <code className="bg-muted px-1 py-0.5 rounded text-xs">{log.tableName}</code>
                           </TableCell>
-                          <TableCell className="font-medium">{log.recordName || log.recordId}</TableCell>
-                          <TableCell className="max-w-md truncate text-sm">
+                          <TableCell className="font-medium w-[110px] truncate text-sm">{log.recordName || log.recordId}</TableCell>
+                          <TableCell className="w-[250px] truncate text-xs">
                             {formatChanges(log.oldValues, log.newValues)}
                           </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm font-medium">{log.username || "System"}</span>
+                          <TableCell className="w-[135px]">
+                            <div className="flex items-center gap-1">
+                              <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                              <span className="text-xs truncate">{log.username || "System"}</span>
                             </div>
                           </TableCell>
                         </TableRow>
