@@ -3,12 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FileText, User, Calendar, Activity } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, User, Calendar, Activity, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import type { AuditLog } from "@shared/schema";
+import { queryClient } from "@/lib/queryClient";
 
 export default function AuditLogs() {
-  const { data: auditLogs = [], isLoading } = useQuery<AuditLog[]>({
+  const { data: auditLogs = [], isLoading, refetch } = useQuery<AuditLog[]>({
     queryKey: ["/api/audit-logs"],
   });
 
@@ -63,7 +65,18 @@ export default function AuditLogs() {
                 Track all system changes and user activities
               </p>
             </div>
-            <Activity className="h-8 w-8 text-muted-foreground" />
+            <div className="flex items-center gap-4">
+              <Button 
+                onClick={() => refetch()} 
+                variant="outline" 
+                size="sm"
+                data-testid="button-refresh-logs"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+              <Activity className="h-8 w-8 text-muted-foreground" />
+            </div>
           </div>
         </header>
 
