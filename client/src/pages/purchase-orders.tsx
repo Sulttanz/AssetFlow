@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, ShoppingCart, Edit2, Trash2, Calendar, DollarSign, Package, Building2, User, FileText } from "lucide-react";
 import { format } from "date-fns";
@@ -62,7 +62,16 @@ export default function PurchaseOrders() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       setIsCreateDialogOpen(false);
-      createForm.reset();
+      createForm.reset({
+        poNumber: generatePONumber(),
+        vendor: "",
+        orderDate: new Date().toISOString().split('T')[0],
+        departmentId: "none",
+        status: "pending",
+        notes: "",
+        totalAmount: "0",
+        items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
+      });
       toast({ title: "Success", description: "Purchase order created successfully" });
     },
     onError: () => {
@@ -96,10 +105,23 @@ export default function PurchaseOrders() {
     },
   });
 
+  // Generate unique PO number with seconds and random suffix
+  const generatePONumber = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+    return `PO-${year}${month}${day}-${hours}${minutes}${seconds}-${random}`;
+  };
+
   const createForm = useForm<PurchaseOrderFormData>({
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: {
-      poNumber: "",
+      poNumber: generatePONumber(),
       vendor: "",
       orderDate: new Date().toISOString().split('T')[0],
       departmentId: "none",
@@ -123,6 +145,15 @@ export default function PurchaseOrders() {
       items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
     },
   });
+
+  // Regenerate PO number when create dialog opens
+  useEffect(() => {
+    if (isCreateDialogOpen) {
+      const newPONumber = generatePONumber();
+      createForm.setValue('poNumber', newPONumber);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCreateDialogOpen]);
 
   const handleCreate = (data: PurchaseOrderFormData) => {
     const cleanData = {
