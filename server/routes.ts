@@ -428,6 +428,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Purchase Order Permissions
         { name: 'purchase_order_create', description: 'Create purchase orders', resource: 'purchase_orders', action: 'create' },
+        { name: 'purchase_order_update', description: 'Update existing purchase orders', resource: 'purchase_orders', action: 'update' },
+        { name: 'purchase_order_delete', description: 'Delete purchase orders', resource: 'purchase_orders', action: 'delete' },
         
         // Budget Management Permissions
         { name: 'budget_create', description: 'Create new budgets', resource: 'budgets', action: 'create' },
@@ -464,7 +466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             'location_create', 'location_update', 'location_delete',
             'department_create', 'department_update', 'department_delete',
             'vendor_create', 'vendor_update', 'vendor_delete',
-            'purchase_order_create',
+            'purchase_order_create', 'purchase_order_update', 'purchase_order_delete',
             'budget_create', 'budget_update', 'budget_delete',
             'maintenance_create', 'maintenance_update', 'maintenance_delete'
           ].map(name => createdPermissions.get(name).id),
@@ -1201,6 +1203,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to create purchase order" });
+    }
+  });
+
+  app.put("/api/purchase-orders/:id", requireAuth, requirePermission('purchase_order_update'), async (req, res) => {
+    try {
+      const { items, ...purchaseOrderData } = req.body;
+      const validatedData = insertPurchaseOrderSchema.partial().parse(purchaseOrderData);
+      
+      const oldPO = await storage.getPurchaseOrder(req.params.id);
+      
+      const purchaseOrder = await storage.updatePurchaseOrder(req.params.id, validatedData);
+      if (!purchaseOrder) {
+        return res.status(404).json({ message: "Purchase order not found" });
+      }
+      
+      // Update items if provided
+      if (items && Array.isArray(items)) {
+        // Delete existing items
+        const existingItems = await storage.getPurchaseOrderItems(req.params.id);
+        for (const item of existingItems) {
+          await storage.deletePurchaseOrderItem(item.id);
+        }
+        
+        // Create new items
+        for (const item of items) {
+          const totalPrice = item.quantity * item.unitPrice;
+          await storage.createPurchaseOrderItem({
+            purchaseOrderId: purchaseOrder.id,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(),
+            totalPrice: totalPrice.toString(),
+            assetId: item.assetId || undefined
+          });
+        }
+      }
+      
+      // Log audit
+      if (oldPO) {
+        await logAudit(req.user?.id, 'UPDATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, oldPO, purchaseOrder, req);
+      }
+      
+      res.json(purchaseOrder);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid purchase order data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update purchase order" });
+    }
+  });
+
+  app.delete("/api/purchase-orders/:id", requireAuth, requirePermission('purchase_order_delete'), async (req, res) => {
+    try {
+      const purchaseOrder = await storage.getPurchaseOrder(req.params.id);
+      if (!purchaseOrder) {
+        return res.status(404).json({ message: "Purchase order not found" });
+      }
+      
+      // Delete items first
+      const items = await storage.getPurchaseOrderItems(req.params.id);
+      for (const item of items) {
+        await storage.deletePurchaseOrderItem(item.id);
+      }
+      
+      // Delete purchase order
+      const deleted = await storage.deletePurchaseOrder(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Purchase order not found" });
+      }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'DELETE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, purchaseOrder, null, req);
+      
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete purchase order" });
     }
   });
 
