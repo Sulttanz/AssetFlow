@@ -188,6 +188,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertRoleSchema.parse(req.body);
       const role = await storage.createRole(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'roles', role.id, role.name, null, { name: role.name, description: role.description }, req);
+      
       res.status(201).json(role);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -200,10 +204,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/roles/:id", requireAuth, requirePermission('role_update'), async (req, res) => {
     try {
       const validatedData = insertRoleSchema.partial().parse(req.body);
+      
+      // Get old role for audit log
+      const oldRole = await storage.getRole(req.params.id);
+      
       const role = await storage.updateRole(req.params.id, validatedData);
       if (!role) {
         return res.status(404).json({ message: "Role not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'roles', role.id, role.name, oldRole, role, req);
+      
       res.json(role);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -215,10 +227,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/roles/:id", requireAuth, requirePermission('role_delete'), async (req, res) => {
     try {
+      // Get role for audit log before deleting
+      const role = await storage.getRole(req.params.id);
+      
       const deleted = await storage.deleteRole(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Role not found" });
       }
+      
+      // Log audit
+      if (role) {
+        await logAudit(req.user?.id, 'DELETE', 'roles', role.id, role.name, role, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete role" });
@@ -626,6 +647,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertAssetSchema.parse(req.body);
       console.log("Validated data:", JSON.stringify(validatedData, null, 2));
       const asset = await storage.createAsset(validatedData);
+      
+      // Log audit - use validatedData to ensure all submitted fields are captured
+      const recordName = validatedData.serialNumber || validatedData.assetTag || validatedData.name || asset.id;
+      await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, recordName, null, { name: validatedData.name, serialNumber: validatedData.serialNumber, assetTag: validatedData.assetTag, type: validatedData.type, status: validatedData.status || 'available' }, req);
+      
       res.status(201).json(asset);
     } catch (error) {
       console.error("Asset creation error:", error);
@@ -642,10 +668,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Asset update request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.partial().parse(req.body);
       console.log("Validated update data:", JSON.stringify(validatedData, null, 2));
+      
+      // Get old asset for audit log
+      const oldAsset = await storage.getAsset(req.params.id);
+      
       const asset = await storage.updateAsset(req.params.id, validatedData);
       if (!asset) {
         return res.status(404).json({ message: "Asset not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'assets', asset.id, asset.serialNumber || asset.assetTag || asset.name || asset.id, oldAsset, asset, req);
+      
       res.json(asset);
     } catch (error) {
       console.error("Asset update error:", error);
@@ -659,12 +693,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/assets/:id", requireAuth, requirePermission('asset_delete'), async (req, res) => {
     try {
+      // Get asset for audit log before deleting
+      const asset = await storage.getAsset(req.params.id);
+      
       const deleted = await storage.deleteAsset(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Asset not found" });
       }
+      
+      // Log audit
+      if (asset) {
+        await logAudit(req.user?.id, 'DELETE', 'assets', asset.id, asset.serialNumber || asset.assetTag || asset.name || asset.id, asset, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
+      console.error("Asset deletion error:", error);
       res.status(500).json({ message: "Failed to delete asset" });
     }
   });
@@ -695,6 +739,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertEmployeeSchema.parse(req.body);
       const employee = await storage.createEmployee(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, null, { firstName: employee.firstName, lastName: employee.lastName, email: employee.email }, req);
+      
       res.status(201).json(employee);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -707,10 +755,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/employees/:id", requireAuth, requirePermission('employee_update'), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.partial().parse(req.body);
+      
+      // Get old employee for audit log
+      const oldEmployee = await storage.getEmployee(req.params.id);
+      
       const employee = await storage.updateEmployee(req.params.id, validatedData);
       if (!employee) {
         return res.status(404).json({ message: "Employee not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, oldEmployee, employee, req);
+      
       res.json(employee);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -722,10 +778,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/employees/:id", requireAuth, requirePermission('employee_delete'), async (req, res) => {
     try {
+      // Get employee for audit log before deleting
+      const employee = await storage.getEmployee(req.params.id);
+      
       const deleted = await storage.deleteEmployee(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Employee not found" });
       }
+      
+      // Log audit
+      if (employee) {
+        await logAudit(req.user?.id, 'DELETE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, employee, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete employee" });
@@ -758,6 +823,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertAssignmentSchema.parse(req.body);
       const assignment = await storage.createAssignment(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, null, { assetId: assignment.assetId, employeeId: assignment.employeeId, assignedDate: assignment.assignedDate }, req);
+      
       res.status(201).json(assignment);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -770,10 +839,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/assignments/:id", requireAuth, requirePermission('assignment_update'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.partial().parse(req.body);
+      
+      // Get old assignment for audit log
+      const oldAssignment = await storage.getAssignment(req.params.id);
+      
       const assignment = await storage.updateAssignment(req.params.id, validatedData);
       if (!assignment) {
         return res.status(404).json({ message: "Assignment not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, oldAssignment, assignment, req);
+      
       res.json(assignment);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -785,10 +862,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/assignments/:id", requireAuth, requirePermission('assignment_delete'), async (req, res) => {
     try {
+      // Get assignment for audit log before deleting
+      const assignment = await storage.getAssignment(req.params.id);
+      
       const deleted = await storage.deleteAssignment(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Assignment not found" });
       }
+      
+      // Log audit
+      if (assignment) {
+        await logAudit(req.user?.id, 'DELETE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, assignment, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete assignment" });
@@ -858,6 +944,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertLocationSchema.parse(req.body);
       const location = await storage.createLocation(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'locations', location.id.toString(), location.name, null, { name: location.name, address: location.address, city: location.city }, req);
+      
       res.status(201).json(location);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -870,10 +960,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/locations/:id", requireAuth, requirePermission('location_update'), async (req, res) => {
     try {
       const validatedData = insertLocationSchema.partial().parse(req.body);
+      
+      // Get old location for audit log
+      const oldLocation = await storage.getLocation(req.params.id);
+      
       const location = await storage.updateLocation(req.params.id, validatedData);
       if (!location) {
         return res.status(404).json({ message: "Location not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'locations', location.id.toString(), location.name, oldLocation, location, req);
+      
       res.json(location);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -885,10 +983,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/locations/:id", requireAuth, requirePermission('location_delete'), async (req, res) => {
     try {
+      // Get location for audit log before deleting
+      const location = await storage.getLocation(req.params.id);
+      
       const deleted = await storage.deleteLocation(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Location not found" });
       }
+      
+      // Log audit
+      if (location) {
+        await logAudit(req.user?.id, 'DELETE', 'locations', location.id.toString(), location.name, location, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete location" });
@@ -909,6 +1016,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertDepartmentSchema.parse(req.body);
       const department = await storage.createDepartment(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'departments', department.id, department.name, null, { name: department.name, description: department.description }, req);
+      
       res.status(201).json(department);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -921,10 +1032,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/departments/:id", requireAuth, requirePermission('department_update'), async (req, res) => {
     try {
       const validatedData = insertDepartmentSchema.partial().parse(req.body);
+      
+      // Get old department for audit log
+      const oldDepartment = await storage.getDepartment(req.params.id);
+      
       const department = await storage.updateDepartment(req.params.id, validatedData);
       if (!department) {
         return res.status(404).json({ message: "Department not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'departments', department.id, department.name, oldDepartment, department, req);
+      
       res.json(department);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -936,10 +1055,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/departments/:id", requireAuth, requirePermission('department_delete'), async (req, res) => {
     try {
+      // Get department for audit log before deleting
+      const department = await storage.getDepartment(req.params.id);
+      
       const deleted = await storage.deleteDepartment(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Department not found" });
       }
+      
+      // Log audit
+      if (department) {
+        await logAudit(req.user?.id, 'DELETE', 'departments', department.id, department.name, department, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete department" });
@@ -960,6 +1088,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertVendorSchema.parse(req.body);
       const vendor = await storage.createVendor(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'vendors', vendor.id.toString(), vendor.name, null, { name: vendor.name, contactPerson: vendor.contactPerson, email: vendor.email }, req);
+      
       res.status(201).json(vendor);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -984,10 +1116,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/vendors/:id", requireAuth, requirePermission('vendor_update'), async (req, res) => {
     try {
       const validatedData = insertVendorSchema.partial().parse(req.body);
+      
+      // Get old vendor for audit log
+      const oldVendor = await storage.getVendor(req.params.id);
+      
       const vendor = await storage.updateVendor(req.params.id, validatedData);
       if (!vendor) {
         return res.status(404).json({ message: "Vendor not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'vendors', vendor.id.toString(), vendor.name, oldVendor, vendor, req);
+      
       res.json(vendor);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -999,10 +1139,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/vendors/:id", requireAuth, requirePermission('vendor_delete'), async (req, res) => {
     try {
+      // Get vendor for audit log before deleting
+      const vendor = await storage.getVendor(req.params.id);
+      
       const deleted = await storage.deleteVendor(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Vendor not found" });
       }
+      
+      // Log audit
+      if (vendor) {
+        await logAudit(req.user?.id, 'DELETE', 'vendors', vendor.id.toString(), vendor.name, vendor, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete vendor" });
@@ -1023,6 +1172,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertPurchaseOrderSchema.parse(req.body);
       const purchaseOrder = await storage.createPurchaseOrder(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, null, { poNumber: purchaseOrder.poNumber, totalAmount: purchaseOrder.totalAmount, status: purchaseOrder.status }, req);
+      
       res.status(201).json(purchaseOrder);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1046,6 +1199,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertBudgetSchema.parse(req.body);
       const budget = await storage.createBudget(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'budgets', budget.id, `${budget.fiscalYear} Budget`, null, { fiscalYear: budget.fiscalYear, budgetAmount: budget.budgetAmount, departmentId: budget.departmentId }, req);
+      
       res.status(201).json(budget);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1058,10 +1215,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/budgets/:id", requireAuth, requirePermission('budget_update'), async (req, res) => {
     try {
       const validatedData = insertBudgetSchema.partial().parse(req.body);
+      
+      // Get old budget for audit log
+      const oldBudget = await storage.getBudget(req.params.id);
+      
       const budget = await storage.updateBudget(req.params.id, validatedData);
       if (!budget) {
         return res.status(404).json({ message: "Budget not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'budgets', budget.id, `${budget.fiscalYear} Budget`, oldBudget, budget, req);
+      
       res.json(budget);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1073,10 +1238,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/budgets/:id", requireAuth, requirePermission('budget_delete'), async (req, res) => {
     try {
+      // Get budget for audit log before deleting
+      const budget = await storage.getBudget(req.params.id);
+      
       const deleted = await storage.deleteBudget(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Budget not found" });
       }
+      
+      // Log audit
+      if (budget) {
+        await logAudit(req.user?.id, 'DELETE', 'budgets', budget.id, `${budget.fiscalYear} Budget`, budget, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete budget" });
@@ -1097,6 +1271,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertMaintenanceScheduleSchema.parse(req.body);
       const schedule = await storage.createMaintenanceSchedule(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'maintenance_schedules', schedule.id, `Maintenance Schedule #${schedule.id}`, null, { assetId: schedule.assetId, maintenanceType: schedule.maintenanceType, frequency: schedule.frequency }, req);
+      
       res.status(201).json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1109,10 +1287,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/maintenance-schedules/:id", requireAuth, requirePermission('maintenance_update'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceScheduleSchema.partial().parse(req.body);
+      
+      // Get old schedule for audit log
+      const oldSchedule = await storage.getMaintenanceSchedule(req.params.id);
+      
       const schedule = await storage.updateMaintenanceSchedule(req.params.id, validatedData);
       if (!schedule) {
         return res.status(404).json({ message: "Maintenance schedule not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'maintenance_schedules', schedule.id, `Maintenance Schedule #${schedule.id}`, oldSchedule, schedule, req);
+      
       res.json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1124,10 +1310,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/maintenance-schedules/:id", requireAuth, requirePermission('maintenance_delete'), async (req, res) => {
     try {
+      // Get schedule for audit log before deleting
+      const schedule = await storage.getMaintenanceSchedule(req.params.id);
+      
       const deleted = await storage.deleteMaintenanceSchedule(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Maintenance schedule not found" });
       }
+      
+      // Log audit
+      if (schedule) {
+        await logAudit(req.user?.id, 'DELETE', 'maintenance_schedules', schedule.id, `Maintenance Schedule #${schedule.id}`, schedule, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete maintenance schedule" });
@@ -1148,6 +1343,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertMaintenanceRecordSchema.parse(req.body);
       const record = await storage.createMaintenanceRecord(validatedData);
+      
+      // Log audit
+      await logAudit(req.user?.id, 'CREATE', 'maintenance_records', record.id, `Maintenance Record #${record.id}`, null, { assetId: record.assetId, maintenanceDate: record.maintenanceDate, maintenanceType: record.maintenanceType }, req);
+      
       res.status(201).json(record);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1160,10 +1359,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/maintenance-records/:id", requireAuth, requirePermission('maintenance_update'), async (req, res) => {
     try {
       const validatedData = insertMaintenanceRecordSchema.partial().parse(req.body);
+      
+      // Get old record for audit log
+      const oldRecord = await storage.getMaintenanceRecord(req.params.id);
+      
       const record = await storage.updateMaintenanceRecord(req.params.id, validatedData);
       if (!record) {
         return res.status(404).json({ message: "Maintenance record not found" });
       }
+      
+      // Log audit
+      await logAudit(req.user?.id, 'UPDATE', 'maintenance_records', record.id, `Maintenance Record #${record.id}`, oldRecord, record, req);
+      
       res.json(record);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1175,10 +1382,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/maintenance-records/:id", requireAuth, requirePermission('maintenance_delete'), async (req, res) => {
     try {
+      // Get record for audit log before deleting
+      const record = await storage.getMaintenanceRecord(req.params.id);
+      
       const deleted = await storage.deleteMaintenanceRecord(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Maintenance record not found" });
       }
+      
+      // Log audit
+      if (record) {
+        await logAudit(req.user?.id, 'DELETE', 'maintenance_records', record.id, `Maintenance Record #${record.id}`, record, null, req);
+      }
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete maintenance record" });
