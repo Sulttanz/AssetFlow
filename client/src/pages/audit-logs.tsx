@@ -17,6 +17,9 @@ type AuditLogWithUsername = AuditLog & {
 export default function AuditLogs() {
   const { data: auditLogs = [], isLoading, refetch } = useQuery<AuditLogWithUsername[]>({
     queryKey: ["/api/audit-logs"],
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const getActionBadge = (action: string) => {

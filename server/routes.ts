@@ -1512,6 +1512,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Audit Logs API
   app.get("/api/audit-logs", requireAuth, async (req, res) => {
     try {
+      // Set no-cache headers to prevent browser caching
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
       const logs = await storage.getAuditLogs();
       
       // Enrich logs with user information
