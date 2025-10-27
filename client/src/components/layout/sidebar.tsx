@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { 
@@ -21,7 +22,9 @@ import {
   Shield,
   Key,
   Lock,
-  LogOut
+  LogOut,
+  ChevronDown,
+  ChevronRight
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -35,6 +38,7 @@ import { useAuth } from "@/hooks/use-auth";
 export default function Sidebar() {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
   const navigationSections = [
     {
@@ -75,7 +79,25 @@ export default function Sidebar() {
     {
       title: "Analytics",
       items: [
-        { name: "Reports", href: "/reports", icon: FileBarChart, current: location === "/reports" },
+        { 
+          name: "Reports", 
+          href: "/reports", 
+          icon: FileBarChart, 
+          current: location.startsWith("/reports"),
+          hasSubmenu: true,
+          submenu: [
+            { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary" },
+            { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle" },
+            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
+            { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments" },
+            { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance" },
+            { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders" },
+            { name: "Budget Analysis", href: "/reports/budget", current: location === "/reports/budget" },
+            { name: "Department", href: "/reports/department", current: location === "/reports/department" },
+            { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties" },
+            { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
+          ]
+        },
       ]
     },
     {
@@ -113,8 +135,58 @@ export default function Sidebar() {
               {section.title}
             </h3>
             <div className="space-y-1">
-              {section.items.map((item) => {
+              {section.items.map((item: any) => {
                 const Icon = item.icon;
+                
+                // Handle items with submenu
+                if (item.hasSubmenu) {
+                  const isExpanded = section.title === "Analytics" ? reportsExpanded : false;
+                  return (
+                    <div key={item.name}>
+                      <button
+                        onClick={() => setReportsExpanded(!reportsExpanded)}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium",
+                          item.current
+                            ? "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                        )}
+                        data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Icon className="w-4 h-4" />
+                          <span>{item.name}</span>
+                        </div>
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                      </button>
+                      {isExpanded && item.submenu && (
+                        <div className="ml-4 mt-1 space-y-1">
+                          {item.submenu.map((subitem: any) => (
+                            <Link
+                              key={subitem.name}
+                              href={subitem.href}
+                              className={cn(
+                                "flex items-center space-x-3 px-3 py-2 rounded-md text-sm",
+                                subitem.current
+                                  ? "bg-primary/10 text-primary font-medium"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                              )}
+                              data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
+                            >
+                              <span>{subitem.name}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+                
+                // Handle regular items
                 return (
                   <Link
                     key={item.name}

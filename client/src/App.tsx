@@ -24,6 +24,16 @@ import SystemSettings from "@/pages/system-settings";
 import SystemInitialization from "@/pages/system-initialization";
 import AuditLogs from "@/pages/audit-logs";
 import Reports from "@/pages/reports";
+import AssetSummaryReport from "@/pages/reports/asset-summary";
+import LifecycleReport from "@/pages/reports/lifecycle";
+import HardwareInventoryReport from "@/pages/reports/hardware-inventory";
+import AssignmentsReport from "@/pages/reports/assignments";
+import MaintenanceReport from "@/pages/reports/maintenance";
+import PurchaseOrdersReport from "@/pages/reports/purchase-orders";
+import BudgetReport from "@/pages/reports/budget";
+import DepartmentReport from "@/pages/reports/department";
+import WarrantiesReport from "@/pages/reports/warranties";
+import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -59,6 +69,16 @@ function Router() {
                   <ProtectedRoute path="/budgets" component={Budgets} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} />
                   <ProtectedRoute path="/reports" component={Reports} />
+                  <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} />
+                  <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} />
+                  <ProtectedRoute path="/reports/hardware-inventory" component={HardwareInventoryReport} />
+                  <ProtectedRoute path="/reports/assignments" component={AssignmentsReport} />
+                  <ProtectedRoute path="/reports/maintenance" component={MaintenanceReport} />
+                  <ProtectedRoute path="/reports/purchase-orders" component={PurchaseOrdersReport} />
+                  <ProtectedRoute path="/reports/budget" component={BudgetReport} />
+                  <ProtectedRoute path="/reports/department" component={DepartmentReport} />
+                  <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} />
+                  <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
                   <ProtectedRoute path="/settings" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Settings</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
                   <Route component={NotFound} />
                 </Switch>
