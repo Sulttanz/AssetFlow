@@ -228,6 +228,11 @@ export default function Reports() {
 
         {/* Lifecycle Report */}
         <TabsContent value="lifecycle" className="space-y-4">
+          {isLoadingLifecycle ? (
+            <LoadingState />
+          ) : !lifecycle || !lifecycle.assets || lifecycle.assets.length === 0 ? (
+            <EmptyState message="No lifecycle data available" />
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Asset Lifecycle Report</CardTitle>
@@ -285,10 +290,16 @@ export default function Reports() {
               </div>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* Hardware Inventory Report */}
         <TabsContent value="hardware" className="space-y-4">
+          {isLoadingHardware ? (
+            <LoadingState />
+          ) : !hardwareInventory || hardwareInventory.length === 0 ? (
+            <EmptyState message="No hardware inventory data available" />
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Hardware Inventory Report</CardTitle>
@@ -329,10 +340,16 @@ export default function Reports() {
               </Table>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* Assignments Report */}
         <TabsContent value="assignments" className="space-y-4">
+          {isLoadingAssignments ? (
+            <LoadingState />
+          ) : !assignments ? (
+            <EmptyState message="No assignment data available" />
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Asset Assignments Report</CardTitle>
@@ -407,6 +424,7 @@ export default function Reports() {
               </Card>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* Maintenance Report */}
