@@ -45,7 +45,7 @@ The Reports module consists of 10 individual report pages, each with dedicated r
 10. **Vendor Analysis** (/reports/vendor-analysis) - Vendor performance analytics
 
 Each report page includes:
-- **Client-side filtering**: Custom filters specific to each report type (implemented for Asset Summary, Hardware Inventory, and Assignments)
+- **Client-side filtering**: Custom filters specific to each report type (fully implemented for Hardware Inventory and Assignments reports; Asset Summary displays aggregated data only without filters)
 - **Excel export**: Export report data to Excel spreadsheets using ExcelJS library
 - **PDF export**: Generate PDF reports using jsPDF with jspdf-autotable for tables
 - **Print functionality**: Print reports using react-to-print library

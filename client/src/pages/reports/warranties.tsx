@@ -18,7 +18,7 @@ export default function WarrantiesReport() {
   });
 
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
   });
 
   const handleExportExcel = async () => {

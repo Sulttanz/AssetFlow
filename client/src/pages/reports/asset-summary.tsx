@@ -1,9 +1,8 @@
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, FileSpreadsheet, Printer } from "lucide-react";
-import ReportFilters from "@/components/report-filters";
 import { exportToExcel, exportToPDF, formatCurrency } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,49 +11,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
 export default function AssetSummaryReport() {
-  const [filters, setFilters] = useState<Record<string, any>>({});
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data: summary, isLoading } = useQuery<any>({
     queryKey: ['/api/reports/summary'],
   });
 
-  const filterConfig = [
-    {
-      key: 'status',
-      label: 'Status',
-      type: 'select' as const,
-      options: [
-        { label: 'Available', value: 'available' },
-        { label: 'Assigned', value: 'assigned' },
-        { label: 'Maintenance', value: 'maintenance' },
-        { label: 'Retired', value: 'retired' },
-      ]
-    },
-    {
-      key: 'type',
-      label: 'Asset Type',
-      type: 'select' as const,
-      options: [
-        { label: 'Laptop', value: 'laptop' },
-        { label: 'Desktop', value: 'desktop' },
-        { label: 'Monitor', value: 'monitor' },
-        { label: 'Phone', value: 'phone' },
-        { label: 'Software', value: 'software' },
-      ]
-    },
-  ];
-
-  const handleFilterChange = (key: string, value: any) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleClearFilters = () => {
-    setFilters({});
-  };
-
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
   });
 
   const handleExportExcel = async () => {
@@ -88,27 +52,6 @@ export default function AssetSummaryReport() {
     );
   };
 
-  // Apply filters to data
-  const filteredData = summary ? (() => {
-    let data = { ...summary };
-    
-    // Filter by status if selected
-    if (filters.status && filters.status !== 'all') {
-      const statusCount = data.byStatus?.[filters.status] || 0;
-      data.byStatus = { [filters.status]: statusCount };
-      data.totalAssets = statusCount;
-      data[filters.status.toLowerCase()] = statusCount;
-    }
-    
-    // Filter by type if selected
-    if (filters.type && filters.type !== 'all') {
-      const typeCount = data.byType?.[filters.type] || 0;
-      data.byType = { [filters.type]: typeCount };
-    }
-    
-    return data;
-  })() : null;
-
   if (isLoading) {
     return <div className="p-8">Loading...</div>;
   }
@@ -137,13 +80,6 @@ export default function AssetSummaryReport() {
         </div>
       </div>
 
-      {/* Filters */}
-      <ReportFilters
-        filters={filterConfig}
-        values={filters}
-        onChange={handleFilterChange}
-        onClear={handleClearFilters}
-      />
 
       {/* Report Content */}
       <div ref={printRef} className="space-y-6 bg-white p-6">
@@ -154,7 +90,7 @@ export default function AssetSummaryReport() {
               <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-assets">{filteredData?.totalAssets || 0}</div>
+              <div className="text-2xl font-bold" data-testid="text-total-assets">{summary?.totalAssets || 0}</div>
             </CardContent>
           </Card>
           <Card>
@@ -162,7 +98,7 @@ export default function AssetSummaryReport() {
               <CardTitle className="text-sm font-medium">Available</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{filteredData?.available || 0}</div>
+              <div className="text-2xl font-bold text-green-600">{summary?.available || 0}</div>
             </CardContent>
           </Card>
           <Card>
@@ -170,7 +106,7 @@ export default function AssetSummaryReport() {
               <CardTitle className="text-sm font-medium">Assigned</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{filteredData?.assigned || 0}</div>
+              <div className="text-2xl font-bold text-blue-600">{summary?.assigned || 0}</div>
             </CardContent>
           </Card>
           <Card>
@@ -178,7 +114,7 @@ export default function AssetSummaryReport() {
               <CardTitle className="text-sm font-medium">Total Value</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(filteredData?.totalValue || 0)}</div>
+              <div className="text-2xl font-bold">{formatCurrency(summary?.totalValue || 0)}</div>
             </CardContent>
           </Card>
         </div>
@@ -190,11 +126,11 @@ export default function AssetSummaryReport() {
               <CardTitle>Assets by Status</CardTitle>
             </CardHeader>
             <CardContent>
-              {filteredData?.byStatus && (
+              {summary?.byStatus && (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie
-                      data={Object.entries(filteredData.byStatus).map(([name, value]) => ({ name, value }))}
+                      data={Object.entries(summary.byStatus).map(([name, value]) => ({ name, value }))}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
@@ -203,7 +139,7 @@ export default function AssetSummaryReport() {
                       fill="#8884d8"
                       dataKey="value"
                     >
-                      {Object.entries(filteredData.byStatus).map((entry, index) => (
+                      {Object.entries(summary.byStatus).map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -219,9 +155,9 @@ export default function AssetSummaryReport() {
               <CardTitle>Assets by Type</CardTitle>
             </CardHeader>
             <CardContent>
-              {filteredData?.byType && (
+              {summary?.byType && (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={Object.entries(filteredData.byType).map(([name, value]) => ({ name, value }))}>
+                  <BarChart data={Object.entries(summary.byType).map(([name, value]) => ({ name, value }))}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
@@ -251,12 +187,12 @@ export default function AssetSummaryReport() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredData?.byStatus && Object.entries(filteredData.byStatus).map(([status, count]: [string, any]) => (
+                {summary?.byStatus && Object.entries(summary.byStatus).map(([status, count]: [string, any]) => (
                   <TableRow key={status}>
                     <TableCell className="font-medium">{status}</TableCell>
                     <TableCell className="text-right">{count}</TableCell>
                     <TableCell className="text-right">
-                      {((count / filteredData.totalAssets) * 100).toFixed(1)}%
+                      {((count / summary.totalAssets) * 100).toFixed(1)}%
                     </TableCell>
                   </TableRow>
                 ))}
