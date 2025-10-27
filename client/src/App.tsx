@@ -23,6 +23,7 @@ import Permissions from "@/pages/permissions";
 import SystemSettings from "@/pages/system-settings";
 import SystemInitialization from "@/pages/system-initialization";
 import AuditLogs from "@/pages/audit-logs";
+import Reports from "@/pages/reports";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -57,7 +58,7 @@ function Router() {
                   <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} />
                   <ProtectedRoute path="/budgets" component={Budgets} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} />
-                  <ProtectedRoute path="/reports" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Reports</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
+                  <ProtectedRoute path="/reports" component={Reports} />
                   <ProtectedRoute path="/settings" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Settings</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
                   <Route component={NotFound} />
                 </Switch>

@@ -1606,6 +1606,413 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reports API
+  app.get("/api/reports/asset-summary", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const departments = await storage.getDepartments();
+      const locations = await storage.getLocations();
+      
+      // Assets by type
+      const byType = assets.reduce((acc: any, asset: any) => {
+        acc[asset.assetType] = (acc[asset.assetType] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Assets by status
+      const byStatus = assets.reduce((acc: any, asset: any) => {
+        acc[asset.status] = (acc[asset.status] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Assets by department
+      const byDepartment = assets.reduce((acc: any, asset: any) => {
+        const deptId = asset.departmentId || 'unassigned';
+        acc[deptId] = (acc[deptId] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Assets by location
+      const byLocation = assets.reduce((acc: any, asset: any) => {
+        const locId = asset.locationId || 'unassigned';
+        acc[locId] = (acc[locId] || 0) + 1;
+        return acc;
+      }, {});
+      
+      res.json({
+        totalAssets: assets.length,
+        byType,
+        byStatus,
+        byDepartment,
+        byLocation,
+        departments,
+        locations
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate asset summary report" });
+    }
+  });
+  
+  app.get("/api/reports/asset-lifecycle", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const today = new Date();
+      
+      // Calculate asset age and categorize
+      const lifecycle = assets.map((asset: any) => {
+        const purchaseDate = asset.purchaseDate ? new Date(asset.purchaseDate) : null;
+        const warrantyEnd = asset.warrantyEndDate ? new Date(asset.warrantyEndDate) : null;
+        
+        let ageInMonths = 0;
+        let ageCategory = 'unknown';
+        
+        if (purchaseDate) {
+          ageInMonths = Math.floor((today.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
+          
+          if (ageInMonths < 12) ageCategory = 'new';
+          else if (ageInMonths < 36) ageCategory = 'current';
+          else if (ageInMonths < 60) ageCategory = 'aging';
+          else ageCategory = 'old';
+        }
+        
+        const warrantyStatus = warrantyEnd ? (warrantyEnd > today ? 'active' : 'expired') : 'none';
+        
+        return {
+          id: asset.id,
+          assetTag: asset.assetTag,
+          assetType: asset.assetType,
+          purchaseDate: asset.purchaseDate,
+          ageInMonths,
+          ageCategory,
+          warrantyStatus,
+          warrantyEndDate: asset.warrantyEndDate,
+          status: asset.status
+        };
+      });
+      
+      // Group by age category
+      const byAgeCategory = lifecycle.reduce((acc: any, asset: any) => {
+        acc[asset.ageCategory] = (acc[asset.ageCategory] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Group by warranty status
+      const byWarrantyStatus = lifecycle.reduce((acc: any, asset: any) => {
+        acc[asset.warrantyStatus] = (acc[asset.warrantyStatus] || 0) + 1;
+        return acc;
+      }, {});
+      
+      res.json({
+        assets: lifecycle,
+        byAgeCategory,
+        byWarrantyStatus
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate asset lifecycle report" });
+    }
+  });
+  
+  app.get("/api/reports/hardware-inventory", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      
+      const hardwareAssets = assets.filter((asset: any) => 
+        ['laptop', 'desktop', 'server', 'monitor', 'phone', 'tablet'].includes(asset.assetType)
+      ).map((asset: any) => ({
+        id: asset.id,
+        assetTag: asset.assetTag,
+        assetType: asset.assetType,
+        manufacturer: asset.manufacturer,
+        model: asset.model,
+        serialNumber: asset.serialNumber,
+        processor: asset.processor,
+        ram: asset.ram,
+        storage: asset.storage,
+        os: asset.operatingSystem,
+        purchaseDate: asset.purchaseDate,
+        purchaseCost: asset.purchaseCost,
+        status: asset.status
+      }));
+      
+      res.json(hardwareAssets);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate hardware inventory report" });
+    }
+  });
+  
+  app.get("/api/reports/asset-assignments", requireAuth, async (req, res) => {
+    try {
+      const assignments = await storage.getAssignmentsWithDetails();
+      const assets = await storage.getAssets();
+      const employees = await storage.getEmployees();
+      
+      // Current assignments (not returned)
+      const currentAssignments = assignments.filter((a: any) => !a.returnedDate);
+      
+      // Assignment history
+      const assignmentHistory = assignments.map((a: any) => ({
+        id: a.id,
+        assetTag: a.assetTag,
+        assetType: a.assetType,
+        employeeName: a.employeeName,
+        assignedDate: a.assignedDate,
+        returnedDate: a.returnedDate,
+        status: a.returnedDate ? 'returned' : 'active'
+      }));
+      
+      // Unassigned assets
+      const assignedAssetIds = new Set(currentAssignments.map((a: any) => a.assetId));
+      const unassignedAssets = assets.filter((asset: any) => !assignedAssetIds.has(asset.id));
+      
+      res.json({
+        currentAssignments: currentAssignments.length,
+        totalAssignments: assignments.length,
+        unassignedAssets: unassignedAssets.length,
+        assignmentHistory,
+        unassignedAssetsList: unassignedAssets.map((a: any) => ({
+          id: a.id,
+          assetTag: a.assetTag,
+          assetType: a.assetType,
+          status: a.status
+        }))
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate asset assignments report" });
+    }
+  });
+  
+  app.get("/api/reports/maintenance-schedule", requireAuth, async (req, res) => {
+    try {
+      const schedules = await storage.getMaintenanceSchedulesWithDetails();
+      const records = await storage.getMaintenanceRecordsWithDetails();
+      const today = new Date();
+      
+      // Upcoming maintenance
+      const upcoming = schedules.filter((s: any) => {
+        const nextDate = new Date(s.nextMaintenanceDate);
+        return nextDate > today;
+      }).sort((a: any, b: any) => 
+        new Date(a.nextMaintenanceDate).getTime() - new Date(b.nextMaintenanceDate).getTime()
+      );
+      
+      // Overdue maintenance
+      const overdue = schedules.filter((s: any) => {
+        const nextDate = new Date(s.nextMaintenanceDate);
+        return nextDate <= today;
+      });
+      
+      // Maintenance by type
+      const byType = records.reduce((acc: any, record: any) => {
+        acc[record.maintenanceType] = (acc[record.maintenanceType] || 0) + 1;
+        return acc;
+      }, {});
+      
+      res.json({
+        upcoming,
+        overdue,
+        totalScheduled: schedules.length,
+        totalCompleted: records.length,
+        byType
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate maintenance schedule report" });
+    }
+  });
+  
+  app.get("/api/reports/purchase-orders", requireAuth, async (req, res) => {
+    try {
+      const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
+      
+      // POs by status
+      const byStatus = purchaseOrders.reduce((acc: any, po: any) => {
+        acc[po.status] = (acc[po.status] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // POs by vendor
+      const byVendor = purchaseOrders.reduce((acc: any, po: any) => {
+        const vendorName = po.vendorName || 'Unknown';
+        acc[vendorName] = (acc[vendorName] || 0) + 1;
+        return acc;
+      }, {});
+      
+      // Total spending
+      const totalSpending = purchaseOrders.reduce((sum: number, po: any) => {
+        return sum + parseFloat(po.totalAmount || 0);
+      }, 0);
+      
+      // Monthly spending
+      const monthlySpending = purchaseOrders.reduce((acc: any, po: any) => {
+        const date = new Date(po.orderDate);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        acc[monthKey] = (acc[monthKey] || 0) + parseFloat(po.totalAmount || 0);
+        return acc;
+      }, {});
+      
+      res.json({
+        totalPOs: purchaseOrders.length,
+        totalSpending,
+        byStatus,
+        byVendor,
+        monthlySpending,
+        purchaseOrders
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate purchase orders report" });
+    }
+  });
+  
+  app.get("/api/reports/budget-analysis", requireAuth, async (req, res) => {
+    try {
+      const budgets = await storage.getBudgets();
+      const departments = await storage.getDepartments();
+      
+      const budgetAnalysis = budgets.map((budget: any) => {
+        const budgetAmount = parseFloat(budget.budgetAmount || 0);
+        const spentAmount = parseFloat(budget.spentAmount || 0);
+        const remaining = budgetAmount - spentAmount;
+        const percentUsed = budgetAmount > 0 ? (spentAmount / budgetAmount) * 100 : 0;
+        
+        const department = departments.find((d: any) => d.id === budget.departmentId);
+        
+        return {
+          id: budget.id,
+          fiscalYear: budget.fiscalYear,
+          departmentName: department?.name || 'Unknown',
+          budgetAmount,
+          spentAmount,
+          remaining,
+          percentUsed: Math.round(percentUsed * 100) / 100,
+          status: percentUsed >= 100 ? 'exceeded' : percentUsed >= 90 ? 'critical' : percentUsed >= 75 ? 'warning' : 'good'
+        };
+      });
+      
+      const totalBudget = budgetAnalysis.reduce((sum, b) => sum + b.budgetAmount, 0);
+      const totalSpent = budgetAnalysis.reduce((sum, b) => sum + b.spentAmount, 0);
+      
+      res.json({
+        totalBudget,
+        totalSpent,
+        totalRemaining: totalBudget - totalSpent,
+        budgets: budgetAnalysis
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate budget analysis report" });
+    }
+  });
+  
+  app.get("/api/reports/assets-by-department", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const departments = await storage.getDepartments();
+      
+      const departmentReport = departments.map((dept: any) => {
+        const deptAssets = assets.filter((a: any) => a.departmentId === dept.id);
+        const totalValue = deptAssets.reduce((sum: number, a: any) => 
+          sum + parseFloat(a.purchaseCost || 0), 0
+        );
+        
+        const byType = deptAssets.reduce((acc: any, asset: any) => {
+          acc[asset.assetType] = (acc[asset.assetType] || 0) + 1;
+          return acc;
+        }, {});
+        
+        return {
+          departmentId: dept.id,
+          departmentName: dept.name,
+          totalAssets: deptAssets.length,
+          totalValue,
+          byType
+        };
+      });
+      
+      res.json(departmentReport);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate assets by department report" });
+    }
+  });
+  
+  app.get("/api/reports/expiring-warranties", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const today = new Date();
+      const threeMonthsFromNow = new Date(today);
+      threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
+      
+      const expiringWarranties = assets
+        .filter((asset: any) => {
+          if (!asset.warrantyEndDate) return false;
+          const warrantyEnd = new Date(asset.warrantyEndDate);
+          return warrantyEnd > today && warrantyEnd <= threeMonthsFromNow;
+        })
+        .map((asset: any) => ({
+          id: asset.id,
+          assetTag: asset.assetTag,
+          assetType: asset.assetType,
+          manufacturer: asset.manufacturer,
+          model: asset.model,
+          warrantyEndDate: asset.warrantyEndDate,
+          daysRemaining: Math.floor((new Date(asset.warrantyEndDate).getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        }))
+        .sort((a: any, b: any) => a.daysRemaining - b.daysRemaining);
+      
+      const expiredWarranties = assets
+        .filter((asset: any) => {
+          if (!asset.warrantyEndDate) return false;
+          const warrantyEnd = new Date(asset.warrantyEndDate);
+          return warrantyEnd <= today;
+        })
+        .map((asset: any) => ({
+          id: asset.id,
+          assetTag: asset.assetTag,
+          assetType: asset.assetType,
+          manufacturer: asset.manufacturer,
+          model: asset.model,
+          warrantyEndDate: asset.warrantyEndDate
+        }));
+      
+      res.json({
+        expiringWarranties,
+        expiredWarranties,
+        expiringCount: expiringWarranties.length,
+        expiredCount: expiredWarranties.length
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate expiring warranties report" });
+    }
+  });
+  
+  app.get("/api/reports/vendor-analysis", requireAuth, async (req, res) => {
+    try {
+      const vendors = await storage.getVendors();
+      const assets = await storage.getAssets();
+      const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
+      
+      const vendorAnalysis = vendors.map((vendor: any) => {
+        const vendorAssets = assets.filter((a: any) => a.vendorId === vendor.id);
+        const vendorPOs = purchaseOrders.filter((po: any) => po.vendorId === vendor.id);
+        const totalSpending = vendorPOs.reduce((sum: number, po: any) => 
+          sum + parseFloat(po.totalAmount || 0), 0
+        );
+        
+        return {
+          id: vendor.id,
+          vendorName: vendor.vendorName,
+          contactPerson: vendor.contactPerson,
+          email: vendor.email,
+          totalAssets: vendorAssets.length,
+          totalPurchaseOrders: vendorPOs.length,
+          totalSpending,
+          riskLevel: vendor.riskAssessmentScore || 'not-assessed'
+        };
+      });
+      
+      res.json(vendorAnalysis.sort((a, b) => b.totalSpending - a.totalSpending));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate vendor analysis report" });
+    }
+  });
+
   // Audit Logs API
   app.get("/api/audit-logs", requireAuth, async (req, res) => {
     try {
