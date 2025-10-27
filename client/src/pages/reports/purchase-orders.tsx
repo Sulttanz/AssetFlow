@@ -18,7 +18,7 @@ export default function PurchaseOrdersReport() {
   });
 
   const handlePrint = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
   });
 
   const handleExportExcel = async () => {

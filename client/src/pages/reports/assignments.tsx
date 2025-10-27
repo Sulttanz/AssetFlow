@@ -18,13 +18,13 @@ export default function AssignmentsReport() {
   });
 
   const handlePrint = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
   });
 
   const handleExportExcel = async () => {
-    if (!assignments?.assignmentHistory) return;
+    if (!filteredAssignments || filteredAssignments.length === 0) return;
     await exportToExcel(
-      assignments.assignmentHistory.map((a: any) => ({
+      filteredAssignments.map((a: any) => ({
         assetTag: a.assetTag,
         type: a.assetType,
         employee: a.employeeName,
@@ -45,8 +45,8 @@ export default function AssignmentsReport() {
   };
 
   const handleExportPDF = () => {
-    if (!assignments?.assignmentHistory) return;
-    const data = assignments.assignmentHistory.map((a: any) => [
+    if (!filteredAssignments || filteredAssignments.length === 0) return;
+    const data = filteredAssignments.map((a: any) => [
       a.assetTag,
       a.assetType,
       a.employeeName,
@@ -61,6 +61,34 @@ export default function AssignmentsReport() {
       'assignments-report'
     );
   };
+
+  // Apply filters to assignments data
+  const filteredAssignments = assignments?.assignmentHistory ? assignments.assignmentHistory.filter((item: any) => {
+    // Filter by status
+    if (filters.status && filters.status !== 'all' && item.status !== filters.status) {
+      return false;
+    }
+    
+    // Filter by search term
+    if (filters.search && filters.search.trim()) {
+      const searchLower = filters.search.toLowerCase();
+      return (
+        item.assetTag?.toLowerCase().includes(searchLower) ||
+        item.employeeName?.toLowerCase().includes(searchLower) ||
+        item.assetType?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    return true;
+  }) : [];
+
+  const filteredData = assignments ? {
+    ...assignments,
+    assignmentHistory: filteredAssignments,
+    activeAssignments: filteredAssignments.filter((a: any) => a.status === 'active').length,
+    returnedAssignments: filteredAssignments.filter((a: any) => a.status === 'returned').length,
+    totalAssignments: filteredAssignments.length,
+  } : null;
 
   if (isLoading) return <div className="p-8">Loading...</div>;
 
@@ -116,7 +144,7 @@ export default function AssignmentsReport() {
               <CardTitle className="text-sm font-medium">Total Assignments</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{assignments?.totalAssignments || 0}</div>
+              <div className="text-2xl font-bold">{filteredData?.totalAssignments || 0}</div>
             </CardContent>
           </Card>
           <Card>
@@ -124,7 +152,7 @@ export default function AssignmentsReport() {
               <CardTitle className="text-sm font-medium">Active</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">{assignments?.activeAssignments || 0}</div>
+              <div className="text-2xl font-bold text-green-600">{filteredData?.activeAssignments || 0}</div>
             </CardContent>
           </Card>
           <Card>
@@ -132,7 +160,7 @@ export default function AssignmentsReport() {
               <CardTitle className="text-sm font-medium">Returned</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{assignments?.returnedAssignments || 0}</div>
+              <div className="text-2xl font-bold">{filteredData?.returnedAssignments || 0}</div>
             </CardContent>
           </Card>
         </div>
@@ -155,7 +183,7 @@ export default function AssignmentsReport() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {assignments?.assignmentHistory?.map((assignment: any) => (
+                {filteredAssignments?.map((assignment: any) => (
                   <TableRow key={assignment.id}>
                     <TableCell className="font-medium">{assignment.assetTag}</TableCell>
                     <TableCell>{assignment.assetType}</TableCell>

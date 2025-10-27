@@ -19,7 +19,7 @@ export default function LifecycleReport() {
   });
 
   const handlePrint = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
   });
 
   const handleExportExcel = async () => {

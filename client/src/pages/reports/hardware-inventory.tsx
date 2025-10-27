@@ -17,13 +17,13 @@ export default function HardwareInventoryReport() {
   });
 
   const handlePrint = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
   });
 
   const handleExportExcel = async () => {
-    if (!hardware) return;
+    if (!filteredHardware) return;
     await exportToExcel(
-      hardware.map(h => ({
+      filteredHardware.map(h => ({
         assetTag: h.assetTag,
         type: h.assetType,
         manufacturer: h.manufacturer || 'N/A',
@@ -48,8 +48,8 @@ export default function HardwareInventoryReport() {
   };
 
   const handleExportPDF = () => {
-    if (!hardware) return;
-    const data = hardware.map(h => [
+    if (!filteredHardware) return;
+    const data = filteredHardware.map(h => [
       h.assetTag,
       h.assetType,
       h.manufacturer || 'N/A',
@@ -66,6 +66,27 @@ export default function HardwareInventoryReport() {
       'hardware-inventory-report'
     );
   };
+
+  // Apply filters to hardware data
+  const filteredHardware = hardware ? hardware.filter((item: any) => {
+    // Filter by type
+    if (filters.type && filters.type !== 'all' && item.assetType !== filters.type) {
+      return false;
+    }
+    
+    // Filter by search term
+    if (filters.search && filters.search.trim()) {
+      const searchLower = filters.search.toLowerCase();
+      return (
+        item.assetTag?.toLowerCase().includes(searchLower) ||
+        item.manufacturer?.toLowerCase().includes(searchLower) ||
+        item.model?.toLowerCase().includes(searchLower) ||
+        item.processor?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    return true;
+  }) : [];
 
   if (isLoading) return <div className="p-8">Loading...</div>;
 
@@ -137,7 +158,7 @@ export default function HardwareInventoryReport() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {hardware?.map((item) => (
+                {filteredHardware?.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">{item.assetTag}</TableCell>
                     <TableCell>{item.assetType}</TableCell>

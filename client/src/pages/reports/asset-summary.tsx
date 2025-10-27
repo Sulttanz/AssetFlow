@@ -54,7 +54,7 @@ export default function AssetSummaryReport() {
   };
 
   const handlePrint = useReactToPrint({
-    contentRef: printRef,
+    content: () => printRef.current,
   });
 
   const handleExportExcel = async () => {
@@ -89,10 +89,25 @@ export default function AssetSummaryReport() {
   };
 
   // Apply filters to data
-  const filteredData = summary ? {
-    ...summary,
-    // Filter logic here if needed
-  } : null;
+  const filteredData = summary ? (() => {
+    let data = { ...summary };
+    
+    // Filter by status if selected
+    if (filters.status && filters.status !== 'all') {
+      const statusCount = data.byStatus?.[filters.status] || 0;
+      data.byStatus = { [filters.status]: statusCount };
+      data.totalAssets = statusCount;
+      data[filters.status.toLowerCase()] = statusCount;
+    }
+    
+    // Filter by type if selected
+    if (filters.type && filters.type !== 'all') {
+      const typeCount = data.byType?.[filters.type] || 0;
+      data.byType = { [filters.type]: typeCount };
+    }
+    
+    return data;
+  })() : null;
 
   if (isLoading) {
     return <div className="p-8">Loading...</div>;

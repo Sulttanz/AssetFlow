@@ -12,6 +12,7 @@ The application follows a modern web development architecture with a React-based
 - **Purchase Orders**: Procurement workflow with vendor and approval management
 - **Assignment Tracking**: Asset-to-employee relationships with temporal data
 - **Dashboard Analytics**: Real-time statistics and insights across all modules
+- **Reports Module**: 10 dedicated report pages with filters, Excel/PDF export, and print functionality
 
 # User Preferences
 
@@ -28,7 +29,29 @@ Preferred communication style: Simple, everyday language.
 - **Forms**: React Hook Form with Zod validation for type-safe form handling
 - **Build Tool**: Vite for fast development and optimized production builds
 
-The frontend uses a component-based architecture with pages organized by feature (assets, employees, assignments, dashboard). Form components are reusable and handle both create and edit operations. The layout includes a persistent sidebar navigation and header components.
+The frontend uses a component-based architecture with pages organized by feature (assets, employees, assignments, dashboard, reports). Form components are reusable and handle both create and edit operations. The layout includes a persistent sidebar navigation with collapsible submenus and header components.
+
+### Reports Module
+The Reports module consists of 10 individual report pages, each with dedicated routes:
+1. **Asset Summary** (/reports/asset-summary) - Overview of all assets by status and type with filters for status and asset type
+2. **Lifecycle Analysis** (/reports/lifecycle) - Asset age groups and warranty status tracking
+3. **Hardware Inventory** (/reports/hardware-inventory) - Detailed hardware specifications with search and type filters
+4. **Assignments** (/reports/assignments) - Current and historical asset assignments with status and search filters
+5. **Maintenance** (/reports/maintenance) - Scheduled and overdue maintenance tasks
+6. **Purchase Orders** (/reports/purchase-orders) - Purchase order analytics and status tracking
+7. **Budget Analysis** (/reports/budget) - Department budgets and spending trends
+8. **Department** (/reports/department) - Asset allocation by department
+9. **Warranties** (/reports/warranties) - Warranty status and expiration tracking
+10. **Vendor Analysis** (/reports/vendor-analysis) - Vendor performance analytics
+
+Each report page includes:
+- **Client-side filtering**: Custom filters specific to each report type (implemented for Asset Summary, Hardware Inventory, and Assignments)
+- **Excel export**: Export report data to Excel spreadsheets using ExcelJS library
+- **PDF export**: Generate PDF reports using jsPDF with jspdf-autotable for tables
+- **Print functionality**: Print reports using react-to-print library
+- **Data visualization**: Interactive charts using recharts library (pie charts, bar charts)
+
+The sidebar navigation includes a collapsible "Reports" menu in the Analytics section that expands to show all 10 report types.
 
 ## Backend Architecture
 - **Framework**: Express.js with TypeScript for the REST API
