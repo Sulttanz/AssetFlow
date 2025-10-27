@@ -3,54 +3,83 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
-import { FileText, Download, TrendingUp, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag } from "lucide-react";
+import { FileText, Download, TrendingUp, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag, Loader2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#ffc658', '#ff7c7c'];
 
+function LoadingState() {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96 mt-2" />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center py-12">
+        <FileText className="h-16 w-16 text-muted-foreground mb-4" />
+        <p className="text-lg text-muted-foreground">{message}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Reports() {
   const [activeTab, setActiveTab] = useState("summary");
 
-  const { data: assetSummary } = useQuery<any>({
+  const { data: assetSummary, isLoading: isLoadingSummary } = useQuery<any>({
     queryKey: ["/api/reports/asset-summary"],
   });
 
-  const { data: lifecycle } = useQuery<any>({
+  const { data: lifecycle, isLoading: isLoadingLifecycle } = useQuery<any>({
     queryKey: ["/api/reports/asset-lifecycle"],
   });
 
-  const { data: hardwareInventory } = useQuery<any>({
+  const { data: hardwareInventory, isLoading: isLoadingHardware } = useQuery<any>({
     queryKey: ["/api/reports/hardware-inventory"],
   });
 
-  const { data: assignments } = useQuery<any>({
+  const { data: assignments, isLoading: isLoadingAssignments } = useQuery<any>({
     queryKey: ["/api/reports/asset-assignments"],
   });
 
-  const { data: maintenance } = useQuery<any>({
+  const { data: maintenance, isLoading: isLoadingMaintenance } = useQuery<any>({
     queryKey: ["/api/reports/maintenance-schedule"],
   });
 
-  const { data: purchaseOrders } = useQuery<any>({
+  const { data: purchaseOrders, isLoading: isLoadingPurchase } = useQuery<any>({
     queryKey: ["/api/reports/purchase-orders"],
   });
 
-  const { data: budgetAnalysis } = useQuery<any>({
+  const { data: budgetAnalysis, isLoading: isLoadingBudget } = useQuery<any>({
     queryKey: ["/api/reports/budget-analysis"],
   });
 
-  const { data: departmentAssets } = useQuery<any>({
+  const { data: departmentAssets, isLoading: isLoadingDepartment } = useQuery<any>({
     queryKey: ["/api/reports/assets-by-department"],
   });
 
-  const { data: expiringWarranties } = useQuery<any>({
+  const { data: expiringWarranties, isLoading: isLoadingWarranties } = useQuery<any>({
     queryKey: ["/api/reports/expiring-warranties"],
   });
 
-  const { data: vendorAnalysis } = useQuery<any>({
+  const { data: vendorAnalysis, isLoading: isLoadingVendors } = useQuery<any>({
     queryKey: ["/api/reports/vendor-analysis"],
   });
 
@@ -119,6 +148,11 @@ export default function Reports() {
 
         {/* Asset Summary Report */}
         <TabsContent value="summary" className="space-y-4">
+          {isLoadingSummary ? (
+            <LoadingState />
+          ) : !assetSummary || assetSummary.totalAssets === 0 ? (
+            <EmptyState message="No asset data available" />
+          ) : (
           <Card>
             <CardHeader>
               <CardTitle>Asset Summary Report</CardTitle>
@@ -189,6 +223,7 @@ export default function Reports() {
               </div>
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* Lifecycle Report */}
