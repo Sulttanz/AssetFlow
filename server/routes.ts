@@ -2,6 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, hashPassword } from "./auth";
+import multer from "multer";
+import ExcelJS from "exceljs";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
@@ -2059,6 +2061,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(enrichedLogs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  // ====================
+  // IMPORT/EXPORT ROUTES
+  // ====================
+
+  // Configure multer for file uploads
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || 
+          file.mimetype === 'application/vnd.ms-excel') {
+        cb(null, true);
+      } else {
+        cb(new Error('Only Excel files are allowed'));
+      }
+    }
+  });
+
+  // Import data from Excel
+  app.post("/api/import/excel", requireAuth, upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+
+      const errors: string[] = [];
+      let assetsImported = 0;
+      let employeesImported = 0;
+      let assignmentsImported = 0;
+
+      // Import Assets
+      const assetsSheet = workbook.getWorksheet('Assets');
+      if (assetsSheet) {
+        const assetRows: any[] = [];
+        assetsSheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // Skip header row
+          assetRows.push({
+            name: row.getCell(1).value,
+            type: row.getCell(2).value,
+            status: row.getCell(3).value,
+            serialNumber: row.getCell(4).value,
+            purchaseDate: row.getCell(5).value,
+            purchasePrice: row.getCell(6).value,
+            warrantyExpiry: row.getCell(7).value,
+            location: row.getCell(8).value,
+            specifications: row.getCell(9).value,
+          });
+        });
+
+        for (const assetData of assetRows) {
+          try {
+            // Skip empty rows
+            if (!assetData.name && !assetData.serialNumber) continue;
+
+            const asset = await storage.createAsset({
+              name: assetData.name?.toString() || '',
+              type: assetData.type?.toString() || '',
+              status: assetData.status?.toString() || 'available',
+              serialNumber: assetData.serialNumber?.toString() || undefined,
+              purchaseDate: assetData.purchaseDate ? new Date(assetData.purchaseDate as any).toISOString().split('T')[0] : undefined,
+              purchasePrice: assetData.purchasePrice ? assetData.purchasePrice.toString() : undefined,
+              warrantyExpiry: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry as any).toISOString().split('T')[0] : undefined,
+              location: assetData.location?.toString() || undefined,
+              specifications: assetData.specifications?.toString() || undefined,
+            });
+            
+            await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, asset.name, null, asset, req);
+            assetsImported++;
+          } catch (error) {
+            errors.push(`Failed to import asset: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }
+
+      // Import Employees
+      const employeesSheet = workbook.getWorksheet('Employees');
+      if (employeesSheet) {
+        const employeeRows: any[] = [];
+        employeesSheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // Skip header row
+          employeeRows.push({
+            employeeId: row.getCell(1).value,
+            firstName: row.getCell(2).value,
+            lastName: row.getCell(3).value,
+            email: row.getCell(4).value,
+            department: row.getCell(5).value,
+            position: row.getCell(6).value,
+            phone: row.getCell(7).value,
+            startDate: row.getCell(8).value,
+            salary: row.getCell(9).value,
+          });
+        });
+
+        for (const empData of employeeRows) {
+          try {
+            // Skip empty rows
+            if (!empData.firstName && !empData.email) continue;
+
+            const employee = await storage.createEmployee({
+              employeeId: empData.employeeId?.toString() || undefined,
+              firstName: empData.firstName?.toString() || '',
+              lastName: empData.lastName?.toString() || '',
+              email: empData.email?.toString() || '',
+              department: empData.department?.toString() || undefined,
+              position: empData.position?.toString() || '',
+              phone: empData.phone?.toString() || undefined,
+              startDate: empData.startDate ? new Date(empData.startDate as any).toISOString().split('T')[0] : undefined,
+              salary: empData.salary ? empData.salary.toString() : undefined,
+            });
+            
+            await logAudit(req.user?.id, 'CREATE', 'employees', employee.id, `${employee.firstName} ${employee.lastName}`, null, employee, req);
+            employeesImported++;
+          } catch (error) {
+            errors.push(`Failed to import employee: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }
+
+      // Import Assignments
+      const assignmentsSheet = workbook.getWorksheet('Assignments');
+      if (assignmentsSheet) {
+        const assignmentRows: any[] = [];
+        assignmentsSheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // Skip header row
+          assignmentRows.push({
+            assetSerialNumber: row.getCell(1).value,
+            employeeEmail: row.getCell(2).value,
+            assignedDate: row.getCell(3).value,
+            returnedDate: row.getCell(4).value,
+          });
+        });
+
+        for (const assignData of assignmentRows) {
+          try {
+            // Skip empty rows
+            if (!assignData.assetSerialNumber && !assignData.employeeEmail) continue;
+
+            // Find asset by serial number
+            const assets = await storage.getAssets();
+            const asset = assets.find(a => a.serialNumber === assignData.assetSerialNumber?.toString());
+            if (!asset) {
+              errors.push(`Asset with serial number ${assignData.assetSerialNumber} not found`);
+              continue;
+            }
+
+            // Find employee by email
+            const employees = await storage.getEmployees();
+            const employee = employees.find(e => e.email === assignData.employeeEmail?.toString());
+            if (!employee) {
+              errors.push(`Employee with email ${assignData.employeeEmail} not found`);
+              continue;
+            }
+
+            const assignment = await storage.createAssignment({
+              assetId: asset.id,
+              employeeId: employee.id,
+              assignedDate: assignData.assignedDate ? new Date(assignData.assignedDate as any).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+              returnedDate: assignData.returnedDate ? new Date(assignData.returnedDate as any).toISOString().split('T')[0] : undefined,
+            });
+            
+            await logAudit(req.user?.id, 'CREATE', 'assignments', assignment.id, `${asset.name} to ${employee.firstName} ${employee.lastName}`, null, assignment, req);
+            assignmentsImported++;
+          } catch (error) {
+            errors.push(`Failed to import assignment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Import completed successfully`,
+        imported: {
+          assets: assetsImported,
+          employees: employeesImported,
+          assignments: assignmentsImported
+        },
+        errors: errors.length > 0 ? errors : undefined
+      });
+
+    } catch (error) {
+      console.error("Excel import error:", error);
+      res.status(500).json({ 
+        error: "Failed to import Excel file", 
+        message: error instanceof Error ? error.message : 'Unknown error' 
+      });
     }
   });
 

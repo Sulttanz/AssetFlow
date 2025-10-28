@@ -35,6 +35,7 @@ import BudgetReport from "@/pages/reports/budget";
 import DepartmentReport from "@/pages/reports/department";
 import WarrantiesReport from "@/pages/reports/warranties";
 import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
+import ImportPage from "@/pages/import";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -81,6 +82,7 @@ function Router() {
                   <ProtectedRoute path="/reports/department" component={DepartmentReport} />
                   <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} />
                   <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
+                  <ProtectedRoute path="/import" component={ImportPage} />
                   <ProtectedRoute path="/settings" component={() => <div className="flex-1 p-8"><h1 className="text-3xl font-bold">Settings</h1><p className="text-muted-foreground">Coming soon...</p></div>} />
                   <Route component={NotFound} />
                 </Switch>

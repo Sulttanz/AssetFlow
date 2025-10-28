@@ -25,7 +25,8 @@ import {
   LogOut,
   ChevronDown,
   ChevronRight,
-  UserCog
+  UserCog,
+  Upload
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -100,6 +101,12 @@ export default function Sidebar() {
             { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
           ]
         },
+      ]
+    },
+    {
+      title: "Tools",
+      items: [
+        { name: "Import Data", href: "/import", icon: Upload, current: location === "/import" },
       ]
     },
     {
