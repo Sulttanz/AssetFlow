@@ -104,6 +104,7 @@ export default function Employees() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Employee ID</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Department</TableHead>
@@ -117,6 +118,9 @@ export default function Employees() {
                   <TableBody>
                     {filteredEmployees?.map((employee) => (
                       <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`}>
+                        <TableCell className="font-medium" data-testid={`employee-id-${employee.id}`}>
+                          {employee.employeeId || "-"}
+                        </TableCell>
                         <TableCell className="font-medium">
                           {employee.firstName} {employee.lastName}
                         </TableCell>

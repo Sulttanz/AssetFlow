@@ -12,10 +12,12 @@ import { insertEmployeeSchema, type Employee, type Department, type Location } f
 import { z } from "zod";
 
 const formSchema = insertEmployeeSchema.extend({
-  startDate: z.string().optional(),
-  phone: z.string().optional(),
-  departmentId: z.string().optional(),
-  locationId: z.string().optional(),
+  employeeId: z.string().optional().transform(val => val || undefined),
+  startDate: z.string().optional().transform(val => val || undefined),
+  phone: z.string().optional().transform(val => val || undefined),
+  department: z.string().optional().transform(val => val || undefined),
+  departmentId: z.string().optional().transform(val => val || undefined),
+  locationId: z.string().optional().transform(val => val || undefined),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -42,6 +44,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      employeeId: employee?.employeeId ?? "",
       firstName: employee?.firstName || "",
       lastName: employee?.lastName || "",
       email: employee?.email || "",
@@ -111,6 +114,20 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="employee-form">
+        <FormField
+          control={form.control}
+          name="employeeId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Employee ID</FormLabel>
+              <FormControl>
+                <Input placeholder="Enter employee ID" {...field} data-testid="input-employee-id" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <div className="grid grid-cols-2 gap-4">
           <FormField
             control={form.control}

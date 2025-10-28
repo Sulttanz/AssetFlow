@@ -65,7 +65,7 @@ The backend implements a clean separation between routes (API endpoints), storag
 
 ## Database Schema
 - **Assets**: Core entity storing IT equipment details including type, status, purchase info, and specifications
-- **Employees**: User entity with personal and organizational information
+- **Employees**: User entity with personal and organizational information (includes employeeId field for user-defined identifiers)
 - **Assignments**: Junction entity linking assets to employees with temporal data (assigned/returned dates)
 - **Relationships**: Foreign key constraints ensuring referential integrity between assignments and both assets/employees
 

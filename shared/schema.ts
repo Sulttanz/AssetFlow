@@ -6,10 +6,11 @@ import { z } from "zod";
 // Core tables first to avoid circular dependencies
 export const employees = pgTable("employees", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: text("employee_id").unique(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email").notNull().unique(),
-  department: text("department").notNull(), // Keep for backward compatibility
+  department: text("department"), // Keep for backward compatibility, now optional
   position: text("position").notNull(),
   phone: text("phone"),
   startDate: date("start_date"),
