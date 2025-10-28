@@ -2111,8 +2111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             purchaseDate: row.getCell(5).value,
             purchasePrice: row.getCell(6).value,
             warrantyExpiry: row.getCell(7).value,
-            location: row.getCell(8).value,
-            specifications: row.getCell(9).value,
+            specifications: row.getCell(8).value,
           });
         });
 
@@ -2129,7 +2128,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               purchaseDate: assetData.purchaseDate ? new Date(assetData.purchaseDate as any).toISOString().split('T')[0] : undefined,
               purchasePrice: assetData.purchasePrice ? assetData.purchasePrice.toString() : undefined,
               warrantyExpiry: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry as any).toISOString().split('T')[0] : undefined,
-              location: assetData.location?.toString() || undefined,
               specifications: assetData.specifications?.toString() || undefined,
             });
             

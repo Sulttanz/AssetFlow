@@ -166,7 +166,7 @@ export default function ImportPage() {
                 <div className="mt-2 space-y-2 text-sm">
                   <p className="font-medium">Your Excel file should have these sheets:</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li><strong>Assets</strong>: name, type, status, serialNumber, purchaseDate, purchasePrice, warrantyExpiry, location, specifications</li>
+                    <li><strong>Assets</strong>: name, type, status, serialNumber, purchaseDate, purchasePrice, warrantyExpiry, specifications</li>
                     <li><strong>Employees</strong>: employeeId, firstName, lastName, email, department, position, phone, startDate, salary</li>
                     <li><strong>Assignments</strong> (optional): assetSerialNumber, employeeEmail, assignedDate, returnedDate</li>
                   </ul>

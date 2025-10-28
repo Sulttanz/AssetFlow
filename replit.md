@@ -14,6 +14,7 @@ The application follows a modern web development architecture with a React-based
 - **Assignment Tracking**: Asset-to-employee relationships with temporal data
 - **Dashboard Analytics**: Real-time statistics and insights across all modules
 - **Reports Module**: 10 dedicated report pages with filters, Excel/PDF export, and print functionality
+- **Data Import**: Excel file upload feature for bulk importing assets, employees, and assignments
 
 # User Preferences
 
@@ -104,6 +105,38 @@ The application is configured for deployment on Replit Cloud Run with the follow
 - **Database Migrations**: Drizzle Kit for schema management and migrations
 - **Type Safety**: Full TypeScript coverage across client, server, and shared schema
 - **Code Organization**: Monorepo structure with shared types and utilities
+
+## Data Import/Export
+
+### Excel Import Feature
+The application includes a comprehensive Excel import feature accessible at `/import` (under Tools menu in sidebar):
+
+**Functionality:**
+- Upload Excel files (.xlsx or .xls) to bulk import data
+- 10MB file size limit for uploads
+- Supports three data types: Assets, Employees, and Assignments
+- Row-by-row error handling (continues on errors)
+- Detailed import results showing success counts and errors
+- Audit logging for all imported records
+
+**Expected Excel Format:**
+
+The Excel file should contain separate sheets for each data type:
+
+1. **Assets Sheet** (columns in order):
+   - name, type, status, serialNumber, purchaseDate, purchasePrice, warrantyExpiry, specifications
+
+2. **Employees Sheet** (columns in order):
+   - employeeId, firstName, lastName, email, department, position, phone, startDate, salary
+
+3. **Assignments Sheet** (optional, columns in order):
+   - assetSerialNumber, employeeEmail, assignedDate, returnedDate
+
+**Technical Implementation:**
+- Backend: Multer for file upload handling, ExcelJS for parsing
+- Authentication: Requires user to be logged in
+- Validation: File type checking, row-level error handling
+- Matching: Assignments link assets (by serial number) to employees (by email)
 
 # External Dependencies
 
