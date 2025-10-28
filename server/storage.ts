@@ -596,9 +596,11 @@ export class MemStorage implements IStorage {
     const employee: Employee = { 
       ...insertEmployee, 
       id,
+      employeeId: insertEmployee.employeeId === "" ? null : (insertEmployee.employeeId ?? null),
       phone: insertEmployee.phone === "" ? null : (insertEmployee.phone ?? null),
       startDate: insertEmployee.startDate === "" ? null : (insertEmployee.startDate ?? null),
       salary: insertEmployee.salary === "" ? null : (insertEmployee.salary ?? null),
+      isManager: insertEmployee.isManager ?? false,
       managerId: insertEmployee.managerId === "" ? null : (insertEmployee.managerId ?? null),
       departmentId: insertEmployee.departmentId === "" ? null : (insertEmployee.departmentId ?? null),
       locationId: insertEmployee.locationId === "" ? null : (insertEmployee.locationId ?? null)

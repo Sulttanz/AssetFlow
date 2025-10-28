@@ -6,7 +6,8 @@ The application follows a modern web development architecture with a React-based
 
 ## Core Features
 - **Asset Management**: Complete lifecycle tracking for IT equipment
-- **Employee Management**: Staff records with department and location tracking  
+- **Employee Management**: Staff records with department and location tracking (includes Employee ID and Manager designation)
+- **Manager Management**: Dedicated interface for managing employees with managerial responsibilities
 - **Budget Management**: Financial planning with spending progress and department allocation
 - **Maintenance Management**: Preventive maintenance scheduling and maintenance record tracking
 - **Purchase Orders**: Procurement workflow with vendor and approval management
@@ -65,11 +66,11 @@ The backend implements a clean separation between routes (API endpoints), storag
 
 ## Database Schema
 - **Assets**: Core entity storing IT equipment details including type, status, purchase info, and specifications
-- **Employees**: User entity with personal and organizational information (includes employeeId field for user-defined identifiers)
+- **Employees**: User entity with personal and organizational information (includes employeeId field for user-defined identifiers and isManager boolean flag for manager designation)
 - **Assignments**: Junction entity linking assets to employees with temporal data (assigned/returned dates)
 - **Relationships**: Foreign key constraints ensuring referential integrity between assignments and both assets/employees
 
-The schema supports asset lifecycle tracking (available, assigned, maintenance, retired) and maintains historical assignment records even after assets are returned.
+The schema supports asset lifecycle tracking (available, assigned, maintenance, retired) and maintains historical assignment records even after assets are returned. The isManager field allows employees to be designated as managers, enabling dedicated manager views and filtering.
 
 ## Authentication & Authorization
 The application implements comprehensive authentication and authorization using Passport.js with local strategy. Features include:
