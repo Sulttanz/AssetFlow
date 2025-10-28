@@ -67,6 +67,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, isManager 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
       toast({
         title: "Success",
         description: "Employee created successfully",
@@ -89,6 +90,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, isManager 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
       toast({
         title: "Success",
         description: "Employee updated successfully",
