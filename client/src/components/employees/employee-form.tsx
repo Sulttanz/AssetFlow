@@ -269,7 +269,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, isManager 
               </div>
               <FormControl>
                 <Switch
-                  checked={field.value}
+                  checked={field.value || false}
                   onCheckedChange={field.onChange}
                   data-testid="switch-is-manager"
                 />

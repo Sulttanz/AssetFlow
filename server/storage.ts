@@ -31,6 +31,7 @@ export interface IStorage {
   // Employees
   getEmployees(): Promise<Employee[]>;
   getEmployeesWithDetails(): Promise<EmployeeWithDetails[]>;
+  getManagers(): Promise<EmployeeWithDetails[]>;
   getEmployee(id: string): Promise<Employee | undefined>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined>;
@@ -579,6 +580,11 @@ export class MemStorage implements IStorage {
     }
     
     return result;
+  }
+
+  async getManagers(): Promise<EmployeeWithDetails[]> {
+    const allEmployees = await this.getEmployeesWithDetails();
+    return allEmployees.filter(employee => employee.isManager);
   }
 
   async getEmployee(id: string): Promise<Employee | undefined> {
@@ -1695,6 +1701,28 @@ export class DatabaseStorage implements IStorage {
     const result: EmployeeWithDetails[] = [];
     
     for (const employee of allEmployees) {
+      const department = employee.departmentId ? await db.select().from(departments).where(eq(departments.id, employee.departmentId)).then(r => r[0] || undefined) : undefined;
+      const location = employee.locationId ? await db.select().from(locations).where(eq(locations.id, employee.locationId)).then(r => r[0] || undefined) : undefined;
+      const manager = employee.managerId ? await db.select().from(employees).where(eq(employees.id, employee.managerId)).then(r => r[0] || undefined) : undefined;
+      const assignedAssets = await db.select().from(assets).innerJoin(assignments, eq(assets.id, assignments.assetId)).where(eq(assignments.employeeId, employee.id));
+      
+      result.push({
+        ...employee,
+        departmentDetails: department || undefined,
+        locationDetails: location || undefined,
+        manager: manager || undefined,
+        assignedAssets: assignedAssets.map(a => a.assets)
+      });
+    }
+    
+    return result;
+  }
+
+  async getManagers(): Promise<EmployeeWithDetails[]> {
+    const managersData = await db.select().from(employees).where(eq(employees.isManager, true));
+    const result: EmployeeWithDetails[] = [];
+    
+    for (const employee of managersData) {
       const department = employee.departmentId ? await db.select().from(departments).where(eq(departments.id, employee.departmentId)).then(r => r[0] || undefined) : undefined;
       const location = employee.locationId ? await db.select().from(locations).where(eq(locations.id, employee.locationId)).then(r => r[0] || undefined) : undefined;
       const manager = employee.managerId ? await db.select().from(employees).where(eq(employees.id, employee.managerId)).then(r => r[0] || undefined) : undefined;
