@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -25,10 +26,11 @@ type FormData = z.infer<typeof formSchema>;
 interface EmployeeFormProps {
   employee?: Employee | null;
   onSuccess: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
+  isManager?: boolean;
 }
 
-export default function EmployeeForm({ employee, onSuccess, onCancel }: EmployeeFormProps) {
+export default function EmployeeForm({ employee, onSuccess, onCancel, isManager = false }: EmployeeFormProps) {
   const { toast } = useToast();
   const isEdit = !!employee;
 
@@ -54,6 +56,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
       startDate: employee?.startDate ?? "",
       departmentId: employee?.departmentId ?? "",
       locationId: employee?.locationId ?? "",
+      isManager: employee?.isManager ?? isManager,
     },
   });
 
@@ -249,6 +252,28 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
                 <Input placeholder="Enter position" {...field} data-testid="input-position" />
               </FormControl>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="isManager"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel className="text-base">Manager</FormLabel>
+                <div className="text-sm text-muted-foreground">
+                  This employee has managerial responsibilities
+                </div>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  data-testid="switch-is-manager"
+                />
+              </FormControl>
             </FormItem>
           )}
         />
