@@ -107,6 +107,7 @@ export default function Sidebar() {
       title: "Tools",
       items: [
         { name: "Import Data", href: "/import", icon: Upload, current: location === "/import" },
+        { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]
     },
     {

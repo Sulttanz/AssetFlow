@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import { convertToISODate } from "@/lib/date-utils";
 
 const formSchema = insertAssetSchema.extend({
   // Basic fields
+  assetTag: z.string().optional(),
   purchaseDate: z.string().optional(),
   warrantyExpiry: z.string().optional(),
   serialNumber: z.string().optional(),
@@ -71,11 +73,22 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   const { toast } = useToast();
   const isEdit = !!asset;
 
+  const { data: setting } = useQuery({
+    queryKey: ["/api/settings/asset_id_generation_mode"],
+  });
+  
+  const assetIdMode = setting?.value || "manual";
+
+  const { data: assets } = useQuery({
+    queryKey: ["/api/assets"],
+  });
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       // Basic Information
       name: asset?.name || "",
+      assetTag: (asset as any)?.assetTag ?? "",
       type: asset?.type || "",
       serialNumber: asset?.serialNumber ?? "",
       status: asset?.status || "available",
@@ -118,6 +131,25 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       physicalSecurityLevel: (asset as any)?.physicalSecurityLevel ?? "",
     },
   });
+
+  useEffect(() => {
+    if (!isEdit && assetIdMode === "auto" && assets) {
+      const existingAssetTags = assets
+        .map((a: any) => a.assetTag)
+        .filter((tag: string) => tag && tag.startsWith("ASSET-"))
+        .map((tag: string) => {
+          const match = tag.match(/ASSET-(\d+)/);
+          return match ? parseInt(match[1], 10) : 0;
+        });
+      
+      const nextNumber = existingAssetTags.length > 0 
+        ? Math.max(...existingAssetTags) + 1 
+        : 1;
+      
+      const newAssetId = `ASSET-${nextNumber.toString().padStart(4, '0')}`;
+      form.setValue("assetTag", newAssetId);
+    }
+  }, [isEdit, assetIdMode, assets, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -166,6 +198,25 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   });
 
   const onSubmit = (data: FormData) => {
+    // Validate Asset ID in manual mode (both create and edit)
+    if (assetIdMode === "manual" && (!data.assetTag || data.assetTag.trim() === "")) {
+      form.setError("assetTag", {
+        type: "manual",
+        message: "Asset ID is required in manual mode",
+      });
+      toast({
+        title: "Validation Error",
+        description: "Asset ID is required when manual mode is enabled",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // In auto mode, remove the client-generated assetTag so server generates it
+    if (assetIdMode === "auto" && !isEdit) {
+      delete data.assetTag;
+    }
+
     // Helper function to process date fields - convert DD-MM-YYYY to YYYY-MM-DD and handle empty strings
     const processDateField = (dateValue: string | null | undefined): string | undefined => {
       if (!dateValue || dateValue.trim() === "") {
@@ -258,6 +309,30 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     )}
                   />
 
+                  <FormField
+                    control={form.control}
+                    name="assetTag"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Asset ID {assetIdMode === "manual" && !isEdit ? "*" : ""}
+                        </FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder={assetIdMode === "auto" ? "Auto-generated" : "Enter Asset ID"} 
+                            {...field} 
+                            readOnly={assetIdMode === "auto"}
+                            className={assetIdMode === "auto" ? "bg-muted" : ""}
+                            data-testid="input-asset-id" 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="type"

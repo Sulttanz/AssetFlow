@@ -482,6 +482,15 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+// System Settings
+export const settings = pgTable("settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  value: text("value").notNull(),
+  description: text("description"),
+  updatedAt: timestamp("updated_at").default(sql`now()`).notNull(),
+});
+
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
@@ -503,6 +512,7 @@ export const insertUserRoleSchema = createInsertSchema(userRoles).omit({ id: tru
 export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true });
 export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({ id: true, updatedAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, timestamp: true });
+export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 
 // Insert types
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
@@ -525,6 +535,7 @@ export type InsertUserRole = z.infer<typeof insertUserRoleSchema>;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
 export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type InsertSetting = z.infer<typeof insertSettingSchema>;
 
 // Select types
 export type Location = typeof locations.$inferSelect;
@@ -547,6 +558,7 @@ export type UserRole = typeof userRoles.$inferSelect;
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type Setting = typeof settings.$inferSelect;
 
 // User Management Types with Details
 export type UserWithDetails = User & {

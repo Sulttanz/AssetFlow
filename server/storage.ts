@@ -2,17 +2,17 @@ import {
   type Asset, type Employee, type Assignment, type Location, type Department,
   type Vendor, type PurchaseOrder, type PurchaseOrderItem, type Budget, 
   type MaintenanceSchedule, type MaintenanceRecord, type User, type Role, type Permission,
-  type UserRole, type RolePermission, type SystemSetting, type AuditLog,
+  type UserRole, type RolePermission, type SystemSetting, type AuditLog, type Setting,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
-  type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog,
+  type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog, type InsertSetting,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -147,6 +147,13 @@ export interface IStorage {
   getSystemSetting(key: string): Promise<SystemSetting | undefined>;
   updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting>;
   createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting>;
+
+  // Settings
+  getSettings(): Promise<Setting[]>;
+  getSetting(key: string): Promise<Setting | undefined>;
+  updateSetting(key: string, value: string): Promise<Setting>;
+  getNextAssetIdNumber(): Promise<number>;
+  createSetting(setting: InsertSetting): Promise<Setting>;
 
   // Audit Logs
   getAuditLogs(): Promise<AuditLog[]>;
@@ -1575,6 +1582,84 @@ export class MemStorage implements IStorage {
     return newSetting;
   }
 
+  // Settings (in-memory storage)
+  private settingsMap: Map<string, Setting> = new Map();
+
+  async getSettings(): Promise<Setting[]> {
+    return Array.from(this.settingsMap.values());
+  }
+
+  async getSetting(key: string): Promise<Setting | undefined> {
+    return Array.from(this.settingsMap.values()).find(s => s.key === key);
+  }
+
+  async createSetting(setting: InsertSetting): Promise<Setting> {
+    const id = randomUUID();
+    const newSetting: Setting = {
+      ...setting,
+      id,
+      updatedAt: new Date()
+    };
+    this.settingsMap.set(id, newSetting);
+    return newSetting;
+  }
+
+  async updateSetting(key: string, value: string): Promise<Setting> {
+    const existing = await this.getSetting(key);
+    if (existing) {
+      const updated = {
+        ...existing,
+        value,
+        updatedAt: new Date()
+      };
+      this.settingsMap.set(existing.id, updated);
+      return updated;
+    } else {
+      return this.createSetting({
+        key,
+        value,
+        description: null
+      });
+    }
+  }
+
+  async getNextAssetIdNumber(): Promise<number> {
+    const COUNTER_KEY = 'asset_id_counter';
+    const counterSetting = await this.getSetting(COUNTER_KEY);
+    
+    if (!counterSetting) {
+      // Counter doesn't exist - initialize it by finding the highest existing asset number
+      const allAssets = await this.getAssets();
+      const existingNumbers = allAssets
+        .map(a => a.assetTag)
+        .filter((tag): tag is string => Boolean(tag && tag.startsWith("ASSET-")))
+        .map(tag => {
+          const match = tag.match(/ASSET-(\d+)/);
+          return match ? parseInt(match[1], 10) : 0;
+        });
+      
+      const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+      
+      // Create the counter setting
+      await this.createSetting({
+        key: COUNTER_KEY,
+        value: nextNumber.toString(),
+        description: 'Auto-incrementing counter for Asset IDs'
+      });
+      
+      return nextNumber;
+    } else {
+      // Counter exists - increment it
+      const currentValue = parseInt(counterSetting.value, 10);
+      const nextValue = currentValue + 1;
+      
+      // Update the counter
+      await this.updateSetting(COUNTER_KEY, nextValue.toString());
+      
+      return nextValue;
+    }
+  }
+
   // Audit Logs (in-memory storage)
   private auditLogs: Map<string, AuditLog> = new Map();
 
@@ -2360,6 +2445,85 @@ export class DatabaseStorage implements IStorage {
       throw new Error(`System setting with key ${key} not found`);
     }
     return result[0];
+  }
+
+  // Settings Methods
+  async getSettings(): Promise<Setting[]> {
+    return await db.select().from(settings);
+  }
+
+  async getSetting(key: string): Promise<Setting | undefined> {
+    const result = await db.select().from(settings).where(eq(settings.key, key));
+    return result[0] || undefined;
+  }
+
+  async createSetting(setting: InsertSetting): Promise<Setting> {
+    const result = await db.insert(settings).values(setting).returning();
+    return result[0];
+  }
+
+  async updateSetting(key: string, value: string): Promise<Setting> {
+    const updateData = { 
+      value,
+      updatedAt: new Date()
+    };
+    
+    const existing = await this.getSetting(key);
+    if (!existing) {
+      const newSetting: InsertSetting = {
+        key,
+        value,
+        description: null
+      };
+      return await this.createSetting(newSetting);
+    }
+    
+    const result = await db.update(settings).set(updateData).where(eq(settings.key, key)).returning();
+    return result[0];
+  }
+
+  async getNextAssetIdNumber(): Promise<number> {
+    const COUNTER_KEY = 'asset_id_counter';
+    
+    // Use a database transaction to atomically get and increment the counter
+    return await db.transaction(async (tx) => {
+      // Get the current counter value
+      const counterSetting = await tx.select().from(settings).where(eq(settings.key, COUNTER_KEY)).limit(1);
+      
+      if (!counterSetting || counterSetting.length === 0) {
+        // Counter doesn't exist - initialize it by finding the highest existing asset number
+        const allAssets = await tx.select({ assetTag: assets.assetTag }).from(assets);
+        const existingNumbers = allAssets
+          .map(a => a.assetTag)
+          .filter((tag): tag is string => Boolean(tag && tag.startsWith("ASSET-")))
+          .map(tag => {
+            const match = tag.match(/ASSET-(\d+)/);
+            return match ? parseInt(match[1], 10) : 0;
+          });
+        
+        const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+        
+        // Create the counter setting
+        await tx.insert(settings).values({
+          key: COUNTER_KEY,
+          value: nextNumber.toString(),
+          description: 'Auto-incrementing counter for Asset IDs'
+        });
+        
+        return nextNumber;
+      } else {
+        // Counter exists - increment it
+        const currentValue = parseInt(counterSetting[0].value, 10);
+        const nextValue = currentValue + 1;
+        
+        // Update the counter
+        await tx.update(settings)
+          .set({ value: nextValue.toString(), updatedAt: new Date() })
+          .where(eq(settings.key, COUNTER_KEY));
+        
+        return nextValue;
+      }
+    });
   }
 
   // Audit Logs

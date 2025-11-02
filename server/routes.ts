@@ -650,6 +650,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Asset creation request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.parse(req.body);
       console.log("Validated data:", JSON.stringify(validatedData, null, 2));
+      
+      // Check asset ID generation mode and validate/generate accordingly
+      const assetIdModeSetting = await storage.getSetting('asset_id_generation_mode');
+      const assetIdMode = assetIdModeSetting?.value || 'manual';
+      
+      if (assetIdMode === 'manual') {
+        // Manual mode: Require Asset ID
+        if (!validatedData.assetTag || validatedData.assetTag.trim() === '') {
+          return res.status(400).json({ 
+            message: "Asset ID is required when manual mode is enabled",
+            errors: [{ path: ['assetTag'], message: 'Asset ID is required in manual mode' }]
+          });
+        }
+      } else {
+        // Auto mode: ALWAYS generate Asset ID server-side using atomic counter (ignore any client-provided value)
+        const nextNumber = await storage.getNextAssetIdNumber();
+        validatedData.assetTag = `ASSET-${nextNumber.toString().padStart(4, '0')}`;
+      }
+      
       const asset = await storage.createAsset(validatedData);
       
       // Log audit - use validatedData to ensure all submitted fields are captured
@@ -672,6 +691,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Asset update request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.partial().parse(req.body);
       console.log("Validated update data:", JSON.stringify(validatedData, null, 2));
+      
+      // Check asset ID generation mode and validate accordingly
+      if (validatedData.assetTag !== undefined) {
+        const assetIdModeSetting = await storage.getSetting('asset_id_generation_mode');
+        const assetIdMode = assetIdModeSetting?.value || 'manual';
+        
+        if (assetIdMode === 'manual') {
+          // Manual mode: Require Asset ID if being updated
+          if (!validatedData.assetTag || validatedData.assetTag.trim() === '') {
+            return res.status(400).json({ 
+              message: "Asset ID is required when manual mode is enabled",
+              errors: [{ path: ['assetTag'], message: 'Asset ID is required in manual mode' }]
+            });
+          }
+        } else {
+          // Auto mode: Ignore any client-provided assetTag updates (server owns IDs)
+          delete validatedData.assetTag;
+        }
+      }
       
       // Get old asset for audit log
       const oldAsset = await storage.getAsset(req.params.id);
@@ -2076,6 +2114,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(enrichedLogs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch audit logs" });
+    }
+  });
+
+  // ====================
+  // SETTINGS ROUTES
+  // ====================
+  
+  app.get("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const setting = await storage.getSetting(req.params.key);
+      if (!setting) {
+        return res.status(404).json({ message: "Setting not found" });
+      }
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch setting" });
+    }
+  });
+
+  app.put("/api/settings/:key", requireAuth, async (req, res) => {
+    try {
+      const { value } = req.body;
+      if (!value) {
+        return res.status(400).json({ message: "Value is required" });
+      }
+      
+      const setting = await storage.updateSetting(req.params.key, value);
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update setting" });
     }
   });
 
