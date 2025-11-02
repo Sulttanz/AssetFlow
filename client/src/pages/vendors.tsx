@@ -26,7 +26,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-const ITEMS_PER_PAGE = 30;
+const ITEMS_PER_PAGE = 10;
 
 const vendorFormSchema = insertVendorSchema.extend({
   rating: z.number().min(1).max(5).default(5)

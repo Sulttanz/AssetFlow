@@ -23,7 +23,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-const ITEMS_PER_PAGE = 30;
+const ITEMS_PER_PAGE = 10;
 
 export default function Assets() {
   const [searchQuery, setSearchQuery] = useState("");

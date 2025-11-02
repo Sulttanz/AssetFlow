@@ -22,7 +22,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-const ITEMS_PER_PAGE = 30;
+const ITEMS_PER_PAGE = 10;
 
 export default function Assignments() {
   const [searchQuery, setSearchQuery] = useState("");
