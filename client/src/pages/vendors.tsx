@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Building, Edit2, Trash2, Mail, Phone, Globe, Star, DollarSign, Package, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,16 @@ import { insertVendorSchema, type VendorWithDetails } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
 import ComprehensiveVendorForm from "@/components/vendors/vendor-form";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 const vendorFormSchema = insertVendorSchema.extend({
   rating: z.number().min(1).max(5).default(5)
@@ -43,11 +53,30 @@ export default function Vendors() {
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<VendorWithDetails | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch vendors
   const { data: vendors = [], isLoading } = useQuery<VendorWithDetails[]>({
     queryKey: ["/api/vendors"],
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((vendors?.length || 0) / ITEMS_PER_PAGE);
+  }, [vendors]);
+
+  const paginatedVendors = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return vendors?.slice(startIndex, endIndex) || [];
+  }, [vendors, currentPage]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Create mutation
   const createMutation = useMutation({
@@ -501,7 +530,7 @@ export default function Vendors() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {vendors.map((vendor) => (
+          {paginatedVendors.map((vendor) => (
             <Card key={vendor.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -611,6 +640,39 @@ export default function Vendors() {
             </Card>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center mt-6">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
 
         {vendors.length === 0 && (
           <div className="text-center py-12">

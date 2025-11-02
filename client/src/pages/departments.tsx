@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Building2, Edit2, Trash2, MapPin, Users, DollarSign, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,16 @@ import { useToast } from "@/hooks/use-toast";
 import { insertDepartmentSchema, type DepartmentWithDetails, type Employee, type Location } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 const departmentFormSchema = insertDepartmentSchema.extend({
   managerId: z.string().optional(),
@@ -27,11 +37,30 @@ export default function Departments() {
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<DepartmentWithDetails | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch departments
   const { data: departments = [], isLoading } = useQuery<DepartmentWithDetails[]>({
     queryKey: ["/api/departments"],
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((departments?.length || 0) / ITEMS_PER_PAGE);
+  }, [departments]);
+
+  const paginatedDepartments = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return departments?.slice(startIndex, endIndex) || [];
+  }, [departments, currentPage]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Fetch employees for manager selection
   const { data: employees = [] } = useQuery<Employee[]>({
@@ -293,7 +322,7 @@ export default function Departments() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {departments.map((department) => (
+          {paginatedDepartments.map((department) => (
             <Card key={department.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -362,6 +391,39 @@ export default function Departments() {
             </Card>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center mt-6">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
 
         {departments.length === 0 && (
           <div className="text-center py-12">

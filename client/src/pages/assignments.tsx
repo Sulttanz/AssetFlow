@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,11 +13,22 @@ import Header from "@/components/layout/header";
 import AssignmentForm from "@/components/assignments/assignment-form";
 import { Eye, Edit, Trash2, LinkIcon, RotateCcw } from "lucide-react";
 import type { AssignmentWithDetails } from "@shared/schema";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 export default function Assignments() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentWithDetails | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
   const { data: assignments, isLoading } = useQuery<AssignmentWithDetails[]>({
@@ -77,6 +88,29 @@ export default function Assignments() {
       assignment.employee.department?.toLowerCase().includes(searchLower)
     );
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((filteredAssignments?.length || 0) / ITEMS_PER_PAGE);
+  }, [filteredAssignments]);
+
+  const paginatedAssignments = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredAssignments?.slice(startIndex, endIndex) || [];
+  }, [filteredAssignments, currentPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleAddAssignment = () => {
     setSelectedAssignment(null);
@@ -149,7 +183,7 @@ export default function Assignments() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAssignments?.map((assignment) => (
+                    {paginatedAssignments?.map((assignment) => (
                       <TableRow key={assignment.id} data-testid={`assignment-row-${assignment.id}`}>
                         <TableCell>
                           <div>
@@ -226,6 +260,39 @@ export default function Assignments() {
                     )}
                   </TableBody>
                 </Table>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex justify-center mt-4">
+                    <Pagination>
+                      <PaginationContent>
+                        <PaginationItem>
+                          <PaginationPrevious
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                          />
+                        </PaginationItem>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              onClick={() => setCurrentPage(page)}
+                              isActive={currentPage === page}
+                              className="cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        ))}
+                        <PaginationItem>
+                          <PaginationNext
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                          />
+                        </PaginationItem>
+                      </PaginationContent>
+                    </Pagination>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

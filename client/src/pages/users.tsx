@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,12 +14,23 @@ import Header from "@/components/layout/header";
 import UserForm from "@/components/users/user-form";
 import { Eye, Edit, Trash2, Users, UserPlus, Shield } from "lucide-react";
 import type { UserWithDetails } from "@shared/schema";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserWithDetails | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
   const { data: users, isLoading } = useQuery<UserWithDetails[]>({
@@ -58,6 +69,29 @@ export default function UsersPage() {
       (user.isActive ? "active" : "inactive").toLowerCase().includes(searchLower)
     );
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((filteredUsers?.length || 0) / ITEMS_PER_PAGE);
+  }, [filteredUsers]);
+
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredUsers?.slice(startIndex, endIndex) || [];
+  }, [filteredUsers, currentPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleAddUser = () => {
     setSelectedUser(null);
@@ -165,7 +199,7 @@ export default function UsersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers?.map((user) => (
+                {paginatedUsers?.map((user) => (
                   <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
                     <TableCell className="font-medium">
                       <div data-testid={`text-name-${user.id}`}>
@@ -229,6 +263,39 @@ export default function UsersPage() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-4">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        onClick={() => setCurrentPage(page)}
+                        isActive={currentPage === page}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
         </CardContent>
       </Card>
 

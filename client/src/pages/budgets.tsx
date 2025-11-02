@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -43,6 +43,16 @@ import {
   type Department, 
   type Location 
 } from "@shared/schema";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 // Form schema with validation
 const budgetFormSchema = insertBudgetSchema.extend({
@@ -59,12 +69,31 @@ export default function Budgets() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
   // Data fetching
   const { data: budgets = [], isLoading } = useQuery<Budget[]>({
     queryKey: ["/api/budgets"],
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((budgets?.length || 0) / ITEMS_PER_PAGE);
+  }, [budgets]);
+
+  const paginatedBudgets = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return budgets?.slice(startIndex, endIndex) || [];
+  }, [budgets, currentPage]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
@@ -541,7 +570,7 @@ export default function Budgets() {
 
       {/* Budget List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {budgets.map((budget) => {
+        {paginatedBudgets.map((budget) => {
           const progress = calculateProgress(budget.spentAmount || "0", budget.budgetAmount);
           const status = getBudgetStatus(budget.spentAmount || "0", budget.budgetAmount);
           
@@ -622,6 +651,39 @@ export default function Budgets() {
           );
         })}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-center mt-6">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <PaginationItem key={page}>
+                  <PaginationLink
+                    onClick={() => setCurrentPage(page)}
+                    isActive={currentPage === page}
+                    className="cursor-pointer"
+                  >
+                    {page}
+                  </PaginationLink>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       {budgets.length === 0 && (
         <div className="text-center py-12">

@@ -4,6 +4,8 @@ This is a comprehensive IT Asset Management System built as a full-stack web app
 
 The application follows a modern web development architecture with a React-based frontend using shadcn/ui components for a professional interface, an Express.js backend with RESTful APIs, and PostgreSQL for data persistence using Drizzle ORM.
 
+**Performance Optimization:** All major list pages implement client-side pagination (30 items per page) to improve performance and user experience when dealing with large datasets.
+
 ## Core Features
 - **Asset Management**: Complete lifecycle tracking for IT equipment
 - **Employee Management**: Staff records with department and location tracking (includes Employee ID and Manager designation)
@@ -30,8 +32,22 @@ Preferred communication style: Simple, everyday language.
 - **Styling**: Tailwind CSS with CSS custom properties for theming
 - **Forms**: React Hook Form with Zod validation for type-safe form handling
 - **Build Tool**: Vite for fast development and optimized production builds
+- **Pagination**: Client-side pagination (30 items per page) implemented across all major list pages for optimal performance
 
 The frontend uses a component-based architecture with pages organized by feature (assets, employees, assignments, dashboard, reports). Form components are reusable and handle both create and edit operations. The layout includes a persistent sidebar navigation with collapsible submenus and header components.
+
+### Pagination Implementation
+All major list pages implement consistent client-side pagination:
+- **Pages with Pagination**: Assets, Employees, Users, Assignments, Audit Logs, Vendors, Departments, Locations, Budgets, Purchase Orders
+- **Items Per Page**: 30 items
+- **Features**: 
+  - Page navigation with Previous/Next buttons
+  - Page number display with ellipsis for large page counts
+  - Automatic reset to page 1 when filters or search terms change
+  - Automatic page clamping when dataset shrinks (prevents empty page states)
+  - Item count display (e.g., "Showing 1 to 30 of 150 items")
+- **Performance**: useMemo hooks for efficient calculation of paginated data and total pages
+- **UX**: React useEffect for proper side-effect handling (filter resets and page clamping)
 
 ### Reports Module
 The Reports module consists of 10 individual report pages, each with dedicated routes:

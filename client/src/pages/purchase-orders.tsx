@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, ShoppingCart, Edit2, Trash2, Calendar, DollarSign, Package, Building2, User, FileText } from "lucide-react";
 import { format } from "date-fns";
@@ -18,6 +18,16 @@ import { useToast } from "@/hooks/use-toast";
 import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Employee, type Department, type Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
   vendorId: z.string().optional(),
@@ -44,11 +54,30 @@ export default function PurchaseOrders() {
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<PurchaseOrderWithDetails | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch purchase orders
   const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((orders?.length || 0) / ITEMS_PER_PAGE);
+  }, [orders]);
+
+  const paginatedPOs = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return orders?.slice(startIndex, endIndex) || [];
+  }, [orders, currentPage]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Fetch vendors for vendor selection
   const { data: vendors = [] } = useQuery<Vendor[]>({
@@ -531,7 +560,7 @@ export default function PurchaseOrders() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {orders.map((order) => {
+          {paginatedPOs.map((order) => {
             const totalAmount = parseFloat(order.totalAmount || "0");
             const itemCount = order.items?.length || 0;
             
@@ -635,6 +664,39 @@ export default function PurchaseOrders() {
             );
           })}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center mt-6">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
 
         {orders.length === 0 && (
           <div className="text-center py-12">

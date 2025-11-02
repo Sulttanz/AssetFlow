@@ -1,3 +1,4 @@
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -8,6 +9,16 @@ import { FileText, User, Calendar, Activity, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import type { AuditLog } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 type AuditLogWithUsername = AuditLog & {
   username?: string | null;
@@ -15,12 +26,32 @@ type AuditLogWithUsername = AuditLog & {
 };
 
 export default function AuditLogs() {
+  const [currentPage, setCurrentPage] = useState(1);
+
   const { data: auditLogs = [], isLoading, refetch } = useQuery<AuditLogWithUsername[]>({
     queryKey: ["/api/audit-logs"],
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     staleTime: 0,
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((auditLogs?.length || 0) / ITEMS_PER_PAGE);
+  }, [auditLogs]);
+
+  const paginatedLogs = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return auditLogs?.slice(startIndex, endIndex) || [];
+  }, [auditLogs, currentPage]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const getActionBadge = (action: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -149,7 +180,7 @@ export default function AuditLogs() {
                   No audit logs found. Activity will appear here when actions are performed.
                 </div>
               ) : (
-                <ScrollArea className="h-[600px]">
+                <>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -162,7 +193,7 @@ export default function AuditLogs() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {auditLogs.map((log) => (
+                      {paginatedLogs.map((log) => (
                         <TableRow key={log.id} data-testid={`audit-log-${log.id}`}>
                           <TableCell className="font-mono text-xs w-[135px]">
                             {log.timestamp ? format(new Date(log.timestamp), "MMM dd, yyyy HH:mm:ss") : "-"}
@@ -185,7 +216,40 @@ export default function AuditLogs() {
                       ))}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex justify-center mt-4">
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
+                              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                              className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                            <PaginationItem key={page}>
+                              <PaginationLink
+                                onClick={() => setCurrentPage(page)}
+                                isActive={currentPage === page}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          ))}
+                          <PaginationItem>
+                            <PaginationNext
+                              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                              className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

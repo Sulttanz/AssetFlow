@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,16 @@ import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
 import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle } from "lucide-react";
 import type { AssetWithAssignment, Asset } from "@shared/schema";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 export default function Assets() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -23,6 +33,7 @@ export default function Assets() {
   const [complianceFilter, setComplianceFilter] = useState("all");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
   const { data: assets, isLoading } = useQuery<AssetWithAssignment[]>({
@@ -139,6 +150,29 @@ export default function Assets() {
     return matchesSearch && matchesStatus && matchesType && matchesClassification && matchesCompliance;
   });
 
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((filteredAssets?.length || 0) / ITEMS_PER_PAGE);
+  }, [filteredAssets]);
+
+  const paginatedAssets = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredAssets?.slice(startIndex, endIndex) || [];
+  }, [filteredAssets, currentPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, typeFilter, classificationFilter, complianceFilter]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const handleAddAsset = () => {
     setSelectedAsset(null);
     setIsFormOpen(true);
@@ -254,7 +288,7 @@ export default function Assets() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredAssets?.map((asset) => (
+                    {paginatedAssets?.map((asset) => (
                       <TableRow key={asset.id} data-testid={`asset-row-${asset.id}`}>
                         <TableCell>
                           <code className="bg-muted px-2 py-1 rounded text-xs">{asset.id.slice(0, 8)}</code>
@@ -321,6 +355,56 @@ export default function Assets() {
                     )}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!isLoading && filteredAssets && filteredAssets.length > 0 && (
+              <div className="flex items-center justify-between px-2 py-4 border-t mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing <span className="font-medium">{((currentPage - 1) * ITEMS_PER_PAGE) + 1}</span> to{" "}
+                  <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, filteredAssets.length)}</span> of{" "}
+                  <span className="font-medium">{filteredAssets.length}</span> assets
+                </div>
+                
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    
+                    {[...Array(totalPages)].map((_, i) => {
+                      const page = i + 1;
+                      // Show first page, last page, current page, and pages around current
+                      if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                        return (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              onClick={() => setCurrentPage(page)}
+                              isActive={currentPage === page}
+                              className="cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      } else if (page === currentPage - 2 || page === currentPage + 2) {
+                        return <PaginationItem key={page}><span className="px-2">...</span></PaginationItem>;
+                      }
+                      return null;
+                    })}
+                    
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </CardContent>

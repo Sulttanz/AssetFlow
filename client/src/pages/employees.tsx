@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,11 +12,22 @@ import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import { Eye, Edit, Trash2, Users } from "lucide-react";
 import type { EmployeeWithDetails } from "@shared/schema";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+const ITEMS_PER_PAGE = 30;
 
 export default function Employees() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
   const { data: employees, isLoading } = useQuery<EmployeeWithDetails[]>({
@@ -57,6 +68,29 @@ export default function Employees() {
       locationName.toLowerCase().includes(searchLower)
     );
   });
+
+  // Pagination calculations
+  const totalPages = useMemo(() => {
+    return Math.ceil((filteredEmployees?.length || 0) / ITEMS_PER_PAGE);
+  }, [filteredEmployees]);
+
+  const paginatedEmployees = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredEmployees?.slice(startIndex, endIndex) || [];
+  }, [filteredEmployees, currentPage]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Clamp currentPage to valid range when total pages changes
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleAddEmployee = () => {
     setSelectedEmployee(null);
@@ -117,7 +151,7 @@ export default function Employees() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEmployees?.map((employee) => (
+                    {paginatedEmployees?.map((employee) => (
                       <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`}>
                         <TableCell className="font-medium" data-testid={`employee-id-${employee.id}`}>
                           {employee.employeeId || "-"}
@@ -179,6 +213,55 @@ export default function Employees() {
                     )}
                   </TableBody>
                 </Table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!isLoading && filteredEmployees && filteredEmployees.length > 0 && (
+              <div className="flex items-center justify-between px-2 py-4 border-t mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing <span className="font-medium">{((currentPage - 1) * ITEMS_PER_PAGE) + 1}</span> to{" "}
+                  <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, filteredEmployees.length)}</span> of{" "}
+                  <span className="font-medium">{filteredEmployees.length}</span> employees
+                </div>
+                
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    
+                    {[...Array(totalPages)].map((_, i) => {
+                      const page = i + 1;
+                      if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                        return (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              onClick={() => setCurrentPage(page)}
+                              isActive={currentPage === page}
+                              className="cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      } else if (page === currentPage - 2 || page === currentPage + 2) {
+                        return <PaginationItem key={page}><span className="px-2">...</span></PaginationItem>;
+                      }
+                      return null;
+                    })}
+                    
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             )}
           </CardContent>
