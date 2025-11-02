@@ -2554,16 +2554,18 @@ export class DatabaseStorage implements IStorage {
   async clearAllData(): Promise<boolean> {
     try {
       // Clear data from all tables except system settings and users
+      // Delete child tables first to avoid foreign key constraint violations
       await db.delete(assignments);
       await db.delete(maintenanceRecords);
       await db.delete(maintenanceSchedules);
-      await db.delete(budgets);
+      await db.delete(purchaseOrderItems); // Delete purchase order items before purchase orders
       await db.delete(purchaseOrders);
+      await db.delete(budgets);
+      await db.delete(assets);
+      await db.delete(employees);
       await db.delete(vendors);
       await db.delete(departments);
       await db.delete(locations);
-      await db.delete(assets);
-      await db.delete(employees);
       return true;
     } catch (error) {
       console.error("Error clearing data:", error);
