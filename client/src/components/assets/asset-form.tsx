@@ -45,6 +45,7 @@ const formSchema = insertAssetSchema.extend({
   
   // Financial & Procurement
   maintenanceCosts: z.string().optional(),
+  invoiceNumber: z.string().optional(),
   
   // Lifecycle Management
   lifecycleStatus: z.string().optional(),
@@ -115,6 +116,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       
       // Financial & Procurement
       maintenanceCosts: (asset as any)?.maintenanceCosts ?? "",
+      invoiceNumber: (asset as any)?.invoiceNumber ?? "",
       
       // Lifecycle Management
       lifecycleStatus: (asset as any)?.lifecycleStatus ?? "",
@@ -402,35 +404,19 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="vendor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendor</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter vendor name" {...field} data-testid="input-vendor" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="model"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Model</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter model" {...field} data-testid="input-model" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="model"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Model</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter model" {...field} data-testid="input-model" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
@@ -738,6 +724,36 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
+                    name="vendor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendor Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter vendor name" {...field} data-testid="input-vendor" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="invoiceNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Invoice Number</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter invoice number" {...field} data-testid="input-invoice" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
                     name="purchasePrice"
                     render={({ field }) => (
                       <FormItem>
@@ -756,9 +772,6 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     )}
                   />
 
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="purchaseDate"
@@ -772,7 +785,9 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       </FormItem>
                     )}
                   />
+                </div>
 
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
                     name="warrantyExpiry"
@@ -786,27 +801,27 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       </FormItem>
                     )}
                   />
-                </div>
 
-                <FormField
-                  control={form.control}
-                  name="maintenanceCosts"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Maintenance Costs</FormLabel>
-                      <FormControl>
-                        <Input 
-                          type="number" 
-                          step="0.01" 
-                          placeholder="Enter maintenance costs" 
-                          {...field} 
-                          data-testid="input-maintenance-cost"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="maintenanceCosts"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Maintenance Costs</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="number" 
+                            step="0.01" 
+                            placeholder="Enter maintenance costs" 
+                            {...field} 
+                            data-testid="input-maintenance-cost"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
