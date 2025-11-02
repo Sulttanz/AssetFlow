@@ -798,13 +798,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Employee not found" });
       }
       
-      // Check if employee has any assignments
+      // Check if employee has any ACTIVE assignments (not returned)
       const assignments = await storage.getAssignmentsByEmployee(req.params.id);
-      if (assignments && assignments.length > 0) {
+      const activeAssignments = assignments?.filter(a => !a.returnedDate) || [];
+      
+      if (activeAssignments.length > 0) {
         return res.status(400).json({ 
-          message: `Cannot delete employee. This employee has ${assignments.length} assignment(s). Please remove or reassign these assets first.`,
+          message: `Cannot delete employee. This employee has ${activeAssignments.length} active assignment(s). Please return these assets first.`,
           hasAssignments: true,
-          assignmentCount: assignments.length
+          assignmentCount: activeAssignments.length
         });
       }
       
