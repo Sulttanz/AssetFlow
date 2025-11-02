@@ -34,6 +34,10 @@ const formSchema = insertAssetSchema.extend({
   dataSensitivityLevel: z.string().optional(),
   dataTypes: z.string().optional(),
   
+  // Basic Info fields
+  locationId: z.string().optional(),
+  backupStatus: z.string().optional(),
+  
   // Ownership & Management
   assetOwner: z.string().optional(),
   assetCustodian: z.string().optional(),
@@ -84,6 +88,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/assets"],
   });
 
+  const { data: locations } = useQuery({
+    queryKey: ["/api/locations"],
+  });
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -104,6 +112,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       informationClassification: (asset as any)?.informationClassification ?? "",
       dataSensitivityLevel: (asset as any)?.dataSensitivityLevel ?? "",
       dataTypes: (asset as any)?.dataTypes ?? "",
+      
+      // Basic Info
+      locationId: asset?.locationId ?? "",
+      backupStatus: (asset as any)?.backupStatus ?? "",
       
       // Ownership & Management
       assetOwner: (asset as any)?.assetOwner ?? "",
@@ -435,6 +447,55 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     </FormItem>
                   )}
                 />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="locationId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Location</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-location">
+                              <SelectValue placeholder="Select location" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {locations?.map((location: any) => (
+                              <SelectItem key={location.id} value={location.id}>
+                                {location.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="backupStatus"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Backup Required</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-backup">
+                              <SelectValue placeholder="Select backup requirement" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="yes">Yes</SelectItem>
+                            <SelectItem value="no">No</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -476,11 +537,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     name="dataSensitivityLevel"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Data Sensitivity Level</FormLabel>
+                        <FormLabel>Criticality</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl>
                             <SelectTrigger data-testid="select-sensitivity">
-                              <SelectValue placeholder="Select sensitivity" />
+                              <SelectValue placeholder="Select criticality" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
