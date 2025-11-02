@@ -140,7 +140,12 @@ export default function Managers() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center space-x-2">
-                              <Button variant="ghost" size="sm" data-testid={`view-manager-${manager.id}`}>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => handleEditManager(manager)}
+                                data-testid={`view-manager-${manager.id}`}
+                              >
                                 <Eye className="h-4 w-4" />
                               </Button>
                               <Button 

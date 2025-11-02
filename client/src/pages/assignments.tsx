@@ -74,7 +74,7 @@ export default function Assignments() {
       assignment.asset.name.toLowerCase().includes(searchLower) ||
       assignment.asset.id.toLowerCase().includes(searchLower) ||
       `${assignment.employee.firstName} ${assignment.employee.lastName}`.toLowerCase().includes(searchLower) ||
-      assignment.employee.department.toLowerCase().includes(searchLower)
+      assignment.employee.department?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -176,7 +176,12 @@ export default function Assignments() {
                         <TableCell>{assignment.notes || "-"}</TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            <Button variant="ghost" size="sm" data-testid={`view-assignment-${assignment.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleEditAssignment(assignment)}
+                              data-testid={`view-assignment-${assignment.id}`}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                             {!assignment.returnedDate && (

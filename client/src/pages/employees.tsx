@@ -138,7 +138,12 @@ export default function Employees() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            <Button variant="ghost" size="sm" data-testid={`view-employee-${employee.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleEditEmployee(employee)}
+                              data-testid={`view-employee-${employee.id}`}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button 

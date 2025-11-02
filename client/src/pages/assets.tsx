@@ -281,7 +281,12 @@ export default function Assets() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            <Button variant="ghost" size="sm" data-testid={`view-asset-${asset.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleEditAsset(asset)}
+                              data-testid={`view-asset-${asset.id}`}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button 
