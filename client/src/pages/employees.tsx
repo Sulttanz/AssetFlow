@@ -34,10 +34,11 @@ export default function Employees() {
         description: "Employee deleted successfully",
       });
     },
-    onError: () => {
+    onError: (error: any) => {
+      const errorMessage = error?.message || "Failed to delete employee";
       toast({
-        title: "Error",
-        description: "Failed to delete employee",
+        title: "Cannot Delete Employee",
+        description: errorMessage,
         variant: "destructive",
       });
     },

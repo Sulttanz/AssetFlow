@@ -794,15 +794,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get employee for audit log before deleting
       const employee = await storage.getEmployee(req.params.id);
       
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+      
+      // Check if employee has any assignments
+      const assignments = await storage.getAssignmentsByEmployee(req.params.id);
+      if (assignments && assignments.length > 0) {
+        return res.status(400).json({ 
+          message: `Cannot delete employee. This employee has ${assignments.length} assignment(s). Please remove or reassign these assets first.`,
+          hasAssignments: true,
+          assignmentCount: assignments.length
+        });
+      }
+      
       const deleted = await storage.deleteEmployee(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Employee not found" });
       }
       
       // Log audit
-      if (employee) {
-        await logAudit(req.user?.id, 'DELETE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, employee, null, req);
-      }
+      await logAudit(req.user?.id, 'DELETE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, employee, null, req);
       
       res.status(204).send();
     } catch (error) {
