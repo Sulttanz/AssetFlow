@@ -810,14 +810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Delete all assignment records (including returned ones) for this employee
-      // This maintains database integrity while allowing employee deletion
-      if (assignments && assignments.length > 0) {
-        for (const assignment of assignments) {
-          await storage.deleteAssignment(assignment.id);
-        }
-      }
-      
+      // Delete employee - assignment history is preserved with NULL employee_id
       const deleted = await storage.deleteEmployee(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Employee not found" });

@@ -206,7 +206,7 @@ export const assets = pgTable("assets", {
 export const assignments = pgTable("assignments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   assetId: varchar("asset_id").notNull().references(() => assets.id),
-  employeeId: varchar("employee_id").notNull().references(() => employees.id),
+  employeeId: varchar("employee_id").references(() => employees.id, { onDelete: 'set null' }),
   assignedDate: date("assigned_date").notNull(),
   returnedDate: date("returned_date"),
   notes: text("notes"),
