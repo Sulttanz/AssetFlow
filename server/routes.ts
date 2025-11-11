@@ -2165,6 +2165,151 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate Excel template for import
+  app.get("/api/import/template", requireAuth, async (req, res) => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      
+      // Assets Sheet with comprehensive fields
+      const assetsSheet = workbook.addWorksheet('Assets');
+      assetsSheet.columns = [
+        // Basic Information
+        { header: 'Name*', key: 'name', width: 25 },
+        { header: 'Asset ID', key: 'assetTag', width: 15 },
+        { header: 'Type*', key: 'type', width: 15 },
+        { header: 'Serial Number', key: 'serialNumber', width: 20 },
+        { header: 'Model', key: 'model', width: 20 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Specifications', key: 'specifications', width: 30 },
+        
+        // Location & Organization
+        { header: 'Location Name', key: 'locationName', width: 20 },
+        { header: 'Department Name', key: 'departmentName', width: 20 },
+        
+        // Security Classification
+        { header: 'Information Classification', key: 'informationClassification', width: 25 },
+        { header: 'Criticality', key: 'dataSensitivityLevel', width: 15 },
+        { header: 'Data Types', key: 'dataTypes', width: 25 },
+        
+        // Ownership & Management
+        { header: 'Asset Owner', key: 'assetOwner', width: 20 },
+        { header: 'Asset Custodian', key: 'assetCustodian', width: 20 },
+        
+        // Financial & Procurement
+        { header: 'Vendor Name', key: 'vendor', width: 20 },
+        { header: 'Invoice Number', key: 'invoiceNumber', width: 20 },
+        { header: 'Purchase Price', key: 'purchasePrice', width: 15 },
+        { header: 'Purchase Date', key: 'purchaseDate', width: 15 },
+        { header: 'Warranty Expiry', key: 'warrantyExpiry', width: 15 },
+        { header: 'Maintenance Costs', key: 'maintenanceCosts', width: 15 },
+        
+        // Compliance & Controls
+        { header: 'Compliance Status', key: 'complianceStatus', width: 20 },
+        { header: 'Security Controls', key: 'securityControlsImplemented', width: 25 },
+        { header: 'Risk Assessment Score', key: 'riskAssessmentScore', width: 20 },
+        
+        // Lifecycle Management
+        { header: 'Lifecycle Status', key: 'lifecycleStatus', width: 20 },
+        { header: 'Planned Disposal Date', key: 'plannedDisposalDate', width: 20 },
+        
+        // Access & Backup
+        { header: 'Backup Required', key: 'backupStatus', width: 15 },
+        { header: 'Access Control Method', key: 'accessControlMethod', width: 25 },
+        { header: 'Physical Security Level', key: 'physicalSecurityLevel', width: 25 },
+        
+        // Auditing
+        { header: 'Last Audit Date', key: 'lastAuditDate', width: 15 },
+        { header: 'Next Audit Date', key: 'nextAuditDate', width: 15 },
+      ];
+      
+      // Add example row
+      assetsSheet.addRow({
+        name: 'Dell Laptop Example',
+        assetTag: 'ASSET-0001',
+        type: 'laptop',
+        serialNumber: 'SN123456',
+        model: 'Dell XPS 15',
+        status: 'available',
+        specifications: 'Intel i7, 16GB RAM, 512GB SSD',
+        locationName: 'Main Office',
+        departmentName: 'IT',
+        informationClassification: 'internal',
+        dataSensitivityLevel: 'medium',
+        dataTypes: 'Business data',
+        assetOwner: 'John Doe',
+        assetCustodian: 'IT Admin',
+        vendor: 'Dell Inc',
+        invoiceNumber: 'INV-2024-001',
+        purchasePrice: '1500.00',
+        purchaseDate: '2024-01-15',
+        warrantyExpiry: '2027-01-15',
+        maintenanceCosts: '200.00',
+        complianceStatus: 'compliant',
+        securityControlsImplemented: 'Encryption, Antivirus',
+        riskAssessmentScore: 'low',
+        lifecycleStatus: 'production',
+        plannedDisposalDate: '2029-01-15',
+        backupStatus: 'yes',
+        accessControlMethod: 'password',
+        physicalSecurityLevel: 'standard',
+        lastAuditDate: '2024-01-01',
+        nextAuditDate: '2024-07-01',
+      });
+      
+      // Employees Sheet
+      const employeesSheet = workbook.addWorksheet('Employees');
+      employeesSheet.columns = [
+        { header: 'Employee ID', key: 'employeeId', width: 15 },
+        { header: 'First Name*', key: 'firstName', width: 20 },
+        { header: 'Last Name*', key: 'lastName', width: 20 },
+        { header: 'Email*', key: 'email', width: 30 },
+        { header: 'Department', key: 'department', width: 20 },
+        { header: 'Position*', key: 'position', width: 20 },
+        { header: 'Phone', key: 'phone', width: 15 },
+        { header: 'Start Date', key: 'startDate', width: 15 },
+        { header: 'Salary', key: 'salary', width: 15 },
+      ];
+      
+      employeesSheet.addRow({
+        employeeId: 'EMP001',
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john.doe@example.com',
+        department: 'IT',
+        position: 'System Administrator',
+        phone: '+1234567890',
+        startDate: '2024-01-01',
+        salary: '75000',
+      });
+      
+      // Assignments Sheet
+      const assignmentsSheet = workbook.addWorksheet('Assignments');
+      assignmentsSheet.columns = [
+        { header: 'Asset Serial Number*', key: 'assetSerialNumber', width: 25 },
+        { header: 'Employee Email*', key: 'employeeEmail', width: 30 },
+        { header: 'Assigned Date*', key: 'assignedDate', width: 15 },
+        { header: 'Returned Date', key: 'returnedDate', width: 15 },
+      ];
+      
+      assignmentsSheet.addRow({
+        assetSerialNumber: 'SN123456',
+        employeeEmail: 'john.doe@example.com',
+        assignedDate: '2024-01-15',
+        returnedDate: '',
+      });
+      
+      // Set headers for download
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=asset-import-template.xlsx');
+      
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      console.error('Error generating template:', error);
+      res.status(500).json({ error: 'Failed to generate template' });
+    }
+  });
+
   // Import data from Excel
   app.post("/api/import/excel", requireAuth, upload.single('file'), async (req, res) => {
     try {
