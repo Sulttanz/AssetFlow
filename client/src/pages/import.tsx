@@ -205,17 +205,23 @@ export default function ImportPage() {
             {/* Expected Format Info */}
             <Alert>
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Expected Excel Format</AlertTitle>
+              <AlertTitle>How to Import Your Data</AlertTitle>
               <AlertDescription>
                 <div className="mt-2 space-y-2 text-sm">
-                  <p className="font-medium">Your Excel file should have these sheets:</p>
-                  <ul className="list-disc list-inside space-y-1 ml-2">
-                    <li><strong>Assets</strong>: name, type, status, serialNumber, purchaseDate, purchasePrice, warrantyExpiry, specifications</li>
-                    <li><strong>Employees</strong>: employeeId, firstName, lastName, email, department, position, phone, startDate, salary</li>
-                    <li><strong>Assignments</strong> (optional): assetSerialNumber, employeeEmail, assignedDate, returnedDate</li>
-                  </ul>
+                  <p className="font-medium">Follow these steps:</p>
+                  <ol className="list-decimal list-inside space-y-2 ml-2">
+                    <li><strong>Download the template</strong> using the button above</li>
+                    <li><strong>Fill in your data</strong> in the Excel sheets:
+                      <ul className="list-disc list-inside ml-6 mt-1 space-y-1">
+                        <li><strong>Assets</strong>: 30 comprehensive fields including security, financial, and compliance data</li>
+                        <li><strong>Employees</strong>: Basic employee information</li>
+                        <li><strong>Assignments</strong> (optional): Link assets to employees</li>
+                      </ul>
+                    </li>
+                    <li><strong>Upload the file</strong> using the form above</li>
+                  </ol>
                   <p className="mt-3 text-muted-foreground">
-                    Note: The import will match employees by email and assets by serial number for assignments.
+                    The template includes example data to guide you. Fields marked with * are required. Location and Department names will be automatically matched to your existing records.
                   </p>
                 </div>
               </AlertDescription>

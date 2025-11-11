@@ -2328,18 +2328,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Import Assets
       const assetsSheet = workbook.getWorksheet('Assets');
       if (assetsSheet) {
+        // Fetch locations and departments for lookup
+        const locations = await storage.getLocations();
+        const departments = await storage.getDepartments();
+        
+        // Create name -> ID maps for quick lookup
+        const locationMap = new Map<string, string>();
+        locations.forEach(loc => {
+          if (loc.name) locationMap.set(loc.name.toLowerCase().trim(), loc.id);
+        });
+        
+        const departmentMap = new Map<string, string>();
+        departments.forEach(dept => {
+          if (dept.name) departmentMap.set(dept.name.toLowerCase().trim(), dept.id);
+        });
+        
         const assetRows: any[] = [];
         assetsSheet.eachRow((row, rowNumber) => {
           if (rowNumber === 1) return; // Skip header row
+          
+          // Read all 30 columns from comprehensive template
           assetRows.push({
+            // Basic Information (cols 1-7)
             name: row.getCell(1).value,
-            type: row.getCell(2).value,
-            status: row.getCell(3).value,
+            assetTag: row.getCell(2).value,
+            type: row.getCell(3).value,
             serialNumber: row.getCell(4).value,
-            purchaseDate: row.getCell(5).value,
-            purchasePrice: row.getCell(6).value,
-            warrantyExpiry: row.getCell(7).value,
-            specifications: row.getCell(8).value,
+            model: row.getCell(5).value,
+            status: row.getCell(6).value,
+            specifications: row.getCell(7).value,
+            
+            // Location & Organization (cols 8-9)
+            locationName: row.getCell(8).value,
+            departmentName: row.getCell(9).value,
+            
+            // Security Classification (cols 10-12)
+            informationClassification: row.getCell(10).value,
+            dataSensitivityLevel: row.getCell(11).value,
+            dataClassificationHandled: row.getCell(12).value,
+            
+            // Ownership & Management (cols 13-14)
+            assetOwner: row.getCell(13).value,
+            assetCustodian: row.getCell(14).value,
+            
+            // Financial & Procurement (cols 15-20)
+            vendor: row.getCell(15).value,
+            invoiceNumber: row.getCell(16).value,
+            purchasePrice: row.getCell(17).value,
+            purchaseDate: row.getCell(18).value,
+            warrantyExpiry: row.getCell(19).value,
+            maintenanceCosts: row.getCell(20).value,
+            
+            // Compliance & Controls (cols 21-23)
+            // Note: complianceStatus not in schema, using securityControlsImplemented
+            securityControlsImplemented: row.getCell(22).value,
+            riskAssessmentScore: row.getCell(23).value,
+            
+            // Lifecycle Management (cols 24-25)
+            lifecycleStatus: row.getCell(24).value,
+            plannedDisposalDate: row.getCell(25).value,
+            
+            // Access & Backup (cols 26-28)
+            backupStatus: row.getCell(26).value,
+            accessControlMethod: row.getCell(27).value,
+            physicalSecurityLevel: row.getCell(28).value,
+            
+            // Auditing (cols 29-30)
+            lastAuditDate: row.getCell(29).value,
+            // Note: nextAuditDate not in assets schema
           });
         });
 
@@ -2348,15 +2404,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Skip empty rows
             if (!assetData.name && !assetData.serialNumber) continue;
 
+            // Lookup location ID by name
+            let locationId: string | undefined = undefined;
+            if (assetData.locationName) {
+              const locName = assetData.locationName.toString().toLowerCase().trim();
+              locationId = locationMap.get(locName);
+            }
+            
+            // Lookup department ID by name
+            let departmentId: string | undefined = undefined;
+            if (assetData.departmentName) {
+              const deptName = assetData.departmentName.toString().toLowerCase().trim();
+              departmentId = departmentMap.get(deptName);
+            }
+            
+            // Helper function to convert dates
+            const convertDate = (value: any) => {
+              if (!value) return undefined;
+              try {
+                return new Date(value as any).toISOString().split('T')[0];
+              } catch {
+                return undefined;
+              }
+            };
+            
+            // Helper function to handle optional string fields
+            const optionalString = (value: any) => {
+              if (!value || value === '') return undefined;
+              return value.toString();
+            };
+
             const asset = await storage.createAsset({
+              // Basic Information
               name: assetData.name?.toString() || '',
+              assetTag: optionalString(assetData.assetTag),
               type: assetData.type?.toString() || '',
+              serialNumber: optionalString(assetData.serialNumber),
+              model: optionalString(assetData.model),
               status: assetData.status?.toString() || 'available',
-              serialNumber: assetData.serialNumber?.toString() || undefined,
-              purchaseDate: assetData.purchaseDate ? new Date(assetData.purchaseDate as any).toISOString().split('T')[0] : undefined,
-              purchasePrice: assetData.purchasePrice ? assetData.purchasePrice.toString() : undefined,
-              warrantyExpiry: assetData.warrantyExpiry ? new Date(assetData.warrantyExpiry as any).toISOString().split('T')[0] : undefined,
-              specifications: assetData.specifications?.toString() || undefined,
+              specifications: optionalString(assetData.specifications),
+              
+              // Location & Organization
+              locationId,
+              departmentId,
+              
+              // Security Classification
+              informationClassification: optionalString(assetData.informationClassification),
+              dataSensitivityLevel: optionalString(assetData.dataSensitivityLevel),
+              dataClassificationHandled: optionalString(assetData.dataClassificationHandled),
+              
+              // Ownership & Management
+              assetOwner: optionalString(assetData.assetOwner),
+              assetCustodian: optionalString(assetData.assetCustodian),
+              
+              // Financial & Procurement
+              vendor: optionalString(assetData.vendor),
+              invoiceNumber: optionalString(assetData.invoiceNumber),
+              purchasePrice: optionalString(assetData.purchasePrice),
+              purchaseDate: convertDate(assetData.purchaseDate),
+              warrantyExpiry: convertDate(assetData.warrantyExpiry),
+              maintenanceCosts: optionalString(assetData.maintenanceCosts),
+              
+              // Compliance & Controls
+              securityControlsImplemented: optionalString(assetData.securityControlsImplemented),
+              riskAssessmentScore: optionalString(assetData.riskAssessmentScore),
+              
+              // Lifecycle Management
+              lifecycleStatus: optionalString(assetData.lifecycleStatus),
+              plannedDisposalDate: convertDate(assetData.plannedDisposalDate),
+              
+              // Access & Backup
+              backupStatus: optionalString(assetData.backupStatus),
+              accessControlMethod: optionalString(assetData.accessControlMethod),
+              physicalSecurityLevel: optionalString(assetData.physicalSecurityLevel),
+              
+              // Auditing
+              lastAuditDate: convertDate(assetData.lastAuditDate),
             });
             
             await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, asset.name, null, asset, req);
