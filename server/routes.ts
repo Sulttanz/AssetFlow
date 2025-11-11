@@ -2380,7 +2380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             maintenanceCosts: row.getCell(20).value,
             
             // Compliance & Controls (cols 21-23)
-            // Note: complianceStatus not in schema, using securityControlsImplemented
+            complianceStatus: row.getCell(21).value,
             securityControlsImplemented: row.getCell(22).value,
             riskAssessmentScore: row.getCell(23).value,
             
@@ -2395,7 +2395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             // Auditing (cols 29-30)
             lastAuditDate: row.getCell(29).value,
-            // Note: nextAuditDate not in assets schema
+            nextAuditDate: row.getCell(30).value,
           });
         });
 
@@ -2466,6 +2466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               maintenanceCosts: optionalString(assetData.maintenanceCosts),
               
               // Compliance & Controls
+              complianceStatus: optionalString(assetData.complianceStatus),
               securityControlsImplemented: optionalString(assetData.securityControlsImplemented),
               riskAssessmentScore: optionalString(assetData.riskAssessmentScore),
               
@@ -2480,6 +2481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Auditing
               lastAuditDate: convertDate(assetData.lastAuditDate),
+              nextAuditDate: convertDate(assetData.nextAuditDate),
             });
             
             await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, asset.name, null, asset, req);
