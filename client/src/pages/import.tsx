@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -36,6 +36,40 @@ export default function ImportPage() {
       }
       setFile(selectedFile);
       setResult(null);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/import/template', {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download template');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'asset-import-template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Template Downloaded",
+        description: "Fill in the template and upload it to import your data",
+      });
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: error instanceof Error ? error.message : 'Failed to download template',
+        variant: "destructive",
+      });
     }
   };
 
@@ -102,9 +136,19 @@ export default function ImportPage() {
 
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Excel File Upload</CardTitle>
+            <CardTitle className="flex items-center justify-between">
+              <span>Excel File Upload</span>
+              <Button
+                variant="outline"
+                onClick={handleDownloadTemplate}
+                data-testid="button-download-template"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download Template
+              </Button>
+            </CardTitle>
             <CardDescription>
-              Select an Excel file (.xlsx or .xls) containing your asset and employee data
+              Download the template, fill in your data, and upload it to import assets and employees
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
