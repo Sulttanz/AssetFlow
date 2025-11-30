@@ -53,11 +53,11 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
 
   // Search assets by name, asset tag (ASSET-0001), id, model, or serial number
   const filteredAssets = availableAssets?.filter(asset =>
-    asset.name.toLowerCase().includes(searchInput.toLowerCase()) ||
-    asset.id.toLowerCase().includes(searchInput.toLowerCase()) ||
-    ((asset as any).assetTag?.toLowerCase().includes(searchInput.toLowerCase()) ?? false) ||
-    (asset.model?.toLowerCase().includes(searchInput.toLowerCase()) ?? false) ||
-    (asset.serialNumber?.toLowerCase().includes(searchInput.toLowerCase()) ?? false)
+    asset.name.includes(searchInput) ||
+    asset.id.includes(searchInput) ||
+    ((asset as any).assetTag?.includes(searchInput) ?? false) ||
+    (asset.model?.includes(searchInput) ?? false) ||
+    (asset.serialNumber?.includes(searchInput) ?? false)
   ) || [];
 
   const form = useForm<FormData>({
