@@ -2606,6 +2606,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ====================
+  // DROPDOWN OPTIONS ROUTES
+  // ====================
+
+  app.get("/api/dropdowns/options", async (req, res) => {
+    try {
+      const options = await storage.getDropdownOptions();
+      res.json(options);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch dropdown options" });
+    }
+  });
+
+  app.get("/api/dropdowns/options/:category", async (req, res) => {
+    try {
+      const options = await storage.getDropdownOptionsByCategory(req.params.category);
+      res.json(options);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch dropdown options" });
+    }
+  });
+
+  app.post("/api/dropdowns/options", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const validatedData = insertDropdownOptionSchema.parse(req.body);
+      const option = await storage.createDropdownOption(validatedData);
+      res.status(201).json(option);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create dropdown option" });
+    }
+  });
+
+  app.put("/api/dropdowns/options/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const validatedData = insertDropdownOptionSchema.partial().parse(req.body);
+      const option = await storage.updateDropdownOption(req.params.id, validatedData);
+      if (!option) {
+        return res.status(404).json({ message: "Dropdown option not found" });
+      }
+      res.json(option);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update dropdown option" });
+    }
+  });
+
+  app.delete("/api/dropdowns/options/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const success = await storage.deleteDropdownOption(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Dropdown option not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete dropdown option" });
+    }
+  });
+
+  // Seed default dropdown options
+  app.post("/api/dropdowns/seed", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const defaultOptions = [
+        // Asset Types
+        { category: "assetType", value: "laptop", label: "Laptop", displayOrder: 0 },
+        { category: "assetType", value: "desktop", label: "Desktop", displayOrder: 1 },
+        { category: "assetType", value: "monitor", label: "Monitor", displayOrder: 2 },
+        { category: "assetType", value: "phone", label: "Phone", displayOrder: 3 },
+        { category: "assetType", value: "software", label: "Software", displayOrder: 4 },
+        { category: "assetType", value: "server", label: "Server", displayOrder: 5 },
+        { category: "assetType", value: "network-device", label: "Network Device", displayOrder: 6 },
+        { category: "assetType", value: "storage", label: "Storage Device", displayOrder: 7 },
+        // Status
+        { category: "status", value: "available", label: "Available", displayOrder: 0 },
+        { category: "status", value: "assigned", label: "Assigned", displayOrder: 1 },
+        { category: "status", value: "maintenance", label: "Maintenance", displayOrder: 2 },
+        { category: "status", value: "retired", label: "Retired", displayOrder: 3 },
+        // Criticality
+        { category: "criticality", value: "low", label: "Low", displayOrder: 0 },
+        { category: "criticality", value: "medium", label: "Medium", displayOrder: 1 },
+        { category: "criticality", value: "high", label: "High", displayOrder: 2 },
+        { category: "criticality", value: "critical", label: "Critical", displayOrder: 3 },
+        // Compliance Status
+        { category: "complianceStatus", value: "compliant", label: "Compliant", displayOrder: 0 },
+        { category: "complianceStatus", value: "non-compliant", label: "Non-Compliant", displayOrder: 1 },
+        { category: "complianceStatus", value: "under-review", label: "Under Review", displayOrder: 2 },
+        { category: "complianceStatus", value: "not-assessed", label: "Not Assessed", displayOrder: 3 },
+        // Lifecycle Status
+        { category: "lifecycleStatus", value: "planning", label: "Planning", displayOrder: 0 },
+        { category: "lifecycleStatus", value: "procurement", label: "Procurement", displayOrder: 1 },
+        { category: "lifecycleStatus", value: "deployment", label: "Deployment", displayOrder: 2 },
+        { category: "lifecycleStatus", value: "production", label: "Production", displayOrder: 3 },
+        { category: "lifecycleStatus", value: "maintenance", label: "Maintenance", displayOrder: 4 },
+        { category: "lifecycleStatus", value: "retirement", label: "Retirement", displayOrder: 5 },
+        // Information Classification
+        { category: "informationClassification", value: "public", label: "Public", displayOrder: 0 },
+        { category: "informationClassification", value: "internal", label: "Internal", displayOrder: 1 },
+        { category: "informationClassification", value: "confidential", label: "Confidential", displayOrder: 2 },
+        { category: "informationClassification", value: "restricted", label: "Restricted", displayOrder: 3 },
+        // Data Sensitivity Level
+        { category: "dataSensitivityLevel", value: "low", label: "Low", displayOrder: 0 },
+        { category: "dataSensitivityLevel", value: "medium", label: "Medium", displayOrder: 1 },
+        { category: "dataSensitivityLevel", value: "high", label: "High", displayOrder: 2 },
+        { category: "dataSensitivityLevel", value: "critical", label: "Critical", displayOrder: 3 },
+        // Security Level
+        { category: "securityLevel", value: "basic", label: "Basic", displayOrder: 0 },
+        { category: "securityLevel", value: "standard", label: "Standard", displayOrder: 1 },
+        { category: "securityLevel", value: "enhanced", label: "Enhanced", displayOrder: 2 },
+        { category: "securityLevel", value: "maximum", label: "Maximum", displayOrder: 3 },
+        // Risk Assessment Score
+        { category: "riskAssessmentScore", value: "low", label: "Low", displayOrder: 0 },
+        { category: "riskAssessmentScore", value: "medium", label: "Medium", displayOrder: 1 },
+        { category: "riskAssessmentScore", value: "high", label: "High", displayOrder: 2 },
+        { category: "riskAssessmentScore", value: "critical", label: "Critical", displayOrder: 3 },
+        // Access Control Method
+        { category: "accessControlMethod", value: "password", label: "Password", displayOrder: 0 },
+        { category: "accessControlMethod", value: "mfa", label: "Multi-Factor Authentication", displayOrder: 1 },
+        { category: "accessControlMethod", value: "biometric", label: "Biometric", displayOrder: 2 },
+        { category: "accessControlMethod", value: "smartcard", label: "Smart Card", displayOrder: 3 },
+        { category: "accessControlMethod", value: "none", label: "None", displayOrder: 4 },
+        // Physical Security Level
+        { category: "physicalSecurityLevel", value: "basic", label: "Basic", displayOrder: 0 },
+        { category: "physicalSecurityLevel", value: "standard", label: "Standard", displayOrder: 1 },
+        { category: "physicalSecurityLevel", value: "enhanced", label: "Enhanced", displayOrder: 2 },
+        { category: "physicalSecurityLevel", value: "maximum", label: "Maximum", displayOrder: 3 },
+      ];
+
+      let created = 0;
+      for (const option of defaultOptions) {
+        try {
+          await storage.createDropdownOption(option);
+          created++;
+        } catch (e) {
+          // Skip if already exists
+        }
+      }
+
+      res.json({ success: true, created });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to seed dropdown options" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
