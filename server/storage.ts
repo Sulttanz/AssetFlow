@@ -3,6 +3,7 @@ import {
   type Vendor, type PurchaseOrder, type PurchaseOrderItem, type Budget, 
   type MaintenanceSchedule, type MaintenanceRecord, type User, type Role, type Permission,
   type UserRole, type RolePermission, type SystemSetting, type AuditLog, type Setting,
+  type DropdownOption, type InsertDropdownOption,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
@@ -12,7 +13,7 @@ import {
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -161,6 +162,13 @@ export interface IStorage {
   getAuditLogsByTable(tableName: string): Promise<AuditLog[]>;
   getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+
+  // Dropdown Options
+  getDropdownOptions(): Promise<DropdownOption[]>;
+  getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]>;
+  createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption>;
+  updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined>;
+  deleteDropdownOption(id: string): Promise<boolean>;
 
   // Data Management
   clearAllData(): Promise<boolean>;

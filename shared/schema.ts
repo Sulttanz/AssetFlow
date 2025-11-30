@@ -482,6 +482,18 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+// Dropdown Options - Manage all dropdown values
+export const dropdownOptions = pgTable("dropdown_options", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: text("category").notNull(), // assetType, status, criticality, complianceStatus, etc.
+  value: text("value").notNull(),
+  label: text("label").notNull(),
+  isActive: boolean("is_active").default(true),
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
 // System Settings
 export const settings = pgTable("settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -490,6 +502,9 @@ export const settings = pgTable("settings", {
   description: text("description"),
   updatedAt: timestamp("updated_at").default(sql`now()`).notNull(),
 });
+
+// Dropdown Options Insert Schema
+export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
@@ -515,6 +530,9 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: tru
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 
 // Insert types
+export type InsertDropdownOption = z.infer<typeof insertDropdownOptionSchema>;
+export type DropdownOption = typeof dropdownOptions.$inferSelect;
+
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
 export type InsertAsset = z.infer<typeof insertAssetSchema>;
