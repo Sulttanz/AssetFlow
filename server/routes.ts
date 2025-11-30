@@ -890,6 +890,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertAssignmentSchema.parse(req.body);
       const assignment = await storage.createAssignment(validatedData);
       
+      // Update asset status to "assigned"
+      await storage.updateAsset(validatedData.assetId, { status: "assigned" });
+      
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, null, { assetId: assignment.assetId, employeeId: assignment.employeeId, assignedDate: assignment.assignedDate }, req);
       
@@ -934,6 +937,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deleted = await storage.deleteAssignment(req.params.id);
       if (!deleted) {
         return res.status(404).json({ message: "Assignment not found" });
+      }
+      
+      // Update asset status back to "available" when assignment is deleted
+      if (assignment) {
+        await storage.updateAsset(assignment.assetId, { status: "available" });
       }
       
       // Log audit
