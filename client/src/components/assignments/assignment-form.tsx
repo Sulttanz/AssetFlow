@@ -67,8 +67,8 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
       assetId: assignment?.assetId || "",
       employeeId: assignment?.employeeId || "",
       assignedDate: assignment?.assignedDate || new Date().toISOString().split('T')[0],
-      returnedDate: assignment?.returnedDate ?? "",
-      notes: assignment?.notes ?? "",
+      returnedDate: (assignment?.returnedDate as string | undefined) || "",
+      notes: (assignment?.notes as string | undefined) || "",
     },
   });
 
