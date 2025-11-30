@@ -9,7 +9,8 @@ import {
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
-  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema
+  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema,
+  insertDropdownOptionSchema
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -2603,6 +2604,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "Failed to import Excel file", 
         message: error instanceof Error ? error.message : 'Unknown error' 
       });
+    }
+  });
+
+  // ====================
+  // DROPDOWN OPTIONS ROUTES
+  // ====================
+
+  app.get("/api/dropdown-options", requireAuth, async (req, res) => {
+    try {
+      const options = await storage.getAllDropdownOptions();
+      res.json(options);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch dropdown options" });
+    }
+  });
+
+  app.get("/api/dropdown-options/:category", requireAuth, async (req, res) => {
+    try {
+      const options = await storage.getDropdownOptions(req.params.category);
+      res.json(options);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch dropdown options" });
+    }
+  });
+
+  app.post("/api/dropdown-options", requireAuth, requirePermission('setting_update'), async (req, res) => {
+    try {
+      const validatedData = insertDropdownOptionSchema.parse(req.body);
+      const option = await storage.createDropdownOption(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'dropdown_options', option.id, `${option.category}: ${option.optionLabel}`, null, option, req);
+      res.status(201).json(option);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create dropdown option" });
+    }
+  });
+
+  app.delete("/api/dropdown-options/:id", requireAuth, requirePermission('setting_update'), async (req, res) => {
+    try {
+      const success = await storage.deleteDropdownOption(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Dropdown option not found" });
+      }
+      await logAudit(req.user?.id, 'DELETE', 'dropdown_options', req.params.id, 'Dropdown option deleted', null, null, req);
+      res.json({ message: "Dropdown option deleted" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete dropdown option" });
+    }
+  });
+
+  app.put("/api/dropdown-options/:id", requireAuth, requirePermission('setting_update'), async (req, res) => {
+    try {
+      const validatedData = insertDropdownOptionSchema.partial().parse(req.body);
+      const option = await storage.updateDropdownOption(req.params.id, validatedData);
+      if (!option) {
+        return res.status(404).json({ message: "Dropdown option not found" });
+      }
+      await logAudit(req.user?.id, 'UPDATE', 'dropdown_options', option.id, `${option.category}: ${option.optionLabel}`, null, option, req);
+      res.json(option);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update dropdown option" });
     }
   });
 

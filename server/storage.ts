@@ -8,11 +8,12 @@ import {
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
   type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog, type InsertSetting,
+  type InsertDropdownOption, type DropdownOption,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -2555,6 +2556,34 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const result = await db.insert(auditLogs).values(log).returning();
     return result[0];
+  }
+
+  // Dropdown Options
+  async getDropdownOptions(category: string): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions)
+      .where(eq(dropdownOptions.category, category))
+      .orderBy(dropdownOptions.sortOrder);
+  }
+
+  async getAllDropdownOptions(): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions)
+      .where(eq(dropdownOptions.isActive, true))
+      .orderBy(dropdownOptions.category, dropdownOptions.sortOrder);
+  }
+
+  async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
+    const result = await db.insert(dropdownOptions).values(option).returning();
+    return result[0];
+  }
+
+  async deleteDropdownOption(id: string): Promise<boolean> {
+    const result = await db.delete(dropdownOptions).where(eq(dropdownOptions.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined> {
+    const result = await db.update(dropdownOptions).set(option).where(eq(dropdownOptions.id, id)).returning();
+    return result[0] || undefined;
   }
 
   // Clear all data (for DatabaseStorage compatibility with interface)
