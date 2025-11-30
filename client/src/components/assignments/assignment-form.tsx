@@ -175,25 +175,28 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
                       />
                       <CommandEmpty>No asset found.</CommandEmpty>
                       <CommandGroup>
-                        {filteredAssets.map((asset) => (
-                          <CommandItem
-                            value={asset.id}
-                            key={asset.id}
-                            onSelect={(currentValue) => {
-                              field.onChange(currentValue);
-                              setOpenAssetPopover(false);
-                              setSearchInput("");
-                            }}
-                          >
-                            <Check className={cn("mr-2 h-4 w-4", field.value === asset.id ? "opacity-100" : "opacity-0")} />
-                            <div className="flex-1">
-                              <div className="font-medium">{asset.name} ({asset.type})</div>
-                              <div className="text-sm text-muted-foreground">
-                                {(asset as any).assetTag && `Tag: ${(asset as any).assetTag} • `}ID: {asset.id.substring(0, 8)}...
+                        {filteredAssets.map((asset) => {
+                          const searchableValue = `${asset.name} ${(asset as any).assetTag || ''} ${asset.id} ${(asset as any).model || ''} ${(asset as any).serialNumber || ''}`.toLowerCase();
+                          return (
+                            <CommandItem
+                              value={searchableValue}
+                              key={asset.id}
+                              onSelect={() => {
+                                field.onChange(asset.id);
+                                setOpenAssetPopover(false);
+                                setSearchInput("");
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", field.value === asset.id ? "opacity-100" : "opacity-0")} />
+                              <div className="flex-1">
+                                <div className="font-medium">{asset.name} ({asset.type})</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {(asset as any).assetTag && `Tag: ${(asset as any).assetTag} • `}ID: {asset.id.substring(0, 8)}...
+                                </div>
                               </div>
-                            </div>
-                          </CommandItem>
-                        ))}
+                            </CommandItem>
+                          );
+                        })}
                       </CommandGroup>
                     </Command>
                   </PopoverContent>
