@@ -51,10 +51,11 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
     (isEdit && asset.id === assignment?.assetId)
   );
 
-  // Search assets by name, id, model, or serial number
+  // Search assets by name, asset tag (ASSET-0001), id, model, or serial number
   const filteredAssets = availableAssets?.filter(asset =>
     asset.name.toLowerCase().includes(searchInput.toLowerCase()) ||
     asset.id.toLowerCase().includes(searchInput.toLowerCase()) ||
+    ((asset as any).assetTag?.toLowerCase().includes(searchInput.toLowerCase()) ?? false) ||
     (asset.model?.toLowerCase().includes(searchInput.toLowerCase()) ?? false) ||
     (asset.serialNumber?.toLowerCase().includes(searchInput.toLowerCase()) ?? false)
   ) || [];
@@ -180,7 +181,9 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
                             <Check className={cn("mr-2 h-4 w-4", field.value === asset.id ? "opacity-100" : "opacity-0")} />
                             <div className="flex-1">
                               <div className="font-medium">{asset.name} ({asset.type})</div>
-                              <div className="text-sm text-muted-foreground">ID: {asset.id}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {(asset as any).assetTag && `Tag: ${(asset as any).assetTag} • `}ID: {asset.id.substring(0, 8)}...
+                              </div>
                             </div>
                           </CommandItem>
                         ))}
@@ -226,6 +229,7 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div><span className="text-muted-foreground">Name:</span> {selectedAsset.name}</div>
               <div><span className="text-muted-foreground">Type:</span> {selectedAsset.type}</div>
+              {(selectedAsset as any).assetTag && <div><span className="text-muted-foreground">Asset Tag:</span> {(selectedAsset as any).assetTag}</div>}
               <div><span className="text-muted-foreground">Asset ID:</span> {selectedAsset.id}</div>
               <div><span className="text-muted-foreground">Model:</span> {selectedAsset.model || "N/A"}</div>
               <div><span className="text-muted-foreground">Serial:</span> {selectedAsset.serialNumber || "N/A"}</div>
