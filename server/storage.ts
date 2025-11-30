@@ -2558,6 +2558,32 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  // Dropdown Options
+  async getDropdownOptions(): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions).where(eq(dropdownOptions.isActive, true)).orderBy(dropdownOptions.displayOrder);
+  }
+
+  async getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions).where(
+      and(eq(dropdownOptions.category, category), eq(dropdownOptions.isActive, true))
+    ).orderBy(dropdownOptions.displayOrder);
+  }
+
+  async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
+    const result = await db.insert(dropdownOptions).values(option).returning();
+    return result[0];
+  }
+
+  async updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined> {
+    const result = await db.update(dropdownOptions).set(option).where(eq(dropdownOptions.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteDropdownOption(id: string): Promise<boolean> {
+    const result = await db.delete(dropdownOptions).where(eq(dropdownOptions.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
   // Clear all data (for DatabaseStorage compatibility with interface)
   async clearAllData(): Promise<boolean> {
     try {

@@ -9,7 +9,7 @@ import {
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
-  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema
+  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema
 } from "@shared/schema";
 import { z } from "zod";
 
