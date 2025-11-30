@@ -18,17 +18,31 @@ import { Trash2, Plus, Edit2 } from "lucide-react";
 import { z } from "zod";
 
 const categories = [
+  // Asset Management
   { value: "assetType", label: "Asset Type" },
-  { value: "status", label: "Status" },
+  { value: "status", label: "Asset Status" },
+  { value: "assetCondition", label: "Asset Condition" },
   { value: "criticality", label: "Criticality" },
   { value: "complianceStatus", label: "Compliance Status" },
   { value: "lifecycleStatus", label: "Lifecycle Status" },
+  
+  // Security & Classification
   { value: "informationClassification", label: "Information Classification" },
   { value: "dataSensitivityLevel", label: "Data Sensitivity Level" },
   { value: "securityLevel", label: "Security Level" },
   { value: "riskAssessmentScore", label: "Risk Assessment Score" },
   { value: "accessControlMethod", label: "Access Control Method" },
   { value: "physicalSecurityLevel", label: "Physical Security Level" },
+  
+  // Maintenance
+  { value: "maintenanceType", label: "Maintenance Type" },
+  { value: "maintenanceFrequency", label: "Maintenance Frequency" },
+  { value: "maintenancePriority", label: "Maintenance Priority" },
+  
+  // Financial & Procurement
+  { value: "budgetCategory", label: "Budget Category" },
+  { value: "purchaseOrderStatus", label: "Purchase Order Status" },
+  { value: "paymentTerms", label: "Payment Terms" },
 ];
 
 const formSchema = insertDropdownOptionSchema.extend({

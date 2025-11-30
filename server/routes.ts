@@ -2673,9 +2673,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dropdowns/migrate-from-assets", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
       const allAssets = await storage.getAssets();
+      const allMaintenanceSchedules = await storage.getMaintenanceSchedules();
+      const allBudgets = await storage.getBudgets();
+      const allPurchaseOrders = await storage.getPurchaseOrders();
+      
       const migratedData: { [key: string]: Set<string> } = {
         assetType: new Set(),
         status: new Set(),
+        assetCondition: new Set(),
         informationClassification: new Set(),
         dataSensitivityLevel: new Set(),
         securityLevel: new Set(),
@@ -2684,12 +2689,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         accessControlMethod: new Set(),
         physicalSecurityLevel: new Set(),
         complianceStatus: new Set(),
+        maintenanceType: new Set(),
+        maintenanceFrequency: new Set(),
+        maintenancePriority: new Set(),
+        budgetCategory: new Set(),
+        purchaseOrderStatus: new Set(),
       };
 
       // Extract unique values from assets
       for (const asset of allAssets) {
         if ((asset as any).type) migratedData.assetType.add((asset as any).type);
         if ((asset as any).status) migratedData.status.add((asset as any).status);
+        if ((asset as any).condition) migratedData.assetCondition.add((asset as any).condition);
         if ((asset as any).informationClassification) migratedData.informationClassification.add((asset as any).informationClassification);
         if ((asset as any).dataSensitivityLevel) migratedData.dataSensitivityLevel.add((asset as any).dataSensitivityLevel);
         if ((asset as any).securityLevel) migratedData.securityLevel.add((asset as any).securityLevel);
@@ -2698,6 +2709,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if ((asset as any).accessControlMethod) migratedData.accessControlMethod.add((asset as any).accessControlMethod);
         if ((asset as any).physicalSecurityLevel) migratedData.physicalSecurityLevel.add((asset as any).physicalSecurityLevel);
         if ((asset as any).complianceStatus) migratedData.complianceStatus.add((asset as any).complianceStatus);
+      }
+
+      // Extract from maintenance schedules
+      for (const schedule of allMaintenanceSchedules) {
+        if ((schedule as any).maintenanceType) migratedData.maintenanceType.add((schedule as any).maintenanceType);
+        if ((schedule as any).frequency) migratedData.maintenanceFrequency.add((schedule as any).frequency);
+        if ((schedule as any).priority) migratedData.maintenancePriority.add((schedule as any).priority);
+      }
+
+      // Extract from budgets
+      for (const budget of allBudgets) {
+        if ((budget as any).category) migratedData.budgetCategory.add((budget as any).category);
+      }
+
+      // Extract from purchase orders
+      for (const po of allPurchaseOrders) {
+        if ((po as any).status) migratedData.purchaseOrderStatus.add((po as any).status);
       }
 
       // Get existing dropdown options to avoid duplicates
@@ -2808,6 +2836,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { category: "physicalSecurityLevel", value: "standard", label: "Standard", displayOrder: 1 },
         { category: "physicalSecurityLevel", value: "enhanced", label: "Enhanced", displayOrder: 2 },
         { category: "physicalSecurityLevel", value: "maximum", label: "Maximum", displayOrder: 3 },
+        // Asset Condition
+        { category: "assetCondition", value: "excellent", label: "Excellent", displayOrder: 0 },
+        { category: "assetCondition", value: "good", label: "Good", displayOrder: 1 },
+        { category: "assetCondition", value: "fair", label: "Fair", displayOrder: 2 },
+        { category: "assetCondition", value: "poor", label: "Poor", displayOrder: 3 },
+        // Maintenance Type
+        { category: "maintenanceType", value: "preventive", label: "Preventive", displayOrder: 0 },
+        { category: "maintenanceType", value: "repair", label: "Repair", displayOrder: 1 },
+        { category: "maintenanceType", value: "upgrade", label: "Upgrade", displayOrder: 2 },
+        { category: "maintenanceType", value: "inspection", label: "Inspection", displayOrder: 3 },
+        // Maintenance Frequency
+        { category: "maintenanceFrequency", value: "monthly", label: "Monthly", displayOrder: 0 },
+        { category: "maintenanceFrequency", value: "quarterly", label: "Quarterly", displayOrder: 1 },
+        { category: "maintenanceFrequency", value: "semi-annual", label: "Semi-Annual", displayOrder: 2 },
+        { category: "maintenanceFrequency", value: "annually", label: "Annually", displayOrder: 3 },
+        { category: "maintenanceFrequency", value: "one-time", label: "One-Time", displayOrder: 4 },
+        // Maintenance Priority
+        { category: "maintenancePriority", value: "low", label: "Low", displayOrder: 0 },
+        { category: "maintenancePriority", value: "medium", label: "Medium", displayOrder: 1 },
+        { category: "maintenancePriority", value: "high", label: "High", displayOrder: 2 },
+        // Budget Category
+        { category: "budgetCategory", value: "hardware", label: "Hardware", displayOrder: 0 },
+        { category: "budgetCategory", value: "software", label: "Software", displayOrder: 1 },
+        { category: "budgetCategory", value: "maintenance", label: "Maintenance", displayOrder: 2 },
+        { category: "budgetCategory", value: "other", label: "Other", displayOrder: 3 },
+        // Purchase Order Status
+        { category: "purchaseOrderStatus", value: "pending", label: "Pending", displayOrder: 0 },
+        { category: "purchaseOrderStatus", value: "approved", label: "Approved", displayOrder: 1 },
+        { category: "purchaseOrderStatus", value: "ordered", label: "Ordered", displayOrder: 2 },
+        { category: "purchaseOrderStatus", value: "received", label: "Received", displayOrder: 3 },
+        { category: "purchaseOrderStatus", value: "cancelled", label: "Cancelled", displayOrder: 4 },
+        // Payment Terms
+        { category: "paymentTerms", value: "net-30", label: "Net 30", displayOrder: 0 },
+        { category: "paymentTerms", value: "net-60", label: "Net 60", displayOrder: 1 },
+        { category: "paymentTerms", value: "net-90", label: "Net 90", displayOrder: 2 },
+        { category: "paymentTerms", value: "cod", label: "COD", displayOrder: 3 },
+        { category: "paymentTerms", value: "prepaid", label: "Prepaid", displayOrder: 4 },
       ];
 
       let created = 0;
