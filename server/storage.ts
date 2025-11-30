@@ -162,6 +162,13 @@ export interface IStorage {
   getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
+  // Dropdown Options
+  getDropdownOptions(category: string): Promise<any[]>;
+  getAllDropdownOptions(): Promise<any[]>;
+  createDropdownOption(option: any): Promise<any>;
+  deleteDropdownOption(id: string): Promise<boolean>;
+  updateDropdownOption(id: string, option: Partial<any>): Promise<any>;
+
   // Data Management
   clearAllData(): Promise<boolean>;
 
