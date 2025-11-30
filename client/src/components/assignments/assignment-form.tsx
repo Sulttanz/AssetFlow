@@ -6,11 +6,16 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { insertAssignmentSchema, type AssignmentWithDetails, type Asset, type Employee } from "@shared/schema";
 import { z } from "zod";
+import { useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const formSchema = insertAssignmentSchema.extend({
   assignedDate: z.string(),
@@ -29,6 +34,8 @@ interface AssignmentFormProps {
 export default function AssignmentForm({ assignment, onSuccess, onCancel }: AssignmentFormProps) {
   const { toast } = useToast();
   const isEdit = !!assignment;
+  const [searchInput, setSearchInput] = useState("");
+  const [openAssetPopover, setOpenAssetPopover] = useState(false);
 
   const { data: assets } = useQuery<Asset[]>({
     queryKey: ["/api/assets"],
@@ -43,6 +50,14 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
     asset.status === "available" || 
     (isEdit && asset.id === assignment?.assetId)
   );
+
+  // Search assets by name, id, model, or serial number
+  const filteredAssets = availableAssets?.filter(asset =>
+    asset.name.toLowerCase().includes(searchInput.toLowerCase()) ||
+    asset.id.toLowerCase().includes(searchInput.toLowerCase()) ||
+    (asset.model?.toLowerCase().includes(searchInput.toLowerCase()) ?? false) ||
+    (asset.serialNumber?.toLowerCase().includes(searchInput.toLowerCase()) ?? false)
+  ) || [];
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -117,6 +132,7 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
   };
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
+  const selectedAsset = assets?.find(a => a.id === form.watch("assetId"));
 
   return (
     <Form {...form}>
@@ -128,20 +144,50 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Asset</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-asset">
-                      <SelectValue placeholder="Select an asset" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {availableAssets?.map((asset) => (
-                      <SelectItem key={asset.id} value={asset.id}>
-                        {asset.name} ({asset.type})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={openAssetPopover} onOpenChange={setOpenAssetPopover}>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        className={cn("w-full justify-between", !field.value && "text-muted-foreground")}
+                        data-testid="select-asset"
+                      >
+                        {selectedAsset ? `${selectedAsset.name} (${selectedAsset.type})` : "Search asset by ID, name, model, or serial..."}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0">
+                    <Command>
+                      <CommandInput 
+                        placeholder="Search by ID, name, model, or serial..." 
+                        value={searchInput}
+                        onValueChange={setSearchInput}
+                      />
+                      <CommandEmpty>No asset found.</CommandEmpty>
+                      <CommandGroup>
+                        {filteredAssets.map((asset) => (
+                          <CommandItem
+                            value={asset.id}
+                            key={asset.id}
+                            onSelect={(currentValue) => {
+                              field.onChange(currentValue);
+                              setOpenAssetPopover(false);
+                              setSearchInput("");
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", field.value === asset.id ? "opacity-100" : "opacity-0")} />
+                            <div className="flex-1">
+                              <div className="font-medium">{asset.name} ({asset.type})</div>
+                              <div className="text-sm text-muted-foreground">ID: {asset.id}</div>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 <FormMessage />
               </FormItem>
             )}
@@ -172,6 +218,21 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
             )}
           />
         </div>
+
+        {/* Selected Asset Details */}
+        {selectedAsset && (
+          <div className="p-4 bg-muted rounded-lg space-y-2">
+            <h3 className="font-semibold text-sm">Asset Details</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div><span className="text-muted-foreground">Name:</span> {selectedAsset.name}</div>
+              <div><span className="text-muted-foreground">Type:</span> {selectedAsset.type}</div>
+              <div><span className="text-muted-foreground">Asset ID:</span> {selectedAsset.id}</div>
+              <div><span className="text-muted-foreground">Model:</span> {selectedAsset.model || "N/A"}</div>
+              <div><span className="text-muted-foreground">Serial:</span> {selectedAsset.serialNumber || "N/A"}</div>
+              <div><span className="text-muted-foreground">Status:</span> {selectedAsset.status}</div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField
