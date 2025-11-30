@@ -45,9 +45,18 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
     queryKey: ["/api/employees"],
   });
 
-  // Filter available assets (not assigned) unless editing current assignment
+  const { data: assignments = [] } = useQuery<AssignmentWithDetails[]>({
+    queryKey: ["/api/assignments"],
+  });
+
+  // Get list of actively assigned asset IDs (where returnedDate is null/empty)
+  const activelyAssignedAssetIds = assignments
+    .filter(a => !a.returnedDate) // Only active assignments
+    .map(a => a.assetId);
+
+  // Filter available assets (not assigned and status = available) unless editing current assignment
   const availableAssets = assets?.filter(asset => 
-    asset.status?.toLowerCase() === "available" || 
+    (asset.status?.toLowerCase() === "available" && !activelyAssignedAssetIds.includes(asset.id)) ||
     (isEdit && asset.id === assignment?.assetId)
   );
 
