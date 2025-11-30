@@ -4,16 +4,25 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 
 const CATEGORIES = [
-  { value: "type", label: "Asset Type", description: "Manage asset types (Laptop, Desktop, etc.)" },
-  { value: "status", label: "Asset Status", description: "Manage asset status options" },
-  { value: "backupStatus", label: "Backup Status", description: "Manage backup requirement options" },
-  { value: "informationClassification", label: "Information Classification", description: "Public, Internal, Confidential, Restricted" },
-  { value: "criticality", label: "Criticality", description: "Low, Medium, High, Critical levels" },
-  { value: "physicalSecurityLevel", label: "Physical Security Level", description: "Basic, Standard, Enhanced, Maximum" },
-  { value: "accessControlMethod", label: "Access Control Method", description: "Authentication methods" },
-  { value: "complianceStatus", label: "Compliance Status", description: "Compliance state options" },
-  { value: "riskAssessmentScore", label: "Risk Assessment Score", description: "Risk level ratings" },
+  { value: "type", label: "Asset Type", description: "Hardware types (Laptop, Desktop, Monitor, etc.)" },
+  { value: "status", label: "Asset Status", description: "Current status of assets" },
+  { value: "condition", label: "Asset Condition", description: "Physical condition of asset" },
+  { value: "operatingSystem", label: "Operating System", description: "OS types and versions" },
+  { value: "backupStatus", label: "Backup Status", description: "Backup requirement and status" },
+  { value: "warrantyStatus", label: "Warranty Status", description: "Warranty coverage status" },
+  { value: "supportLevel", label: "Support Level", description: "Level of vendor support" },
+  { value: "informationClassification", label: "Information Classification", description: "Data sensitivity levels" },
+  { value: "criticality", label: "Criticality", description: "Business criticality levels" },
+  { value: "physicalSecurityLevel", label: "Physical Security Level", description: "Physical security requirements" },
+  { value: "accessControlMethod", label: "Access Control Method", description: "Authentication mechanisms" },
+  { value: "encryptionStatus", label: "Encryption Status", description: "Data encryption state" },
+  { value: "networkConnectionType", label: "Network Connection Type", description: "Network connectivity types" },
+  { value: "complianceStatus", label: "Compliance Status", description: "Regulatory compliance state" },
+  { value: "riskAssessmentScore", label: "Risk Assessment Score", description: "Risk level assessment" },
   { value: "lifecycleStatus", label: "Lifecycle Status", description: "Asset lifecycle phases" },
+  { value: "maintenanceType", label: "Maintenance Type", description: "Types of maintenance" },
+  { value: "vendorType", label: "Vendor Type", description: "Vendor/Supplier classification" },
+  { value: "contractType", label: "Contract Type", description: "Purchase and service contract types" },
 ];
 
 export default function DropdownOptions() {

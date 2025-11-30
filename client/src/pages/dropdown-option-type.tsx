@@ -24,14 +24,23 @@ type FormData = z.infer<typeof formSchema>;
 const CATEGORIES = [
   { value: "type", label: "Asset Type" },
   { value: "status", label: "Asset Status" },
+  { value: "condition", label: "Asset Condition" },
+  { value: "operatingSystem", label: "Operating System" },
   { value: "backupStatus", label: "Backup Status" },
+  { value: "warrantyStatus", label: "Warranty Status" },
+  { value: "supportLevel", label: "Support Level" },
   { value: "informationClassification", label: "Information Classification" },
   { value: "criticality", label: "Criticality" },
   { value: "physicalSecurityLevel", label: "Physical Security Level" },
   { value: "accessControlMethod", label: "Access Control Method" },
+  { value: "encryptionStatus", label: "Encryption Status" },
+  { value: "networkConnectionType", label: "Network Connection Type" },
   { value: "complianceStatus", label: "Compliance Status" },
   { value: "riskAssessmentScore", label: "Risk Assessment Score" },
   { value: "lifecycleStatus", label: "Lifecycle Status" },
+  { value: "maintenanceType", label: "Maintenance Type" },
+  { value: "vendorType", label: "Vendor Type" },
+  { value: "contractType", label: "Contract Type" },
 ];
 
 export default function DropdownOptionType() {
