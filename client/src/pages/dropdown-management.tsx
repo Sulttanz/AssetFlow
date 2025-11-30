@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
@@ -141,70 +142,92 @@ export default function DropdownManagement() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Asset Dropdowns</CardTitle>
+            <CardTitle>Dropdown Options by Category</CardTitle>
           </CardHeader>
           <CardContent>
             <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
-              <TabsList className="grid w-full grid-cols-5">
-                {categories.map((cat) => (
-                  <TabsTrigger key={cat.value} value={cat.value} data-testid={`tab-${cat.value}`}>
-                    {cat.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
+              <div className="mb-6 pb-4 border-b border-border overflow-x-auto">
+                <TabsList className="inline-flex w-auto gap-2 bg-transparent p-0">
+                  {categories.map((cat) => (
+                    <TabsTrigger 
+                      key={cat.value} 
+                      value={cat.value} 
+                      data-testid={`tab-${cat.value}`}
+                      className="px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap"
+                    >
+                      {cat.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
 
               {categories.map((cat) => (
-                <TabsContent key={cat.value} value={cat.value} className="mt-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-semibold">{cat.label} Options</h3>
+                <TabsContent key={cat.value} value={cat.value} className="mt-0">
+                  <div className="flex justify-between items-center mb-6">
+                    <div>
+                      <h3 className="text-lg font-semibold">{cat.label}</h3>
+                      <p className="text-sm text-muted-foreground mt-1">Manage {cat.label.toLowerCase()} dropdown values</p>
+                    </div>
                     <Button onClick={handleNewOption} data-testid="button-add-option">
                       <Plus className="mr-2 h-4 w-4" />
                       Add Option
                     </Button>
                   </div>
 
-                  <div className="border rounded-lg">
+                  <div className="border rounded-lg overflow-hidden">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="bg-muted/50">
                         <TableRow>
-                          <TableHead>Value</TableHead>
+                          <TableHead className="w-32">Value</TableHead>
                           <TableHead>Label</TableHead>
-                          <TableHead>Order</TableHead>
-                          <TableHead>Active</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
+                          <TableHead className="w-20 text-center">Order</TableHead>
+                          <TableHead className="w-20 text-center">Active</TableHead>
+                          <TableHead className="w-24 text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredOptions.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                              No options configured yet
+                            <TableCell colSpan={5} className="text-center py-12">
+                              <div className="text-muted-foreground">
+                                <p className="font-medium">No options configured yet</p>
+                                <p className="text-sm mt-1">Click "Add Option" to create the first dropdown value</p>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ) : (
                           filteredOptions.map((option) => (
-                            <TableRow key={option.id} data-testid={`row-option-${option.value}`}>
-                              <TableCell className="font-mono">{option.value}</TableCell>
+                            <TableRow key={option.id} data-testid={`row-option-${option.value}`} className="hover:bg-muted/50">
+                              <TableCell className="font-mono text-sm">{option.value}</TableCell>
                               <TableCell>{option.label}</TableCell>
-                              <TableCell>{option.displayOrder}</TableCell>
-                              <TableCell>{option.isActive ? "Yes" : "No"}</TableCell>
-                              <TableCell className="text-right space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleEdit(option)}
-                                  data-testid={`button-edit-${option.value}`}
-                                >
-                                  <Edit2 className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => deleteMutation.mutate(option.id)}
-                                  data-testid={`button-delete-${option.value}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                              <TableCell className="text-center text-sm">{option.displayOrder}</TableCell>
+                              <TableCell className="text-center">
+                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${option.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'}`}>
+                                  {option.isActive ? "Active" : "Inactive"}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleEdit(option)}
+                                    data-testid={`button-edit-${option.value}`}
+                                    title="Edit option"
+                                  >
+                                    <Edit2 className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => deleteMutation.mutate(option.id)}
+                                    data-testid={`button-delete-${option.value}`}
+                                    className="hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950 dark:hover:text-red-400"
+                                    title="Delete option"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
                               </TableCell>
                             </TableRow>
                           ))
@@ -265,6 +288,22 @@ export default function DropdownManagement() {
                       <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} data-testid="input-order" />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="isActive"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">Active</FormLabel>
+                      <p className="text-sm text-muted-foreground">Enable this option to make it available in dropdowns</p>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="toggle-active" />
+                    </FormControl>
                   </FormItem>
                 )}
               />
