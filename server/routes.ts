@@ -2629,7 +2629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/dropdown-options", requireAuth, requirePermission('setting_update'), async (req, res) => {
+  app.post("/api/dropdown-options", requireAuth, async (req, res) => {
     try {
       const validatedData = insertDropdownOptionSchema.parse(req.body);
       const option = await storage.createDropdownOption(validatedData);
@@ -2643,7 +2643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/dropdown-options/:id", requireAuth, requirePermission('setting_update'), async (req, res) => {
+  app.delete("/api/dropdown-options/:id", requireAuth, async (req, res) => {
     try {
       const success = await storage.deleteDropdownOption(req.params.id);
       if (!success) {
@@ -2656,7 +2656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/dropdown-options/:id", requireAuth, requirePermission('setting_update'), async (req, res) => {
+  app.put("/api/dropdown-options/:id", requireAuth, async (req, res) => {
     try {
       const validatedData = insertDropdownOptionSchema.partial().parse(req.body);
       const option = await storage.updateDropdownOption(req.params.id, validatedData);
