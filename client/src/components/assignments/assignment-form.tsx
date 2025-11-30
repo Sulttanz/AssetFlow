@@ -47,7 +47,7 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
 
   // Filter available assets (not assigned) unless editing current assignment
   const availableAssets = assets?.filter(asset => 
-    asset.status === "available" || 
+    asset.status?.toLowerCase() === "available" || 
     (isEdit && asset.id === assignment?.assetId)
   );
 
