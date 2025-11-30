@@ -2550,15 +2550,10 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  // Dropdown Options
-  async getDropdownOptions(category: string): Promise<DropdownOption[]> {
-    return await db.select().from(dropdownOptions)
-      .where(eq(dropdownOptions.category, category))
-      .orderBy(dropdownOptions.sortOrder);
-  }
-
-  async getAllDropdownOptions(): Promise<DropdownOption[]> {
-    return await db.select().from(dropdownOptions)
+  async clearAllData(): Promise<boolean> {
+    try {
+      await db.delete(assignments);
+      await db.delete(maintenanceRecords);
       await db.delete(maintenanceSchedules);
       await db.delete(purchaseOrderItems); // Delete purchase order items before purchase orders
       await db.delete(purchaseOrders);

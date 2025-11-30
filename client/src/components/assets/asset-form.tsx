@@ -92,15 +92,6 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/locations"],
   });
 
-  // Fetch dropdown options
-  const { data: allDropdownOptions = [] } = useQuery({
-    queryKey: ["/api/dropdown-options"],
-  });
-
-  const getOptions = (category: string) => {
-    return allDropdownOptions.filter((opt: any) => opt.category === category);
-  };
-
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
