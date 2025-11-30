@@ -8,12 +8,11 @@ import {
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
   type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog, type InsertSetting,
-  type InsertDropdownOption, type DropdownOption,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -162,13 +161,6 @@ export interface IStorage {
   getAuditLogsByTable(tableName: string): Promise<AuditLog[]>;
   getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
-
-  // Dropdown Options
-  getDropdownOptions(category: string): Promise<any[]>;
-  getAllDropdownOptions(): Promise<any[]>;
-  createDropdownOption(option: any): Promise<any>;
-  deleteDropdownOption(id: string): Promise<boolean>;
-  updateDropdownOption(id: string, option: Partial<any>): Promise<any>;
 
   // Data Management
   clearAllData(): Promise<boolean>;
@@ -2567,32 +2559,6 @@ export class DatabaseStorage implements IStorage {
 
   async getAllDropdownOptions(): Promise<DropdownOption[]> {
     return await db.select().from(dropdownOptions)
-      .where(eq(dropdownOptions.isActive, true))
-      .orderBy(dropdownOptions.category, dropdownOptions.sortOrder);
-  }
-
-  async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
-    const result = await db.insert(dropdownOptions).values(option).returning();
-    return result[0];
-  }
-
-  async deleteDropdownOption(id: string): Promise<boolean> {
-    const result = await db.delete(dropdownOptions).where(eq(dropdownOptions.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
-  }
-
-  async updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined> {
-    const result = await db.update(dropdownOptions).set(option).where(eq(dropdownOptions.id, id)).returning();
-    return result[0] || undefined;
-  }
-
-  // Clear all data (for DatabaseStorage compatibility with interface)
-  async clearAllData(): Promise<boolean> {
-    try {
-      // Clear data from all tables except system settings and users
-      // Delete child tables first to avoid foreign key constraint violations
-      await db.delete(assignments);
-      await db.delete(maintenanceRecords);
       await db.delete(maintenanceSchedules);
       await db.delete(purchaseOrderItems); // Delete purchase order items before purchase orders
       await db.delete(purchaseOrders);
