@@ -212,6 +212,18 @@ export const assignments = pgTable("assignments", {
   notes: text("notes"),
 });
 
+// Dropdown Options Management
+export const dropdownOptions = pgTable("dropdown_options", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: text("category").notNull(), // type, status, informationClassification, criticality, physicalSecurityLevel, accessControlMethod, complianceStatus, riskAssessmentScore, lifecycleStatus, backupStatus
+  optionValue: text("option_value").notNull(),
+  optionLabel: text("option_label").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Vendor Management
 export const vendors = pgTable("vendors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -695,3 +707,10 @@ export type MaintenanceScheduleWithDetails = MaintenanceSchedule & {
   asset: Asset;
   lastRecord?: MaintenanceRecord;
 };
+
+// Dropdown Options
+export type DropdownOption = typeof dropdownOptions.$inferSelect;
+export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertDropdownOption = z.infer<typeof insertDropdownOptionSchema>;
+export const selectDropdownOptionSchema = createInsertSchema(dropdownOptions);
+export type SelectDropdownOption = z.infer<typeof selectDropdownOptionSchema>;
