@@ -22,8 +22,6 @@ import Users from "@/pages/users";
 import Roles from "@/pages/roles";
 import Permissions from "@/pages/permissions";
 import SystemSettings from "@/pages/system-settings";
-import DropdownOptions from "@/pages/dropdown-options";
-import DropdownOptionType from "@/pages/dropdown-option-type";
 import SystemInitialization from "@/pages/system-initialization";
 import AuditLogs from "@/pages/audit-logs";
 import Reports from "@/pages/reports";
@@ -66,8 +64,6 @@ function Router() {
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
-                  <ProtectedRoute path="/dropdown-options" component={DropdownOptions} />
-                  <ProtectedRoute path="/dropdown-options/:type" component={DropdownOptionType} />
                   <ProtectedRoute path="/audit-logs" component={AuditLogs} />
                   <ProtectedRoute path="/assignments" component={Assignments} />
                   <ProtectedRoute path="/locations" component={Locations} />
