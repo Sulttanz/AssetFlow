@@ -42,6 +42,7 @@ export default function DropdownManagement() {
   const [selectedCategory, setSelectedCategory] = useState(categories[0].value);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isMigrating, setIsMigrating] = useState(false);
 
   const { data: options = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options", selectedCategory],
@@ -98,6 +99,27 @@ export default function DropdownManagement() {
     },
   });
 
+  const handleMigrateFromAssets = async () => {
+    setIsMigrating(true);
+    try {
+      const response = await apiRequest("POST", "/api/dropdowns/migrate-from-assets");
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", selectedCategory] });
+      toast({
+        title: "Migration Complete",
+        description: `Migrated ${result.migrated} values from existing assets (${result.skipped} skipped)`,
+      });
+    } catch (error) {
+      toast({
+        title: "Migration Failed",
+        description: "Failed to migrate data from assets",
+        variant: "destructive",
+      });
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const onSubmit = (data: FormData) => {
     if (editingId) {
       updateMutation.mutate(data);
@@ -135,9 +157,16 @@ export default function DropdownManagement() {
   return (
     <div className="flex-1 overflow-auto">
       <div className="p-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground" data-testid="page-title">Dropdown Management</h1>
-          <p className="text-muted-foreground mt-2">Manage all system dropdown values and options</p>
+        <div className="mb-8 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground" data-testid="page-title">Dropdown Management</h1>
+            <p className="text-muted-foreground mt-2">Manage all system dropdown values and options</p>
+          </div>
+          <div className="space-y-2">
+            <Button onClick={handleMigrateFromAssets} disabled={isMigrating} variant="outline" data-testid="button-migrate">
+              {isMigrating ? "Migrating..." : "Migrate from Assets"}
+            </Button>
+          </div>
         </div>
 
         <Card>

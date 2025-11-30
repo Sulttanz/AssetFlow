@@ -2669,6 +2669,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Migrate existing data from assets table to dropdown options
+  app.post("/api/dropdowns/migrate-from-assets", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const allAssets = await storage.getAssets();
+      const migratedData: { [key: string]: Set<string> } = {
+        assetType: new Set(),
+        status: new Set(),
+        informationClassification: new Set(),
+        dataSensitivityLevel: new Set(),
+        securityLevel: new Set(),
+        riskAssessmentScore: new Set(),
+        lifecycleStatus: new Set(),
+        accessControlMethod: new Set(),
+        physicalSecurityLevel: new Set(),
+        complianceStatus: new Set(),
+      };
+
+      // Extract unique values from assets
+      for (const asset of allAssets) {
+        if ((asset as any).type) migratedData.assetType.add((asset as any).type);
+        if ((asset as any).status) migratedData.status.add((asset as any).status);
+        if ((asset as any).informationClassification) migratedData.informationClassification.add((asset as any).informationClassification);
+        if ((asset as any).dataSensitivityLevel) migratedData.dataSensitivityLevel.add((asset as any).dataSensitivityLevel);
+        if ((asset as any).securityLevel) migratedData.securityLevel.add((asset as any).securityLevel);
+        if ((asset as any).riskAssessmentScore) migratedData.riskAssessmentScore.add((asset as any).riskAssessmentScore);
+        if ((asset as any).lifecycleStatus) migratedData.lifecycleStatus.add((asset as any).lifecycleStatus);
+        if ((asset as any).accessControlMethod) migratedData.accessControlMethod.add((asset as any).accessControlMethod);
+        if ((asset as any).physicalSecurityLevel) migratedData.physicalSecurityLevel.add((asset as any).physicalSecurityLevel);
+        if ((asset as any).complianceStatus) migratedData.complianceStatus.add((asset as any).complianceStatus);
+      }
+
+      // Get existing dropdown options to avoid duplicates
+      const existingOptions = await storage.getDropdownOptions();
+      const existingKeys = new Set(existingOptions.map(opt => `${opt.category}:${opt.value}`));
+
+      let created = 0;
+      let skipped = 0;
+
+      // Insert migrated data
+      for (const [category, values] of Object.entries(migratedData)) {
+        let order = 0;
+        for (const value of values) {
+          if (value && value.trim()) {
+            const key = `${category}:${value}`;
+            if (!existingKeys.has(key)) {
+              try {
+                await storage.createDropdownOption({
+                  category: category,
+                  value: value.toLowerCase().replace(/\s+/g, '-'),
+                  label: value,
+                  displayOrder: order,
+                  isActive: true,
+                });
+                created++;
+                existingKeys.add(key);
+              } catch (e) {
+                skipped++;
+              }
+            } else {
+              skipped++;
+            }
+            order++;
+          }
+        }
+      }
+
+      res.json({ success: true, migrated: created, skipped });
+    } catch (error) {
+      console.error("Migration error:", error);
+      res.status(500).json({ message: "Failed to migrate data from assets" });
+    }
+  });
+
   // Seed default dropdown options
   app.post("/api/dropdowns/seed", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
