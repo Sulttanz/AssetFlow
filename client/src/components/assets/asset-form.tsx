@@ -92,6 +92,46 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/locations"],
   });
 
+  const { data: assetTypes = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/assetType"],
+  });
+
+  const { data: assetStatuses = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/status"],
+  });
+
+  const { data: complianceStatuses = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/complianceStatus"],
+  });
+
+  const { data: riskScores = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/riskAssessmentScore"],
+  });
+
+  const { data: infoClassifications = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/informationClassification"],
+  });
+
+  const { data: sensitivityLevels = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/dataSensitivityLevel"],
+  });
+
+  const { data: securityLevels = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/securityLevel"],
+  });
+
+  const { data: lifecycleStatuses = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/lifecycleStatus"],
+  });
+
+  const { data: accessMethods = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/accessControlMethod"],
+  });
+
+  const { data: physicalSecurityLevels = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/physicalSecurityLevel"],
+  });
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -360,14 +400,24 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="laptop">Laptop</SelectItem>
-                            <SelectItem value="desktop">Desktop</SelectItem>
-                            <SelectItem value="monitor">Monitor</SelectItem>
-                            <SelectItem value="phone">Phone</SelectItem>
-                            <SelectItem value="software">Software</SelectItem>
-                            <SelectItem value="server">Server</SelectItem>
-                            <SelectItem value="network-device">Network Device</SelectItem>
-                            <SelectItem value="storage">Storage Device</SelectItem>
+                            {assetTypes.length > 0 ? (
+                              assetTypes.map((type: any) => (
+                                <SelectItem key={type.id} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="laptop">Laptop</SelectItem>
+                                <SelectItem value="desktop">Desktop</SelectItem>
+                                <SelectItem value="monitor">Monitor</SelectItem>
+                                <SelectItem value="phone">Phone</SelectItem>
+                                <SelectItem value="software">Software</SelectItem>
+                                <SelectItem value="server">Server</SelectItem>
+                                <SelectItem value="network-device">Network Device</SelectItem>
+                                <SelectItem value="storage">Storage Device</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -404,10 +454,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="available">Available</SelectItem>
-                            <SelectItem value="assigned">Assigned</SelectItem>
-                            <SelectItem value="maintenance">Maintenance</SelectItem>
-                            <SelectItem value="retired">Retired</SelectItem>
+                            {assetStatuses.length > 0 ? (
+                              assetStatuses.map((status: any) => (
+                                <SelectItem key={status.id} value={status.value}>
+                                  {status.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="available">Available</SelectItem>
+                                <SelectItem value="assigned">Assigned</SelectItem>
+                                <SelectItem value="maintenance">Maintenance</SelectItem>
+                                <SelectItem value="retired">Retired</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -521,10 +581,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="public">Public</SelectItem>
-                            <SelectItem value="internal">Internal</SelectItem>
-                            <SelectItem value="confidential">Confidential</SelectItem>
-                            <SelectItem value="restricted">Restricted</SelectItem>
+                            {infoClassifications.length > 0 ? (
+                              infoClassifications.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="public">Public</SelectItem>
+                                <SelectItem value="internal">Internal</SelectItem>
+                                <SelectItem value="confidential">Confidential</SelectItem>
+                                <SelectItem value="restricted">Restricted</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
