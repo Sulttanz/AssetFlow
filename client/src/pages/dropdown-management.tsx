@@ -78,8 +78,12 @@ export default function DropdownManagement() {
       const response = await apiRequest("POST", "/api/dropdowns/options", data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", selectedCategory] });
+    onSuccess: (_, variables) => {
+      // Invalidate both the management view and all form dropdowns
+      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", variables.category] });
+      categories.forEach(cat => {
+        queryClient.invalidateQueries({ queryKey: [`/api/dropdowns/options/${cat.value}`] });
+      });
       toast({ title: "Success", description: "Dropdown option created" });
       setIsDialogOpen(false);
       form.reset();
@@ -94,8 +98,12 @@ export default function DropdownManagement() {
       const response = await apiRequest("PUT", `/api/dropdowns/options/${editingId}`, data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", selectedCategory] });
+    onSuccess: (_, variables) => {
+      // Invalidate both the management view and all form dropdowns
+      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", variables.category] });
+      categories.forEach(cat => {
+        queryClient.invalidateQueries({ queryKey: [`/api/dropdowns/options/${cat.value}`] });
+      });
       toast({ title: "Success", description: "Dropdown option updated" });
       setIsDialogOpen(false);
       setEditingId(null);
@@ -108,7 +116,11 @@ export default function DropdownManagement() {
       await apiRequest("DELETE", `/api/dropdowns/options/${id}`);
     },
     onSuccess: () => {
+      // Invalidate all dropdown queries when deleting
       queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", selectedCategory] });
+      categories.forEach(cat => {
+        queryClient.invalidateQueries({ queryKey: [`/api/dropdowns/options/${cat.value}`] });
+      });
       toast({ title: "Success", description: "Dropdown option deleted" });
     },
   });
@@ -118,7 +130,11 @@ export default function DropdownManagement() {
     try {
       const response = await apiRequest("POST", "/api/dropdowns/migrate-from-assets");
       const result = await response.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", selectedCategory] });
+      // Invalidate all dropdown queries after migration
+      categories.forEach(cat => {
+        queryClient.invalidateQueries({ queryKey: ["/api/dropdowns/options", cat.value] });
+        queryClient.invalidateQueries({ queryKey: [`/api/dropdowns/options/${cat.value}`] });
+      });
       toast({
         title: "Migration Complete",
         description: `Migrated ${result.migrated} values from existing assets (${result.skipped} skipped)`,
