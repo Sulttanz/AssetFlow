@@ -35,22 +35,20 @@ export default function DropdownOptions() {
       <div className="grid md:grid-cols-2 gap-4">
         {CATEGORIES.map((category) => (
           <Link key={category.value} href={`/dropdown-options/${category.value}`}>
-            <a>
-              <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full" data-testid={`card-${category.value}`}>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    {category.label}
-                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                  </CardTitle>
-                  <CardDescription>{category.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm font-medium" data-testid={`count-${category.value}`}>
-                    {getCountForCategory(category.value)} option{getCountForCategory(category.value) !== 1 ? 's' : ''}
-                  </p>
-                </CardContent>
-              </Card>
-            </a>
+            <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full" data-testid={`card-${category.value}`}>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  {category.label}
+                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                </CardTitle>
+                <CardDescription>{category.description}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm font-medium" data-testid={`count-${category.value}`}>
+                  {getCountForCategory(category.value)} option{getCountForCategory(category.value) !== 1 ? 's' : ''}
+                </p>
+              </CardContent>
+            </Card>
           </Link>
         ))}
       </div>

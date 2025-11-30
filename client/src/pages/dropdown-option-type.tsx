@@ -7,11 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { insertDropdownOptionSchema } from "@shared/schema";
 import { z } from "zod";
-import { Trash2, Plus, ArrowLeft } from "lucide-react";
+import { Trash2, Plus, ArrowLeft, Edit } from "lucide-react";
 import { Link } from "wouter";
 
 const formSchema = insertDropdownOptionSchema.extend({
@@ -36,6 +37,8 @@ const CATEGORIES = [
 export default function DropdownOptionType() {
   const [match, params] = useRoute("/dropdown-options/:type");
   const { toast } = useToast();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   
   const type = params?.type as string;
   const categoryInfo = CATEGORIES.find((c) => c.value === type);
@@ -45,8 +48,20 @@ export default function DropdownOptionType() {
   });
 
   const categoryOptions = allOptions.filter((opt: any) => opt.category === type);
+  const editingOption = categoryOptions.find((opt: any) => opt.id === editingId);
 
   const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      category: type,
+      optionValue: "",
+      optionLabel: "",
+      sortOrder: 0,
+      isActive: true,
+    },
+  });
+
+  const editForm = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       category: type,
@@ -96,6 +111,37 @@ export default function DropdownOptionType() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete option", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: FormData) => {
+      if (!editingId) throw new Error("No option selected for editing");
+      const payload = {
+        category: data.category,
+        optionValue: data.optionValue,
+        optionLabel: data.optionLabel,
+        sortOrder: data.sortOrder || 0,
+        isActive: data.isActive !== false,
+      };
+      return apiRequest("PUT", `/api/dropdown-options/${editingId}`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/dropdown-options"] });
+      toast({ title: "Success", description: "Dropdown option updated" });
+      setEditingId(null);
+      setEditDialogOpen(false);
+      editForm.reset({
+        category: type,
+        optionValue: "",
+        optionLabel: "",
+        sortOrder: 0,
+        isActive: true,
+      });
+      refetch();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update option", variant: "destructive" });
     },
   });
 
@@ -204,15 +250,35 @@ export default function DropdownOptionType() {
                         <span>{option.isActive ? "✓ Active" : "✗ Inactive"}</span>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(option.id)}
-                      disabled={deleteMutation.isPending}
-                      data-testid={`button-delete-${option.id}`}
-                    >
-                      <Trash2 className="w-4 h-4 text-red-500" />
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingId(option.id);
+                          editForm.reset({
+                            category: type,
+                            optionValue: option.optionValue,
+                            optionLabel: option.optionLabel,
+                            sortOrder: option.sortOrder,
+                            isActive: option.isActive,
+                          });
+                          setEditDialogOpen(true);
+                        }}
+                        data-testid={`button-edit-${option.id}`}
+                      >
+                        <Edit className="w-4 h-4 text-blue-500" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteMutation.mutate(option.id)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`button-delete-${option.id}`}
+                      >
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -220,6 +286,69 @@ export default function DropdownOptionType() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent data-testid="dialog-edit-option">
+          <DialogHeader>
+            <DialogTitle>Edit Option</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit((data) => updateMutation.mutate(data))} className="space-y-4">
+              <FormField
+                control={editForm.control}
+                name="optionLabel"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Option Label</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Desktop Computer" data-testid="edit-input-label" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="optionValue"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Option Value</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., desktop" data-testid="edit-input-value" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={editForm.control}
+                name="sortOrder"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sort Order</FormLabel>
+                    <FormControl>
+                      <Input type="number" placeholder="0" data-testid="edit-input-sort" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)} data-testid="button-cancel-edit">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={updateMutation.isPending} data-testid="button-save-edit">
+                  {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
