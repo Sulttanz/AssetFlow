@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { insertAssetSchema, type Asset } from "@shared/schema";
+import { insertAssetSchema, type Asset, type Location } from "@shared/schema";
 import { z } from "zod";
 import { convertToISODate } from "@/lib/date-utils";
 
@@ -78,17 +78,17 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   const { toast } = useToast();
   const isEdit = !!asset;
 
-  const { data: setting } = useQuery({
+  const { data: setting } = useQuery<{ value: string }>({
     queryKey: ["/api/settings/asset_id_generation_mode"],
   });
   
   const assetIdMode = setting?.value || "manual";
 
-  const { data: assets } = useQuery({
+  const { data: assets = [] } = useQuery<Asset[]>({
     queryKey: ["/api/assets"],
   });
 
-  const { data: locations } = useQuery({
+  const { data: locations = [] } = useQuery<Location[]>({
     queryKey: ["/api/locations"],
   });
 
