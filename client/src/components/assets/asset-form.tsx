@@ -132,6 +132,14 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/dropdowns/options/physicalSecurityLevel"],
   });
 
+  const { data: criticalities = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/criticality"],
+  });
+
+  const { data: assetConditions = [] } = useQuery({
+    queryKey: ["/api/dropdowns/options/assetCondition"],
+  });
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -615,10 +623,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                            <SelectItem value="critical">Critical</SelectItem>
+                            {criticalities.length > 0 ? (
+                              criticalities.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="low">Low</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="high">High</SelectItem>
+                                <SelectItem value="critical">Critical</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
