@@ -301,25 +301,62 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     };
 
     // Convert DD-MM-YYYY date formats to YYYY-MM-DD (ISO format) for database
-    // and handle empty numeric fields properly
+    // and handle empty numeric fields properly - EXPLICITLY include ALL fields to ensure nothing is lost
     const processedData = {
-      ...data,
-      // Core fields that must be included
+      // Basic Information
+      name: data.name,
+      assetTag: data.assetTag || undefined,
       type: data.type || undefined,
+      serialNumber: data.serialNumber || undefined,
+      status: data.status || undefined,
+      vendor: data.vendor || undefined,
+      model: data.model || undefined,
+      specifications: data.specifications || undefined,
+      
+      // Security Classification
+      informationClassification: data.informationClassification || undefined,
+      dataSensitivityLevel: data.dataSensitivityLevel || undefined,
+      dataTypes: data.dataTypes || undefined,
+      
+      // Basic Info
       locationId: data.locationId || undefined,
+      backupStatus: data.backupStatus || undefined,
+      
+      // Ownership & Management
+      assetOwner: data.assetOwner || undefined,
+      assetCustodian: data.assetCustodian || undefined,
+      
+      // Compliance & Controls
+      complianceStatus: data.complianceStatus || undefined,
+      securityControlsImplemented: data.securityControlsImplemented || undefined,
+      riskAssessmentScore: data.riskAssessmentScore || undefined,
+      
+      // Access Management
+      accessControlMethod: data.accessControlMethod || undefined,
+      
+      // Environmental Security
+      physicalSecurityLevel: data.physicalSecurityLevel || undefined,
+      
+      // Lifecycle Management
+      lifecycleStatus: data.lifecycleStatus || undefined,
+      plannedDisposalDate: processDateField(data.plannedDisposalDate),
+      
+      // Financial & Procurement
+      maintenanceCosts: processNumericField(data.maintenanceCosts),
+      invoiceNumber: data.invoiceNumber || undefined,
+      
       // Date fields
       purchaseDate: processDateField(data.purchaseDate),
       warrantyExpiry: processDateField(data.warrantyExpiry),
       lastAuditDate: processDateField(data.lastAuditDate),
       nextAuditDate: processDateField(data.nextAuditDate),
-      plannedDisposalDate: processDateField(data.plannedDisposalDate),
+      
       // Numeric fields - convert empty strings to undefined to prevent DB errors
       purchasePrice: processNumericField(data.purchasePrice),
       currentBookValue: processNumericField(data.currentBookValue),
       currentValue: processNumericField(data.currentValue),
       depreciationRate: processNumericField(data.depreciationRate),
       licenseQuantity: data.licenseQuantity ? Number(data.licenseQuantity) : undefined,
-      maintenanceCosts: processNumericField(data.maintenanceCosts),
       annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
       yearToDateSpend: processNumericField(data.yearToDateSpend),
       remainingBudget: processNumericField(data.remainingBudget),
