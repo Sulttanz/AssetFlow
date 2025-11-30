@@ -655,10 +655,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="basic">Basic</SelectItem>
-                            <SelectItem value="standard">Standard</SelectItem>
-                            <SelectItem value="enhanced">Enhanced</SelectItem>
-                            <SelectItem value="maximum">Maximum</SelectItem>
+                            {physicalSecurityLevels.length > 0 ? (
+                              physicalSecurityLevels.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="basic">Basic</SelectItem>
+                                <SelectItem value="standard">Standard</SelectItem>
+                                <SelectItem value="enhanced">Enhanced</SelectItem>
+                                <SelectItem value="maximum">Maximum</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -679,11 +689,21 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            <SelectItem value="password">Password</SelectItem>
-                            <SelectItem value="mfa">Multi-Factor Authentication</SelectItem>
-                            <SelectItem value="biometric">Biometric</SelectItem>
-                            <SelectItem value="smartcard">Smart Card</SelectItem>
+                            {accessMethods.length > 0 ? (
+                              accessMethods.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="none">None</SelectItem>
+                                <SelectItem value="password">Password</SelectItem>
+                                <SelectItem value="mfa">Multi-Factor Authentication</SelectItem>
+                                <SelectItem value="biometric">Biometric</SelectItem>
+                                <SelectItem value="smartcard">Smart Card</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -758,10 +778,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="compliant">Compliant</SelectItem>
-                            <SelectItem value="non-compliant">Non-Compliant</SelectItem>
-                            <SelectItem value="under-review">Under Review</SelectItem>
-                            <SelectItem value="not-assessed">Not Assessed</SelectItem>
+                            {complianceStatuses.length > 0 ? (
+                              complianceStatuses.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="compliant">Compliant</SelectItem>
+                                <SelectItem value="non-compliant">Non-Compliant</SelectItem>
+                                <SelectItem value="under-review">Under Review</SelectItem>
+                                <SelectItem value="not-assessed">Not Assessed</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -782,10 +812,20 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="low">Low</SelectItem>
-                            <SelectItem value="medium">Medium</SelectItem>
-                            <SelectItem value="high">High</SelectItem>
-                            <SelectItem value="critical">Critical</SelectItem>
+                            {riskScores.length > 0 ? (
+                              riskScores.map((item: any) => (
+                                <SelectItem key={item.id} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="low">Low</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="high">High</SelectItem>
+                                <SelectItem value="critical">Critical</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
