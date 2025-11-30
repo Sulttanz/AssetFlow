@@ -53,14 +53,19 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
 
   // Search assets by name, asset tag (ASSET-0001), id, model, or serial number - case insensitive
   const searchLower = searchInput.toLowerCase();
-  const filteredAssets = availableAssets?.filter(asset => {
-    const nameMatch = (asset.name ?? "").toLowerCase().includes(searchLower);
-    const idMatch = (asset.id ?? "").toLowerCase().includes(searchLower);
-    const tagMatch = ((asset as any).assetTag ?? "").toLowerCase().includes(searchLower);
-    const modelMatch = ((asset as any).model ?? "").toLowerCase().includes(searchLower);
-    const serialMatch = ((asset as any).serialNumber ?? "").toLowerCase().includes(searchLower);
-    return nameMatch || idMatch || tagMatch || modelMatch || serialMatch;
-  }) || [];
+  const filteredAssets = !searchInput 
+    ? (availableAssets || []) // Show all available assets when search is empty
+    : availableAssets?.filter(asset => {
+      if (!asset.name && !asset.id && !(asset as any).assetTag && !(asset as any).model && !(asset as any).serialNumber) {
+        return false;
+      }
+      const nameMatch = (asset.name ?? "").toLowerCase().includes(searchLower);
+      const idMatch = (asset.id ?? "").toLowerCase().includes(searchLower);
+      const tagMatch = ((asset as any).assetTag ?? "").toLowerCase().includes(searchLower);
+      const modelMatch = ((asset as any).model ?? "").toLowerCase().includes(searchLower);
+      const serialMatch = ((asset as any).serialNumber ?? "").toLowerCase().includes(searchLower);
+      return nameMatch || idMatch || tagMatch || modelMatch || serialMatch;
+    }) || [];
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
