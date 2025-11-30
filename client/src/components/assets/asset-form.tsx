@@ -360,9 +360,14 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("type").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="laptop">Laptop</SelectItem>
+                            <SelectItem value="desktop">Desktop</SelectItem>
+                            <SelectItem value="monitor">Monitor</SelectItem>
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="software">Software</SelectItem>
+                            <SelectItem value="server">Server</SelectItem>
+                            <SelectItem value="network-device">Network Device</SelectItem>
+                            <SelectItem value="storage">Storage Device</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -399,9 +404,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("status").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="available">Available</SelectItem>
+                            <SelectItem value="assigned">Assigned</SelectItem>
+                            <SelectItem value="maintenance">Maintenance</SelectItem>
+                            <SelectItem value="retired">Retired</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -481,9 +487,8 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("backupStatus").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="yes">Yes</SelectItem>
+                            <SelectItem value="no">No</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -516,9 +521,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("informationClassification").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="public">Public</SelectItem>
+                            <SelectItem value="internal">Internal</SelectItem>
+                            <SelectItem value="confidential">Confidential</SelectItem>
+                            <SelectItem value="restricted">Restricted</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -539,9 +545,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("criticality").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="critical">Critical</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -578,9 +585,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("physicalSecurityLevel").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="basic">Basic</SelectItem>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="enhanced">Enhanced</SelectItem>
+                            <SelectItem value="maximum">Maximum</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -601,9 +609,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("accessControlMethod").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="none">None</SelectItem>
+                            <SelectItem value="password">Password</SelectItem>
+                            <SelectItem value="mfa">Multi-Factor Authentication</SelectItem>
+                            <SelectItem value="biometric">Biometric</SelectItem>
+                            <SelectItem value="smartcard">Smart Card</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -678,9 +688,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("complianceStatus").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="compliant">Compliant</SelectItem>
+                            <SelectItem value="non-compliant">Non-Compliant</SelectItem>
+                            <SelectItem value="under-review">Under Review</SelectItem>
+                            <SelectItem value="not-assessed">Not Assessed</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -701,9 +712,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {getOptions("riskAssessmentScore").map((opt: any) => (
-                              <SelectItem key={opt.id} value={opt.optionValue}>{opt.optionLabel}</SelectItem>
-                            ))}
+                            <SelectItem value="low">Low</SelectItem>
+                            <SelectItem value="medium">Medium</SelectItem>
+                            <SelectItem value="high">High</SelectItem>
+                            <SelectItem value="critical">Critical</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
