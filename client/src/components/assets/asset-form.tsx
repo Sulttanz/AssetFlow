@@ -221,6 +221,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
       toast({
         title: "Success",
         description: "Asset created successfully",
@@ -244,6 +245,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
       toast({
         title: "Success",
         description: "Asset updated successfully",
@@ -302,6 +304,9 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     // and handle empty numeric fields properly
     const processedData = {
       ...data,
+      // Core fields that must be included
+      type: data.type || undefined,
+      locationId: data.locationId || undefined,
       // Date fields
       purchaseDate: processDateField(data.purchaseDate),
       warrantyExpiry: processDateField(data.warrantyExpiry),
