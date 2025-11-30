@@ -51,13 +51,14 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
     (isEdit && asset.id === assignment?.assetId)
   );
 
-  // Search assets by name, asset tag (ASSET-0001), id, model, or serial number
+  // Search assets by name, asset tag (ASSET-0001), id, model, or serial number - case insensitive
+  const searchLower = searchInput.toLowerCase();
   const filteredAssets = availableAssets?.filter(asset =>
-    asset.name.includes(searchInput) ||
-    asset.id.includes(searchInput) ||
-    ((asset as any).assetTag?.includes(searchInput) ?? false) ||
-    (asset.model?.includes(searchInput) ?? false) ||
-    (asset.serialNumber?.includes(searchInput) ?? false)
+    asset.name.toLowerCase().includes(searchLower) ||
+    asset.id.toLowerCase().includes(searchLower) ||
+    ((asset as any).assetTag?.toLowerCase().includes(searchLower) ?? false) ||
+    (asset.model?.toLowerCase().includes(searchLower) ?? false) ||
+    (asset.serialNumber?.toLowerCase().includes(searchLower) ?? false)
   ) || [];
 
   const form = useForm<FormData>({
