@@ -89,13 +89,14 @@ export default function AssignmentsReport() {
     return true;
   }) : [];
 
-  // Calculate filtered statistics
-  const filteredStats = {
-    totalAssets: filteredAssets.length,
-    availableAssets: filteredAssets.filter((a: any) => a.status?.toLowerCase() === 'available').length,
-    assignedAssets: filteredAssets.filter((a: any) => a.status?.toLowerCase() === 'assigned').length,
-    maintenanceAssets: filteredAssets.filter((a: any) => a.status?.toLowerCase() === 'maintenance').length,
-    retiredAssets: filteredAssets.filter((a: any) => a.status?.toLowerCase() === 'retired').length,
+  // Calculate TOTAL statistics from full dataset (not filtered) - summary cards should always show full estate
+  const allAssets = reportData?.assetUtilization || [];
+  const totalStats = {
+    totalAssets: allAssets.length,
+    availableAssets: allAssets.filter((a: any) => a.status?.toLowerCase() === 'available').length,
+    assignedAssets: allAssets.filter((a: any) => a.status?.toLowerCase() === 'assigned').length,
+    maintenanceAssets: allAssets.filter((a: any) => a.status?.toLowerCase() === 'maintenance').length,
+    retiredAssets: allAssets.filter((a: any) => a.status?.toLowerCase() === 'retired').length,
   };
 
   const getStatusBadge = (status: string) => {
@@ -171,7 +172,7 @@ export default function AssignmentsReport() {
               <Package className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-assets">{filteredStats.totalAssets}</div>
+              <div className="text-2xl font-bold" data-testid="text-total-assets">{totalStats.totalAssets}</div>
             </CardContent>
           </Card>
           <Card>
@@ -180,7 +181,7 @@ export default function AssignmentsReport() {
               <Package className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600" data-testid="text-available-assets">{filteredStats.availableAssets}</div>
+              <div className="text-2xl font-bold text-blue-600" data-testid="text-available-assets">{totalStats.availableAssets}</div>
             </CardContent>
           </Card>
           <Card>
@@ -189,7 +190,7 @@ export default function AssignmentsReport() {
               <UserCheck className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600" data-testid="text-assigned-assets">{filteredStats.assignedAssets}</div>
+              <div className="text-2xl font-bold text-green-600" data-testid="text-assigned-assets">{totalStats.assignedAssets}</div>
             </CardContent>
           </Card>
           <Card>
@@ -198,7 +199,7 @@ export default function AssignmentsReport() {
               <Wrench className="h-4 w-4 text-amber-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-amber-600" data-testid="text-maintenance-assets">{filteredStats.maintenanceAssets}</div>
+              <div className="text-2xl font-bold text-amber-600" data-testid="text-maintenance-assets">{totalStats.maintenanceAssets}</div>
             </CardContent>
           </Card>
           <Card>
@@ -207,7 +208,7 @@ export default function AssignmentsReport() {
               <Archive className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600" data-testid="text-retired-assets">{filteredStats.retiredAssets}</div>
+              <div className="text-2xl font-bold text-red-600" data-testid="text-retired-assets">{totalStats.retiredAssets}</div>
             </CardContent>
           </Card>
         </div>
