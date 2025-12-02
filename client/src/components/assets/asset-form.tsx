@@ -218,10 +218,13 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       const response = await apiRequest("POST", "/api/assets", data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+    onSuccess: async () => {
+      // Force immediate refetch with refetchType: 'all' for instant UI update
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/assets"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/assignments"], refetchType: 'all' }),
+      ]);
       toast({
         title: "Success",
         description: "Asset created successfully",
@@ -242,10 +245,13 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       const response = await apiRequest("PUT", `/api/assets/${asset!.id}`, data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
+    onSuccess: async () => {
+      // Force immediate refetch with refetchType: 'all' for instant UI update
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/assets"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/assignments"], refetchType: 'all' }),
+      ]);
       toast({
         title: "Success",
         description: "Asset updated successfully",

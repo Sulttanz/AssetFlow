@@ -92,10 +92,13 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
       const response = await apiRequest("POST", "/api/assignments", data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    onSuccess: async () => {
+      // Force immediate refetch with refetchType: 'all' for instant UI update
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/assignments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/assets"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' }),
+      ]);
       toast({
         title: "Success",
         description: "Assignment created successfully",
@@ -116,10 +119,13 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
       const response = await apiRequest("PUT", `/api/assignments/${assignment!.id}`, data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+    onSuccess: async () => {
+      // Force immediate refetch with refetchType: 'all' for instant UI update
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/assignments"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/assets"], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' }),
+      ]);
       toast({
         title: "Success",
         description: "Assignment updated successfully",
