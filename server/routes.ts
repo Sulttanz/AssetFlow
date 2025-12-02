@@ -1821,7 +1821,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Current assignments (not returned)
       const currentAssignments = assignments.filter((a: any) => !a.returnedDate);
       
-      // Assignment history
+      // Create a map of asset ID to current assignment details
+      const assetAssignmentMap = new Map();
+      currentAssignments.forEach((a: any) => {
+        assetAssignmentMap.set(a.assetId, {
+          employeeName: a.employeeName,
+          employeeId: a.employeeId,
+          assignedDate: a.assignedDate,
+          assignmentId: a.id
+        });
+      });
+      
+      // Build comprehensive asset utilization list showing ALL assets
+      const assetUtilization = assets.map((asset: any) => {
+        const currentAssignment = assetAssignmentMap.get(asset.id);
+        return {
+          id: asset.id,
+          assetTag: asset.assetTag || 'N/A',
+          name: asset.name || 'N/A',
+          type: asset.type || 'N/A',
+          serialNumber: asset.serialNumber || 'N/A',
+          model: asset.model || 'N/A',
+          status: asset.status || 'available',
+          assignedTo: currentAssignment?.employeeName || null,
+          assignedDate: currentAssignment?.assignedDate || null,
+          locationId: asset.locationId || null
+        };
+      });
+      
+      // Assignment history for detailed tracking
       const assignmentHistory = assignments.map((a: any) => ({
         id: a.id,
         assetTag: a.assetTag,
@@ -1832,24 +1860,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: a.returnedDate ? 'returned' : 'active'
       }));
       
-      // Unassigned assets
-      const assignedAssetIds = new Set(currentAssignments.map((a: any) => a.assetId));
-      const unassignedAssets = assets.filter((asset: any) => !assignedAssetIds.has(asset.id));
+      // Calculate summary statistics
+      const totalAssets = assets.length;
+      const availableAssets = assets.filter((a: any) => a.status === 'available').length;
+      const assignedAssets = assets.filter((a: any) => a.status === 'assigned').length;
+      const maintenanceAssets = assets.filter((a: any) => a.status === 'maintenance').length;
+      const retiredAssets = assets.filter((a: any) => a.status === 'retired').length;
       
       res.json({
+        // Summary statistics
+        totalAssets,
+        availableAssets,
+        assignedAssets,
+        maintenanceAssets,
+        retiredAssets,
         currentAssignments: currentAssignments.length,
         totalAssignments: assignments.length,
-        unassignedAssets: unassignedAssets.length,
-        assignmentHistory,
-        unassignedAssetsList: unassignedAssets.map((a: any) => ({
-          id: a.id,
-          assetTag: a.assetTag,
-          assetType: a.assetType,
-          status: a.status
-        }))
+        // Comprehensive asset list with utilization
+        assetUtilization,
+        // Legacy assignment history
+        assignmentHistory
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate asset assignments report" });
+    }
+  });
+  
+  // Alias for frontend compatibility
+  app.get("/api/reports/assignments", requireAuth, async (req, res) => {
+    try {
+      const assignments = await storage.getAssignmentsWithDetails();
+      const assets = await storage.getAssets();
+      
+      // Current assignments (not returned)
+      const currentAssignments = assignments.filter((a: any) => !a.returnedDate);
+      
+      // Create a map of asset ID to current assignment details
+      const assetAssignmentMap = new Map();
+      currentAssignments.forEach((a: any) => {
+        assetAssignmentMap.set(a.assetId, {
+          employeeName: a.employeeName,
+          employeeId: a.employeeId,
+          assignedDate: a.assignedDate,
+          assignmentId: a.id
+        });
+      });
+      
+      // Build comprehensive asset utilization list showing ALL assets
+      const assetUtilization = assets.map((asset: any) => {
+        const currentAssignment = assetAssignmentMap.get(asset.id);
+        return {
+          id: asset.id,
+          assetTag: asset.assetTag || 'N/A',
+          name: asset.name || 'N/A',
+          type: asset.type || 'N/A',
+          serialNumber: asset.serialNumber || 'N/A',
+          model: asset.model || 'N/A',
+          status: asset.status || 'available',
+          assignedTo: currentAssignment?.employeeName || null,
+          assignedDate: currentAssignment?.assignedDate || null,
+          locationId: asset.locationId || null
+        };
+      });
+      
+      // Assignment history for detailed tracking
+      const assignmentHistory = assignments.map((a: any) => ({
+        id: a.id,
+        assetTag: a.assetTag,
+        assetType: a.assetType,
+        employeeName: a.employeeName,
+        assignedDate: a.assignedDate,
+        returnedDate: a.returnedDate,
+        status: a.returnedDate ? 'returned' : 'active'
+      }));
+      
+      // Calculate summary statistics
+      const totalAssets = assets.length;
+      const availableAssets = assets.filter((a: any) => a.status === 'available').length;
+      const assignedAssets = assets.filter((a: any) => a.status === 'assigned').length;
+      const maintenanceAssets = assets.filter((a: any) => a.status === 'maintenance').length;
+      const retiredAssets = assets.filter((a: any) => a.status === 'retired').length;
+      
+      res.json({
+        // Summary statistics
+        totalAssets,
+        availableAssets,
+        assignedAssets,
+        maintenanceAssets,
+        retiredAssets,
+        currentAssignments: currentAssignments.length,
+        totalAssignments: assignments.length,
+        // Comprehensive asset list with utilization
+        assetUtilization,
+        // Legacy assignment history
+        assignmentHistory
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate assignments report" });
     }
   });
   
