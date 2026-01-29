@@ -89,15 +89,31 @@ app.use((req, res, next) => {
     const server = await registerRoutes(app);
     console.log("✅ Routes registered successfully");
     
-    // Test database connectivity early
+    // Test database connectivity with retry logic for cold-start/hibernation
     console.log("🔌 Testing database connectivity...");
-    try {
-      const { db } = await import("./db");
-      const { sql } = await import("drizzle-orm");
-      await db.execute(sql`SELECT 1`);
-      console.log("✅ Database connection successful");
-    } catch (dbError) {
-      console.error("❌ Database connection failed:", dbError);
+    const maxRetries = 5;
+    const retryDelay = 3000; // 3 seconds between retries
+    let lastError: any;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`SELECT 1`);
+        console.log("✅ Database connection successful");
+        lastError = null;
+        break;
+      } catch (dbError) {
+        lastError = dbError;
+        console.log(`⏳ Database connection attempt ${attempt}/${maxRetries} failed, retrying in ${retryDelay/1000}s...`);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+      }
+    }
+    
+    if (lastError) {
+      console.error("❌ Database connection failed after all retries:", lastError);
       throw new Error("Database connectivity check failed");
     }
 
