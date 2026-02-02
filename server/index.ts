@@ -89,32 +89,21 @@ app.use((req, res, next) => {
     const server = await registerRoutes(app);
     console.log("✅ Routes registered successfully");
     
-    // Test database connectivity with retry logic for cold-start/hibernation
+    // Test database connectivity - non-blocking, server will start regardless
+    // Database will be retried on first request if initial connection fails
     console.log("🔌 Testing database connectivity...");
-    const maxRetries = 5;
-    const retryDelay = 3000; // 3 seconds between retries
-    let lastError: any;
+    let dbConnected = false;
     
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const { db } = await import("./db");
-        const { sql } = await import("drizzle-orm");
-        await db.execute(sql`SELECT 1`);
-        console.log("✅ Database connection successful");
-        lastError = null;
-        break;
-      } catch (dbError) {
-        lastError = dbError;
-        console.log(`⏳ Database connection attempt ${attempt}/${maxRetries} failed, retrying in ${retryDelay/1000}s...`);
-        if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
-        }
-      }
-    }
-    
-    if (lastError) {
-      console.error("❌ Database connection failed after all retries:", lastError);
-      throw new Error("Database connectivity check failed");
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`SELECT 1`);
+      console.log("✅ Database connection successful");
+      dbConnected = true;
+    } catch (dbError: any) {
+      console.warn("⚠️  Database not immediately available - server will start anyway");
+      console.warn("   Database will be available when it wakes from hibernation");
+      console.warn(`   Error: ${dbError.message || dbError}`);
     }
 
     // Error handling middleware
@@ -155,7 +144,7 @@ app.use((req, res, next) => {
       console.log(`✅ Server successfully started!`);
       console.log(`🚀 Listening on http://${host}:${port}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`💾 Database: Connected`);
+      console.log(`💾 Database: ${dbConnected ? 'Connected' : 'Pending (will connect on first request)'}`);
       log(`serving on port ${port}`);
     });
     
