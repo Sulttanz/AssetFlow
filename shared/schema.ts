@@ -13,6 +13,7 @@ export const employees = pgTable("employees", {
   department: text("department"), // Keep for backward compatibility, now optional
   position: text("position").notNull(),
   phone: text("phone"),
+  mobile: text("mobile"),
   startDate: date("start_date"),
   salary: decimal("salary", { precision: 10, scale: 2 }),
   isManager: boolean("is_manager").default(false),

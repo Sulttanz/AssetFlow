@@ -146,6 +146,7 @@ export default function Employees() {
                       <TableHead>Location</TableHead>
                       <TableHead>Position</TableHead>
                       <TableHead>Phone</TableHead>
+                      <TableHead>Mobile</TableHead>
                       <TableHead>Start Date</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -168,6 +169,7 @@ export default function Employees() {
                         </TableCell>
                         <TableCell>{employee.position}</TableCell>
                         <TableCell>{employee.phone || "-"}</TableCell>
+                        <TableCell>{employee.mobile || "-"}</TableCell>
                         <TableCell className="text-muted-foreground">
                           {employee.startDate || "-"}
                         </TableCell>

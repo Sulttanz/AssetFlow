@@ -16,6 +16,7 @@ const formSchema = insertEmployeeSchema.extend({
   employeeId: z.string().optional().transform(val => val || undefined),
   startDate: z.string().optional().transform(val => val || undefined),
   phone: z.string().optional().transform(val => val || undefined),
+  mobile: z.string().optional().transform(val => val || undefined),
   department: z.string().optional().transform(val => val || undefined),
   departmentId: z.string().optional().transform(val => val || undefined),
   locationId: z.string().optional().transform(val => val || undefined),
@@ -53,6 +54,7 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, isManager 
       department: employee?.department || "",
       position: employee?.position || "",
       phone: employee?.phone ?? "",
+      mobile: employee?.mobile ?? "",
       startDate: employee?.startDate ?? "",
       departmentId: employee?.departmentId ?? "",
       locationId: employee?.locationId ?? "",
@@ -297,18 +299,32 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, isManager 
 
           <FormField
             control={form.control}
-            name="startDate"
+            name="mobile"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Start Date</FormLabel>
+                <FormLabel>Mobile</FormLabel>
                 <FormControl>
-                  <Input type="date" {...field} data-testid="input-start-date" />
+                  <Input placeholder="Enter mobile number" {...field} data-testid="input-mobile" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="startDate"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Start Date</FormLabel>
+              <FormControl>
+                <Input type="date" {...field} data-testid="input-start-date" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="flex justify-end space-x-2">
           <Button type="button" variant="outline" onClick={onCancel} data-testid="button-cancel">
