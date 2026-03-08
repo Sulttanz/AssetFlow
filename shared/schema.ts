@@ -427,7 +427,9 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").default(sql`now()`),
-  createdBy: varchar("created_by"), // ID of admin who created this user
+  createdBy: varchar("created_by"),
+  twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  twoFactorSecret: text("two_factor_secret"),
 });
 
 export const roles = pgTable("roles", {
@@ -512,6 +514,112 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").default(sql`now()`).notNull(),
 });
 
+// ─── New Professional ITAM Tables ───────────────────────────────────────────
+
+export const contracts = pgTable("contracts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  contractNumber: text("contract_number"),
+  contractType: text("contract_type").default("service"),
+  vendorId: varchar("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+  assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
+  startDate: date("start_date"),
+  endDate: date("end_date"),
+  value: decimal("value", { precision: 15, scale: 2 }),
+  status: text("status").default("active"),
+  ownerId: varchar("owner_id").references(() => employees.id, { onDelete: "set null" }),
+  renewalTerms: text("renewal_terms"),
+  terminationClause: text("termination_clause"),
+  documentUrl: text("document_url"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const assetBookings = pgTable("asset_bookings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  requestedBy: varchar("requested_by").references(() => employees.id, { onDelete: "set null" }),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  purpose: text("purpose"),
+  status: text("status").default("pending"),
+  approvedBy: varchar("approved_by").references(() => employees.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const assetDisposalRecords = pgTable("asset_disposal_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  disposalDate: date("disposal_date").notNull(),
+  disposalMethod: text("disposal_method").notNull(),
+  reason: text("reason"),
+  approvedBy: varchar("approved_by").references(() => employees.id, { onDelete: "set null" }),
+  dataDestructionConfirmed: boolean("data_destruction_confirmed").default(false),
+  dataDestructionMethod: text("data_destruction_method"),
+  certificateNumber: text("certificate_number"),
+  proceedsAmount: decimal("proceeds_amount", { precision: 12, scale: 2 }),
+  disposedBy: varchar("disposed_by").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const assetAuditSessions = pgTable("asset_audit_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  conductedBy: varchar("conducted_by").references(() => users.id, { onDelete: "set null" }),
+  status: text("status").default("draft"),
+  locationId: varchar("location_id").references(() => locations.id, { onDelete: "set null" }),
+  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  totalAssets: integer("total_assets").default(0),
+  verifiedCount: integer("verified_count").default(0),
+  missingCount: integer("missing_count").default(0),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const assetAuditItems = pgTable("asset_audit_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").notNull().references(() => assetAuditSessions.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  expectedLocation: text("expected_location"),
+  actualLocation: text("actual_location"),
+  status: text("status").default("pending"),
+  notes: text("notes"),
+  verifiedAt: timestamp("verified_at"),
+  verifiedBy: varchar("verified_by").references(() => users.id, { onDelete: "set null" }),
+});
+
+export const assetRelationships = pgTable("asset_relationships", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  parentAssetId: varchar("parent_asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  childAssetId: varchar("child_asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  relationshipType: text("relationship_type").notNull().default("connected-to"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const assetRequests = pgTable("asset_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestedBy: varchar("requested_by").references(() => employees.id, { onDelete: "set null" }),
+  assetType: text("asset_type").notNull(),
+  assetCategory: text("asset_category"),
+  justification: text("justification").notNull(),
+  priority: text("priority").default("medium"),
+  status: text("status").default("pending"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  assignedAssetId: varchar("assigned_asset_id").references(() => assets.id, { onDelete: "set null" }),
+  neededByDate: date("needed_by_date"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+
 // Dropdown Options Insert Schema
 export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions).omit({ id: true, createdAt: true, updatedAt: true });
 
@@ -553,6 +661,33 @@ export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSche
 export type InsertBudget = z.infer<typeof insertBudgetSchema>;
 export type InsertMaintenanceSchedule = z.infer<typeof insertMaintenanceScheduleSchema>;
 export type InsertMaintenanceRecord = z.infer<typeof insertMaintenanceRecordSchema>;
+
+// New ITAM Feature Insert Schemas
+export const insertContractSchema = createInsertSchema(contracts).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAssetBookingSchema = createInsertSchema(assetBookings).omit({ id: true, createdAt: true });
+export const insertAssetDisposalRecordSchema = createInsertSchema(assetDisposalRecords).omit({ id: true, createdAt: true });
+export const insertAssetAuditSessionSchema = createInsertSchema(assetAuditSessions).omit({ id: true, createdAt: true });
+export const insertAssetAuditItemSchema = createInsertSchema(assetAuditItems).omit({ id: true });
+export const insertAssetRelationshipSchema = createInsertSchema(assetRelationships).omit({ id: true, createdAt: true });
+export const insertAssetRequestSchema = createInsertSchema(assetRequests).omit({ id: true, createdAt: true });
+
+// New ITAM Feature Insert Types
+export type InsertContract = z.infer<typeof insertContractSchema>;
+export type InsertAssetBooking = z.infer<typeof insertAssetBookingSchema>;
+export type InsertAssetDisposalRecord = z.infer<typeof insertAssetDisposalRecordSchema>;
+export type InsertAssetAuditSession = z.infer<typeof insertAssetAuditSessionSchema>;
+export type InsertAssetAuditItem = z.infer<typeof insertAssetAuditItemSchema>;
+export type InsertAssetRelationship = z.infer<typeof insertAssetRelationshipSchema>;
+export type InsertAssetRequest = z.infer<typeof insertAssetRequestSchema>;
+
+// New ITAM Feature Select Types
+export type Contract = typeof contracts.$inferSelect;
+export type AssetBooking = typeof assetBookings.$inferSelect;
+export type AssetDisposalRecord = typeof assetDisposalRecords.$inferSelect;
+export type AssetAuditSession = typeof assetAuditSessions.$inferSelect;
+export type AssetAuditItem = typeof assetAuditItems.$inferSelect;
+export type AssetRelationship = typeof assetRelationships.$inferSelect;
+export type AssetRequest = typeof assetRequests.$inferSelect;
 
 // User Management Insert Types
 export type InsertUser = z.infer<typeof insertUserSchema>;

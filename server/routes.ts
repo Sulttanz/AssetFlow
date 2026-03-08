@@ -9,7 +9,8 @@ import {
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
-  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema
+  insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
+  insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -258,6 +259,446 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Contracts routes
+  app.get("/api/contracts", requireAuth, async (req, res) => {
+    try {
+      const contracts = await storage.getContracts();
+      res.json(contracts);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch contracts" });
+    }
+  });
+
+  app.post("/api/contracts", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const validatedData = insertContractSchema.parse(req.body);
+      const contract = await storage.createContract(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'contracts', contract.id, contract.name, null, contract, req);
+      res.status(201).json(contract);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create contract" });
+    }
+  });
+
+  app.get("/api/contracts/:id", requireAuth, async (req, res) => {
+    try {
+      const contract = await storage.getContract(req.params.id);
+      if (!contract) return res.status(404).json({ message: "Contract not found" });
+      res.json(contract);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch contract" });
+    }
+  });
+
+  app.put("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const validatedData = insertContractSchema.partial().parse(req.body);
+      const oldContract = await storage.getContract(req.params.id);
+      const contract = await storage.updateContract(req.params.id, validatedData);
+      if (!contract) return res.status(404).json({ message: "Contract not found" });
+      await logAudit(req.user?.id, 'UPDATE', 'contracts', contract.id, contract.name, oldContract, contract, req);
+      res.json(contract);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update contract" });
+    }
+  });
+
+  app.delete("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const contract = await storage.getContract(req.params.id);
+      const deleted = await storage.deleteContract(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Contract not found" });
+      if (contract) await logAudit(req.user?.id, 'DELETE', 'contracts', contract.id, contract.name, contract, null, req);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete contract" });
+    }
+  });
+
+  // Asset Bookings routes
+  app.get("/api/asset-bookings", requireAuth, async (req, res) => {
+    try {
+      const bookings = await storage.getAssetBookings();
+      res.json(bookings);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch bookings" });
+    }
+  });
+
+  app.post("/api/asset-bookings", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetBookingSchema.parse(req.body);
+      const booking = await storage.createAssetBooking(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, null, booking, req);
+      res.status(201).json(booking);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create booking" });
+    }
+  });
+
+  app.get("/api/asset-bookings/:id", requireAuth, async (req, res) => {
+    try {
+      const booking = await storage.getAssetBooking(req.params.id);
+      if (!booking) return res.status(404).json({ message: "Booking not found" });
+      res.json(booking);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch booking" });
+    }
+  });
+
+  app.put("/api/asset-bookings/:id", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetBookingSchema.partial().parse(req.body);
+      const oldBooking = await storage.getAssetBooking(req.params.id);
+      const booking = await storage.updateAssetBooking(req.params.id, validatedData);
+      if (!booking) return res.status(404).json({ message: "Booking not found" });
+      await logAudit(req.user?.id, 'UPDATE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, oldBooking, booking, req);
+      res.json(booking);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update booking" });
+    }
+  });
+
+  app.delete("/api/asset-bookings/:id", requireAuth, async (req, res) => {
+    try {
+      const booking = await storage.getAssetBooking(req.params.id);
+      const deleted = await storage.deleteAssetBooking(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Booking not found" });
+      if (booking) await logAudit(req.user?.id, 'DELETE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, booking, null, req);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete booking" });
+    }
+  });
+
+  // Asset Disposal routes
+  app.get("/api/asset-disposal", requireAuth, async (req, res) => {
+    try {
+      const records = await storage.getAssetDisposalRecords();
+      res.json(records);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch disposal records" });
+    }
+  });
+
+  app.post("/api/asset-disposal", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetDisposalRecordSchema.parse({
+        ...req.body,
+        disposedBy: req.user?.id
+      });
+      const record = await storage.createAssetDisposalRecord(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'asset_disposal_records', record.id, `Disposal for ${record.assetId}`, null, record, req);
+      res.status(201).json(record);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create disposal record" });
+    }
+  });
+
+  app.put("/api/asset-disposal/:id", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetDisposalRecordSchema.partial().parse(req.body);
+      const oldRecord = await storage.getAssetDisposalRecords().then(recs => recs.find(r => r.id === req.params.id));
+      const record = await storage.updateAssetDisposalRecord(req.params.id, validatedData);
+      if (!record) return res.status(404).json({ message: "Disposal record not found" });
+      await logAudit(req.user?.id, 'UPDATE', 'asset_disposal_records', record.id, `Disposal for ${record.assetId}`, oldRecord, record, req);
+      res.json(record);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update disposal record" });
+    }
+  });
+
+  // Asset Audit routes
+  app.get("/api/asset-audits", requireAuth, async (req, res) => {
+    try {
+      const sessions = await storage.getAssetAuditSessions();
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch audit sessions" });
+    }
+  });
+
+  app.post("/api/asset-audits", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetAuditSessionSchema.parse({
+        ...req.body,
+        conductedBy: req.user?.id
+      });
+      const session = await storage.createAssetAuditSession(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'asset_audit_sessions', session.id, session.name, null, session, req);
+      res.status(201).json(session);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create audit session" });
+    }
+  });
+
+  app.get("/api/asset-audits/:id", requireAuth, async (req, res) => {
+    try {
+      const session = await storage.getAssetAuditSession(req.params.id);
+      if (!session) return res.status(404).json({ message: "Audit session not found" });
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch audit session" });
+    }
+  });
+
+  app.put("/api/asset-audits/:id", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetAuditSessionSchema.partial().parse(req.body);
+      const oldSession = await storage.getAssetAuditSession(req.params.id);
+      const session = await storage.updateAssetAuditSession(req.params.id, validatedData);
+      if (!session) return res.status(404).json({ message: "Audit session not found" });
+      await logAudit(req.user?.id, 'UPDATE', 'asset_audit_sessions', session.id, session.name, oldSession, session, req);
+      res.json(session);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update audit session" });
+    }
+  });
+
+  app.get("/api/asset-audits/:id/items", requireAuth, async (req, res) => {
+    try {
+      const items = await storage.getAuditItems(req.params.id);
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch audit items" });
+    }
+  });
+
+  app.post("/api/asset-audits/:id/items", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetAuditItemSchema.parse({
+        ...req.body,
+        sessionId: req.params.id
+      });
+      const item = await storage.upsertAuditItem(validatedData);
+      res.status(201).json(item);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });
+      res.status(500).json({ message: "Failed to upsert audit item" });
+    }
+  });
+
+  app.put("/api/asset-audits/:sessionId/items/:itemId", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetAuditItemSchema.partial().parse({
+        ...req.body,
+        id: req.params.itemId,
+        sessionId: req.params.sessionId,
+        verifiedBy: req.user?.id,
+        verifiedAt: new Date()
+      });
+      const item = await storage.upsertAuditItem(validatedData as any);
+      res.json(item);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update audit item" });
+    }
+  });
+
+  // Asset Relationships routes
+  app.get("/api/assets/:id/relationships", requireAuth, async (req, res) => {
+    try {
+      const relationships = await storage.getAssetRelationships(req.params.id);
+      res.json(relationships);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch asset relationships" });
+    }
+  });
+
+  app.post("/api/asset-relationships", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetRelationshipSchema.parse(req.body);
+      const relationship = await storage.createAssetRelationship(validatedData);
+      res.status(201).json(relationship);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid relationship data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create relationship" });
+    }
+  });
+
+  app.delete("/api/asset-relationships/:id", requireAuth, async (req, res) => {
+    try {
+      const deleted = await storage.deleteAssetRelationship(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Relationship not found" });
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete relationship" });
+    }
+  });
+
+  // Asset Requests routes
+  app.get("/api/asset-requests", requireAuth, async (req, res) => {
+    try {
+      const requests = await storage.getAssetRequests();
+      res.json(requests);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch asset requests" });
+    }
+  });
+
+  app.post("/api/asset-requests", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetRequestSchema.parse(req.body);
+      const request = await storage.createAssetRequest(validatedData);
+      await logAudit(req.user?.id, 'CREATE', 'asset_requests', request.id, `Request for ${request.assetType}`, null, request, req);
+      res.status(201).json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create asset request" });
+    }
+  });
+
+  app.get("/api/asset-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const request = await storage.getAssetRequest(req.params.id);
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      res.json(request);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch request" });
+    }
+  });
+
+  app.put("/api/asset-requests/:id", requireAuth, async (req, res) => {
+    try {
+      const validatedData = insertAssetRequestSchema.partial().parse(req.body);
+      const oldRequest = await storage.getAssetRequest(req.params.id);
+      const request = await storage.updateAssetRequest(req.params.id, validatedData);
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      await logAudit(req.user?.id, 'UPDATE', 'asset_requests', request.id, `Request for ${request.assetType}`, oldRequest, request, req);
+      res.json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update request" });
+    }
+  });
+
+  app.post("/api/asset-requests/:id/approve", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const request = await storage.updateAssetRequest(req.params.id, {
+        status: 'approved',
+        reviewedBy: req.user?.id,
+        reviewedAt: new Date()
+      });
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      res.json(request);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to approve request" });
+    }
+  });
+
+  app.post("/api/asset-requests/:id/reject", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const { reason } = req.body;
+      const request = await storage.updateAssetRequest(req.params.id, {
+        status: 'rejected',
+        reviewedBy: req.user?.id,
+        reviewedAt: new Date(),
+        reviewNotes: reason
+      });
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      res.json(request);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to reject request" });
+    }
+  });
+
+  app.post("/api/asset-requests/:id/fulfill", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const { assetId } = req.body;
+      const request = await storage.updateAssetRequest(req.params.id, {
+        status: 'fulfilled',
+        assignedAssetId: assetId
+      });
+      if (!request) return res.status(404).json({ message: "Request not found" });
+      res.json(request);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fulfill request" });
+    }
+  });
+
+  // 2FA Auth Routes
+  app.post("/api/auth/2fa/setup", requireAuth, async (req, res) => {
+    try {
+      const speakeasy = await import("speakeasy");
+      const QRCode = await import("qrcode");
+      
+      const secret = speakeasy.default.generateSecret({
+        name: `ITAM:${req.user?.username}`,
+      });
+
+      const qrCodeUrl = await QRCode.default.toDataURL(secret.otpauth_url!);
+      
+      res.json({ secret: secret.base32, qrCodeUrl });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to setup 2FA" });
+    }
+  });
+
+  app.post("/api/auth/2fa/enable", requireAuth, async (req, res) => {
+    try {
+      const { secret, token } = req.body;
+      const speakeasy = await import("speakeasy");
+      
+      const verified = speakeasy.default.totp.verify({
+        secret,
+        encoding: 'base32',
+        token,
+      });
+
+      if (!verified) {
+        return res.status(400).json({ message: "Invalid verification token" });
+      }
+
+      await storage.updateUser2FA(req.user!.id, secret, true);
+      res.json({ message: "2FA enabled successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to enable 2FA" });
+    }
+  });
+
+  app.post("/api/auth/2fa/disable", requireAuth, async (req, res) => {
+    try {
+      await storage.updateUser2FA(req.user!.id, null, false);
+      res.json({ message: "2FA disabled successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to disable 2FA" });
+    }
+  });
+
+  app.post("/api/auth/2fa/verify", async (req, res) => {
+    try {
+      const { userId, token } = req.body;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+        return res.status(400).json({ message: "2FA not enabled for this user" });
+      }
+
+      const speakeasy = await import("speakeasy");
+      const verified = speakeasy.default.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: 'base32',
+        token,
+      });
+
+      if (!verified) {
+        return res.status(400).json({ message: "Invalid verification token" });
+      }
+
+      res.json({ message: "2FA verified successfully" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify 2FA" });
+    }
+  });
+
   // User-Role assignment routes
   app.post("/api/users/:userId/roles", requireAuth, requirePermission('user_role_assign'), async (req, res) => {
     try {
@@ -446,7 +887,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create all permissions
       const createdPermissions = new Map();
-      for (const permissionData of permissions) {
+      const permissionList = Array.from(permissions);
+      for (const permissionData of permissionList) {
         const permission = await storage.createPermission(permissionData);
         createdPermissions.set(permissionData.name, permission);
       }
@@ -1453,7 +1895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Sync budget spent amount for affected departments
-      const affectedDepts = new Set([purchaseOrder.departmentId, oldPO?.departmentId].filter(Boolean));
+      const affectedDepts = Array.from(new Set([purchaseOrder.departmentId, oldPO?.departmentId].filter(Boolean)));
       for (const deptId of affectedDepts) {
         if (!deptId) continue;
         const currentYear = new Date().getFullYear();
@@ -1537,7 +1979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             purchaseDate: po.orderDate,
             purchaseOrderNumber: po.poNumber,
             departmentId: po.departmentId || undefined,
-          } as any);
+          });
           createdAssets.push(asset);
         }
       }

@@ -12,7 +12,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
-import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle } from "lucide-react";
+import AssetQRModal from "@/components/assets/asset-qr-modal";
+import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode } from "lucide-react";
 import type { AssetWithAssignment, Asset } from "@shared/schema";
 import {
   Pagination,
@@ -33,6 +34,8 @@ export default function Assets() {
   const [complianceFilter, setComplianceFilter] = useState("all");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isQRModalOpen, setIsQRModalOpen] = useState(false);
+  const [qrAsset, setQrAsset] = useState<Asset | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
@@ -183,6 +186,11 @@ export default function Assets() {
     setIsFormOpen(true);
   };
 
+  const handleShowQR = (asset: Asset) => {
+    setQrAsset(asset);
+    setIsQRModalOpen(true);
+  };
+
   const handleDeleteAsset = (assetId: string) => {
     if (confirm("Are you sure you want to delete this asset?")) {
       deleteAssetMutation.mutate(assetId);
@@ -318,6 +326,14 @@ export default function Assets() {
                             <Button 
                               variant="ghost" 
                               size="sm" 
+                              onClick={() => handleShowQR(asset)}
+                              title="Show QR Code"
+                            >
+                              <QrCode className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
                               onClick={() => handleEditAsset(asset)}
                               data-testid={`view-asset-${asset.id}`}
                             >
@@ -425,6 +441,12 @@ export default function Assets() {
             />
           </DialogContent>
         </Dialog>
+
+        <AssetQRModal 
+          asset={qrAsset}
+          open={isQRModalOpen}
+          onOpenChange={setIsQRModalOpen}
+        />
       </main>
     </div>
   );

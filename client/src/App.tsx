@@ -37,6 +37,11 @@ import WarrantiesReport from "@/pages/reports/warranties";
 import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
 import ImportPage from "@/pages/import";
 import Settings from "@/pages/settings";
+import AssetDisposal from "@/pages/asset-disposal";
+import AssetBookings from "@/pages/asset-bookings";
+import Contracts from "@/pages/contracts";
+import AssetAudits from "@/pages/asset-audits";
+import AssetRequests from "@/pages/asset-requests";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -85,6 +90,11 @@ function Router() {
                   <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
                   <ProtectedRoute path="/import" component={ImportPage} />
                   <ProtectedRoute path="/settings" component={Settings} />
+                  <ProtectedRoute path="/asset-disposal" component={AssetDisposal} />
+                  <ProtectedRoute path="/bookings" component={AssetBookings} />
+                  <ProtectedRoute path="/contracts" component={Contracts} />
+                  <ProtectedRoute path="/asset-audits" component={AssetAudits} />
+                  <ProtectedRoute path="/asset-requests" component={AssetRequests} />
                   <Route component={NotFound} />
                 </Switch>
               </div>

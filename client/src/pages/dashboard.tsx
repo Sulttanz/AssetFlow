@@ -1,15 +1,46 @@
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import Header from "@/components/layout/header";
+import { Button } from "@/components/ui/button";
 import { 
   Server, 
   CheckCircle, 
   Package, 
   Wrench, 
   ArrowUp, 
-  AlertTriangle 
+  AlertTriangle,
+  Settings2,
+  PieChart as PieChartIcon,
+  BarChart as BarChartIcon,
+  History,
+  Calendar,
+  DollarSign
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend 
+} from "recharts";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
 
 interface DashboardStats {
   totalAssets: number;
@@ -17,109 +48,385 @@ interface DashboardStats {
   availableAssets: number;
   maintenanceAssets: number;
   retiredAssets: number;
+  totalEmployees: number;
+  totalLocations: number;
+  totalDepartments: number;
 }
 
+const DEFAULT_WIDGETS = {
+  stats: true,
+  statusChart: true,
+  typeChart: true,
+  recentAssignments: true,
+  upcomingMaintenance: true,
+  budgetOverview: true,
+};
+
+const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
+
 export default function Dashboard() {
+  const [widgets, setWidgets] = useState(() => {
+    const saved = localStorage.getItem("dashboard_widgets");
+    return saved ? JSON.parse(saved) : DEFAULT_WIDGETS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dashboard_widgets", JSON.stringify(widgets));
+  }, [widgets]);
+
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
 
+  const { data: assets } = useQuery<any[]>({
+    queryKey: ["/api/assets"],
+  });
+
+  const { data: assignments } = useQuery<any[]>({
+    queryKey: ["/api/assignments"],
+  });
+
+  const { data: maintenance } = useQuery<any[]>({
+    queryKey: ["/api/maintenance-schedules"],
+  });
+
+  const { data: budgetsData } = useQuery<any[]>({
+    queryKey: ["/api/budgets"],
+  });
+
+  const toggleWidget = (key: keyof typeof DEFAULT_WIDGETS) => {
+    setWidgets((prev: typeof DEFAULT_WIDGETS) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const statusData = stats ? [
+    { name: "Assigned", value: stats.assignedAssets },
+    { name: "Available", value: stats.availableAssets },
+    { name: "Maintenance", value: stats.maintenanceAssets },
+    { name: "Retired", value: stats.retiredAssets },
+  ].filter(d => d.value > 0) : [];
+
+  const typeData = assets ? Object.entries(
+    assets.reduce((acc: any, asset: any) => {
+      acc[asset.type] = (acc[asset.type] || 0) + 1;
+      return acc;
+    }, {})
+  ).map(([name, value]) => ({ name, value })) : [];
+
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto bg-background">
       <Header
         title="Dashboard"
         description="Asset overview and system status"
         showAddButton={false}
         searchPlaceholder="Search assets, employees..."
-      />
+      >
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="ml-auto">
+              <Settings2 className="mr-2 h-4 w-4" />
+              Customize
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80">
+            <div className="grid gap-4">
+              <div className="space-y-2">
+                <h4 className="font-medium leading-none">Dashboard Widgets</h4>
+                <p className="text-sm text-muted-foreground">
+                  Toggle visibility of dashboard components.
+                </p>
+              </div>
+              <div className="grid gap-2">
+                {Object.entries(widgets).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <Label htmlFor={`widget-${key}`} className="capitalize">
+                      {key.replace(/([A-Z])/g, ' $1').trim()}
+                    </Label>
+                    <Switch
+                      id={`widget-${key}`}
+                      checked={value as boolean}
+                      onCheckedChange={() => toggleWidget(key as keyof typeof DEFAULT_WIDGETS)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </Header>
 
-      <main className="p-6" data-testid="dashboard-content">
-        {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card data-testid="stats-total-assets">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Assets</p>
-                  {statsLoading ? (
-                    <Skeleton className="h-8 w-16" />
-                  ) : (
-                    <p className="text-2xl font-bold text-foreground">{stats?.totalAssets || 0}</p>
-                  )}
+      <main className="p-6 space-y-6" data-testid="dashboard-content">
+        {widgets.stats && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <Card data-testid="stats-total-assets">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Assets</p>
+                    {statsLoading ? (
+                      <Skeleton className="h-8 w-16" />
+                    ) : (
+                      <p className="text-2xl font-bold text-foreground">{stats?.totalAssets || 0}</p>
+                    )}
+                  </div>
+                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <Server className="text-primary" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                  <Server className="text-primary" />
+                <p className="text-xs text-green-600 mt-2">
+                  <ArrowUp className="inline w-3 h-3 mr-1" />
+                  System operational
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="stats-assigned-assets">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Assigned</p>
+                    {statsLoading ? (
+                      <Skeleton className="h-8 w-16" />
+                    ) : (
+                      <p className="text-2xl font-bold text-foreground">{stats?.assignedAssets || 0}</p>
+                    )}
+                  </div>
+                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                    <CheckCircle className="text-green-600" />
+                  </div>
                 </div>
-              </div>
-              <p className="text-xs text-green-600 mt-2">
-                <ArrowUp className="inline w-3 h-3 mr-1" />
-                System operational
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card data-testid="stats-assigned-assets">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Assigned</p>
-                  {statsLoading ? (
-                    <Skeleton className="h-8 w-16" />
-                  ) : (
-                    <p className="text-2xl font-bold text-foreground">{stats?.assignedAssets || 0}</p>
-                  )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  {stats && stats.totalAssets > 0 ? `${((stats.assignedAssets / stats.totalAssets) * 100).toFixed(1)}% utilization rate` : "0% utilization rate"}
+                </p>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="stats-available-assets">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Available</p>
+                    {statsLoading ? (
+                      <Skeleton className="h-8 w-16" />
+                    ) : (
+                      <p className="text-2xl font-bold text-foreground">{stats?.availableAssets || 0}</p>
+                    )}
+                  </div>
+                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Package className="text-blue-600" />
+                  </div>
                 </div>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="text-green-600" />
+                <p className="text-xs text-muted-foreground mt-2">Ready for assignment</p>
+              </CardContent>
+            </Card>
+            
+            <Card data-testid="stats-maintenance-assets">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">In Maintenance</p>
+                    {statsLoading ? (
+                      <Skeleton className="h-8 w-16" />
+                    ) : (
+                      <p className="text-2xl font-bold text-foreground">{stats?.maintenanceAssets || 0}</p>
+                    )}
+                  </div>
+                  <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                    <Wrench className="text-amber-600" />
+                  </div>
                 </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                {stats ? `${((stats.assignedAssets / stats.totalAssets) * 100).toFixed(1)}% utilization rate` : "Loading..."}
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card data-testid="stats-available-assets">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Available</p>
-                  {statsLoading ? (
-                    <Skeleton className="h-8 w-16" />
-                  ) : (
-                    <p className="text-2xl font-bold text-foreground">{stats?.availableAssets || 0}</p>
-                  )}
+                <p className="text-xs text-red-600 mt-2">
+                  <AlertTriangle className="inline w-3 h-3 mr-1" />
+                  Action required
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {widgets.statusChart && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-base font-medium">Assets by Status</CardTitle>
+                <PieChartIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={statusData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {statusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <Package className="text-blue-600" />
+              </CardContent>
+            </Card>
+          )}
+
+          {widgets.typeChart && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-base font-medium">Assets by Type</CardTitle>
+                <BarChartIcon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={typeData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">Ready for assignment</p>
-            </CardContent>
-          </Card>
-          
-          <Card data-testid="stats-maintenance-assets">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">In Maintenance</p>
-                  {statsLoading ? (
-                    <Skeleton className="h-8 w-16" />
-                  ) : (
-                    <p className="text-2xl font-bold text-foreground">{stats?.maintenanceAssets || 0}</p>
-                  )}
-                </div>
-                <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                  <Wrench className="text-amber-600" />
-                </div>
-              </div>
-              <p className="text-xs text-red-600 mt-2">
-                <AlertTriangle className="inline w-3 h-3 mr-1" />
-                Action required
-              </p>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {widgets.recentAssignments && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-base font-medium">Recent Assignments</CardTitle>
+                <History className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asset</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {assignments?.slice(0, 5).map((assignment) => (
+                      <TableRow key={assignment.id}>
+                        <TableCell className="font-medium">{assignment.assetName}</TableCell>
+                        <TableCell>{assignment.employeeName}</TableCell>
+                        <TableCell>{format(new Date(assignment.assignedDate), "MMM d, yyyy")}</TableCell>
+                      </TableRow>
+                    ))}
+                    {(!assignments || assignments.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">
+                          No recent assignments
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {widgets.upcomingMaintenance && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-base font-medium">Upcoming Maintenance</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asset</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Due Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {maintenance?.filter(m => m.isActive === "true").slice(0, 5).map((m) => (
+                      <TableRow key={m.id}>
+                        <TableCell className="font-medium">{m.assetName || "Asset"}</TableCell>
+                        <TableCell className="capitalize">{m.maintenanceType}</TableCell>
+                        <TableCell>{format(new Date(m.nextDue), "MMM d, yyyy")}</TableCell>
+                      </TableRow>
+                    ))}
+                    {(!maintenance || maintenance.length === 0) && (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center py-4 text-muted-foreground">
+                          No upcoming maintenance
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {widgets.budgetOverview && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-medium">Budget Overview</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Budget Name</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Total Budget</TableHead>
+                    <TableHead>Spent</TableHead>
+                    <TableHead>Utilization</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {budgetsData?.slice(0, 5).map((budget) => {
+                    const spent = parseFloat(budget.spentAmount || "0");
+                    const total = parseFloat(budget.budgetAmount || "0");
+                    const percent = total > 0 ? (spent / total) * 100 : 0;
+                    return (
+                      <TableRow key={budget.id}>
+                        <TableCell className="font-medium">{budget.name}</TableCell>
+                        <TableCell className="capitalize">{budget.category}</TableCell>
+                        <TableCell>${total.toLocaleString()}</TableCell>
+                        <TableCell>${spent.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full ${percent > 90 ? 'bg-destructive' : percent > 75 ? 'bg-amber-500' : 'bg-primary'}`}
+                                style={{ width: `${Math.min(percent, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-medium w-8">{Math.round(percent)}%</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {(!budgetsData || budgetsData.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                        No budget data available
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );

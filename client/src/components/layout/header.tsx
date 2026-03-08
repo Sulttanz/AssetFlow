@@ -28,6 +28,7 @@ interface HeaderProps {
   showAddButton?: boolean;
   searchPlaceholder?: string;
   onSearch?: (query: string) => void;
+  children?: React.ReactNode;
 }
 
 const alertIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -58,6 +59,7 @@ export default function Header({
   showAddButton = true,
   searchPlaceholder = "Search...",
   onSearch,
+  children,
 }: HeaderProps) {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
@@ -79,7 +81,7 @@ export default function Header({
   return (
     <header className="bg-card border-b border-border p-6" data-testid="page-header">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-semibold text-foreground" data-testid="page-title">
             {title}
           </h1>
@@ -99,6 +101,8 @@ export default function Header({
               data-testid="search-input"
             />
           </div>
+
+          {children}
 
           {showAddButton && (
             <Button onClick={onAddClick} data-testid="add-button">

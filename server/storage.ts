@@ -9,11 +9,14 @@ import {
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
   type InsertUser, type InsertRole, type InsertPermission, type InsertUserRole,
   type InsertRolePermission, type InsertSystemSetting, type InsertAuditLog, type InsertSetting,
+  type Contract, type AssetBooking, type AssetDisposalRecord, type AssetAuditSession, type AssetAuditItem, type AssetRelationship, type AssetRequest,
+  type InsertContract, type InsertAssetBooking, type InsertAssetDisposalRecord, type InsertAssetAuditSession, type InsertAssetAuditItem, type InsertAssetRelationship, type InsertAssetRequest,
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions,
+  contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -162,6 +165,48 @@ export interface IStorage {
   getAuditLogsByRecord(tableName: string, recordId: string): Promise<AuditLog[]>;
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
+  // Contracts
+  getContracts(): Promise<Contract[]>;
+  getContract(id: string): Promise<Contract | undefined>;
+  createContract(contract: InsertContract): Promise<Contract>;
+  updateContract(id: string, contract: Partial<InsertContract>): Promise<Contract | undefined>;
+  deleteContract(id: string): Promise<boolean>;
+
+  // Asset Bookings
+  getAssetBookings(): Promise<AssetBooking[]>;
+  getAssetBooking(id: string): Promise<AssetBooking | undefined>;
+  createAssetBooking(booking: InsertAssetBooking): Promise<AssetBooking>;
+  updateAssetBooking(id: string, booking: Partial<InsertAssetBooking>): Promise<AssetBooking | undefined>;
+  deleteAssetBooking(id: string): Promise<boolean>;
+
+  // Asset Disposal
+  getAssetDisposalRecords(): Promise<AssetDisposalRecord[]>;
+  createAssetDisposalRecord(record: InsertAssetDisposalRecord): Promise<AssetDisposalRecord>;
+  updateAssetDisposalRecord(id: string, record: Partial<InsertAssetDisposalRecord>): Promise<AssetDisposalRecord | undefined>;
+
+  // Asset Audit
+  getAssetAuditSessions(): Promise<AssetAuditSession[]>;
+  getAssetAuditSession(id: string): Promise<AssetAuditSession | undefined>;
+  createAssetAuditSession(session: InsertAssetAuditSession): Promise<AssetAuditSession>;
+  updateAssetAuditSession(id: string, session: Partial<InsertAssetAuditSession>): Promise<AssetAuditSession | undefined>;
+  getAuditItems(sessionId: string): Promise<AssetAuditItem[]>;
+  upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; assetId: string }): Promise<AssetAuditItem>;
+
+  // Asset Relationships
+  getAssetRelationships(assetId: string): Promise<AssetRelationship[]>;
+  createAssetRelationship(relationship: InsertAssetRelationship): Promise<AssetRelationship>;
+  deleteAssetRelationship(id: string): Promise<boolean>;
+
+  // Asset Requests
+  getAssetRequests(): Promise<AssetRequest[]>;
+  getAssetRequest(id: string): Promise<AssetRequest | undefined>;
+  createAssetRequest(request: InsertAssetRequest): Promise<AssetRequest>;
+  updateAssetRequest(id: string, request: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined>;
+
+  // 2FA
+  getUserById(id: string): Promise<User | undefined>;
+  updateUser2FA(userId: string, secret: string | null, enabled: boolean): Promise<User | undefined>;
+
   // Dropdown Options
   getDropdownOptions(): Promise<DropdownOption[]>;
   getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]>;
@@ -188,6 +233,13 @@ export class MemStorage implements IStorage {
   private budgets: Map<string, Budget>;
   private maintenanceSchedules: Map<string, MaintenanceSchedule>;
   private maintenanceRecords: Map<string, MaintenanceRecord>;
+  private contracts: Map<string, Contract>;
+  private assetBookings: Map<string, AssetBooking>;
+  private assetDisposalRecords: Map<string, AssetDisposalRecord>;
+  private assetAuditSessions: Map<string, AssetAuditSession>;
+  private assetAuditItems: Map<string, AssetAuditItem>;
+  private assetRelationships: Map<string, AssetRelationship>;
+  private assetRequests: Map<string, AssetRequest>;
   
   // User Management Collections
   private users: Map<string, User>;
@@ -212,6 +264,13 @@ export class MemStorage implements IStorage {
     this.budgets = new Map();
     this.maintenanceSchedules = new Map();
     this.maintenanceRecords = new Map();
+    this.contracts = new Map();
+    this.assetBookings = new Map();
+    this.assetDisposalRecords = new Map();
+    this.assetAuditSessions = new Map();
+    this.assetAuditItems = new Map();
+    this.assetRelationships = new Map();
+    this.assetRequests = new Map();
     
     // Initialize user management collections
     this.users = new Map();
@@ -1317,6 +1376,235 @@ export class MemStorage implements IStorage {
     return Array.from(this.maintenanceRecords.values()).filter(r => r.assetId === assetId);
   }
 
+  // Contracts
+  async getContracts(): Promise<Contract[]> {
+    return Array.from(this.contracts.values());
+  }
+
+  async getContract(id: string): Promise<Contract | undefined> {
+    return this.contracts.get(id);
+  }
+
+  async createContract(contract: InsertContract): Promise<Contract> {
+    const id = randomUUID();
+    const newContract: Contract = {
+      ...contract,
+      id,
+      assetId: contract.assetId ?? null,
+      ownerId: contract.ownerId ?? null,
+      notes: contract.notes ?? null,
+      renewalTerms: contract.renewalTerms ?? null,
+      terminationClause: contract.terminationClause ?? null,
+      documentUrl: contract.documentUrl ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.contracts.set(id, newContract);
+    return newContract;
+  }
+
+  async updateContract(id: string, updateData: Partial<InsertContract>): Promise<Contract | undefined> {
+    const contract = this.contracts.get(id);
+    if (!contract) return undefined;
+    const updatedContract = { ...contract, ...updateData, updatedAt: new Date() };
+    this.contracts.set(id, updatedContract);
+    return updatedContract;
+  }
+
+  async deleteContract(id: string): Promise<boolean> {
+    return this.contracts.delete(id);
+  }
+
+  // Asset Bookings
+  async getAssetBookings(): Promise<AssetBooking[]> {
+    return Array.from(this.assetBookings.values());
+  }
+
+  async getAssetBooking(id: string): Promise<AssetBooking | undefined> {
+    return this.assetBookings.get(id);
+  }
+
+  async createAssetBooking(booking: InsertAssetBooking): Promise<AssetBooking> {
+    const id = randomUUID();
+    const newBooking: AssetBooking = {
+      ...booking,
+      id,
+      approvedBy: booking.approvedBy ?? null,
+      notes: booking.notes ?? null,
+      createdAt: new Date()
+    };
+    this.assetBookings.set(id, newBooking);
+    return newBooking;
+  }
+
+  async updateAssetBooking(id: string, updateData: Partial<InsertAssetBooking>): Promise<AssetBooking | undefined> {
+    const booking = this.assetBookings.get(id);
+    if (!booking) return undefined;
+    const updatedBooking = { ...booking, ...updateData };
+    this.assetBookings.set(id, updatedBooking);
+    return updatedBooking;
+  }
+
+  async deleteAssetBooking(id: string): Promise<boolean> {
+    return this.assetBookings.delete(id);
+  }
+
+  // Asset Disposal
+  async getAssetDisposalRecords(): Promise<AssetDisposalRecord[]> {
+    return Array.from(this.assetDisposalRecords.values());
+  }
+
+  async createAssetDisposalRecord(record: InsertAssetDisposalRecord): Promise<AssetDisposalRecord> {
+    const id = randomUUID();
+    const newRecord: AssetDisposalRecord = {
+      ...record,
+      id,
+      approvedBy: record.approvedBy ?? null,
+      proceedsAmount: record.proceedsAmount ?? null,
+      notes: record.notes ?? null,
+      createdAt: new Date()
+    };
+    this.assetDisposalRecords.set(id, newRecord);
+    return newRecord;
+  }
+
+  async updateAssetDisposalRecord(id: string, updateData: Partial<InsertAssetDisposalRecord>): Promise<AssetDisposalRecord | undefined> {
+    const record = this.assetDisposalRecords.get(id);
+    if (!record) return undefined;
+    const updatedRecord = { ...record, ...updateData };
+    this.assetDisposalRecords.set(id, updatedRecord);
+    return updatedRecord;
+  }
+
+  // Asset Audit
+  async getAssetAuditSessions(): Promise<AssetAuditSession[]> {
+    return Array.from(this.assetAuditSessions.values());
+  }
+
+  async getAssetAuditSession(id: string): Promise<AssetAuditSession | undefined> {
+    return this.assetAuditSessions.get(id);
+  }
+
+  async createAssetAuditSession(session: InsertAssetAuditSession): Promise<AssetAuditSession> {
+    const id = randomUUID();
+    const newSession: AssetAuditSession = {
+      ...session,
+      id,
+      endDate: session.endDate ?? null,
+      locationId: session.locationId ?? null,
+      departmentId: session.departmentId ?? null,
+      notes: session.notes ?? null,
+      totalAssets: session.totalAssets ?? 0,
+      verifiedCount: session.verifiedCount ?? 0,
+      missingCount: session.missingCount ?? 0,
+      createdAt: new Date()
+    };
+    this.assetAuditSessions.set(id, newSession);
+    return newSession;
+  }
+
+  async updateAssetAuditSession(id: string, updateData: Partial<InsertAssetAuditSession>): Promise<AssetAuditSession | undefined> {
+    const session = this.assetAuditSessions.get(id);
+    if (!session) return undefined;
+    const updatedSession = { ...session, ...updateData };
+    this.assetAuditSessions.set(id, updatedSession);
+    return updatedSession;
+  }
+
+  async getAuditItems(sessionId: string): Promise<AssetAuditItem[]> {
+    return Array.from(this.assetAuditItems.values()).filter(item => item.sessionId === sessionId);
+  }
+
+  async upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; assetId: string }): Promise<AssetAuditItem> {
+    const existing = Array.from(this.assetAuditItems.values()).find(i => i.sessionId === item.sessionId && i.assetId === item.assetId);
+    const id = existing?.id || randomUUID();
+    const newItem: AssetAuditItem = {
+      ...existing,
+      ...item,
+      id,
+      sessionId: item.sessionId,
+      assetId: item.assetId,
+      status: item.status ?? existing?.status ?? "pending",
+      notes: item.notes !== undefined ? item.notes : (existing?.notes ?? null),
+      expectedLocation: item.expectedLocation !== undefined ? item.expectedLocation : (existing?.expectedLocation ?? null),
+      actualLocation: item.actualLocation !== undefined ? item.actualLocation : (existing?.actualLocation ?? null),
+      verifiedAt: item.verifiedAt !== undefined ? item.verifiedAt : (existing?.verifiedAt ?? null),
+      verifiedBy: item.verifiedBy !== undefined ? item.verifiedBy : (existing?.verifiedBy ?? null)
+    } as AssetAuditItem;
+    this.assetAuditItems.set(id, newItem);
+    return newItem;
+  }
+
+  // Asset Relationships
+  async getAssetRelationships(assetId: string): Promise<AssetRelationship[]> {
+    return Array.from(this.assetRelationships.values()).filter(r => r.parentAssetId === assetId || r.childAssetId === assetId);
+  }
+
+  async createAssetRelationship(relationship: InsertAssetRelationship): Promise<AssetRelationship> {
+    const id = randomUUID();
+    const newRelationship: AssetRelationship = {
+      ...relationship,
+      id,
+      notes: relationship.notes ?? null,
+      createdAt: new Date()
+    };
+    this.assetRelationships.set(id, newRelationship);
+    return newRelationship;
+  }
+
+  async deleteAssetRelationship(id: string): Promise<boolean> {
+    return this.assetRelationships.delete(id);
+  }
+
+  // Asset Requests
+  async getAssetRequests(): Promise<AssetRequest[]> {
+    return Array.from(this.assetRequests.values());
+  }
+
+  async getAssetRequest(id: string): Promise<AssetRequest | undefined> {
+    return this.assetRequests.get(id);
+  }
+
+  async createAssetRequest(request: InsertAssetRequest): Promise<AssetRequest> {
+    const id = randomUUID();
+    const newRequest: AssetRequest = {
+      ...request,
+      id,
+      assetCategory: request.assetCategory ?? null,
+      priority: request.priority ?? "medium",
+      status: request.status ?? "pending",
+      reviewedBy: request.reviewedBy ?? null,
+      reviewedAt: request.reviewedAt ?? null,
+      reviewNotes: request.reviewNotes ?? null,
+      assignedAssetId: request.assignedAssetId ?? null,
+      neededByDate: request.neededByDate ?? null,
+      createdAt: new Date()
+    };
+    this.assetRequests.set(id, newRequest);
+    return newRequest;
+  }
+
+  async updateAssetRequest(id: string, updateData: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined> {
+    const request = this.assetRequests.get(id);
+    if (!request) return undefined;
+    const updatedRequest = { ...request, ...updateData };
+    this.assetRequests.set(id, updatedRequest);
+    return updatedRequest;
+  }
+
+  // 2FA
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async updateUser2FA(userId: string, secret: string | null, enabled: boolean): Promise<User | undefined> {
+    const user = this.users.get(userId);
+    if (!user) return undefined;
+    const updatedUser = { ...user, twoFactorSecret: secret, twoFactorEnabled: enabled };
+    this.users.set(userId, updatedUser);
+    return updatedUser;
+  }
+
   // User Management Methods
   async getUsers(): Promise<User[]> {
     return Array.from(this.users.values());
@@ -1355,7 +1643,12 @@ export class MemStorage implements IStorage {
     const newUser: User = { 
       ...user, 
       id,
-      createdAt: new Date()
+      createdAt: new Date(),
+      isActive: user.isActive ?? true,
+      lastLogin: null,
+      createdBy: user.createdBy ?? null,
+      twoFactorEnabled: user.twoFactorEnabled ?? false,
+      twoFactorSecret: user.twoFactorSecret ?? null
     };
     this.users.set(id, newUser);
     return newUser;
@@ -1364,7 +1657,15 @@ export class MemStorage implements IStorage {
   async updateUser(id: string, updateData: Partial<InsertUser>): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
-    const updatedUser = { ...user, ...updateData };
+    const updatedUser = { 
+      ...user, 
+      ...updateData,
+      isActive: updateData.isActive !== undefined ? updateData.isActive : user.isActive,
+      lastLogin: updateData.lastLogin !== undefined ? updateData.lastLogin : user.lastLogin,
+      createdBy: updateData.createdBy !== undefined ? updateData.createdBy : user.createdBy,
+      twoFactorEnabled: updateData.twoFactorEnabled !== undefined ? updateData.twoFactorEnabled : user.twoFactorEnabled,
+      twoFactorSecret: updateData.twoFactorSecret !== undefined ? updateData.twoFactorSecret : user.twoFactorSecret
+    };
     this.users.set(id, updatedUser);
     return updatedUser;
   }
@@ -1418,7 +1719,9 @@ export class MemStorage implements IStorage {
     const newRole: Role = { 
       ...role, 
       id,
-      createdAt: new Date()
+      createdAt: new Date(),
+      description: role.description ?? null,
+      isSystemRole: role.isSystemRole ?? false
     };
     this.roles.set(id, newRole);
     return newRole;
@@ -1427,7 +1730,12 @@ export class MemStorage implements IStorage {
   async updateRole(id: string, updateData: Partial<InsertRole>): Promise<Role | undefined> {
     const role = this.roles.get(id);
     if (!role) return undefined;
-    const updatedRole = { ...role, ...updateData };
+    const updatedRole = { 
+      ...role, 
+      ...updateData,
+      description: updateData.description !== undefined ? updateData.description : role.description,
+      isSystemRole: updateData.isSystemRole !== undefined ? updateData.isSystemRole : role.isSystemRole
+    };
     this.roles.set(id, updatedRole);
     return updatedRole;
   }
@@ -1458,7 +1766,13 @@ export class MemStorage implements IStorage {
 
   async createPermission(permission: InsertPermission): Promise<Permission> {
     const id = randomUUID();
-    const newPermission: Permission = { ...permission, id };
+    const newPermission: Permission = { 
+      ...permission, 
+      id,
+      action: permission.action ?? null,
+      description: permission.description ?? null,
+      resource: permission.resource ?? null
+    };
     this.permissions.set(id, newPermission);
     return newPermission;
   }
@@ -1554,9 +1868,9 @@ export class MemStorage implements IStorage {
   async updateSystemSetting(key: string, value: string, updatedBy?: string): Promise<SystemSetting> {
     const existing = await this.getSystemSetting(key);
     if (existing) {
-      const updated = {
+      const updated: SystemSetting = {
         ...existing,
-        value,
+        value: value ?? null,
         updatedAt: new Date(),
         updatedBy: updatedBy || null
       };
@@ -1577,7 +1891,11 @@ export class MemStorage implements IStorage {
     const newSetting: SystemSetting = {
       ...setting,
       id,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      value: setting.value ?? null,
+      category: setting.category ?? null,
+      description: setting.description ?? null,
+      updatedBy: setting.updatedBy ?? null
     };
     this.systemSettings.set(id, newSetting);
     return newSetting;
@@ -1599,7 +1917,8 @@ export class MemStorage implements IStorage {
     const newSetting: Setting = {
       ...setting,
       id,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      description: setting.description ?? null
     };
     this.settingsMap.set(id, newSetting);
     return newSetting;
@@ -1693,7 +2012,13 @@ export class MemStorage implements IStorage {
     const newLog: AuditLog = {
       ...log,
       id,
-      timestamp: new Date()
+      timestamp: new Date(),
+      userId: log.userId ?? null,
+      recordName: log.recordName ?? null,
+      oldValues: log.oldValues ?? null,
+      newValues: log.newValues ?? null,
+      ipAddress: log.ipAddress ?? null,
+      userAgent: log.userAgent ?? null
     };
     this.auditLogs.set(id, newLog);
     return newLog;
@@ -1717,6 +2042,13 @@ export class MemStorage implements IStorage {
     this.permissions.clear();
     this.userRoles.clear();
     this.rolePermissions.clear();
+    this.contracts.clear();
+    this.assetBookings.clear();
+    this.assetDisposalRecords.clear();
+    this.assetAuditSessions.clear();
+    this.assetAuditItems.clear();
+    this.assetRelationships.clear();
+    this.assetRequests.clear();
     // Note: Don't clear system settings as they may contain important configuration
     return true;
   }
@@ -2368,7 +2700,7 @@ export class DatabaseStorage implements IStorage {
     const userRole: InsertUserRole = {
       userId,
       roleId,
-      assignedBy,
+      assignedBy: assignedBy || null,
       assignedAt: new Date(),
     };
     
@@ -2527,6 +2859,157 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const result = await db.insert(auditLogs).values(log).returning();
     return result[0];
+  }
+
+  // Contracts
+  async getContracts(): Promise<Contract[]> {
+    return await db.select().from(contracts);
+  }
+
+  async getContract(id: string): Promise<Contract | undefined> {
+    const result = await db.select().from(contracts).where(eq(contracts.id, id));
+    return result[0] || undefined;
+  }
+
+  async createContract(contract: InsertContract): Promise<Contract> {
+    const result = await db.insert(contracts).values(contract).returning();
+    return result[0];
+  }
+
+  async updateContract(id: string, contract: Partial<InsertContract>): Promise<Contract | undefined> {
+    const result = await db.update(contracts).set(contract).where(eq(contracts.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteContract(id: string): Promise<boolean> {
+    const result = await db.delete(contracts).where(eq(contracts.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Asset Bookings
+  async getAssetBookings(): Promise<AssetBooking[]> {
+    return await db.select().from(assetBookings);
+  }
+
+  async getAssetBooking(id: string): Promise<AssetBooking | undefined> {
+    const result = await db.select().from(assetBookings).where(eq(assetBookings.id, id));
+    return result[0] || undefined;
+  }
+
+  async createAssetBooking(booking: InsertAssetBooking): Promise<AssetBooking> {
+    const result = await db.insert(assetBookings).values(booking).returning();
+    return result[0];
+  }
+
+  async updateAssetBooking(id: string, booking: Partial<InsertAssetBooking>): Promise<AssetBooking | undefined> {
+    const result = await db.update(assetBookings).set(booking).where(eq(assetBookings.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteAssetBooking(id: string): Promise<boolean> {
+    const result = await db.delete(assetBookings).where(eq(assetBookings.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Asset Disposal
+  async getAssetDisposalRecords(): Promise<AssetDisposalRecord[]> {
+    return await db.select().from(assetDisposalRecords);
+  }
+
+  async createAssetDisposalRecord(record: InsertAssetDisposalRecord): Promise<AssetDisposalRecord> {
+    const result = await db.insert(assetDisposalRecords).values(record).returning();
+    return result[0];
+  }
+
+  async updateAssetDisposalRecord(id: string, record: Partial<InsertAssetDisposalRecord>): Promise<AssetDisposalRecord | undefined> {
+    const result = await db.update(assetDisposalRecords).set(record).where(eq(assetDisposalRecords.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  // Asset Audit
+  async getAssetAuditSessions(): Promise<AssetAuditSession[]> {
+    return await db.select().from(assetAuditSessions);
+  }
+
+  async getAssetAuditSession(id: string): Promise<AssetAuditSession | undefined> {
+    const result = await db.select().from(assetAuditSessions).where(eq(assetAuditSessions.id, id));
+    return result[0] || undefined;
+  }
+
+  async createAssetAuditSession(session: InsertAssetAuditSession): Promise<AssetAuditSession> {
+    const result = await db.insert(assetAuditSessions).values(session).returning();
+    return result[0];
+  }
+
+  async updateAssetAuditSession(id: string, session: Partial<InsertAssetAuditSession>): Promise<AssetAuditSession | undefined> {
+    const result = await db.update(assetAuditSessions).set(session).where(eq(assetAuditSessions.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async getAuditItems(sessionId: string): Promise<AssetAuditItem[]> {
+    return await db.select().from(assetAuditItems).where(eq(assetAuditItems.sessionId, sessionId));
+  }
+
+  async upsertAuditItem(item: InsertAssetAuditItem): Promise<AssetAuditItem> {
+    if (item.id) {
+      const result = await db.update(assetAuditItems).set(item).where(eq(assetAuditItems.id, item.id)).returning();
+      return result[0];
+    } else {
+      const result = await db.insert(assetAuditItems).values(item).returning();
+      return result[0];
+    }
+  }
+
+  // Asset Relationships
+  async getAssetRelationships(assetId: string): Promise<AssetRelationship[]> {
+    return await db.select().from(assetRelationships).where(
+      and(
+        sql`${assetRelationships.parentAssetId} = ${assetId} OR ${assetRelationships.childAssetId} = ${assetId}`
+      )
+    );
+  }
+
+  async createAssetRelationship(relationship: InsertAssetRelationship): Promise<AssetRelationship> {
+    const result = await db.insert(assetRelationships).values(relationship).returning();
+    return result[0];
+  }
+
+  async deleteAssetRelationship(id: string): Promise<boolean> {
+    const result = await db.delete(assetRelationships).where(eq(assetRelationships.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // Asset Requests
+  async getAssetRequests(): Promise<AssetRequest[]> {
+    return await db.select().from(assetRequests);
+  }
+
+  async getAssetRequest(id: string): Promise<AssetRequest | undefined> {
+    const result = await db.select().from(assetRequests).where(eq(assetRequests.id, id));
+    return result[0] || undefined;
+  }
+
+  async createAssetRequest(request: InsertAssetRequest): Promise<AssetRequest> {
+    const result = await db.insert(assetRequests).values(request).returning();
+    return result[0];
+  }
+
+  async updateAssetRequest(id: string, request: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined> {
+    const result = await db.update(assetRequests).set(request).where(eq(assetRequests.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  // 2FA
+  async getUserById(id: string): Promise<User | undefined> {
+    return await this.getUser(id);
+  }
+
+  async updateUser2FA(userId: string, secret: string | null, enabled: boolean): Promise<User | undefined> {
+    const result = await db.update(users).set({ 
+      twoFactorSecret: secret, 
+      twoFactorEnabled: enabled 
+    }).where(eq(users.id, userId)).returning();
+    return result[0] || undefined;
   }
 
   // Dropdown Options

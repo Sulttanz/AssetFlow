@@ -25,7 +25,13 @@ import {
   LogOut,
   ChevronDown,
   ChevronRight,
-  Upload
+  Upload,
+  Trash2,
+  CalendarRange,
+  ClipboardList,
+  FileSignature,
+  ClipboardCheck,
+  GitBranch
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -54,6 +60,9 @@ export default function Sidebar() {
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
         { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
+        { name: "Asset Disposal", href: "/asset-disposal", icon: Trash2, current: location === "/asset-disposal" },
+        { name: "Bookings", href: "/bookings", icon: CalendarRange, current: location === "/bookings" },
+        { name: "Asset Requests", href: "/asset-requests", icon: ClipboardList, current: location === "/asset-requests" },
       ]
     },
     {
@@ -69,12 +78,14 @@ export default function Sidebar() {
       items: [
         { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, current: location === "/purchase-orders" },
         { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
+        { name: "Contracts", href: "/contracts", icon: FileSignature, current: location === "/contracts" },
       ]
     },
     {
-      title: "Maintenance",
+      title: "Operations",
       items: [
         { name: "Maintenance", href: "/maintenance", icon: Wrench, current: location === "/maintenance" },
+        { name: "Asset Audits", href: "/asset-audits", icon: ClipboardCheck, current: location === "/asset-audits" },
       ]
     },
     {

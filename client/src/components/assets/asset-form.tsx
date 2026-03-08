@@ -10,11 +10,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown, Trash2, GitBranch } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
-import { insertAssetSchema, type Asset, type Location } from "@shared/schema";
+import { insertAssetSchema, type Asset, type Location, type AssetRelationship } from "@shared/schema";
 import { z } from "zod";
 import { convertToISODate } from "@/lib/date-utils";
 
@@ -147,6 +152,38 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
 
   const { data: assetConditions = [] } = useQuery({
     queryKey: ["/api/dropdowns/options/assetCondition"],
+  });
+
+  const { data: relationships = [], refetch: refetchRelationships } = useQuery<(AssetRelationship & { relatedAsset?: Asset })[]>({
+    queryKey: [`/api/assets/${asset?.id}/relationships`],
+    enabled: !!asset?.id,
+  });
+
+  const createRelationshipMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/asset-relationships", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      refetchRelationships();
+      toast({ title: "Success", description: "Relationship added" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add relationship", variant: "destructive" });
+    },
+  });
+
+  const deleteRelationshipMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/asset-relationships/${id}`);
+    },
+    onSuccess: () => {
+      refetchRelationships();
+      toast({ title: "Success", description: "Relationship deleted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete relationship", variant: "destructive" });
+    },
   });
 
   const form = useForm<FormData>({
@@ -413,13 +450,14 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="asset-form">
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="ownership">Ownership</TabsTrigger>
             <TabsTrigger value="compliance">Compliance</TabsTrigger>
             <TabsTrigger value="financial">Financial</TabsTrigger>
             <TabsTrigger value="lifecycle">Lifecycle</TabsTrigger>
+            {isEdit && <TabsTrigger value="relationships">Relationships</TabsTrigger>}
           </TabsList>
 
           {/* Basic Information Tab */}
@@ -1287,6 +1325,161 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Relationships Tab */}
+          {isEdit && (
+            <TabsContent value="relationships" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Asset Relationships</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex flex-col space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Related Asset</label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between"
+                            >
+                              {(form.watch('relatedAssetId' as any) as string) 
+                                ? assets.find((a) => a.id === form.getValues('relatedAssetId' as any))?.name 
+                                : "Select asset..."}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[300px] p-0">
+                            <Command>
+                              <CommandInput placeholder="Search assets..." />
+                              <CommandList>
+                                <CommandEmpty>No asset found.</CommandEmpty>
+                                <CommandGroup>
+                                  {assets
+                                    .filter(a => a.id !== asset?.id)
+                                    .map((a) => (
+                                    <CommandItem
+                                      key={a.id}
+                                      value={a.name}
+                                      onSelect={() => {
+                                        form.setValue('relatedAssetId' as any, a.id);
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          form.getValues('relatedAssetId' as any) === a.id ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      {a.name} ({a.assetTag})
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Relationship Type</label>
+                        <Select 
+                          onValueChange={(val) => form.setValue('relationshipType' as any, val)}
+                          value={form.watch('relationshipType' as any) as string || ""}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="depends-on">Depends On</SelectItem>
+                            <SelectItem value="connected-to">Connected To</SelectItem>
+                            <SelectItem value="part-of">Part Of</SelectItem>
+                            <SelectItem value="powers">Powers</SelectItem>
+                            <SelectItem value="hosts">Hosts</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button 
+                          type="button" 
+                          className="w-full"
+                          disabled={!form.watch('relatedAssetId' as any) || !form.watch('relationshipType' as any) || createRelationshipMutation.isPending}
+                          onClick={() => {
+                            createRelationshipMutation.mutate({
+                              parentAssetId: asset?.id,
+                              childAssetId: form.getValues('relatedAssetId' as any),
+                              relationshipType: form.getValues('relationshipType' as any),
+                              notes: ""
+                            });
+                            form.setValue('relatedAssetId' as any, "");
+                            form.setValue('relationshipType' as any, "");
+                          }}
+                        >
+                          Add Relationship
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-medium">Existing Relationships</h4>
+                      {relationships.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">No relationships defined for this asset.</p>
+                      ) : (
+                        <div className="border rounded-md overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="px-4 py-2 text-left font-medium">Target Asset</th>
+                                <th className="px-4 py-2 text-left font-medium">Type</th>
+                                <th className="px-4 py-2 text-right font-medium">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {relationships.map((rel) => {
+                                const isParent = rel.parentAssetId === asset?.id;
+                                const relatedAsset = isParent ? rel.childAssetId : rel.parentAssetId;
+                                const relatedAssetName = assets.find(a => a.id === relatedAsset)?.name || "Unknown Asset";
+                                
+                                return (
+                                  <tr key={rel.id} className="border-t">
+                                    <td className="px-4 py-2">
+                                      <div className="flex items-center space-x-2">
+                                        <GitBranch className="h-4 w-4 text-muted-foreground" />
+                                        <span>{relatedAssetName}</span>
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <Badge variant="outline">
+                                        {isParent ? rel.relationshipType : `inverse of ${rel.relationshipType}`}
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-2 text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-destructive"
+                                        onClick={() => deleteRelationshipMutation.mutate(rel.id)}
+                                        disabled={deleteRelationshipMutation.isPending}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         <div className="flex justify-end space-x-2">

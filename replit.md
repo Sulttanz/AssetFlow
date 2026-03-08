@@ -19,6 +19,15 @@ The application follows a modern web development architecture with a React-based
 - **Alerts & Notifications**: Bell icon in header fetches live alerts (GET /api/alerts) — warranty expiring ≤90 days, overdue maintenance, budgets >80% spent, software licenses with <10% seats remaining
 - **Asset Depreciation**: Straight-line and declining-balance depreciation fields on assets (depreciationMethod, usefulLifeYears, residualValue); live book-value estimate shown in asset form Financial tab
 - **Software License Tracking**: License key, total seats, and used seats tracked on software assets; seat-usage indicator in asset form
+- **Asset Disposal Workflow**: Formal retirement/disposal process at /asset-disposal — tracks disposal method, data destruction certification, proceeds, and approval
+- **Asset Booking / Reservation Calendar**: Book shared assets at /bookings with calendar view and list view, approval workflow, and status tracking
+- **Contract Management**: Dedicated contracts module at /contracts — linked to vendors/assets, contract types, value, expiry alerts within 30 days, and renewal terms
+- **Asset Audit Workflow**: Periodic physical verification at /asset-audits — create sessions, add assets, verify status (verified/missing/found-elsewhere), progress tracking
+- **Asset Request Portal**: Self-service portal at /asset-requests — employees submit requests, IT approves/rejects/fulfills by linking an available asset
+- **QR Code Generation**: QR code button on each asset row opens a modal with scannable QR, print, and PNG download options
+- **Asset-to-Asset Relationships**: "Relationships" tab in asset form (edit mode) — link assets with types: depends-on, connected-to, part-of, powers, hosts
+- **Dashboard Customization**: Gear button on dashboard opens widget visibility panel; preferences saved to localStorage
+- **Two-Factor Authentication (2FA)**: TOTP-based 2FA setup in Settings → Security; uses speakeasy backend + InputOTP frontend; QR code setup flow with verification step
 
 # User Preferences
 
