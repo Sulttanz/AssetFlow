@@ -25,7 +25,6 @@ import {
   LogOut,
   ChevronDown,
   ChevronRight,
-  UserCog,
   Upload
 } from "lucide-react";
 import {
@@ -60,7 +59,6 @@ export default function Sidebar() {
     {
       title: "Organization",
       items: [
-        { name: "Managers", href: "/managers", icon: UserCog, current: location === "/managers" },
         { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
         { name: "Departments", href: "/departments", icon: Building2, current: location === "/departments" },
         { name: "Vendors", href: "/vendors", icon: Building, current: location === "/vendors" },

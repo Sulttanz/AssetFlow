@@ -16,7 +16,6 @@ export const employees = pgTable("employees", {
   mobile: text("mobile"),
   startDate: date("start_date"),
   salary: decimal("salary", { precision: 10, scale: 2 }),
-  isManager: boolean("is_manager").default(false),
   managerId: varchar("manager_id"),
   departmentId: varchar("department_id"),
   locationId: varchar("location_id"),
