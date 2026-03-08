@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Building2, Edit2, Trash2, MapPin, Users, DollarSign, BarChart3 } from "lucide-react";
+import { Plus, Building2, Edit2, Trash2, MapPin, Users, DollarSign, BarChart3, ChevronsUpDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,9 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { insertDepartmentSchema, type DepartmentWithDetails, type Employee, type Location } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
@@ -170,7 +173,10 @@ export default function Departments() {
     form: any;
     onSubmit: (data: DepartmentFormData) => void;
     submitText: string;
-  }) => (
+  }) => {
+    const [managerOpen, setManagerOpen] = useState(false);
+
+    return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -187,31 +193,70 @@ export default function Departments() {
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="managerId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Manager</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-manager">
-                      <SelectValue placeholder="Select manager" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none">No Manager</SelectItem>
-                    {employees.map((employee) => (
-                      <SelectItem key={employee.id} value={employee.id}>
-                        {employee.firstName} {employee.lastName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              const selectedEmployee = employees.find(e => e.id === field.value);
+              return (
+                <FormItem>
+                  <FormLabel>Manager</FormLabel>
+                  <Popover open={managerOpen} onOpenChange={setManagerOpen}>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className={cn("w-full justify-between font-normal", !selectedEmployee && "text-muted-foreground")}
+                          data-testid="select-manager"
+                        >
+                          {selectedEmployee
+                            ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
+                            : "Select manager"}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-full p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search employees..." />
+                        <CommandList>
+                          <CommandEmpty>No employee found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="none"
+                              onSelect={() => {
+                                field.onChange("none");
+                                setManagerOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", field.value === "none" || !field.value ? "opacity-100" : "opacity-0")} />
+                              No Manager
+                            </CommandItem>
+                            {employees.map((employee) => (
+                              <CommandItem
+                                key={employee.id}
+                                value={`${employee.firstName} ${employee.lastName} ${employee.email}`}
+                                onSelect={() => {
+                                  field.onChange(employee.id);
+                                  setManagerOpen(false);
+                                }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", field.value === employee.id ? "opacity-100" : "opacity-0")} />
+                                {employee.firstName} {employee.lastName}
+                                {employee.position && <span className="ml-1 text-muted-foreground text-xs">— {employee.position}</span>}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
         </div>
 
@@ -279,6 +324,7 @@ export default function Departments() {
       </form>
     </Form>
   );
+  };
 
   if (isLoading) {
     return (
