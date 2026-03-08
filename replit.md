@@ -80,6 +80,8 @@ Each report page includes:
 - **Print functionality**: Print reports using react-to-print library
 - **Data visualization**: Interactive charts using recharts library (pie charts, bar charts)
 
+All 10 report pages use dedicated short-path API aliases (`/api/reports/summary`, `/api/reports/lifecycle`, etc.) that return data in the exact format each frontend page expects. These aliases coexist with the original long-named routes.
+
 The sidebar navigation includes a collapsible "Reports" menu in the Analytics section that expands to show all 10 report types.
 
 ## Backend Architecture

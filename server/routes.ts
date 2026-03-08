@@ -2639,40 +2639,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reports/purchase-orders", requireAuth, async (req, res) => {
     try {
       const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
-      
-      // POs by status
-      const byStatus = purchaseOrders.reduce((acc: any, po: any) => {
-        acc[po.status] = (acc[po.status] || 0) + 1;
-        return acc;
-      }, {});
-      
-      // POs by vendor
-      const byVendor = purchaseOrders.reduce((acc: any, po: any) => {
-        const vendorName = po.vendorName || 'Unknown';
-        acc[vendorName] = (acc[vendorName] || 0) + 1;
-        return acc;
-      }, {});
-      
-      // Total spending
-      const totalSpending = purchaseOrders.reduce((sum: number, po: any) => {
-        return sum + parseFloat(po.totalAmount || 0);
-      }, 0);
-      
-      // Monthly spending
-      const monthlySpending = purchaseOrders.reduce((acc: any, po: any) => {
-        const date = new Date(po.orderDate);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        acc[monthKey] = (acc[monthKey] || 0) + parseFloat(po.totalAmount || 0);
-        return acc;
-      }, {});
-      
+      const pos = purchaseOrders as any[];
+
+      const totalValue = pos.reduce((s: number, po: any) => s + parseFloat(po.totalAmount || 0), 0);
+      const pendingPOs = pos.filter((po: any) => po.status === "pending" || po.status === "submitted" || po.status === "approved").length;
+      const receivedPOs = pos.filter((po: any) => po.status === "received" || po.status === "delivered" || po.status === "completed").length;
+      const recentPOs = pos.slice(0, 50).map((po: any) => ({
+        id: po.id,
+        poNumber: po.poNumber,
+        vendorName: po.vendorName,
+        orderDate: po.orderDate,
+        totalAmount: parseFloat(po.totalAmount || 0),
+        status: po.status,
+      }));
+
       res.json({
-        totalPOs: purchaseOrders.length,
-        totalSpending,
-        byStatus,
-        byVendor,
-        monthlySpending,
-        purchaseOrders
+        totalPOs: pos.length,
+        totalValue,
+        pendingPOs,
+        receivedPOs,
+        recentPOs,
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate purchase orders report" });
@@ -2829,6 +2815,308 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to generate vendor analysis report" });
     }
   });
+
+  // ---- SHORT-PATH REPORT ALIASES (matched to frontend queryKeys) ----
+
+  app.get("/api/reports/summary", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const byType: Record<string, number> = {};
+      const byStatus: Record<string, number> = {};
+      assets.forEach((a: any) => {
+        byType[a.type || a.assetType || "Unknown"] = (byType[a.type || a.assetType || "Unknown"] || 0) + 1;
+        byStatus[a.status || "unknown"] = (byStatus[a.status || "unknown"] || 0) + 1;
+      });
+      res.json({
+        totalAssets: assets.length,
+        available: byStatus["available"] || byStatus["Available"] || 0,
+        assigned: byStatus["assigned"] || byStatus["Assigned"] || 0,
+        maintenance: byStatus["maintenance"] || byStatus["Maintenance"] || 0,
+        retired: byStatus["retired"] || byStatus["Retired"] || 0,
+        byType,
+        byStatus,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate summary report" });
+    }
+  });
+
+  app.get("/api/reports/lifecycle", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const today = new Date();
+      let totalAge = 0;
+      let countWithDate = 0;
+      const byAgeGroup: Record<string, number> = { "0-1 years": 0, "1-3 years": 0, "3-5 years": 0, "5+ years": 0, "Unknown": 0 };
+      const byWarrantyStatus: Record<string, number> = { Active: 0, "Expiring Soon": 0, Expired: 0, "No Warranty": 0 };
+      assets.forEach((a: any) => {
+        const purchaseDate = a.purchaseDate ? new Date(a.purchaseDate) : null;
+        if (purchaseDate) {
+          const ageYears = (today.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
+          totalAge += ageYears;
+          countWithDate++;
+          if (ageYears < 1) byAgeGroup["0-1 years"]++;
+          else if (ageYears < 3) byAgeGroup["1-3 years"]++;
+          else if (ageYears < 5) byAgeGroup["3-5 years"]++;
+          else byAgeGroup["5+ years"]++;
+        } else {
+          byAgeGroup["Unknown"]++;
+        }
+        const warrantyEnd = a.warrantyExpiry ? new Date(a.warrantyExpiry) : (a.warrantyEndDate ? new Date(a.warrantyEndDate) : null);
+        if (!warrantyEnd) {
+          byWarrantyStatus["No Warranty"]++;
+        } else if (warrantyEnd < today) {
+          byWarrantyStatus["Expired"]++;
+        } else {
+          const daysLeft = (warrantyEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
+          if (daysLeft <= 90) byWarrantyStatus["Expiring Soon"]++;
+          else byWarrantyStatus["Active"]++;
+        }
+      });
+      res.json({
+        averageAge: countWithDate > 0 ? totalAge / countWithDate : 0,
+        byAgeGroup,
+        byWarrantyStatus,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate lifecycle report" });
+    }
+  });
+
+  app.get("/api/reports/hardware", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const result = assets.map((a: any) => ({
+        id: a.id,
+        assetTag: a.assetTag || a.id?.slice(0, 8).toUpperCase(),
+        assetType: a.type || a.assetType || "Hardware",
+        manufacturer: a.manufacturer || null,
+        model: a.model || null,
+        serialNumber: a.serialNumber || null,
+        processor: a.processor || null,
+        ram: a.ram || null,
+        storage: a.storageCapacity || a.storage || null,
+        status: a.status || "available",
+        purchaseDate: a.purchaseDate || null,
+        purchaseCost: a.purchasePrice || a.purchaseCost || null,
+        os: a.operatingSystem || null,
+        name: a.name || null,
+      }));
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate hardware report" });
+    }
+  });
+
+  app.get("/api/reports/maintenance", requireAuth, async (req, res) => {
+    try {
+      const schedules = await storage.getMaintenanceSchedules();
+      const assets = await storage.getAssets();
+      const today = new Date();
+      const assetMap = new Map(assets.map((a: any) => [a.id, a]));
+      const enrich = (s: any) => {
+        const asset = assetMap.get(s.assetId) as any;
+        const scheduledDate = s.nextDue || s.scheduledDate || s.nextMaintenanceDate;
+        const isOverdue = scheduledDate && new Date(scheduledDate) < today;
+        return {
+          id: s.id,
+          assetTag: asset?.assetTag || asset?.name || s.assetId,
+          assetName: asset?.name || "Unknown Asset",
+          maintenanceType: s.maintenanceType || "preventive",
+          scheduledDate,
+          description: s.description || null,
+          status: isOverdue ? "overdue" : "scheduled",
+          priority: s.priority || "medium",
+          frequency: s.frequency || null,
+          completedDate: null,
+        };
+      };
+      const allSchedules = schedules.map(enrich);
+      const upcomingMaintenance = allSchedules.filter((s: any) => {
+        if (!s.scheduledDate) return false;
+        const d = new Date(s.scheduledDate);
+        return d >= today;
+      });
+      const overdueMaintenance = allSchedules.filter((s: any) => {
+        if (!s.scheduledDate) return false;
+        const d = new Date(s.scheduledDate);
+        return d < today;
+      });
+      const completedMaintenance: any[] = [];
+      res.json({
+        totalScheduled: allSchedules.length,
+        upcomingMaintenance,
+        overdueMaintenance,
+        completedMaintenance,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate maintenance report" });
+    }
+  });
+
+  app.get("/api/reports/budget", requireAuth, async (req, res) => {
+    try {
+      const budgets = await storage.getBudgets();
+      const departments = await storage.getDepartments();
+      const deptMap = new Map(departments.map((d: any) => [d.id, d]));
+      const budgetDetails = budgets.map((b: any) => {
+        const dept = deptMap.get(b.departmentId) as any;
+        const budgetAmount = parseFloat(b.budgetAmount || b.totalAmount || 0);
+        const spent = parseFloat(b.spentAmount || b.spent || 0);
+        const remaining = budgetAmount - spent;
+        const utilization = budgetAmount > 0 ? (spent / budgetAmount) * 100 : 0;
+        return {
+          id: b.id,
+          departmentName: dept?.name || "Unknown",
+          budgetAmount,
+          spent,
+          remaining,
+          utilization: Math.round(utilization * 10) / 10,
+          fiscalYear: b.fiscalYear,
+          status: b.status,
+        };
+      });
+      const totalBudget = budgetDetails.reduce((s: number, b: any) => s + b.budgetAmount, 0);
+      const totalSpent = budgetDetails.reduce((s: number, b: any) => s + b.spent, 0);
+      const averageUtilization = budgetDetails.length > 0 ? budgetDetails.reduce((s: number, b: any) => s + b.utilization, 0) / budgetDetails.length : 0;
+      res.json({
+        totalBudget,
+        totalSpent,
+        totalRemaining: totalBudget - totalSpent,
+        averageUtilization: Math.round(averageUtilization * 10) / 10,
+        budgetDetails,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate budget report" });
+    }
+  });
+
+  app.get("/api/reports/department", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const assignments = await storage.getAssignmentsWithDetails();
+      const currentAssignments = (assignments as any[]).filter((a: any) => !a.returnedDate);
+      const assetAssignmentMap = new Map(currentAssignments.map((a: any) => [a.assetId, a]));
+      const assetUtilization = assets.map((a: any) => {
+        const currentAssignment = assetAssignmentMap.get(a.id) as any;
+        return {
+          id: a.id,
+          assetTag: a.assetTag || a.id?.slice(0, 8).toUpperCase(),
+          name: a.name || "Unknown",
+          type: a.type || a.assetType || "Hardware",
+          serialNumber: a.serialNumber || "N/A",
+          model: a.model || "N/A",
+          status: a.status || "available",
+          assignedTo: currentAssignment?.employeeName || null,
+          assignedDate: currentAssignment?.assignedDate || null,
+          departmentId: a.departmentId || null,
+          locationId: a.locationId || null,
+        };
+      });
+      res.json({ assetUtilization, totalAssets: assets.length });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate department report" });
+    }
+  });
+
+  app.get("/api/reports/warranties", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const today = new Date();
+      let active = 0, expiring = 0, expired = 0;
+      const warrantyAssets = assets.map((a: any) => {
+        const warrantyDate = a.warrantyExpiry || a.warrantyEndDate;
+        let warrantyStatus = "No Warranty";
+        let daysUntilExpiry = null;
+        if (warrantyDate) {
+          const end = new Date(warrantyDate);
+          daysUntilExpiry = Math.floor((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (end < today) { warrantyStatus = "Expired"; expired++; }
+          else if (daysUntilExpiry <= 90) { warrantyStatus = "Expiring Soon"; expiring++; }
+          else { warrantyStatus = "Active"; active++; }
+        }
+        return {
+          id: a.id,
+          assetTag: a.assetTag || a.id?.slice(0, 8).toUpperCase(),
+          assetType: a.type || a.assetType || "Hardware",
+          name: a.name,
+          warrantyDate,
+          daysUntilExpiry,
+          warrantyStatus,
+        };
+      }).filter((a: any) => a.warrantyDate);
+      res.json({
+        totalAssets: assets.length,
+        active,
+        expiring,
+        expired,
+        assets: warrantyAssets,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate warranties report" });
+    }
+  });
+
+  app.get("/api/reports/vendors", requireAuth, async (req, res) => {
+    try {
+      const vendorsList = await storage.getVendors();
+      const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
+      let totalPOs = 0;
+      let totalSpending = 0;
+      const vendorDetails = vendorsList.map((v: any) => {
+        const vPOs = (purchaseOrders as any[]).filter((po: any) => po.vendorId === v.id || po.vendorName === v.name);
+        const totalValue = vPOs.reduce((s: number, po: any) => s + parseFloat(po.totalAmount || 0), 0);
+        totalPOs += vPOs.length;
+        totalSpending += totalValue;
+        return {
+          id: v.id,
+          vendorName: v.name || v.vendorName,
+          totalPOs: vPOs.length,
+          totalValue,
+          avgOrderValue: vPOs.length > 0 ? totalValue / vPOs.length : 0,
+        };
+      });
+      res.json({
+        totalVendors: vendorsList.length,
+        totalPOs,
+        totalSpending,
+        avgOrderValue: totalPOs > 0 ? totalSpending / totalPOs : 0,
+        vendorDetails,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate vendor report" });
+    }
+  });
+
+  // Override purchase-orders report with correct field names for frontend
+  app.get("/api/reports/purchase-orders-v2", requireAuth, async (req, res) => {
+    try {
+      const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
+      const pos = purchaseOrders as any[];
+      const totalValue = pos.reduce((s: number, po: any) => s + parseFloat(po.totalAmount || 0), 0);
+      const pendingPOs = pos.filter((po: any) => po.status === "pending" || po.status === "approved").length;
+      const receivedPOs = pos.filter((po: any) => po.status === "received" || po.status === "delivered").length;
+      const recentPOs = pos.slice(0, 20).map((po: any) => ({
+        id: po.id,
+        poNumber: po.poNumber,
+        vendorName: po.vendorName,
+        orderDate: po.orderDate,
+        totalAmount: parseFloat(po.totalAmount || 0),
+        status: po.status,
+      }));
+      res.json({
+        totalPOs: pos.length,
+        totalValue,
+        pendingPOs,
+        receivedPOs,
+        recentPOs,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate PO report" });
+    }
+  });
+
+  // ---- END SHORT-PATH REPORT ALIASES ----
 
   // Audit Logs API
   app.get("/api/audit-logs", requireAuth, async (req, res) => {
