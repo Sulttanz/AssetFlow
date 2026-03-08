@@ -9,13 +9,16 @@ The application follows a modern web development architecture with a React-based
 ## Core Features
 - **Asset Management**: Complete lifecycle tracking for IT equipment
 - **Employee Management**: Staff records with department, location, phone, and mobile number tracking (includes Employee ID)
-- **Budget Management**: Financial planning with spending progress and department allocation
+- **Budget Management**: Financial planning with spending progress and department allocation; auto-synced with Purchase Orders
 - **Maintenance Management**: Preventive maintenance scheduling and maintenance record tracking
-- **Purchase Orders**: Procurement workflow with vendor and approval management
+- **Purchase Orders**: Procurement workflow with vendor and approval management; "Create Assets from PO" auto-creates asset records from delivered POs
 - **Assignment Tracking**: Asset-to-employee relationships with temporal data
 - **Dashboard Analytics**: Real-time statistics and insights across all modules
 - **Reports Module**: 10 dedicated report pages with filters, Excel/PDF export, and print functionality
 - **Data Import**: Excel file upload feature for bulk importing assets, employees, and assignments
+- **Alerts & Notifications**: Bell icon in header fetches live alerts (GET /api/alerts) — warranty expiring ≤90 days, overdue maintenance, budgets >80% spent, software licenses with <10% seats remaining
+- **Asset Depreciation**: Straight-line and declining-balance depreciation fields on assets (depreciationMethod, usefulLifeYears, residualValue); live book-value estimate shown in asset form Financial tab
+- **Software License Tracking**: License key, total seats, and used seats tracked on software assets; seat-usage indicator in asset form
 
 # User Preferences
 

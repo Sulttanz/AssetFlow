@@ -995,6 +995,136 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Alerts endpoint
+  app.get("/api/alerts", requireAuth, async (req, res) => {
+    try {
+      const today = new Date();
+      const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
+      const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
+
+      const [assets, maintenanceSchedules, budgets] = await Promise.all([
+        storage.getAssets(),
+        storage.getMaintenanceSchedules(),
+        storage.getBudgets(),
+      ]);
+
+      const alerts: any[] = [];
+
+      // Warranty expiring alerts
+      for (const asset of assets) {
+        const expiry = asset.warrantyExpiry;
+        if (!expiry || asset.status === 'retired') continue;
+        const expiryDate = new Date(expiry);
+        if (expiryDate <= in90Days && expiryDate >= today) {
+          const daysLeft = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          alerts.push({
+            type: 'warranty',
+            severity: daysLeft <= 30 ? 'high' : 'medium',
+            title: `Warranty Expiring: ${asset.name}`,
+            message: `Warranty expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} (${expiry})`,
+            assetId: asset.id,
+            link: '/assets',
+          });
+        } else if (expiryDate < today) {
+          alerts.push({
+            type: 'warranty',
+            severity: 'high',
+            title: `Warranty Expired: ${asset.name}`,
+            message: `Warranty expired on ${expiry}`,
+            assetId: asset.id,
+            link: '/assets',
+          });
+        }
+      }
+
+      // Overdue maintenance alerts
+      for (const schedule of maintenanceSchedules) {
+        if (schedule.isActive === 'false') continue;
+        const nextDue = new Date(schedule.nextDue);
+        if (nextDue < today) {
+          const daysOverdue = Math.ceil((today.getTime() - nextDue.getTime()) / (1000 * 60 * 60 * 24));
+          alerts.push({
+            type: 'maintenance',
+            severity: daysOverdue > 7 ? 'high' : 'medium',
+            title: `Maintenance Overdue`,
+            message: `${schedule.maintenanceType} maintenance overdue by ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''}`,
+            scheduleId: schedule.id,
+            link: '/maintenance',
+          });
+        } else if (nextDue <= in30Days) {
+          const daysLeft = Math.ceil((nextDue.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          alerts.push({
+            type: 'maintenance',
+            severity: 'low',
+            title: `Maintenance Due Soon`,
+            message: `${schedule.maintenanceType} maintenance due in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
+            scheduleId: schedule.id,
+            link: '/maintenance',
+          });
+        }
+      }
+
+      // Budget over 80% alerts
+      for (const budget of budgets) {
+        const spent = parseFloat(budget.spentAmount || '0');
+        const total = parseFloat(budget.budgetAmount || '0');
+        if (total > 0) {
+          const pct = (spent / total) * 100;
+          if (pct >= 100) {
+            alerts.push({
+              type: 'budget',
+              severity: 'high',
+              title: `Budget Exceeded: ${budget.name}`,
+              message: `Budget is ${pct.toFixed(0)}% spent ($${spent.toLocaleString()} of $${total.toLocaleString()})`,
+              budgetId: budget.id,
+              link: '/budgets',
+            });
+          } else if (pct >= 80) {
+            alerts.push({
+              type: 'budget',
+              severity: 'medium',
+              title: `Budget Alert: ${budget.name}`,
+              message: `Budget is ${pct.toFixed(0)}% spent ($${spent.toLocaleString()} of $${total.toLocaleString()})`,
+              budgetId: budget.id,
+              link: '/budgets',
+            });
+          }
+        }
+      }
+
+      // Software license seat alerts
+      for (const asset of assets) {
+        if (asset.type !== 'software') continue;
+        const total = asset.licenseQuantity || 0;
+        const used = asset.usedSeats || 0;
+        if (total > 0 && used >= total) {
+          alerts.push({
+            type: 'license',
+            severity: 'high',
+            title: `License Seats Full: ${asset.name}`,
+            message: `All ${total} license seats are in use`,
+            assetId: asset.id,
+            link: '/assets',
+          });
+        } else if (total > 0 && used >= total * 0.9) {
+          alerts.push({
+            type: 'license',
+            severity: 'medium',
+            title: `License Seats Low: ${asset.name}`,
+            message: `${used} of ${total} license seats in use (${Math.ceil((used/total)*100)}%)`,
+            assetId: asset.id,
+            link: '/assets',
+          });
+        }
+      }
+
+      res.json(alerts);
+    } catch (error) {
+      console.error('Alerts error:', error);
+      res.status(500).json({ message: "Failed to fetch alerts" });
+    }
+  });
+
   // Locations routes
   app.get("/api/locations", requireAuth, async (req, res) => {
     try {
@@ -1258,7 +1388,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, null, { poNumber: purchaseOrder.poNumber, totalAmount: purchaseOrder.totalAmount, status: purchaseOrder.status }, req);
-      
+
+      // Sync budget spent amount for the linked department
+      if (purchaseOrder.departmentId) {
+        const currentYear = new Date().getFullYear();
+        const deptBudgets = await storage.getBudgetsByDepartment(purchaseOrder.departmentId);
+        const budget = deptBudgets.find(b => b.fiscalYear === currentYear);
+        if (budget) {
+          const allPOs = await storage.getPurchaseOrdersWithDetails();
+          const deptPOTotal = allPOs
+            .filter(p => p.departmentId === purchaseOrder.departmentId && p.status !== 'cancelled')
+            .reduce((sum, p) => sum + parseFloat(p.totalAmount || '0'), 0);
+          await storage.updateBudget(budget.id, { spentAmount: deptPOTotal.toFixed(2) });
+        }
+      }
+
       res.status(201).json(purchaseOrder);
     } catch (error) {
       console.error("Purchase order creation error:", error);
@@ -1307,7 +1451,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (oldPO) {
         await logAudit(req.user?.id, 'UPDATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, oldPO, purchaseOrder, req);
       }
-      
+
+      // Sync budget spent amount for affected departments
+      const affectedDepts = new Set([purchaseOrder.departmentId, oldPO?.departmentId].filter(Boolean));
+      for (const deptId of affectedDepts) {
+        if (!deptId) continue;
+        const currentYear = new Date().getFullYear();
+        const deptBudgets = await storage.getBudgetsByDepartment(deptId);
+        const budget = deptBudgets.find(b => b.fiscalYear === currentYear);
+        if (budget) {
+          const allPOs = await storage.getPurchaseOrdersWithDetails();
+          const deptPOTotal = allPOs
+            .filter(p => p.departmentId === deptId && p.status !== 'cancelled')
+            .reduce((sum, p) => sum + parseFloat(p.totalAmount || '0'), 0);
+          await storage.updateBudget(budget.id, { spentAmount: deptPOTotal.toFixed(2) });
+        }
+      }
+
       res.json(purchaseOrder);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1342,6 +1502,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ message: "Failed to delete purchase order" });
+    }
+  });
+
+  // PO → Asset auto-creation
+  app.post("/api/purchase-orders/:id/create-assets", requireAuth, requirePermission('purchase_order_update'), async (req, res) => {
+    try {
+      const po = await storage.getPurchaseOrder(req.params.id);
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      if (po.status !== 'delivered') return res.status(400).json({ message: "Purchase order must be in 'delivered' status to create assets" });
+
+      const items = await storage.getPurchaseOrderItems(req.params.id);
+      if (!items.length) return res.status(400).json({ message: "No items found in purchase order" });
+
+      // Look up vendor name if vendorId is present
+      let vendorName = po.vendor || '';
+      if (po.vendorId) {
+        const vendors = await storage.getVendors();
+        const vendor = vendors.find(v => v.id === po.vendorId);
+        if (vendor) vendorName = vendor.name;
+      }
+
+      const createdAssets: any[] = [];
+      for (const item of items) {
+        const qty = item.quantity || 1;
+        for (let i = 0; i < qty; i++) {
+          const assetName = qty > 1 ? `${item.description} #${i + 1}` : item.description;
+          const asset = await storage.createAsset({
+            name: assetName,
+            type: 'other',
+            status: 'available',
+            vendor: vendorName,
+            purchasePrice: item.unitPrice,
+            purchaseDate: po.orderDate,
+            purchaseOrderNumber: po.poNumber,
+            departmentId: po.departmentId || undefined,
+          } as any);
+          createdAssets.push(asset);
+        }
+      }
+
+      await logAudit(req.user?.id, 'CREATE', 'assets', po.id, `Assets from PO #${po.poNumber}`, null, { count: createdAssets.length }, req);
+      res.json({ created: createdAssets.length, assets: createdAssets });
+    } catch (error) {
+      console.error('Create assets from PO error:', error);
+      res.status(500).json({ message: "Failed to create assets from purchase order" });
     }
   });
 

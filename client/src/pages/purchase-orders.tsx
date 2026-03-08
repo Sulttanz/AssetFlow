@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ShoppingCart, Edit2, Trash2, Calendar, DollarSign, Package, Building2, User, FileText } from "lucide-react";
+import { Plus, ShoppingCart, Edit2, Trash2, Calendar, DollarSign, Package, Building2, User, FileText, Boxes } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -136,6 +136,18 @@ export default function PurchaseOrders() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete purchase order", variant: "destructive" });
+    },
+  });
+
+  const createAssetsMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/purchase-orders/${id}/create-assets`),
+    onSuccess: async (data: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      const count = data?.created ?? "some";
+      toast({ title: "Assets Created", description: `${count} asset(s) created from this purchase order.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create assets from purchase order", variant: "destructive" });
     },
   });
 
@@ -656,6 +668,26 @@ export default function PurchaseOrders() {
                             </p>
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {order.status === "delivered" && (
+                      <div className="mt-4 pt-4 border-t">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full gap-2"
+                          disabled={createAssetsMutation.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Create ${order.items?.length ?? 0} asset(s) from this purchase order?`)) {
+                              createAssetsMutation.mutate(order.id);
+                            }
+                          }}
+                          data-testid={`button-create-assets-${order.id}`}
+                        >
+                          <Boxes className="h-4 w-4" />
+                          {createAssetsMutation.isPending ? "Creating..." : "Create Assets from PO"}
+                        </Button>
                       </div>
                     )}
                   </div>

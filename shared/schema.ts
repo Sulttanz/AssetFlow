@@ -196,6 +196,15 @@ export const assets = pgTable("assets", {
   assetCondition: text("asset_condition"), // Physical state assessment
   maintenanceHistory: text("maintenance_history"), // Physical maintenance records
   
+  // Depreciation
+  depreciationMethod: text("depreciation_method").default("straight-line"), // straight-line, declining-balance, none
+  usefulLifeYears: integer("useful_life_years"),
+  residualValue: decimal("residual_value", { precision: 10, scale: 2 }),
+
+  // Software License Tracking
+  licenseKey: text("license_key"),
+  usedSeats: integer("used_seats").default(0),
+
   // Legacy fields for backward compatibility
   status: text("status").notNull().default("available"), // available, assigned, maintenance, retired
   nextMaintenanceDate: date("next_maintenance_date"),

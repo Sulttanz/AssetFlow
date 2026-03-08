@@ -64,6 +64,15 @@ const formSchema = insertAssetSchema.extend({
   
   // Environmental Security
   physicalSecurityLevel: z.string().optional(),
+
+  // Depreciation
+  depreciationMethod: z.string().optional(),
+  usefulLifeYears: z.string().optional(),
+  residualValue: z.string().optional(),
+
+  // Software License Tracking
+  licenseKey: z.string().optional(),
+  usedSeats: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -191,6 +200,15 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       
       // Environmental Security
       physicalSecurityLevel: (asset as any)?.physicalSecurityLevel ?? "",
+
+      // Depreciation
+      depreciationMethod: (asset as any)?.depreciationMethod ?? "straight-line",
+      usefulLifeYears: (asset as any)?.usefulLifeYears?.toString() ?? "",
+      residualValue: (asset as any)?.residualValue ?? "",
+
+      // Software License Tracking
+      licenseKey: (asset as any)?.licenseKey ?? "",
+      usedSeats: (asset as any)?.usedSeats?.toString() ?? "",
     },
   });
 
@@ -363,6 +381,13 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       currentValue: processNumericField(data.currentValue),
       depreciationRate: processNumericField(data.depreciationRate),
       licenseQuantity: data.licenseQuantity ? Number(data.licenseQuantity) : undefined,
+      // Depreciation
+      depreciationMethod: data.depreciationMethod || undefined,
+      usefulLifeYears: data.usefulLifeYears ? Number(data.usefulLifeYears) : undefined,
+      residualValue: processNumericField(data.residualValue),
+      // License tracking
+      licenseKey: data.licenseKey || undefined,
+      usedSeats: data.usedSeats ? Number(data.usedSeats) : undefined,
       annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
       yearToDateSpend: processNumericField(data.yearToDateSpend),
       remainingBudget: processNumericField(data.remainingBudget),
@@ -1061,6 +1086,153 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                 </div>
               </CardContent>
             </Card>
+
+            {/* Depreciation Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Depreciation</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="depreciationMethod"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Method</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "straight-line"}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select method" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="straight-line">Straight-Line</SelectItem>
+                            <SelectItem value="declining-balance">Declining Balance</SelectItem>
+                            <SelectItem value="none">None / Not Applicable</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="usefulLifeYears"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Useful Life (Years)</FormLabel>
+                        <FormControl>
+                          <Input type="number" min="1" placeholder="e.g. 5" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="residualValue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Residual Value ($)</FormLabel>
+                        <FormControl>
+                          <Input type="number" step="0.01" placeholder="e.g. 100.00" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                {(() => {
+                  const price = parseFloat(form.watch('purchasePrice') || '0');
+                  const residual = parseFloat(form.watch('residualValue') || '0');
+                  const life = parseInt(form.watch('usefulLifeYears') || '0');
+                  const method = form.watch('depreciationMethod');
+                  const purchaseDate = form.watch('purchaseDate');
+                  if (!price || !life || method === 'none') return null;
+                  const yearsOwned = purchaseDate ? Math.max(0, (new Date().getTime() - new Date(purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365)) : 0;
+                  let bookValue = price;
+                  if (method === 'straight-line') {
+                    bookValue = Math.max(residual, price - ((price - residual) / life) * yearsOwned);
+                  } else if (method === 'declining-balance') {
+                    const rate = 2 / life;
+                    bookValue = Math.max(residual, price * Math.pow(1 - rate, yearsOwned));
+                  }
+                  return (
+                    <div className="rounded-md bg-muted p-3 text-sm">
+                      <span className="text-muted-foreground">Estimated Current Book Value: </span>
+                      <span className="font-semibold">${bookValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      {yearsOwned > 0 && <span className="text-muted-foreground ml-2">({yearsOwned.toFixed(1)} years owned)</span>}
+                    </div>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+
+            {/* Software License Card - only shown for software type */}
+            {form.watch('type') === 'software' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Software License Tracking</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="licenseKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>License Key</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter license key" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="licenseQuantity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Total Seats</FormLabel>
+                          <FormControl>
+                            <Input type="number" min="1" placeholder="Total licenses" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="usedSeats"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Used Seats</FormLabel>
+                          <FormControl>
+                            <Input type="number" min="0" placeholder="Seats in use" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  {(() => {
+                    const total = parseInt(form.watch('licenseQuantity') as any || '0');
+                    const used = parseInt(form.watch('usedSeats') || '0');
+                    if (!total) return null;
+                    const available = total - used;
+                    const pct = Math.round((used / total) * 100);
+                    return (
+                      <div className={`rounded-md p-3 text-sm ${pct >= 90 ? 'bg-destructive/10' : pct >= 70 ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'bg-muted'}`}>
+                        <span className="text-muted-foreground">Seat usage: </span>
+                        <span className="font-semibold">{used} / {total} ({pct}% used, {available} available)</span>
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Lifecycle Management Tab */}
