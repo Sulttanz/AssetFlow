@@ -142,9 +142,15 @@ export default function Assets() {
   };
 
   const filteredAssets = assets?.filter(asset => {
-    const matchesSearch = asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         asset.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         asset.type.toLowerCase().includes(searchQuery.toLowerCase());
+    const tag = ((asset as any).assetTag || "").toLowerCase();
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = !q ||
+                         asset.name.toLowerCase().includes(q) ||
+                         tag.includes(q) ||
+                         asset.id.toLowerCase().includes(q) ||
+                         asset.type.toLowerCase().includes(q) ||
+                         ((asset as any).serialNumber || "").toLowerCase().includes(q) ||
+                         ((asset as any).model || "").toLowerCase().includes(q);
     const matchesStatus = statusFilter === "all" || asset.status === statusFilter;
     const matchesType = typeFilter === "all" || asset.type === typeFilter;
     const matchesClassification = classificationFilter === "all" || (asset as any).informationClassification === classificationFilter;
@@ -209,7 +215,7 @@ export default function Assets() {
         description="Manage hardware and software assets"
         onAddClick={handleAddAsset}
         addButtonText="Add Asset"
-        searchPlaceholder="Search assets..."
+        searchPlaceholder="Search by name, asset tag, model, serial..."
         onSearch={setSearchQuery}
       />
 
@@ -284,7 +290,7 @@ export default function Assets() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Asset ID</TableHead>
+                      <TableHead>Asset Tag</TableHead>
                       <TableHead>Asset Name</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
@@ -299,7 +305,9 @@ export default function Assets() {
                     {paginatedAssets?.map((asset) => (
                       <TableRow key={asset.id} data-testid={`asset-row-${asset.id}`}>
                         <TableCell>
-                          <code className="bg-muted px-2 py-1 rounded text-xs">{asset.id.slice(0, 8)}</code>
+                          <code className="bg-muted px-2 py-1 rounded text-xs font-mono">
+                            {(asset as any).assetTag || asset.id.slice(0, 8).toUpperCase()}
+                          </code>
                         </TableCell>
                         <TableCell className="font-medium">{asset.name}</TableCell>
                         <TableCell>
