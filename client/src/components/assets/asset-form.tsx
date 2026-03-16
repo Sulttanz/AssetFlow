@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -13,12 +13,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Trash2, GitBranch } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, GitBranch, Lock, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { insertAssetSchema, type Asset, type Location, type AssetRelationship } from "@shared/schema";
 import { z } from "zod";
 import { convertToISODate } from "@/lib/date-utils";
@@ -91,6 +92,10 @@ interface AssetFormProps {
 export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps) {
   const { toast } = useToast();
   const isEdit = !!asset;
+  const [statusOverridden, setStatusOverridden] = useState(false);
+  const [overrideDialogOpen, setOverrideDialogOpen] = useState(false);
+  const [overridePassword, setOverridePassword] = useState("");
+  const [overrideError, setOverrideError] = useState("");
 
   const { data: setting } = useQuery<{ value: string }>({
     queryKey: ["/api/settings/asset_id_generation_mode"],
@@ -157,6 +162,35 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   const { data: relationships = [], refetch: refetchRelationships } = useQuery<(AssetRelationship & { relatedAsset?: Asset })[]>({
     queryKey: [`/api/assets/${asset?.id}/relationships`],
     enabled: !!asset?.id,
+  });
+
+  const { data: disposalRecords = [] } = useQuery<any[]>({
+    queryKey: ["/api/asset-disposal"],
+    enabled: isEdit,
+  });
+
+  const hasDisposalRecord = isEdit && disposalRecords.some((r: any) => r.assetId === asset?.id);
+  const statusLocked = hasDisposalRecord && !statusOverridden;
+
+  const verifyPasswordMutation = useMutation({
+    mutationFn: async (password: string) => {
+      const res = await apiRequest("POST", "/api/auth/verify-password", { password });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Incorrect password");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setStatusOverridden(true);
+      setOverrideDialogOpen(false);
+      setOverridePassword("");
+      setOverrideError("");
+      toast({ title: "Override granted", description: "You can now change the asset status." });
+    },
+    onError: (error: Error) => {
+      setOverrideError(error.message);
+    },
   });
 
   const createRelationshipMutation = useMutation({
@@ -566,29 +600,51 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-status">
-                              <SelectValue placeholder="Select status" />
+                        {statusLocked ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                              <ShieldAlert className="h-4 w-4 shrink-0" />
+                              <span className="flex-1">Status is locked — this asset has a disposal record.</span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-300 h-7 px-2 text-xs"
+                                onClick={() => { setOverrideDialogOpen(true); setOverrideError(""); setOverridePassword(""); }}
+                              >
+                                <Lock className="h-3 w-3 mr-1" />
+                                Override
+                              </Button>
+                            </div>
+                            <SelectTrigger disabled data-testid="select-status" className="opacity-60 cursor-not-allowed">
+                              <SelectValue placeholder={field.value || "Locked"} />
                             </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {assetStatuses.length > 0 ? (
-                              assetStatuses.map((status: any) => (
-                                <SelectItem key={status.id} value={status.value}>
-                                  {status.label}
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <>
-                                <SelectItem value="available">Available</SelectItem>
-                                <SelectItem value="assigned">Assigned</SelectItem>
-                                <SelectItem value="maintenance">Maintenance</SelectItem>
-                                <SelectItem value="retired">Retired</SelectItem>
-                              </>
-                            )}
-                          </SelectContent>
-                        </Select>
+                          </div>
+                        ) : (
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-status">
+                                <SelectValue placeholder="Select status" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {assetStatuses.length > 0 ? (
+                                assetStatuses.map((status: any) => (
+                                  <SelectItem key={status.id} value={status.value}>
+                                    {status.label}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                <>
+                                  <SelectItem value="available">Available</SelectItem>
+                                  <SelectItem value="assigned">Assigned</SelectItem>
+                                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                                  <SelectItem value="retired">Retired</SelectItem>
+                                </>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1491,6 +1547,45 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
           </Button>
         </div>
       </form>
+
+      <Dialog open={overrideDialogOpen} onOpenChange={(open) => { setOverrideDialogOpen(open); if (!open) { setOverridePassword(""); setOverrideError(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-amber-500" />
+              Admin Override Required
+            </DialogTitle>
+            <DialogDescription>
+              This asset has a completed disposal record. Enter your password to unlock the status field.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Input
+              type="password"
+              placeholder="Enter your password"
+              value={overridePassword}
+              onChange={(e) => { setOverridePassword(e.target.value); setOverrideError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") verifyPasswordMutation.mutate(overridePassword); }}
+              autoFocus
+            />
+            {overrideError && (
+              <p className="text-sm text-destructive">{overrideError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOverrideDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!overridePassword || verifyPasswordMutation.isPending}
+              onClick={() => verifyPasswordMutation.mutate(overridePassword)}
+            >
+              {verifyPasswordMutation.isPending ? "Verifying..." : "Confirm Override"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Form>
   );
 }

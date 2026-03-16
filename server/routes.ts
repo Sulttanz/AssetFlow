@@ -625,6 +625,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Verify current user's password (used for admin override flows)
+  app.post("/api/auth/verify-password", requireAuth, async (req, res) => {
+    try {
+      const { password } = req.body;
+      if (!password) return res.status(400).json({ message: "Password is required" });
+      const { comparePasswords } = await import("./auth");
+      const user = await storage.getUser((req.user as any).id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const valid = await comparePasswords(password, user.password);
+      if (!valid) return res.status(401).json({ message: "Incorrect password" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify password" });
+    }
+  });
+
   // 2FA Auth Routes
   app.post("/api/auth/2fa/setup", requireAuth, async (req, res) => {
     try {
