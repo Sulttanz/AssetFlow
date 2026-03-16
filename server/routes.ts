@@ -2443,21 +2443,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const assets = await storage.getAssets();
       
-      const hardwareAssets = assets.filter((asset: any) => 
-        ['laptop', 'desktop', 'server', 'monitor', 'phone', 'tablet'].includes(asset.assetType)
-      ).map((asset: any) => ({
+      const softwareTypes = ['software', 'service', 'saas', 'application'];
+      const hardwareAssets = assets.filter((asset: any) => {
+        const t = (asset.type || asset.assetType || "").toLowerCase();
+        return !softwareTypes.includes(t);
+      }).map((asset: any) => ({
         id: asset.id,
         assetTag: asset.assetTag,
-        assetType: asset.assetType,
-        manufacturer: asset.manufacturer,
-        model: asset.model,
-        serialNumber: asset.serialNumber,
-        processor: asset.processor,
-        ram: asset.ram,
-        storage: asset.storage,
-        os: asset.operatingSystem,
+        assetType: asset.type || asset.assetType,
+        manufacturer: asset.manufacturer || "",
+        model: asset.model || "",
+        serialNumber: asset.serialNumber || "",
+        processor: asset.processor || "",
+        ram: asset.ram || "",
+        storage: asset.storage || "",
+        os: asset.operatingSystem || "",
         purchaseDate: asset.purchaseDate,
-        purchaseCost: asset.purchaseCost,
+        purchaseCost: asset.purchasePrice || asset.purchaseCost,
         status: asset.status
       }));
       

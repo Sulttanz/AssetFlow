@@ -53,6 +53,10 @@ export const assets = pgTable("assets", {
   category: text("category"), // Servers, Laptops, Applications, etc.
   serialNumber: text("serial_number"),
   model: text("model"),
+  manufacturer: text("manufacturer"), // Brand / manufacturer name
+  processor: text("processor"), // CPU model and speed
+  ram: text("ram"), // RAM size (e.g. 16GB DDR4)
+  storage: text("storage"), // Storage capacity and type (e.g. 512GB SSD)
   version: text("version"), // Product version details
   barcode: text("barcode"), // Physical tracking identifier
   qrCode: text("qr_code"), // QR code identifier

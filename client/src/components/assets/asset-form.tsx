@@ -32,6 +32,10 @@ const formSchema = insertAssetSchema.extend({
   serialNumber: z.string().optional(),
   vendor: z.string().optional(),
   model: z.string().optional(),
+  manufacturer: z.string().optional(),
+  processor: z.string().optional(),
+  ram: z.string().optional(),
+  storage: z.string().optional(),
   purchasePrice: z.string().optional(),
   specifications: z.string().optional(),
   
@@ -234,6 +238,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       purchasePrice: asset?.purchasePrice ?? "",
       vendor: asset?.vendor ?? "",
       model: asset?.model ?? "",
+      manufacturer: (asset as any)?.manufacturer ?? "",
+      processor: (asset as any)?.processor ?? "",
+      ram: (asset as any)?.ram ?? "",
+      storage: (asset as any)?.storage ?? "",
       specifications: asset?.specifications ?? "",
       
       // Security Classification
@@ -645,19 +653,76 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                   />
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name="model"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Model</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter model" {...field} data-testid="input-model" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="model"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Model</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. ThinkPad X1 Carbon" {...field} data-testid="input-model" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="manufacturer"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Manufacturer</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. Lenovo, Dell, HP" {...field} data-testid="input-manufacturer" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="processor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Processor (CPU)</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. Intel Core i7-1165G7" {...field} data-testid="input-processor" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="ram"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>RAM</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. 16GB DDR4" {...field} data-testid="input-ram" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="storage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Storage</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. 512GB SSD" {...field} data-testid="input-storage" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}
