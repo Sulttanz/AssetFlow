@@ -600,51 +600,45 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status</FormLabel>
-                        {statusLocked ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
-                              <ShieldAlert className="h-4 w-4 shrink-0" />
-                              <span className="flex-1">Status is locked — this asset has a disposal record.</span>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-300 h-7 px-2 text-xs"
-                                onClick={() => { setOverrideDialogOpen(true); setOverrideError(""); setOverridePassword(""); }}
-                              >
-                                <Lock className="h-3 w-3 mr-1" />
-                                Override
-                              </Button>
-                            </div>
-                            <SelectTrigger disabled data-testid="select-status" className="opacity-60 cursor-not-allowed">
-                              <SelectValue placeholder={field.value || "Locked"} />
-                            </SelectTrigger>
+                        {statusLocked && (
+                          <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-800 dark:text-amber-300 mb-2">
+                            <ShieldAlert className="h-4 w-4 shrink-0" />
+                            <span className="flex-1">Status is locked — this asset has a disposal record.</span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-300 h-7 px-2 text-xs"
+                              onClick={() => { setOverrideDialogOpen(true); setOverrideError(""); setOverridePassword(""); }}
+                            >
+                              <Lock className="h-3 w-3 mr-1" />
+                              Override
+                            </Button>
                           </div>
-                        ) : (
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-status">
-                                <SelectValue placeholder="Select status" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {assetStatuses.length > 0 ? (
-                                assetStatuses.map((status: any) => (
-                                  <SelectItem key={status.id} value={status.value}>
-                                    {status.label}
-                                  </SelectItem>
-                                ))
-                              ) : (
-                                <>
-                                  <SelectItem value="available">Available</SelectItem>
-                                  <SelectItem value="assigned">Assigned</SelectItem>
-                                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                                  <SelectItem value="retired">Retired</SelectItem>
-                                </>
-                              )}
-                            </SelectContent>
-                          </Select>
                         )}
+                        <Select onValueChange={field.onChange} defaultValue={field.value} disabled={statusLocked}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-status" className={statusLocked ? "opacity-60 cursor-not-allowed" : ""}>
+                              <SelectValue placeholder="Select status" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {assetStatuses.length > 0 ? (
+                              assetStatuses.map((status: any) => (
+                                <SelectItem key={status.id} value={status.value}>
+                                  {status.label}
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="available">Available</SelectItem>
+                                <SelectItem value="assigned">Assigned</SelectItem>
+                                <SelectItem value="maintenance">Maintenance</SelectItem>
+                                <SelectItem value="retired">Retired</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
