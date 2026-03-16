@@ -13,7 +13,9 @@ import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
 import AssetQRModal from "@/components/assets/asset-qr-modal";
-import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode } from "lucide-react";
+import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode, X, RefreshCw } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import type { Department, Location } from "@shared/schema";
 import type { AssetWithAssignment, Asset } from "@shared/schema";
 import {
   Pagination,
@@ -37,11 +39,65 @@ export default function Assets() {
   const [isQRModalOpen, setIsQRModalOpen] = useState(false);
   const [qrAsset, setQrAsset] = useState<Asset | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkDepartmentId, setBulkDepartmentId] = useState("");
+  const [bulkLocationId, setBulkLocationId] = useState("");
   const { toast } = useToast();
 
   const { data: assets, isLoading } = useQuery<AssetWithAssignment[]>({
     queryKey: ["/api/assets"],
   });
+
+  const { data: departments } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
+  const { data: locations } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async (payload: { assetIds: string[]; updates: Record<string, string | null> }) => {
+      return await apiRequest("POST", "/api/assets/bulk-update", payload);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Bulk Update", description: `${variables.assetIds.length} asset(s) updated successfully` });
+      setSelectedIds(new Set());
+      setBulkStatus("");
+      setBulkDepartmentId("");
+      setBulkLocationId("");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Bulk update failed", variant: "destructive" });
+    },
+  });
+
+  const handleBulkApply = () => {
+    if (selectedIds.size === 0) return;
+    const updates: Record<string, string | null> = {};
+    if (bulkStatus) updates.status = bulkStatus;
+    if (bulkDepartmentId) updates.departmentId = bulkDepartmentId;
+    if (bulkLocationId) updates.locationId = bulkLocationId;
+    if (Object.keys(updates).length === 0) {
+      toast({ title: "No changes", description: "Please select a field to update", variant: "destructive" });
+      return;
+    }
+    bulkUpdateMutation.mutate({ assetIds: Array.from(selectedIds), updates });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedAssets.length && paginatedAssets.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedAssets.map(a => a.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const deleteAssetMutation = useMutation({
     mutationFn: async (assetId: string) => {
@@ -278,6 +334,53 @@ export default function Assets() {
               </Select>
             </div>
 
+            {/* Bulk Action Toolbar */}
+            {selectedIds.size > 0 && (
+              <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
+                <div className="flex flex-wrap items-center gap-2 flex-1">
+                  <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                    <SelectTrigger className="w-40 h-8 text-sm">
+                      <SelectValue placeholder="Set status..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="available">Available</SelectItem>
+                      <SelectItem value="assigned">Assigned</SelectItem>
+                      <SelectItem value="maintenance">Maintenance</SelectItem>
+                      <SelectItem value="retired">Retired</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={bulkDepartmentId} onValueChange={setBulkDepartmentId}>
+                    <SelectTrigger className="w-44 h-8 text-sm">
+                      <SelectValue placeholder="Set department..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments?.map(d => (
+                        <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={bulkLocationId} onValueChange={setBulkLocationId}>
+                    <SelectTrigger className="w-44 h-8 text-sm">
+                      <SelectValue placeholder="Set location..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations?.map(l => (
+                        <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" onClick={handleBulkApply} disabled={bulkUpdateMutation.isPending} className="h-8">
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    {bulkUpdateMutation.isPending ? "Applying..." : "Apply"}
+                  </Button>
+                </div>
+                <Button variant="ghost" size="sm" className="h-8 ml-auto" onClick={() => setSelectedIds(new Set())}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
             {/* Assets Table */}
             {isLoading ? (
               <div className="space-y-4">
@@ -290,6 +393,13 @@ export default function Assets() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={paginatedAssets.length > 0 && selectedIds.size === paginatedAssets.length}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
                       <TableHead>Asset Tag</TableHead>
                       <TableHead>Asset Name</TableHead>
                       <TableHead>Type</TableHead>
@@ -303,7 +413,14 @@ export default function Assets() {
                   </TableHeader>
                   <TableBody>
                     {paginatedAssets?.map((asset) => (
-                      <TableRow key={asset.id} data-testid={`asset-row-${asset.id}`}>
+                      <TableRow key={asset.id} data-testid={`asset-row-${asset.id}`} className={selectedIds.has(asset.id) ? "bg-primary/5" : ""}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(asset.id)}
+                            onCheckedChange={() => toggleSelectOne(asset.id)}
+                            aria-label={`Select ${asset.name}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           <code className="bg-muted px-2 py-1 rounded text-xs font-mono">
                             {(asset as any).assetTag || asset.id.slice(0, 8).toUpperCase()}
@@ -368,7 +485,7 @@ export default function Assets() {
                       </TableRow>
                     )) || (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8">
+                        <TableCell colSpan={9} className="text-center py-8">
                           <div className="text-muted-foreground">
                             <Package className="mx-auto h-12 w-12 mb-4" />
                             <p>No assets found</p>
@@ -436,17 +553,19 @@ export default function Assets() {
 
         {/* Asset Form Dialog */}
         <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogContent className="max-w-2xl" data-testid="asset-form-dialog">
+          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col" data-testid="asset-form-dialog">
             <DialogHeader>
               <DialogTitle>
                 {selectedAsset ? "Edit Asset" : "Add New Asset"}
               </DialogTitle>
             </DialogHeader>
-            <AssetForm
-              asset={selectedAsset}
-              onSuccess={handleFormSuccess}
-              onCancel={() => setIsFormOpen(false)}
-            />
+            <div className="overflow-y-auto flex-1 pr-1">
+              <AssetForm
+                asset={selectedAsset}
+                onSuccess={handleFormSuccess}
+                onCancel={() => setIsFormOpen(false)}
+              />
+            </div>
           </DialogContent>
         </Dialog>
 

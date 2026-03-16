@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Trash2, GitBranch, Lock, ShieldAlert } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, GitBranch, Lock, ShieldAlert, Upload, Download, FileText, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -166,6 +166,48 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   const { data: relationships = [], refetch: refetchRelationships } = useQuery<(AssetRelationship & { relatedAsset?: Asset })[]>({
     queryKey: [`/api/assets/${asset?.id}/relationships`],
     enabled: !!asset?.id,
+  });
+
+  const [attachmentDescription, setAttachmentDescription] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+
+  const { data: attachments = [], refetch: refetchAttachments } = useQuery<any[]>({
+    queryKey: [`/api/assets/${asset?.id}/attachments`],
+    enabled: !!asset?.id && isEdit,
+  });
+
+  const uploadAttachmentMutation = useMutation({
+    mutationFn: async ({ file, description }: { file: File; description: string }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("description", description);
+      const res = await fetch(`/api/assets/${asset?.id}/attachments`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchAttachments();
+      setAttachmentFile(null);
+      setAttachmentDescription("");
+      toast({ title: "File uploaded", description: "Attachment saved successfully" });
+    },
+    onError: () => {
+      toast({ title: "Upload failed", description: "Could not upload the file", variant: "destructive" });
+    },
+  });
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (attachId: string) => {
+      await apiRequest("DELETE", `/api/assets/${asset?.id}/attachments/${attachId}`);
+    },
+    onSuccess: () => {
+      refetchAttachments();
+      toast({ title: "Deleted", description: "Attachment removed" });
+    },
   });
 
   const { data: disposalRecords = [] } = useQuery<any[]>({
@@ -492,7 +534,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="asset-form">
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className={`grid w-full sticky top-0 z-20 bg-background ${isEdit ? 'grid-cols-8' : 'grid-cols-6'}`}>
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="ownership">Ownership</TabsTrigger>
@@ -500,6 +542,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
             <TabsTrigger value="financial">Financial</TabsTrigger>
             <TabsTrigger value="lifecycle">Lifecycle</TabsTrigger>
             {isEdit && <TabsTrigger value="relationships">Relationships</TabsTrigger>}
+            {isEdit && <TabsTrigger value="attachments">Attachments</TabsTrigger>}
           </TabsList>
 
           {/* Basic Information Tab */}
@@ -1590,6 +1633,101 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         </div>
                       )}
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {/* Attachments Tab */}
+          {isEdit && (
+            <TabsContent value="attachments" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>File Attachments</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Upload Section */}
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <h4 className="text-sm font-medium">Upload New Attachment</h4>
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Select File (max 20MB)</label>
+                        <input
+                          type="file"
+                          onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-muted-foreground file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">Description (optional)</label>
+                        <Input
+                          placeholder="e.g. Purchase invoice, warranty certificate..."
+                          value={attachmentDescription}
+                          onChange={(e) => setAttachmentDescription(e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={!attachmentFile || uploadAttachmentMutation.isPending}
+                        onClick={() => attachmentFile && uploadAttachmentMutation.mutate({ file: attachmentFile, description: attachmentDescription })}
+                        className="w-fit"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload File"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Attachments List */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium">Attached Files ({attachments.length})</h4>
+                    {attachments.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                        <FileText className="mx-auto h-10 w-10 mb-2 opacity-40" />
+                        <p className="text-sm">No attachments yet</p>
+                        <p className="text-xs">Upload invoices, photos, warranties, or any relevant documents</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y border rounded-lg">
+                        {attachments.map((att: any) => (
+                          <div key={att.id} className="flex items-center justify-between p-3 hover:bg-muted/30">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <FileText className="h-8 w-8 text-muted-foreground shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{att.original_name}</p>
+                                {att.description && <p className="text-xs text-muted-foreground truncate">{att.description}</p>}
+                                <p className="text-xs text-muted-foreground">
+                                  {att.file_size ? `${(att.file_size / 1024).toFixed(1)} KB · ` : ""}{att.file_type || "Unknown type"}
+                                  {att.uploaded_at ? ` · ${new Date(att.uploaded_at).toLocaleDateString()}` : ""}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                asChild
+                              >
+                                <a href={`/api/uploads/${att.file_name}`} download={att.original_name} target="_blank" rel="noreferrer">
+                                  <Download className="h-4 w-4" />
+                                </a>
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                                disabled={deleteAttachmentMutation.isPending}
+                              >
+                                <X className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

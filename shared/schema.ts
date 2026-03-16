@@ -622,6 +622,23 @@ export const assetRequests = pgTable("asset_requests", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
+export const assetAttachments = pgTable("asset_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  originalName: text("original_name").notNull(),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  filePath: text("file_path").notNull(),
+  description: text("description"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").default(sql`now()`),
+});
+
+export const insertAssetAttachmentSchema = createInsertSchema(assetAttachments).omit({ id: true, uploadedAt: true });
+export type InsertAssetAttachment = z.infer<typeof insertAssetAttachmentSchema>;
+export type AssetAttachment = typeof assetAttachments.$inferSelect;
+
 // ────────────────────────────────────────────────────────────────────────────
 
 // Dropdown Options Insert Schema

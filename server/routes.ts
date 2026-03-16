@@ -10,8 +10,11 @@ import {
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
-  insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema
+  insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
+  assetAttachments
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 
 // Audit logging helper function
@@ -1211,6 +1214,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Asset deletion error:", error);
       res.status(500).json({ message: "Failed to delete asset" });
+    }
+  });
+
+  // Bulk update assets
+  app.post("/api/assets/bulk-update", requireAuth, requirePermission('asset_update'), async (req, res) => {
+    try {
+      const { assetIds, updates } = req.body;
+      if (!Array.isArray(assetIds) || assetIds.length === 0) {
+        return res.status(400).json({ message: "assetIds must be a non-empty array" });
+      }
+      const allowed = ['status', 'departmentId', 'locationId', 'assignedTo'];
+      const safeUpdates: Record<string, any> = {};
+      for (const key of allowed) {
+        if (updates[key] !== undefined) safeUpdates[key] = updates[key] || null;
+      }
+      if (Object.keys(safeUpdates).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+      let updated = 0;
+      for (const id of assetIds) {
+        try {
+          await storage.updateAsset(id, safeUpdates);
+          updated++;
+        } catch (_) {}
+      }
+      await logAudit(req.user?.id, 'BULK_UPDATE', 'assets', 'bulk', `${updated} assets`, null, safeUpdates, req);
+      res.json({ updated, message: `${updated} asset(s) updated successfully` });
+    } catch (error) {
+      console.error("Bulk update error:", error);
+      res.status(500).json({ message: "Failed to bulk update assets" });
+    }
+  });
+
+  // Asset Attachments
+  const diskUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, 'server/uploads/'),
+      filename: (_req, file, cb) => {
+        const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const ext = file.originalname.split('.').pop();
+        cb(null, `${unique}.${ext}`);
+      },
+    }),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  });
+
+  app.get("/api/assets/:id/attachments", requireAuth, async (req, res) => {
+    try {
+      const rows = await db.select().from(assetAttachments).where(eq(assetAttachments.assetId, req.params.id));
+      res.json(rows);
+    } catch (error) {
+      console.error("Fetch attachments error:", error);
+      res.status(500).json({ message: "Failed to fetch attachments" });
+    }
+  });
+
+  app.post("/api/assets/:id/attachments", requireAuth, diskUpload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const { description } = req.body;
+      const [row] = await db.insert(assetAttachments).values({
+        assetId: req.params.id,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        filePath: req.file.path,
+        description: description || null,
+        uploadedBy: req.user?.id || null,
+      }).returning();
+      res.json(row);
+    } catch (error) {
+      console.error("Upload attachment error:", error);
+      res.status(500).json({ message: "Failed to upload attachment" });
+    }
+  });
+
+  app.delete("/api/assets/:id/attachments/:attachId", requireAuth, async (req, res) => {
+    try {
+      const [deleted] = await db.delete(assetAttachments)
+        .where(and(eq(assetAttachments.id, req.params.attachId), eq(assetAttachments.assetId, req.params.id)))
+        .returning();
+      if (deleted?.filePath) {
+        const fs = await import('fs');
+        try { fs.unlinkSync(deleted.filePath); } catch (_) {}
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Delete attachment error:", error);
+      res.status(500).json({ message: "Failed to delete attachment" });
+    }
+  });
+
+  app.get("/api/uploads/:filename", requireAuth, async (req, res) => {
+    try {
+      const path = await import('path');
+      const filePath = path.join(process.cwd(), 'server/uploads', req.params.filename);
+      res.sendFile(filePath);
+    } catch (error) {
+      res.status(404).json({ message: "File not found" });
     }
   });
 
