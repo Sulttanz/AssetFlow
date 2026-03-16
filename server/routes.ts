@@ -389,6 +389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertAssetDisposalRecordSchema.parse({
         ...req.body,
+        approvedBy: req.body.approvedBy || null,
         disposedBy: req.user?.id
       });
       const record = await storage.createAssetDisposalRecord(validatedData);

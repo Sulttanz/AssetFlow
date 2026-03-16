@@ -82,7 +82,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const ITEMS_PER_PAGE = 10;
 
-const disposalFormSchema = insertAssetDisposalRecordSchema.extend({
+const disposalFormSchema = insertAssetDisposalRecordSchema.omit({ assetId: true, disposedBy: true }).extend({
   disposalDate: z.string().min(1, "Disposal date is required"),
   disposalMethod: z.enum(["sell", "donate", "recycle", "destroy", "trade-in"]),
   reason: z.string().min(1, "Reason is required"),
