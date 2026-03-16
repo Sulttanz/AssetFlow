@@ -2995,26 +2995,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reports/department", requireAuth, async (req, res) => {
     try {
       const assets = await storage.getAssets();
-      const assignments = await storage.getAssignmentsWithDetails();
-      const currentAssignments = (assignments as any[]).filter((a: any) => !a.returnedDate);
-      const assetAssignmentMap = new Map(currentAssignments.map((a: any) => [a.assetId, a]));
-      const assetUtilization = assets.map((a: any) => {
-        const currentAssignment = assetAssignmentMap.get(a.id) as any;
+      const departments = await storage.getDepartments();
+      const now = new Date();
+
+      const departmentDetails = departments.map((dept: any) => {
+        const deptAssets = assets.filter((a: any) => a.departmentId === dept.id);
+        const totalAssets = deptAssets.length;
+        const totalValue = deptAssets.reduce((sum: number, a: any) => {
+          return sum + (parseFloat(a.purchasePrice) || 0);
+        }, 0);
+        const avgAssetAge = deptAssets.length > 0
+          ? deptAssets.reduce((sum: number, a: any) => {
+              if (!a.purchaseDate) return sum;
+              const purchased = new Date(a.purchaseDate);
+              const ageYears = (now.getTime() - purchased.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+              return sum + ageYears;
+            }, 0) / deptAssets.length
+          : 0;
         return {
-          id: a.id,
-          assetTag: a.assetTag || a.id?.slice(0, 8).toUpperCase(),
-          name: a.name || "Unknown",
-          type: a.type || a.assetType || "Hardware",
-          serialNumber: a.serialNumber || "N/A",
-          model: a.model || "N/A",
-          status: a.status || "available",
-          assignedTo: currentAssignment?.employeeName || null,
-          assignedDate: currentAssignment?.assignedDate || null,
-          departmentId: a.departmentId || null,
-          locationId: a.locationId || null,
+          id: dept.id,
+          departmentName: dept.name,
+          totalAssets,
+          totalValue,
+          avgAssetAge,
         };
       });
-      res.json({ assetUtilization, totalAssets: assets.length });
+
+      const totalAssets = assets.length;
+      const totalValue = assets.reduce((sum: number, a: any) => sum + (parseFloat(a.purchasePrice) || 0), 0);
+      const totalDepartments = departments.length;
+      const avgAssetsPerDept = totalDepartments > 0 ? totalAssets / totalDepartments : 0;
+
+      res.json({ departmentDetails, totalDepartments, totalAssets, totalValue, avgAssetsPerDept });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate department report" });
     }
