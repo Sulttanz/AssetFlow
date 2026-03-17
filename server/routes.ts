@@ -2586,8 +2586,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const assetAssignmentMap = new Map();
       currentAssignments.forEach((a: any) => {
         assetAssignmentMap.set(a.assetId, {
-          employeeName: a.employeeName,
-          employeeId: a.employeeId,
+          employeeName: a.employee
+            ? `${a.employee.firstName} ${a.employee.lastName}`.trim()
+            : (a.employeeName || null),
+          employeeId: a.employeeId || a.employee?.id,
           assignedDate: a.assignedDate,
           assignmentId: a.id
         });
@@ -2613,9 +2615,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Assignment history for detailed tracking
       const assignmentHistory = assignments.map((a: any) => ({
         id: a.id,
-        assetTag: a.assetTag,
-        assetType: a.assetType,
-        employeeName: a.employeeName,
+        assetTag: a.asset?.assetTag || a.assetTag || null,
+        assetType: a.asset?.type || a.assetType || null,
+        employeeName: a.employee
+          ? `${a.employee.firstName} ${a.employee.lastName}`.trim()
+          : (a.employeeName || null),
         assignedDate: a.assignedDate,
         returnedDate: a.returnedDate,
         status: a.returnedDate ? 'returned' : 'active'
@@ -2660,8 +2664,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const assetAssignmentMap = new Map();
       currentAssignments.forEach((a: any) => {
         assetAssignmentMap.set(a.assetId, {
-          employeeName: a.employeeName,
-          employeeId: a.employeeId,
+          employeeName: a.employee
+            ? `${a.employee.firstName} ${a.employee.lastName}`.trim()
+            : (a.employeeName || null),
+          employeeId: a.employeeId || a.employee?.id,
           assignedDate: a.assignedDate,
           assignmentId: a.id
         });
@@ -2687,9 +2693,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Assignment history for detailed tracking
       const assignmentHistory = assignments.map((a: any) => ({
         id: a.id,
-        assetTag: a.assetTag,
-        assetType: a.assetType,
-        employeeName: a.employeeName,
+        assetTag: a.asset?.assetTag || a.assetTag || null,
+        assetType: a.asset?.type || a.assetType || null,
+        employeeName: a.employee
+          ? `${a.employee.firstName} ${a.employee.lastName}`.trim()
+          : (a.employeeName || null),
         assignedDate: a.assignedDate,
         returnedDate: a.returnedDate,
         status: a.returnedDate ? 'returned' : 'active'
