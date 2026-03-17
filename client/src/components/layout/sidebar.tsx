@@ -109,6 +109,7 @@ export default function Sidebar() {
             { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties" },
             { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
             { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets" },
+            { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation" },
           ]
         },
       ]

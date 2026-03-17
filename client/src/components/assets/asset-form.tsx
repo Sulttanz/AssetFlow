@@ -13,7 +13,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Check, ChevronsUpDown, Trash2, GitBranch, Lock, ShieldAlert, Upload, Download, FileText, X } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2, GitBranch, Lock, ShieldAlert, Upload, Download, FileText, X, TrendingDown, ChevronDown, ChevronUp } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { generateSchedule } from "@/lib/depreciation";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -86,6 +88,82 @@ const formSchema = insertAssetSchema.extend({
 });
 
 type FormData = z.infer<typeof formSchema>;
+
+function DepreciationPanel({ bookValue, price, accumulated, pctDep, yearsOwned, schedule, currentYear }: {
+  bookValue: number; price: number; accumulated: number; pctDep: number; yearsOwned: number;
+  schedule: any[]; currentYear: number;
+}) {
+  const [showSchedule, setShowSchedule] = useState(false);
+  const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return (
+    <div className="rounded-md border bg-muted/40 overflow-hidden">
+      <div className="p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingDown className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Depreciation Summary</span>
+          </div>
+          {schedule.length > 0 && (
+            <button type="button" className="text-xs text-primary flex items-center gap-1" onClick={() => setShowSchedule(s => !s)}>
+              {showSchedule ? <><ChevronUp className="h-3 w-3" /> Hide Schedule</> : <><ChevronDown className="h-3 w-3" /> View Schedule</>}
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-sm">
+          <div className="rounded bg-background p-2 text-center">
+            <p className="text-xs text-muted-foreground">Purchase Price</p>
+            <p className="font-semibold">{fmt(price)}</p>
+          </div>
+          <div className="rounded bg-background p-2 text-center">
+            <p className="text-xs text-muted-foreground">Accumulated Dep.</p>
+            <p className="font-semibold text-red-600">-{fmt(accumulated)}</p>
+          </div>
+          <div className="rounded bg-background p-2 text-center">
+            <p className="text-xs text-muted-foreground">Current Book Value</p>
+            <p className="font-semibold text-green-600">{fmt(bookValue)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-2 bg-background rounded-full overflow-hidden">
+            <div className="h-full bg-red-400 rounded-full" style={{ width: `${Math.min(pctDep, 100)}%` }} />
+          </div>
+          <span className="text-xs text-muted-foreground">{pctDep.toFixed(1)}% depreciated{yearsOwned > 0 ? ` · ${yearsOwned.toFixed(1)} yrs owned` : ''}</span>
+        </div>
+      </div>
+      {showSchedule && schedule.length > 0 && (
+        <div className="border-t max-h-64 overflow-y-auto">
+          <Table>
+            <TableHeader className="sticky top-0 bg-muted">
+              <TableRow>
+                <TableHead className="text-xs py-2">Year</TableHead>
+                <TableHead className="text-xs py-2 text-right">Opening</TableHead>
+                <TableHead className="text-xs py-2 text-right">Dep.</TableHead>
+                <TableHead className="text-xs py-2 text-right">Closing</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {schedule.map((row: any) => {
+                const isCurrent = row.calendarYear === currentYear;
+                const isPast = row.calendarYear < currentYear;
+                return (
+                  <TableRow key={row.year} className={isCurrent ? "bg-blue-50 dark:bg-blue-950/30 font-medium" : isPast ? "opacity-50" : ""}>
+                    <TableCell className="text-xs py-1.5">
+                      {row.calendarYear}
+                      {isCurrent && <Badge className="ml-1 text-[10px] px-1 py-0 bg-blue-600">Now</Badge>}
+                    </TableCell>
+                    <TableCell className="text-xs py-1.5 text-right">{fmt(row.openingBookValue)}</TableCell>
+                    <TableCell className="text-xs py-1.5 text-right text-red-600">-{fmt(row.depreciationAmount)}</TableCell>
+                    <TableCell className="text-xs py-1.5 text-right text-green-700 font-medium">{fmt(row.closingBookValue)}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface AssetFormProps {
   asset?: Asset | null;
@@ -1342,24 +1420,34 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                 {(() => {
                   const price = parseFloat(form.watch('purchasePrice') || '0');
                   const residual = parseFloat(form.watch('residualValue') || '0');
-                  const life = parseInt(form.watch('usefulLifeYears') || '0');
+                  const life = parseInt(form.watch('usefulLifeYears') || '0') || null;
+                  const rate = parseFloat(form.watch('depreciationRate') || '20') || 20;
                   const method = form.watch('depreciationMethod');
                   const purchaseDate = form.watch('purchaseDate');
-                  if (!price || !life || method === 'none') return null;
-                  const yearsOwned = purchaseDate ? Math.max(0, (new Date().getTime() - new Date(purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365)) : 0;
+                  if (!price || method === 'none' || !method) return null;
+                  const yearsOwned = purchaseDate ? Math.max(0, (new Date().getTime() - new Date(purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25)) : 0;
+                  const effectiveLife = life || Math.ceil(100 / rate);
                   let bookValue = price;
+                  const salvage = Math.min(residual || 0, price * 0.9);
                   if (method === 'straight-line') {
-                    bookValue = Math.max(residual, price - ((price - residual) / life) * yearsOwned);
+                    bookValue = Math.max(salvage, price - ((price - salvage) / effectiveLife) * yearsOwned);
                   } else if (method === 'declining-balance') {
-                    const rate = 2 / life;
-                    bookValue = Math.max(residual, price * Math.pow(1 - rate, yearsOwned));
+                    bookValue = Math.max(salvage, price * Math.pow(1 - rate / 100, yearsOwned));
                   }
+                  const accumulated = price - bookValue;
+                  const pctDep = price > 0 ? (accumulated / price) * 100 : 0;
+                  const schedule = purchaseDate ? generateSchedule(price, purchaseDate, method, rate, life, residual) : [];
+                  const now = new Date().getFullYear();
                   return (
-                    <div className="rounded-md bg-muted p-3 text-sm">
-                      <span className="text-muted-foreground">Estimated Current Book Value: </span>
-                      <span className="font-semibold">${bookValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      {yearsOwned > 0 && <span className="text-muted-foreground ml-2">({yearsOwned.toFixed(1)} years owned)</span>}
-                    </div>
+                    <DepreciationPanel
+                      bookValue={bookValue}
+                      price={price}
+                      accumulated={accumulated}
+                      pctDep={pctDep}
+                      yearsOwned={yearsOwned}
+                      schedule={schedule}
+                      currentYear={now}
+                    />
                   );
                 })()}
               </CardContent>

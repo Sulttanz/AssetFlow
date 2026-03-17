@@ -25,8 +25,8 @@ export default function ReleasedAssetsReport() {
 
   const records: any[] = reportData?.records || [];
 
-  const departments = [...new Set(records.map((r: any) => r.department).filter(Boolean))].sort();
-  const types = [...new Set(records.map((r: any) => r.assetType).filter(Boolean))].sort();
+  const departments = Array.from(new Set(records.map((r: any) => r.department).filter(Boolean))).sort();
+  const types = Array.from(new Set(records.map((r: any) => r.assetType).filter(Boolean))).sort();
 
   const filtered = records.filter((r: any) => {
     if (deptFilter !== "all" && r.department !== deptFilter) return false;

@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
-import { FileText, Download, TrendingUp, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag, Loader2, RotateCcw } from "lucide-react";
+import { FileText, Download, TrendingUp, TrendingDown, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag, Loader2, RotateCcw } from "lucide-react";
 import { Link } from "wouter";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -104,7 +104,7 @@ export default function Reports() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:grid-cols-11">
+        <TabsList className="grid w-full grid-cols-6 lg:grid-cols-12">
           <TabsTrigger value="summary" data-testid="tab-summary">
             <Package className="mr-2 h-4 w-4" />
             Summary
@@ -148,6 +148,10 @@ export default function Reports() {
           <TabsTrigger value="released" data-testid="tab-released">
             <RotateCcw className="mr-2 h-4 w-4" />
             Released
+          </TabsTrigger>
+          <TabsTrigger value="depreciation" data-testid="tab-depreciation">
+            <TrendingDown className="mr-2 h-4 w-4" />
+            Depreciation
           </TabsTrigger>
         </TabsList>
 
@@ -862,6 +866,46 @@ export default function Reports() {
                   <Button className="gap-2">
                     <RotateCcw className="h-4 w-4" />
                     View Full Released Assets Report
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Depreciation Report */}
+        <TabsContent value="depreciation" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Asset Depreciation Report</CardTitle>
+              <CardDescription>Track current book value, accumulated depreciation, and year-by-year schedules for all assets</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This report calculates the current book value of every asset using straight-line or declining-balance methods. View full year-by-year schedules for any individual asset, and export the complete report to Excel or PDF.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-lg border p-4 text-center">
+                  <DollarSign className="mx-auto h-8 w-8 text-blue-500 mb-2" />
+                  <p className="text-sm font-medium">Real-Time Book Values</p>
+                  <p className="text-xs text-muted-foreground">Automatically calculates current book value from purchase date</p>
+                </div>
+                <div className="rounded-lg border p-4 text-center">
+                  <TrendingDown className="mx-auto h-8 w-8 text-red-500 mb-2" />
+                  <p className="text-sm font-medium">Year-by-Year Schedule</p>
+                  <p className="text-xs text-muted-foreground">Full depreciation schedule with chart for each asset</p>
+                </div>
+                <div className="rounded-lg border p-4 text-center">
+                  <FileText className="mx-auto h-8 w-8 text-green-500 mb-2" />
+                  <p className="text-sm font-medium">Both Methods Supported</p>
+                  <p className="text-xs text-muted-foreground">Straight-line and declining-balance depreciation</p>
+                </div>
+              </div>
+              <div className="pt-2">
+                <Link href="/reports/depreciation">
+                  <Button className="gap-2">
+                    <TrendingDown className="h-4 w-4" />
+                    View Full Depreciation Report
                   </Button>
                 </Link>
               </div>

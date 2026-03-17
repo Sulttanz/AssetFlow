@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, hashPassword } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
+import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
@@ -3188,6 +3189,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to generate warranties report" });
+    }
+  });
+
+  app.get("/api/reports/depreciation", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      let totalOriginalValue = 0;
+      let totalAccumulatedDepreciation = 0;
+      let totalCurrentBookValue = 0;
+      let fullyDepreciatedCount = 0;
+      let noDataCount = 0;
+
+      const records = assets.map((a: any) => {
+        const price = parseFloat(a.purchasePrice || "0");
+        const summary = calculateDepreciation({
+          purchasePrice: price,
+          purchaseDate: a.purchaseDate || null,
+          depreciationMethod: a.depreciationMethod || null,
+          depreciationRate: parseFloat(a.depreciationRate || "20"),
+          usefulLifeYears: a.usefulLifeYears || null,
+          residualValue: parseFloat(a.residualValue || "0") || null,
+        });
+
+        if (!summary || price <= 0) { noDataCount++; }
+        else {
+          totalOriginalValue += price;
+          totalAccumulatedDepreciation += summary.accumulatedDepreciation;
+          totalCurrentBookValue += summary.currentBookValue;
+          if (summary.fullyDepreciated) fullyDepreciatedCount++;
+        }
+
+        return {
+          id: a.id,
+          assetTag: a.assetTag || a.id?.slice(0, 8).toUpperCase(),
+          name: a.name,
+          type: a.type,
+          department: a.department || null,
+          purchasePrice: price,
+          purchaseDate: a.purchaseDate || null,
+          depreciationMethod: a.depreciationMethod || "none",
+          depreciationRate: parseFloat(a.depreciationRate || "20"),
+          usefulLifeYears: a.usefulLifeYears || null,
+          residualValue: parseFloat(a.residualValue || "0") || 0,
+          ...(summary || {
+            yearsOwned: 0,
+            annualDepreciation: 0,
+            accumulatedDepreciation: 0,
+            currentBookValue: price,
+            percentDepreciated: 0,
+            fullyDepreciated: false,
+          }),
+          hasDepreciationData: !!summary,
+        };
+      }).filter((r: any) => r.purchasePrice > 0);
+
+      res.json({
+        totalOriginalValue: Math.round(totalOriginalValue * 100) / 100,
+        totalAccumulatedDepreciation: Math.round(totalAccumulatedDepreciation * 100) / 100,
+        totalCurrentBookValue: Math.round(totalCurrentBookValue * 100) / 100,
+        fullyDepreciatedCount,
+        noDataCount,
+        totalAssets: records.length,
+        assets: records,
+      });
+    } catch (error) {
+      console.error("Depreciation report error:", error);
+      res.status(500).json({ message: "Failed to generate depreciation report" });
+    }
+  });
+
+  app.get("/api/assets/:id/depreciation-schedule", requireAuth, async (req, res) => {
+    try {
+      const asset = await storage.getAsset(req.params.id);
+      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      const price = parseFloat((asset as any).purchasePrice || "0");
+      const schedule = generateDepreciationSchedule({
+        purchasePrice: price,
+        purchaseDate: (asset as any).purchaseDate || null,
+        depreciationMethod: (asset as any).depreciationMethod || null,
+        depreciationRate: parseFloat((asset as any).depreciationRate || "20"),
+        usefulLifeYears: (asset as any).usefulLifeYears || null,
+        residualValue: parseFloat((asset as any).residualValue || "0") || null,
+      });
+      const summary = calculateDepreciation({
+        purchasePrice: price,
+        purchaseDate: (asset as any).purchaseDate || null,
+        depreciationMethod: (asset as any).depreciationMethod || null,
+        depreciationRate: parseFloat((asset as any).depreciationRate || "20"),
+        usefulLifeYears: (asset as any).usefulLifeYears || null,
+        residualValue: parseFloat((asset as any).residualValue || "0") || null,
+      });
+      res.json({ schedule, summary, asset: { id: asset.id, name: asset.name, assetTag: (asset as any).assetTag, purchasePrice: price } });
+    } catch (error) {
+      console.error("Depreciation schedule error:", error);
+      res.status(500).json({ message: "Failed to generate depreciation schedule" });
     }
   });
 
