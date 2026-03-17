@@ -3191,6 +3191,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/reports/released-assets", requireAuth, async (req, res) => {
+    try {
+      const allAssignments = await storage.getAssignmentsWithDetails();
+      const returned = allAssignments.filter((a: any) => a.returnedDate);
+
+      const records = returned.map((a: any) => {
+        const assignedDate = a.assignedDate ? new Date(a.assignedDate) : null;
+        const returnedDate = a.returnedDate ? new Date(a.returnedDate) : null;
+        const durationDays = assignedDate && returnedDate
+          ? Math.max(0, Math.floor((returnedDate.getTime() - assignedDate.getTime()) / (1000 * 60 * 60 * 24)))
+          : null;
+        return {
+          id: a.id,
+          assetTag: (a.asset as any)?.assetTag || a.asset?.id?.slice(0, 8).toUpperCase() || "N/A",
+          assetName: a.asset?.name || "N/A",
+          assetType: a.asset?.type || "N/A",
+          serialNumber: (a.asset as any)?.serialNumber || "N/A",
+          employeeName: a.employee ? `${a.employee.firstName} ${a.employee.lastName}` : "N/A",
+          employeeId: a.employee?.id || null,
+          department: a.employee?.department || "N/A",
+          assignedDate: a.assignedDate || null,
+          returnedDate: a.returnedDate || null,
+          durationDays,
+          notes: a.notes || null,
+        };
+      }).sort((x: any, y: any) => {
+        if (!x.returnedDate) return 1;
+        if (!y.returnedDate) return -1;
+        return new Date(y.returnedDate).getTime() - new Date(x.returnedDate).getTime();
+      });
+
+      const totalReleased = records.length;
+      const withDuration = records.filter((r: any) => r.durationDays !== null);
+      const avgDuration = withDuration.length > 0
+        ? Math.round(withDuration.reduce((sum: number, r: any) => sum + r.durationDays, 0) / withDuration.length)
+        : 0;
+
+      const now = new Date();
+      const thisMonth = records.filter((r: any) => {
+        if (!r.returnedDate) return false;
+        const d = new Date(r.returnedDate);
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      }).length;
+
+      const deptCounts: Record<string, number> = {};
+      records.forEach((r: any) => { deptCounts[r.department] = (deptCounts[r.department] || 0) + 1; });
+      const topDept = Object.entries(deptCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "N/A";
+
+      res.json({ totalReleased, avgDuration, thisMonth, topDepartment: topDept, records });
+    } catch (error) {
+      console.error("Released assets report error:", error);
+      res.status(500).json({ message: "Failed to generate released assets report" });
+    }
+  });
+
   app.get("/api/reports/vendors", requireAuth, async (req, res) => {
     try {
       const vendorsList = await storage.getVendors();

@@ -22,7 +22,7 @@ The frontend is built with React 18 and TypeScript, utilizing Wouter for routing
 
 -   **UI/UX**: Professional interface with shadcn/ui components, component-based architecture, and a persistent sidebar navigation.
 -   **Pagination**: Client-side pagination (10 items per page) is consistently implemented across all major list pages (e.g., Assets, Employees, Purchase Orders) to optimize performance and user experience, featuring navigation controls, item counts, and automatic state adjustments.
--   **Reports Module**: Features 10 dedicated report pages (e.g., Asset Summary, Lifecycle Analysis, Budget Analysis) with client-side filtering, Excel/PDF export, print functionality, and data visualization using recharts. Each report utilizes dedicated API endpoints for efficient data retrieval.
+-   **Reports Module**: Features 11 dedicated report pages (e.g., Asset Summary, Lifecycle Analysis, Budget Analysis, Released Assets) with client-side filtering, Excel/PDF export, print functionality, and data visualization using recharts. Each report utilizes dedicated API endpoints for efficient data retrieval.
 -   **Dashboard Customization**: Allows users to customize widget visibility, with preferences saved locally.
 -   **Two-Factor Authentication (2FA)**: TOTP-based 2FA setup is available in settings, using speakeasy and InputOTP for a secure verification flow.
 

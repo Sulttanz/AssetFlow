@@ -5,7 +5,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
-import { FileText, Download, TrendingUp, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag, Loader2 } from "lucide-react";
+import { FileText, Download, TrendingUp, Package, Users, Wrench, DollarSign, Building2, AlertTriangle, Tag, Loader2, RotateCcw } from "lucide-react";
+import { Link } from "wouter";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
@@ -103,7 +104,7 @@ export default function Reports() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:grid-cols-10">
+        <TabsList className="grid w-full grid-cols-5 lg:grid-cols-11">
           <TabsTrigger value="summary" data-testid="tab-summary">
             <Package className="mr-2 h-4 w-4" />
             Summary
@@ -143,6 +144,10 @@ export default function Reports() {
           <TabsTrigger value="vendors" data-testid="tab-vendors">
             <Tag className="mr-2 h-4 w-4" />
             Vendors
+          </TabsTrigger>
+          <TabsTrigger value="released" data-testid="tab-released">
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Released
           </TabsTrigger>
         </TabsList>
 
@@ -820,6 +825,46 @@ export default function Reports() {
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Released Assets Report */}
+        <TabsContent value="released" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Released Assets Report</CardTitle>
+              <CardDescription>Full history of all returned asset assignments with duration tracking</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This report shows every asset that has been returned after an assignment. Use it to track asset utilization patterns, average hold durations, and departmental trends.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="rounded-lg border p-4 text-center">
+                  <RotateCcw className="mx-auto h-8 w-8 text-blue-500 mb-2" />
+                  <p className="text-sm font-medium">Complete Return History</p>
+                  <p className="text-xs text-muted-foreground">Every returned assignment logged with dates</p>
+                </div>
+                <div className="rounded-lg border p-4 text-center">
+                  <Building2 className="mx-auto h-8 w-8 text-purple-500 mb-2" />
+                  <p className="text-sm font-medium">Department Breakdown</p>
+                  <p className="text-xs text-muted-foreground">Filter by department to analyze usage</p>
+                </div>
+                <div className="rounded-lg border p-4 text-center">
+                  <FileText className="mx-auto h-8 w-8 text-green-500 mb-2" />
+                  <p className="text-sm font-medium">Export Ready</p>
+                  <p className="text-xs text-muted-foreground">Download as Excel or PDF</p>
+                </div>
+              </div>
+              <div className="pt-2">
+                <Link href="/reports/released-assets">
+                  <Button className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    View Full Released Assets Report
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

@@ -108,6 +108,7 @@ export default function Sidebar() {
             { name: "Department", href: "/reports/department", current: location === "/reports/department" },
             { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties" },
             { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
+            { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets" },
           ]
         },
       ]

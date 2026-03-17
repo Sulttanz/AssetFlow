@@ -35,6 +35,7 @@ import BudgetReport from "@/pages/reports/budget";
 import DepartmentReport from "@/pages/reports/department";
 import WarrantiesReport from "@/pages/reports/warranties";
 import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
+import ReleasedAssetsReport from "@/pages/reports/released-assets";
 import ImportPage from "@/pages/import";
 import Settings from "@/pages/settings";
 import AssetDisposal from "@/pages/asset-disposal";
@@ -88,6 +89,7 @@ function Router() {
                   <ProtectedRoute path="/reports/department" component={DepartmentReport} />
                   <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} />
                   <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
+                  <ProtectedRoute path="/reports/released-assets" component={ReleasedAssetsReport} />
                   <ProtectedRoute path="/import" component={ImportPage} />
                   <ProtectedRoute path="/settings" component={Settings} />
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} />
