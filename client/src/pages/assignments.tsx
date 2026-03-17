@@ -89,8 +89,10 @@ export default function Assignments() {
     if (statusFilter === "returned" && !assignment.returnedDate) return false;
     // Search filter
     const searchLower = searchQuery.toLowerCase();
+    const assetTag = ((assignment.asset as any).assetTag || "").toLowerCase();
     return (
       assignment.asset.name.toLowerCase().includes(searchLower) ||
+      assetTag.includes(searchLower) ||
       assignment.asset.id.toLowerCase().includes(searchLower) ||
       `${assignment.employee.firstName} ${assignment.employee.lastName}`.toLowerCase().includes(searchLower) ||
       assignment.employee.department?.toLowerCase().includes(searchLower)
@@ -244,8 +246,11 @@ export default function Assignments() {
                         <TableCell>
                           <div>
                             <div className="font-medium">{assignment.asset.name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {assignment.asset.type} • {assignment.asset.id.slice(0, 8)}
+                            <div className="text-sm text-muted-foreground flex items-center gap-1">
+                              <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
+                                {(assignment.asset as any).assetTag || assignment.asset.id.slice(0, 8).toUpperCase()}
+                              </code>
+                              <span>• {assignment.asset.type}</span>
                             </div>
                           </div>
                         </TableCell>
