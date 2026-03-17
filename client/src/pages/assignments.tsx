@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import AssignmentForm from "@/components/assignments/assignment-form";
-import { Eye, Edit, Trash2, LinkIcon, RotateCcw } from "lucide-react";
+import { Eye, Edit, Trash2, LinkIcon, RotateCcw, History } from "lucide-react";
 import type { AssignmentWithDetails } from "@shared/schema";
 import {
   Pagination,
@@ -26,6 +26,7 @@ const ITEMS_PER_PAGE = 10;
 
 export default function Assignments() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "returned" | "all">("active");
   const [selectedAssignment, setSelectedAssignment] = useState<AssignmentWithDetails | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,7 +80,14 @@ export default function Assignments() {
     },
   });
 
+  const activeCount = useMemo(() => assignments?.filter(a => !a.returnedDate).length || 0, [assignments]);
+  const returnedCount = useMemo(() => assignments?.filter(a => !!a.returnedDate).length || 0, [assignments]);
+
   const filteredAssignments = assignments?.filter(assignment => {
+    // Status filter
+    if (statusFilter === "active" && assignment.returnedDate) return false;
+    if (statusFilter === "returned" && !assignment.returnedDate) return false;
+    // Search filter
     const searchLower = searchQuery.toLowerCase();
     return (
       assignment.asset.name.toLowerCase().includes(searchLower) ||
@@ -100,10 +108,10 @@ export default function Assignments() {
     return filteredAssignments?.slice(startIndex, endIndex) || [];
   }, [filteredAssignments, currentPage]);
 
-  // Reset to page 1 when search changes
+  // Reset to page 1 when search or status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, statusFilter]);
 
   // Clamp currentPage to valid range when total pages changes
   useEffect(() => {
@@ -160,6 +168,50 @@ export default function Assignments() {
       <main className="p-6" data-testid="assignments-content">
         <Card>
           <CardContent className="p-6">
+            {/* Status Filter Tabs */}
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={() => setStatusFilter("active")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === "active"
+                    ? "bg-green-100 text-green-800 border border-green-200"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                Active
+                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs ${
+                  statusFilter === "active" ? "bg-green-200 text-green-900" : "bg-background text-muted-foreground"
+                }`}>{activeCount}</span>
+              </button>
+              <button
+                onClick={() => setStatusFilter("returned")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === "returned"
+                    ? "bg-gray-100 text-gray-800 border border-gray-200"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                <History className="h-3.5 w-3.5" />
+                History (Returned)
+                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs ${
+                  statusFilter === "returned" ? "bg-gray-200 text-gray-900" : "bg-background text-muted-foreground"
+                }`}>{returnedCount}</span>
+              </button>
+              <button
+                onClick={() => setStatusFilter("all")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  statusFilter === "all"
+                    ? "bg-primary/10 text-primary border border-primary/20"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                All
+                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-xs ${
+                  statusFilter === "all" ? "bg-primary/20 text-primary" : "bg-background text-muted-foreground"
+                }`}>{(activeCount + returnedCount)}</span>
+              </button>
+            </div>
+
             {/* Assignments Table */}
             {isLoading ? (
               <div className="space-y-4">
@@ -184,7 +236,11 @@ export default function Assignments() {
                   </TableHeader>
                   <TableBody>
                     {paginatedAssignments?.map((assignment) => (
-                      <TableRow key={assignment.id} data-testid={`assignment-row-${assignment.id}`}>
+                      <TableRow
+                        key={assignment.id}
+                        data-testid={`assignment-row-${assignment.id}`}
+                        className={assignment.returnedDate ? "opacity-60 bg-muted/20" : ""}
+                      >
                         <TableCell>
                           <div>
                             <div className="font-medium">{assignment.asset.name}</div>
