@@ -1695,11 +1695,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                             <div className="flex items-center gap-3 min-w-0">
                               <FileText className="h-8 w-8 text-muted-foreground shrink-0" />
                               <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">{att.original_name}</p>
+                                <p className="text-sm font-medium truncate">{att.originalName}</p>
                                 {att.description && <p className="text-xs text-muted-foreground truncate">{att.description}</p>}
                                 <p className="text-xs text-muted-foreground">
-                                  {att.file_size ? `${(att.file_size / 1024).toFixed(1)} KB · ` : ""}{att.file_type || "Unknown type"}
-                                  {att.uploaded_at ? ` · ${new Date(att.uploaded_at).toLocaleDateString()}` : ""}
+                                  {att.fileSize ? `${(att.fileSize / 1024).toFixed(1)} KB · ` : ""}{att.fileType || "Unknown type"}
+                                  {att.uploadedAt ? ` · ${new Date(att.uploadedAt).toLocaleDateString()}` : ""}
                                 </p>
                               </div>
                             </div>
@@ -1710,7 +1710,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                                 size="sm"
                                 asChild
                               >
-                                <a href={`/api/uploads/${att.file_name}`} download={att.original_name} target="_blank" rel="noreferrer">
+                                <a href={`/api/uploads/${att.fileName}`} download={att.originalName} target="_blank" rel="noreferrer">
                                   <Download className="h-4 w-4" />
                                 </a>
                               </Button>
