@@ -321,14 +321,14 @@ export default function AssetAudits() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Location (Optional)</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value}>
+                          <Select onValueChange={(v) => field.onChange(v === "__all__" ? "" : v)} value={field.value || "__all__"}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="All Locations" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">All Locations</SelectItem>
+                              <SelectItem value="__all__">All Locations</SelectItem>
                               {locations.map(loc => (
                                 <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
                               ))}
@@ -345,14 +345,14 @@ export default function AssetAudits() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Department (Optional)</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={(v) => field.onChange(v === "__all__" ? "" : v)} value={field.value || "__all__"}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="All Departments" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">All Departments</SelectItem>
+                            <SelectItem value="__all__">All Departments</SelectItem>
                             {departments.map(dept => (
                               <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
                             ))}
