@@ -346,6 +346,24 @@ export default function Maintenance() {
     }
   };
 
+  const handleLogFromSchedule = (schedule: MaintenanceScheduleWithDetails) => {
+    recordCreateForm.reset({
+      assetId: schedule.assetId,
+      maintenanceType: schedule.maintenanceType,
+      maintenanceDate: new Date().toISOString().split('T')[0],
+      scheduleId: schedule.id,
+      performedBy: "",
+      cost: schedule.estimatedCost || "0",
+      description: schedule.description || "",
+      workPerformed: "",
+      partsReplaced: "",
+      nextMaintenanceDate: "",
+      condition: "good",
+      notes: "",
+    });
+    setRecordCreateOpen(true);
+  };
+
   // Helper functions
   const getAssetName = (assetId: string) => {
     const asset = assets.find(a => a.id === assetId);
@@ -726,6 +744,16 @@ export default function Maintenance() {
                       Overdue
                     </div>
                   )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={() => handleLogFromSchedule(schedule)}
+                    data-testid={`button-log-schedule-${schedule.id}`}
+                  >
+                    <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
+                    Log Maintenance
+                  </Button>
                 </CardContent>
               </Card>
             ))}
@@ -955,98 +983,184 @@ export default function Maintenance() {
             </Dialog>
           </div>
 
-          {/* Records Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {records.map((record) => (
-              <Card key={record.id} className="relative" data-testid={`card-record-${record.id}`}>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-lg flex items-center">
-                        <Hammer className="mr-2 h-5 w-5" />
-                        {record.maintenanceType}
-                      </CardTitle>
-                      <CardDescription>
-                        {getAssetName(record.assetId)}
-                      </CardDescription>
-                    </div>
-                    <div className="flex space-x-1">
+          {/* Scheduled Maintenance from Schedules */}
+          {schedules.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Scheduled Maintenance ({schedules.length})
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {schedules.map((schedule) => (
+                  <Card
+                    key={`sched-${schedule.id}`}
+                    className={`relative border-dashed ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "border-red-400 bg-red-50/40 dark:bg-red-950/20" : "bg-muted/30"}`}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Wrench className="h-4 w-4" />
+                            {schedule.maintenanceType}
+                            <Badge variant="outline" className="text-xs ml-1 border-amber-400 text-amber-700 dark:text-amber-400">
+                              Scheduled
+                            </Badge>
+                          </CardTitle>
+                          <CardDescription>{getAssetName(schedule.assetId)}</CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-2 pt-0">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Next Due:</span>
+                        <span className={`text-sm ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "text-red-600 font-semibold" : ""}`}>
+                          {schedule.nextDue}
+                          {isOverdue(schedule.nextDue) && schedule.isActive === "true" && (
+                            <span className="ml-1 text-red-500">⚠</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Frequency:</span>
+                        <span className="text-sm capitalize">{schedule.frequency}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Priority:</span>
+                        <Badge variant={getPriorityColor(schedule.priority || "medium")} className="text-xs">
+                          {schedule.priority || "medium"}
+                        </Badge>
+                      </div>
+                      {schedule.estimatedCost && parseFloat(schedule.estimatedCost) > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">Est. Cost:</span>
+                          <span className="text-sm">${parseFloat(schedule.estimatedCost).toLocaleString()}</span>
+                        </div>
+                      )}
                       <Button
-                        variant="ghost"
+                        variant="default"
                         size="sm"
-                        onClick={() => handleEditRecord(record)}
-                        data-testid={`button-edit-record-${record.id}`}
+                        className="w-full mt-1"
+                        onClick={() => handleLogFromSchedule(schedule)}
                       >
-                        <Edit className="h-4 w-4" />
+                        <CheckCircle className="mr-2 h-3 w-3" />
+                        Log Completion
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteRecord(record.id)}
-                        data-testid={`button-delete-record-${record.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Date:</span>
-                    <span className="text-sm">{record.maintenanceDate}</span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Performed By:</span>
-                    <span className="text-sm">{record.performedBy}</span>
-                  </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
 
-                  {record.cost && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Cost:</span>
-                      <span className="text-sm">${parseFloat(record.cost).toLocaleString()}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Condition:</span>
-                    <Badge variant={getConditionColor(record.condition || "good")}>
-                      {record.condition || "good"}
-                    </Badge>
-                  </div>
-
-                  {record.workPerformed && (
-                    <div className="text-sm">
-                      <span className="font-medium">Work:</span>
-                      <p className="mt-1 text-muted-foreground">{record.workPerformed}</p>
-                    </div>
-                  )}
-
-                  {record.partsReplaced && (
-                    <div className="text-sm">
-                      <span className="font-medium">Parts Replaced:</span>
-                      <p className="mt-1 text-muted-foreground">{record.partsReplaced}</p>
-                    </div>
-                  )}
-
-                  {record.nextMaintenanceDate && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Next Due:</span>
-                      <span className="text-sm">{record.nextMaintenanceDate}</span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {records.length === 0 && (
-            <div className="text-center py-12">
-              <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-lg font-medium">No maintenance records found</h3>
-              <p className="mt-1 text-muted-foreground">
-                Get started by creating your first maintenance record.
-              </p>
+          {/* Completed Records */}
+          {(records.length > 0 || schedules.length === 0) && (
+            <div className="space-y-3">
+              {schedules.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    Completed Records ({records.length})
+                  </h3>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {records.map((record) => (
+                  <Card key={record.id} className="relative" data-testid={`card-record-${record.id}`}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle className="text-lg flex items-center gap-2">
+                            <Hammer className="mr-2 h-5 w-5" />
+                            {record.maintenanceType}
+                            <Badge variant="outline" className="text-xs border-green-500 text-green-700 dark:text-green-400">
+                              Completed
+                            </Badge>
+                          </CardTitle>
+                          <CardDescription>
+                            {getAssetName(record.assetId)}
+                          </CardDescription>
+                        </div>
+                        <div className="flex space-x-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditRecord(record)}
+                            data-testid={`button-edit-record-${record.id}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteRecord(record.id)}
+                            data-testid={`button-delete-record-${record.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Date:</span>
+                        <span className="text-sm">{record.maintenanceDate}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Performed By:</span>
+                        <span className="text-sm">{record.performedBy}</span>
+                      </div>
+                      {record.cost && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">Cost:</span>
+                          <span className="text-sm">${parseFloat(record.cost).toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Condition:</span>
+                        <Badge variant={getConditionColor(record.condition || "good")}>
+                          {record.condition || "good"}
+                        </Badge>
+                      </div>
+                      {record.workPerformed && (
+                        <div className="text-sm">
+                          <span className="font-medium">Work:</span>
+                          <p className="mt-1 text-muted-foreground">{record.workPerformed}</p>
+                        </div>
+                      )}
+                      {record.partsReplaced && (
+                        <div className="text-sm">
+                          <span className="font-medium">Parts Replaced:</span>
+                          <p className="mt-1 text-muted-foreground">{record.partsReplaced}</p>
+                        </div>
+                      )}
+                      {record.nextMaintenanceDate && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">Next Due:</span>
+                          <span className="text-sm">{record.nextMaintenanceDate}</span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              {records.length === 0 && schedules.length === 0 && (
+                <div className="text-center py-12">
+                  <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground" />
+                  <h3 className="mt-2 text-lg font-medium">No maintenance records found</h3>
+                  <p className="mt-1 text-muted-foreground">
+                    Create a maintenance schedule first, or log a record directly.
+                  </p>
+                </div>
+              )}
+              {records.length === 0 && schedules.length > 0 && (
+                <div className="text-center py-8 rounded-lg border border-dashed">
+                  <CheckCircle className="mx-auto h-8 w-8 text-muted-foreground opacity-40" />
+                  <p className="mt-2 text-sm text-muted-foreground">No completed records yet.</p>
+                  <p className="text-xs text-muted-foreground">Click "Log Completion" on a scheduled item above to log completed work.</p>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
