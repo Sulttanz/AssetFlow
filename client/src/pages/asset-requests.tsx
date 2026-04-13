@@ -11,6 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -429,7 +430,7 @@ export default function AssetRequests() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <FormLabel>Reason for Rejection</FormLabel>
+              <Label>Reason for Rejection</Label>
               <Textarea
                 placeholder="Enter rejection reason..."
                 value={rejectionReason}
@@ -458,7 +459,7 @@ export default function AssetRequests() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <FormLabel>Assign Asset</FormLabel>
+              <Label>Assign Asset</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
