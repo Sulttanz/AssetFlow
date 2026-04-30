@@ -37,6 +37,7 @@ import WarrantiesReport from "@/pages/reports/warranties";
 import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
 import ReleasedAssetsReport from "@/pages/reports/released-assets";
 import DepreciationReport from "@/pages/reports/depreciation";
+import AssignmentHistoryReport from "@/pages/reports/assignment-history";
 import ImportPage from "@/pages/import";
 import Settings from "@/pages/settings";
 import AssetDisposal from "@/pages/asset-disposal";
@@ -92,6 +93,7 @@ function Router() {
                   <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
                   <ProtectedRoute path="/reports/released-assets" component={ReleasedAssetsReport} />
                   <ProtectedRoute path="/reports/depreciation" component={DepreciationReport} />
+                  <ProtectedRoute path="/reports/assignment-history" component={AssignmentHistoryReport} />
                   <ProtectedRoute path="/import" component={ImportPage} />
                   <ProtectedRoute path="/settings" component={Settings} />
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} />

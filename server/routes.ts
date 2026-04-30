@@ -3350,6 +3350,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/reports/assignment-history", requireAuth, async (req, res) => {
+    try {
+      const allAssignments = await storage.getAssignmentsWithDetails();
+      const deptsList = await storage.getDepartments();
+      const deptMap = new Map(deptsList.map((d: any) => [d.id, d.name]));
+
+      const records = allAssignments.map((a: any) => {
+        const employeeName = a.employee
+          ? `${a.employee.firstName} ${a.employee.lastName}`.trim()
+          : "Unknown";
+        const department = a.employee?.departmentId
+          ? (deptMap.get(a.employee.departmentId) || null)
+          : null;
+
+        let durationDays: number | null = null;
+        if (a.assignedDate) {
+          const start = new Date(a.assignedDate);
+          const end = a.returnedDate ? new Date(a.returnedDate) : new Date();
+          durationDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        }
+
+        return {
+          id: a.id,
+          assetId: a.assetId,
+          assetTag: a.asset?.assetTag || null,
+          assetName: a.asset?.name || null,
+          assetType: a.asset?.type || null,
+          serialNumber: a.asset?.serialNumber || null,
+          employeeId: a.employeeId,
+          employeeName,
+          department,
+          assignedDate: a.assignedDate,
+          returnedDate: a.returnedDate || null,
+          durationDays,
+          status: a.returnedDate ? "returned" : "active",
+          notes: a.notes || null,
+        };
+      });
+
+      // Sort: active first, then returned (most recent first)
+      records.sort((a: any, b: any) => {
+        if (a.status === "active" && b.status !== "active") return -1;
+        if (a.status !== "active" && b.status === "active") return 1;
+        return new Date(b.assignedDate || 0).getTime() - new Date(a.assignedDate || 0).getTime();
+      });
+
+      const activeRecords = records.filter((r: any) => r.status === "active");
+      const returnedRecords = records.filter((r: any) => r.status === "returned");
+      const durations = returnedRecords.map((r: any) => r.durationDays).filter((d: any) => d !== null);
+      const avgDuration = durations.length
+        ? Math.round(durations.reduce((a: number, b: number) => a + b, 0) / durations.length)
+        : null;
+      const uniqueAssets = new Set(records.map((r: any) => r.assetId)).size;
+      const uniqueEmployees = new Set(records.map((r: any) => r.employeeId)).size;
+
+      res.json({
+        summary: {
+          totalAssignments: records.length,
+          activeAssignments: activeRecords.length,
+          returnedAssignments: returnedRecords.length,
+          avgDurationDays: avgDuration,
+          uniqueAssets,
+          uniqueEmployees,
+        },
+        records,
+      });
+    } catch (error) {
+      console.error("Assignment history report error:", error);
+      res.status(500).json({ message: "Failed to generate assignment history report" });
+    }
+  });
+
   app.get("/api/reports/vendors", requireAuth, async (req, res) => {
     try {
       const vendorsList = await storage.getVendors();
