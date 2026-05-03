@@ -189,8 +189,8 @@ export interface IStorage {
   getAssetAuditSession(id: string): Promise<AssetAuditSession | undefined>;
   createAssetAuditSession(session: InsertAssetAuditSession): Promise<AssetAuditSession>;
   updateAssetAuditSession(id: string, session: Partial<InsertAssetAuditSession>): Promise<AssetAuditSession | undefined>;
-  getAuditItems(sessionId: string): Promise<AssetAuditItem[]>;
-  upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; assetId: string }): Promise<AssetAuditItem>;
+  getAuditItems(sessionId: string): Promise<any[]>;
+  upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; id?: string }): Promise<AssetAuditItem>;
 
   // Asset Relationships
   getAssetRelationships(assetId: string): Promise<AssetRelationship[]>;
@@ -1511,13 +1511,19 @@ export class MemStorage implements IStorage {
     return updatedSession;
   }
 
-  async getAuditItems(sessionId: string): Promise<AssetAuditItem[]> {
-    return Array.from(this.assetAuditItems.values()).filter(item => item.sessionId === sessionId);
+  async getAuditItems(sessionId: string): Promise<any[]> {
+    const items = Array.from(this.assetAuditItems.values()).filter(item => item.sessionId === sessionId);
+    return items.map(item => {
+      const asset = this.assets.get(item.assetId) || null;
+      return { ...item, asset };
+    });
   }
 
-  async upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; assetId: string }): Promise<AssetAuditItem> {
-    const existing = Array.from(this.assetAuditItems.values()).find(i => i.sessionId === item.sessionId && i.assetId === item.assetId);
-    const id = existing?.id || randomUUID();
+  async upsertAuditItem(item: Partial<InsertAssetAuditItem> & { sessionId: string; id?: string }): Promise<AssetAuditItem> {
+    const existing = item.id
+      ? this.assetAuditItems.get(item.id)
+      : Array.from(this.assetAuditItems.values()).find(i => i.sessionId === item.sessionId && i.assetId === item.assetId);
+    const id = item.id || existing?.id || randomUUID();
     const newItem: AssetAuditItem = {
       ...existing,
       ...item,
@@ -2946,13 +2952,19 @@ export class DatabaseStorage implements IStorage {
     return result[0] || undefined;
   }
 
-  async getAuditItems(sessionId: string): Promise<AssetAuditItem[]> {
-    return await db.select().from(assetAuditItems).where(eq(assetAuditItems.sessionId, sessionId));
+  async getAuditItems(sessionId: string): Promise<any[]> {
+    const items = await db.select().from(assetAuditItems).where(eq(assetAuditItems.sessionId, sessionId));
+    if (items.length === 0) return [];
+    const assetIds = items.map(i => i.assetId);
+    const assetList = await db.select().from(assets).where(inArray(assets.id, assetIds));
+    const assetMap = new Map(assetList.map(a => [a.id, a]));
+    return items.map(item => ({ ...item, asset: assetMap.get(item.assetId) || null }));
   }
 
-  async upsertAuditItem(item: InsertAssetAuditItem): Promise<AssetAuditItem> {
+  async upsertAuditItem(item: InsertAssetAuditItem & { id?: string }): Promise<AssetAuditItem> {
     if (item.id) {
-      const result = await db.update(assetAuditItems).set(item).where(eq(assetAuditItems.id, item.id)).returning();
+      const { id, ...updateData } = item;
+      const result = await db.update(assetAuditItems).set(updateData).where(eq(assetAuditItems.id, id)).returning();
       return result[0];
     } else {
       const result = await db.insert(assetAuditItems).values(item).returning();

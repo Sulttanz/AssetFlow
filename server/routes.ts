@@ -484,6 +484,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId: req.params.id
       });
       const item = await storage.upsertAuditItem(validatedData);
+      // Recalculate session counts
+      const allItems = await storage.getAuditItems(req.params.id);
+      await storage.updateAssetAuditSession(req.params.id, {
+        totalAssets: allItems.length,
+        verifiedCount: allItems.filter((i: any) => i.status === 'verified').length,
+        missingCount: allItems.filter((i: any) => i.status === 'missing').length,
+      });
       res.status(201).json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });
@@ -495,12 +502,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertAssetAuditItemSchema.partial().parse({
         ...req.body,
-        id: req.params.itemId,
         sessionId: req.params.sessionId,
         verifiedBy: req.user?.id,
         verifiedAt: new Date()
       });
-      const item = await storage.upsertAuditItem(validatedData as any);
+      // Pass id separately — it is omitted from insertAssetAuditItemSchema so must bypass schema
+      const item = await storage.upsertAuditItem({ ...validatedData, id: req.params.itemId, sessionId: req.params.sessionId } as any);
+      // Recalculate session counts
+      const allItems = await storage.getAuditItems(req.params.sessionId);
+      await storage.updateAssetAuditSession(req.params.sessionId, {
+        totalAssets: allItems.length,
+        verifiedCount: allItems.filter((i: any) => i.status === 'verified').length,
+        missingCount: allItems.filter((i: any) => i.status === 'missing').length,
+      });
       res.json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });

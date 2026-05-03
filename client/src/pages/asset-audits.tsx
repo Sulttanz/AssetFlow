@@ -105,7 +105,7 @@ export default function AssetAudits() {
   const { toast } = useToast();
   const [currentPage, setCurrentPage] = useState(1);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedSession, setSelectedSession] = useState<AssetAuditSession | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [isVerifyDialogOpen, setIsVerifyDialogOpen] = useState(false);
   const [isAddAssetDialogOpen, setIsAddAssetDialogOpen] = useState(false);
@@ -115,6 +115,12 @@ export default function AssetAudits() {
   const { data: sessions = [], isLoading: isLoadingSessions } = useQuery<AssetAuditSession[]>({
     queryKey: ["/api/asset-audits"],
   });
+
+  // Derive selectedSession reactively so it auto-updates after mutations
+  const selectedSession = useMemo(
+    () => sessions.find(s => s.id === selectedSessionId) ?? null,
+    [sessions, selectedSessionId]
+  );
 
   const { data: locations = [] } = useQuery<Location[]>({
     queryKey: ["/api/locations"],
@@ -219,7 +225,7 @@ export default function AssetAudits() {
   const paginatedSessions = sessions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const handleOpenDetail = (session: AssetAuditSession) => {
-    setSelectedSession(session);
+    setSelectedSessionId(session.id);
     setIsDetailDialogOpen(true);
   };
 
