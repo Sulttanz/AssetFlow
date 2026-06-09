@@ -423,6 +423,16 @@ export default function ContractsPage() {
           </Select>
         </div>
 
+        {isLoading ? (
+          <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>
+        ) : filteredContracts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
+            <div className="text-5xl mb-4">📄</div>
+            <h3 className="text-lg font-semibold mb-1">No contracts found</h3>
+            <p className="text-sm">Try adjusting your filters or create your first contract using the button above.</p>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
           {paginatedContracts.map((contract) => {
             const vendor = vendors.find(v => v.id === contract.vendorId);
