@@ -87,3 +87,52 @@
   background-color: hsl(var(--primary) / 0.1);
   border-right: 3px solid hsl(var(--primary));
 }
+
+/* ── Mobile responsiveness ── */
+@media (max-width: 767px) {
+  /* Page content padding: tighten on mobile */
+  .flex-1.overflow-auto > div {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  /* Tables: horizontal scroll */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* Dialogs: full width on mobile */
+  [role="dialog"] > div,
+  [data-radix-popper-content-wrapper] {
+    max-width: 100vw !important;
+    width: 100vw !important;
+  }
+
+  /* Stat/summary card grids: single column */
+  .grid-cols-2,
+  .grid-cols-3,
+  .grid-cols-4,
+  .sm\:grid-cols-2,
+  .sm\:grid-cols-3,
+  .sm\:grid-cols-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Keep 2-col grids for small cards */
+  .grid.grid-cols-2.gap-2,
+  .grid.grid-cols-2.gap-3 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Touch targets: minimum 44px */
+  button, [role="button"], a {
+    min-height: 36px;
+  }
+
+  /* Headings */
+  h1 { font-size: 1.4rem !important; }
+  h2 { font-size: 1.15rem !important; }
+}

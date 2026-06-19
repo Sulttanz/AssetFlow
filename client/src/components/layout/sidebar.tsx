@@ -31,18 +31,20 @@ import {
   ClipboardList,
   FileSignature,
   ClipboardCheck,
-  GitBranch
+  GitBranch,
+  Menu,
+  X
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 
-export default function Sidebar() {
+function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
@@ -136,32 +138,31 @@ export default function Sidebar() {
   ];
 
   return (
-    <div className="w-64 bg-card border-r border-border flex flex-col" data-testid="sidebar">
+    <div className="flex flex-col h-full bg-card">
       {/* Logo/Header */}
-      <div className="p-6 border-b border-border">
+      <div className="p-5 border-b border-border">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-            <Server className="text-primary-foreground text-lg" />
+          <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shrink-0">
+            <Server className="text-primary-foreground w-5 h-5" />
           </div>
           <div>
-            <h1 className="font-semibold text-lg text-foreground">IT Asset Manager</h1>
-            <p className="text-sm text-muted-foreground">v2.1.0</p>
+            <h1 className="font-semibold text-base text-foreground leading-tight">IT Asset Manager</h1>
+            <p className="text-xs text-muted-foreground">v2.1.0</p>
           </div>
         </div>
       </div>
-      
+
       {/* Navigation Menu */}
-      <nav className="flex-1 p-4 space-y-6 overflow-y-auto" data-testid="navigation-menu">
+      <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
         {navigationSections.map((section) => (
           <div key={section.title}>
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-3">
+            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-3">
               {section.title}
             </h3>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {section.items.map((item: any) => {
                 const Icon = item.icon;
-                
-                // Handle items with submenu
+
                 if (item.hasSubmenu) {
                   const isExpanded = section.title === "Analytics" ? reportsExpanded : false;
                   return (
@@ -169,7 +170,7 @@ export default function Sidebar() {
                       <button
                         onClick={() => setReportsExpanded(!reportsExpanded)}
                         className={cn(
-                          "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium",
+                          "w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium",
                           item.current
                             ? "bg-primary/10 text-primary"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -177,23 +178,20 @@ export default function Sidebar() {
                         data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                       >
                         <div className="flex items-center space-x-3">
-                          <Icon className="w-4 h-4" />
+                          <Icon className="w-4 h-4 shrink-0" />
                           <span>{item.name}</span>
                         </div>
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )}
+                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                       </button>
                       {isExpanded && item.submenu && (
-                        <div className="ml-4 mt-1 space-y-1">
+                        <div className="ml-4 mt-0.5 space-y-0.5">
                           {item.submenu.map((subitem: any) => (
                             <Link
                               key={subitem.name}
                               href={subitem.href}
+                              onClick={onNavigate}
                               className={cn(
-                                "flex items-center space-x-3 px-3 py-2 rounded-md text-sm",
+                                "flex items-center px-3 py-2 rounded-md text-sm",
                                 subitem.current
                                   ? "bg-primary/10 text-primary font-medium"
                                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -208,21 +206,21 @@ export default function Sidebar() {
                     </div>
                   );
                 }
-                
-                // Handle regular items
+
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
+                    onClick={onNavigate}
                     className={cn(
-                      "flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium",
+                      "flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium",
                       item.current
-                        ? "bg-primary/10 text-primary border-r-3 border-primary"
+                        ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent"
                     )}
                     data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-4 h-4 shrink-0" />
                     <span>{item.name}</span>
                   </Link>
                 );
@@ -231,32 +229,29 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
-      
+
       {/* User Profile */}
       <div className="p-4 border-t border-border">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-            <User className="text-primary-foreground text-sm" />
+          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center shrink-0">
+            <User className="text-primary-foreground w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground" data-testid="user-name">
+            <p className="text-sm font-medium text-foreground truncate" data-testid="user-name">
               {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.username || 'User'}
             </p>
-            <p className="text-xs text-muted-foreground" data-testid="user-role">
+            <p className="text-xs text-muted-foreground truncate" data-testid="user-role">
               {user?.roles?.[0]?.name || 'User'}
             </p>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button 
-                className="text-muted-foreground hover:text-foreground"
-                data-testid="user-menu-button"
-              >
+              <button className="text-muted-foreground hover:text-foreground p-1" data-testid="user-menu-button">
                 <MoreVertical className="w-4 h-4" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={() => logoutMutation.mutate()}
                 className="text-destructive focus:text-destructive cursor-pointer"
                 data-testid="signout-button"
@@ -269,5 +264,42 @@ export default function Sidebar() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Sidebar() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <>
+      {/* ── Mobile top header ── */}
+      <div className="md:hidden fixed top-0 inset-x-0 z-40 h-14 bg-card border-b border-border flex items-center px-4 gap-3 shadow-sm">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-primary rounded-md flex items-center justify-center">
+            <Server className="text-primary-foreground w-4 h-4" />
+          </div>
+          <span className="font-semibold text-sm text-foreground">IT Asset Manager</span>
+        </div>
+      </div>
+
+      {/* ── Mobile drawer ── */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="p-0 w-72 border-r">
+          <NavContent onNavigate={() => setMobileOpen(false)} />
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Desktop sidebar ── */}
+      <div className="hidden md:flex w-64 bg-card border-r border-border flex-col shrink-0" data-testid="sidebar">
+        <NavContent />
+      </div>
+    </>
   );
 }
