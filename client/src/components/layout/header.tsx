@@ -79,42 +79,24 @@ export default function Header({
   }
 
   return (
-    <header className="bg-card border-b border-border p-6" data-testid="page-header">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold text-foreground" data-testid="page-title">
+    <header className="bg-card border-b border-border px-4 py-4 md:px-6 md:py-6" data-testid="page-header">
+      {/* Row 1: Title + Bell (always visible) */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground leading-tight" data-testid="page-title">
             {title}
           </h1>
-          <p className="text-muted-foreground" data-testid="page-description">
+          <p className="text-sm text-muted-foreground mt-0.5" data-testid="page-description">
             {description}
           </p>
         </div>
 
-        <div className="flex items-center space-x-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 text-muted-foreground h-4 w-4" />
-            <Input
-              type="text"
-              placeholder={searchPlaceholder}
-              className="w-80 pl-10 pr-4"
-              onChange={(e) => onSearch?.(e.target.value)}
-              data-testid="search-input"
-            />
-          </div>
-
-          {children}
-
-          {showAddButton && (
-            <Button onClick={onAddClick} data-testid="add-button">
-              <Plus className="mr-2 h-4 w-4" />
-              {addButtonText}
-            </Button>
-          )}
-
+        {/* Bell always stays in the top-right corner on mobile */}
+        <div className="flex items-center gap-2 shrink-0">
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <button
-                className="text-muted-foreground hover:text-foreground relative"
+                className="text-muted-foreground hover:text-foreground relative p-1"
                 data-testid="notifications-button"
               >
                 <Bell className="h-5 w-5" />
@@ -124,7 +106,7 @@ export default function Header({
                   </span>
                 )}
                 {badgeCount === 0 && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-muted rounded-full" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-muted rounded-full" />
                 )}
               </button>
             </PopoverTrigger>
@@ -176,6 +158,29 @@ export default function Header({
             </PopoverContent>
           </Popover>
         </div>
+      </div>
+
+      {/* Row 2: Search + action buttons — full width below title on mobile */}
+      <div className="flex items-center gap-2 mt-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <Input
+            type="text"
+            placeholder={searchPlaceholder}
+            className="w-full pl-10 pr-4"
+            onChange={(e) => onSearch?.(e.target.value)}
+            data-testid="search-input"
+          />
+        </div>
+
+        {children}
+
+        {showAddButton && (
+          <Button onClick={onAddClick} data-testid="add-button" size="sm" className="shrink-0">
+            <Plus className="h-4 w-4 md:mr-2" />
+            <span className="hidden md:inline">{addButtonText}</span>
+          </Button>
+        )}
       </div>
     </header>
   );
