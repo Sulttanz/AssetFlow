@@ -2087,7 +2087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const po = await storage.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
-      if (po.status !== 'delivered') return res.status(400).json({ message: "Purchase order must be in 'delivered' status to create assets" });
+      if (po.status !== 'received') return res.status(400).json({ message: "Purchase order must be in 'received' status to create assets" });
 
       const items = await storage.getPurchaseOrderItems(req.params.id);
       if (!items.length) return res.status(400).json({ message: "No items found in purchase order" });
