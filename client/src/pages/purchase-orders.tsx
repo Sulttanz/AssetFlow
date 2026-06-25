@@ -1,12 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ShoppingCart, Edit2, Trash2, Calendar, DollarSign, Package, Building2, User, FileText, Boxes } from "lucide-react";
+import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Employee, type Department, type Vendor } from "@shared/schema";
+import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Department, type Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
 import {
@@ -42,444 +41,253 @@ const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
 
 type PurchaseOrderFormData = z.infer<typeof purchaseOrderFormSchema>;
 
-const statusColors = {
+const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   approved: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   ordered: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   received: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  cancelled: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+  cancelled: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
 };
 
-export default function PurchaseOrders() {
-  const { toast } = useToast();
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<PurchaseOrderWithDetails | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+const STATUS_OPTIONS = [
+  { value: "__all__", label: "All Statuses" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "ordered", label: "Ordered" },
+  { value: "received", label: "Received" },
+  { value: "cancelled", label: "Cancelled" },
+];
 
-  // Fetch purchase orders
-  const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
-    queryKey: ["/api/purchase-orders"],
+// ─── Form component defined OUTSIDE the page component to prevent focus loss ───
+function PurchaseOrderForm({
+  form,
+  onSubmit,
+  submitText,
+  vendors,
+  departments,
+}: {
+  form: any;
+  onSubmit: (data: PurchaseOrderFormData) => void;
+  submitText: string;
+  vendors: Vendor[];
+  departments: Department[];
+}) {
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "items",
   });
 
-  // Pagination calculations
-  const totalPages = useMemo(() => {
-    return Math.ceil((orders?.length || 0) / ITEMS_PER_PAGE);
-  }, [orders]);
-
-  const paginatedPOs = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return orders?.slice(startIndex, endIndex) || [];
-  }, [orders, currentPage]);
-
-  // Clamp currentPage to valid range when total pages changes
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  // Fetch vendors for vendor selection
-  const { data: vendors = [] } = useQuery<Vendor[]>({
-    queryKey: ["/api/vendors"],
-  });
-
-  // Fetch departments for department selection
-  const { data: departments = [] } = useQuery<Department[]>({
-    queryKey: ["/api/departments"],
-  });
-
-  // Create mutation
-  const createMutation = useMutation({
-    mutationFn: (data: PurchaseOrderFormData) => apiRequest("POST", "/api/purchase-orders", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      setIsCreateDialogOpen(false);
-      createForm.reset({
-        poNumber: generatePONumber(),
-        vendorId: "",
-        reference: "",
-        orderDate: new Date().toISOString().split('T')[0],
-        departmentId: "none",
-        status: "pending",
-        notes: "",
-        totalAmount: "0",
-        items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
-      });
-      toast({ title: "Success", description: "Purchase order created successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create purchase order", variant: "destructive" });
-    },
-  });
-
-  // Update mutation
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<PurchaseOrderFormData> }) =>
-      apiRequest("PUT", `/api/purchase-orders/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      setEditingOrder(null);
-      toast({ title: "Success", description: "Purchase order updated successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update purchase order", variant: "destructive" });
-    },
-  });
-
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/purchase-orders/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      toast({ title: "Success", description: "Purchase order deleted successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete purchase order", variant: "destructive" });
-    },
-  });
-
-  const createAssetsMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/purchase-orders/${id}/create-assets`),
-    onSuccess: async (data: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      const count = data?.created ?? "some";
-      toast({ title: "Assets Created", description: `${count} asset(s) created from this purchase order.` });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create assets from purchase order", variant: "destructive" });
-    },
-  });
-
-  // Generate unique PO number with seconds and random suffix
-  const generatePONumber = () => {
-    const date = new Date();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-    const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-    return `PO-${year}${month}${day}-${hours}${minutes}${seconds}-${random}`;
-  };
-
-  const createForm = useForm<PurchaseOrderFormData>({
-    resolver: zodResolver(purchaseOrderFormSchema),
-    defaultValues: {
-      poNumber: generatePONumber(),
-      vendorId: "",
-      reference: "",
-      orderDate: new Date().toISOString().split('T')[0],
-      departmentId: "none",
-      status: "pending",
-      notes: "",
-      totalAmount: "0",
-      items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
-    },
-  });
-
-  const editForm = useForm<PurchaseOrderFormData>({
-    resolver: zodResolver(purchaseOrderFormSchema),
-    defaultValues: {
-      poNumber: "",
-      vendorId: "",
-      reference: "",
-      orderDate: new Date().toISOString().split('T')[0],
-      departmentId: "none",
-      status: "pending",
-      notes: "",
-      totalAmount: "0",
-      items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
-    },
-  });
-
-  // Regenerate PO number when create dialog opens
-  useEffect(() => {
-    if (isCreateDialogOpen) {
-      const newPONumber = generatePONumber();
-      createForm.setValue('poNumber', newPONumber);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCreateDialogOpen]);
-
-  const handleCreate = (data: PurchaseOrderFormData) => {
-    const cleanData = {
-      ...data,
-      vendorId: data.vendorId === "" ? undefined : data.vendorId,
-      departmentId: data.departmentId === "none" ? undefined : data.departmentId,
-      // Calculate total from items
-      totalAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0).toString()
-    };
-    createMutation.mutate(cleanData);
-  };
-
-  const handleEdit = (order: PurchaseOrderWithDetails) => {
-    setEditingOrder(order);
-    editForm.reset({
-      poNumber: order.poNumber,
-      vendorId: order.vendorId || "",
-      reference: order.reference || "",
-      orderDate: order.orderDate,
-      departmentId: order.departmentId || "none",
-      status: order.status,
-      notes: order.notes || "",
-      totalAmount: order.totalAmount,
-      items: order.items?.map(item => ({
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: parseFloat(item.unitPrice),
-        assetId: item.assetId || ""
-      })) || [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }]
-    });
-  };
-
-  const handleUpdate = (data: PurchaseOrderFormData) => {
-    if (!editingOrder) return;
-    const cleanData = {
-      ...data,
-      vendorId: data.vendorId === "" ? undefined : data.vendorId,
-      departmentId: data.departmentId === "none" ? undefined : data.departmentId,
-      totalAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0).toString()
-    };
-    updateMutation.mutate({ id: editingOrder.id, data: cleanData });
-  };
-
-  const PurchaseOrderForm = ({ form, onSubmit, submitText }: {
-    form: any;
-    onSubmit: (data: PurchaseOrderFormData) => void;
-    submitText: string;
-  }) => {
-    const { fields, append, remove } = useFieldArray({
-      control: form.control,
-      name: "items"
-    });
-
-    return (
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="poNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>PO Number</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="e.g., PO-2024-001" data-testid="input-po-number" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Status</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-status">
-                        <SelectValue placeholder="Select status" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="approved">Approved</SelectItem>
-                      <SelectItem value="ordered">Ordered</SelectItem>
-                      <SelectItem value="received">Received</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="vendorId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Vendor</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-vendor">
-                        <SelectValue placeholder="Select vendor" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {vendors.map((vendor) => (
-                        <SelectItem key={vendor.id} value={vendor.id}>
-                          {vendor.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="reference"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Reference</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="e.g., Project XYZ" data-testid="input-reference" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="departmentId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Department</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-department">
-                        <SelectValue placeholder="Select department" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="none">No Department</SelectItem>
-                      {departments.map((department) => (
-                        <SelectItem key={department.id} value={department.id}>
-                          {department.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="orderDate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Order Date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} data-testid="input-order-date" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={form.control}
-              name="expectedDelivery"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Expected Delivery</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} data-testid="input-expected-delivery" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-          
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="notes"
+            name="poNumber"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Notes</FormLabel>
+                <FormLabel>PO Number</FormLabel>
                 <FormControl>
-                  <Textarea {...field} placeholder="Additional notes..." data-testid="input-notes" />
+                  <Input {...field} placeholder="e.g., PO-2024-001" data-testid="input-po-number" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
 
-          <Separator />
-          
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-lg font-medium">Order Items</h3>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => append({ description: "", quantity: 1, unitPrice: 0, assetId: "" })}
-                data-testid="button-add-item"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Add Item
-              </Button>
-            </div>
+          <FormField
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Status</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger data-testid="select-status">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="ordered">Ordered</SelectItem>
+                    <SelectItem value="received">Received</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
-            {fields.map((field, index) => (
-              <Card key={field.id} className="p-4">
-                <div className="flex justify-between items-start mb-4">
-                  <h4 className="text-sm font-medium">Item {index + 1}</h4>
-                  {fields.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => remove(index)}
-                      data-testid={`button-remove-item-${index}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="vendorId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Vendor</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger data-testid="select-vendor">
+                      <SelectValue placeholder="Select vendor" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {vendors.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.id}>
+                        {vendor.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="reference"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Reference</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="e.g., Project XYZ" data-testid="input-reference" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="departmentId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Department</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger data-testid="select-department">
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="none">No Department</SelectItem>
+                    {departments.map((department) => (
+                      <SelectItem key={department.id} value={department.id}>
+                        {department.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="orderDate"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Order Date</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} data-testid="input-order-date" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="expectedDelivery"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Expected Delivery</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} data-testid="input-expected-delivery" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="notes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Notes</FormLabel>
+              <FormControl>
+                <Textarea {...field} placeholder="Additional notes..." data-testid="input-notes" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Separator />
+
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-base font-medium">Order Items</h3>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => append({ description: "", quantity: 1, unitPrice: 0, assetId: "" })}
+              data-testid="button-add-item"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Add Item
+            </Button>
+          </div>
+
+          {fields.map((field, index) => (
+            <Card key={field.id} className="p-3">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-sm font-medium text-muted-foreground">Item {index + 1}</span>
+                {fields.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(index)}
+                    data-testid={`button-remove-item-${index}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <FormField
+                  control={form.control}
+                  name={`items.${index}.description`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., Dell Laptop 15-inch" data-testid={`input-item-description-${index}`} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name={`items.${index}.description`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Item Description</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="e.g., Dell Laptop 15-inch" data-testid={`input-item-description-${index}`} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                />
 
-                  <FormField
-                    control={form.control}
-                    name={`items.${index}.assetId`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Asset ID (Optional)</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Link to existing asset" data-testid={`input-item-asset-${index}`} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name={`items.${index}.quantity`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Quantity</FormLabel>
+                        <FormLabel>Qty</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -516,87 +324,313 @@ export default function PurchaseOrders() {
                   />
                 </div>
 
-              </Card>
-            ))}
-          </div>
+                <FormField
+                  control={form.control}
+                  name={`items.${index}.assetId`}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Asset ID (Optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Link to existing asset" data-testid={`input-item-asset-${index}`} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </Card>
+          ))}
+        </div>
 
-          <div className="flex justify-end space-x-2">
-            <Button type="submit" data-testid="button-submit">
-              {submitText}
-            </Button>
-          </div>
-        </form>
-      </Form>
-    );
+        <div className="flex justify-end pt-2">
+          <Button type="submit" data-testid="button-submit">
+            {submitText}
+          </Button>
+        </div>
+      </form>
+    </Form>
+  );
+}
+
+// ─── Quick status update buttons ───
+const WORKFLOW: Record<string, string | null> = {
+  pending: "approved",
+  approved: "ordered",
+  ordered: "received",
+  received: null,
+  cancelled: null,
+};
+
+const WORKFLOW_LABEL: Record<string, string> = {
+  approved: "Mark Approved",
+  ordered: "Mark Ordered",
+  received: "Mark Received",
+};
+
+function generatePONumber() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  const random = Math.random().toString(36).substring(2, 5).toUpperCase();
+  return `PO-${year}${month}${day}-${hours}${minutes}${seconds}-${random}`;
+}
+
+export default function PurchaseOrders() {
+  const { toast } = useToast();
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<PurchaseOrderWithDetails | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("__all__");
+
+  const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
+    queryKey: ["/api/purchase-orders"],
+  });
+
+  const { data: vendors = [] } = useQuery<Vendor[]>({
+    queryKey: ["/api/vendors"],
+  });
+
+  const { data: departments = [] } = useQuery<Department[]>({
+    queryKey: ["/api/departments"],
+  });
+
+  const filteredOrders = useMemo(() => {
+    if (statusFilter === "__all__") return orders;
+    return orders.filter((o) => o.status === statusFilter);
+  }, [orders, statusFilter]);
+
+  const totalPages = useMemo(() => Math.ceil(filteredOrders.length / ITEMS_PER_PAGE), [filteredOrders]);
+
+  const paginatedPOs = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredOrders.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredOrders, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const createMutation = useMutation({
+    mutationFn: (data: PurchaseOrderFormData) => apiRequest("POST", "/api/purchase-orders", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      setIsCreateDialogOpen(false);
+      createForm.reset({ ...defaultFormValues, poNumber: generatePONumber() });
+      toast({ title: "Success", description: "Purchase order created successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create purchase order", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<PurchaseOrderFormData> }) =>
+      apiRequest("PUT", `/api/purchase-orders/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      setEditingOrder(null);
+      toast({ title: "Success", description: "Purchase order updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update purchase order", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/purchase-orders/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      toast({ title: "Success", description: "Purchase order deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete purchase order", variant: "destructive" });
+    },
+  });
+
+  const createAssetsMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/purchase-orders/${id}/create-assets`),
+    onSuccess: async (data: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      const count = data?.created ?? "some";
+      toast({ title: "Assets Created", description: `${count} asset(s) created from this purchase order.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create assets from purchase order", variant: "destructive" });
+    },
+  });
+
+  const defaultFormValues = {
+    poNumber: generatePONumber(),
+    vendorId: "",
+    reference: "",
+    orderDate: new Date().toISOString().split("T")[0],
+    departmentId: "none",
+    status: "pending" as const,
+    notes: "",
+    totalAmount: "0",
+    items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }],
+  };
+
+  const createForm = useForm<PurchaseOrderFormData>({
+    resolver: zodResolver(purchaseOrderFormSchema),
+    defaultValues: defaultFormValues,
+  });
+
+  const editForm = useForm<PurchaseOrderFormData>({
+    resolver: zodResolver(purchaseOrderFormSchema),
+    defaultValues: defaultFormValues,
+  });
+
+  useEffect(() => {
+    if (isCreateDialogOpen) {
+      createForm.setValue("poNumber", generatePONumber());
+    }
+  }, [isCreateDialogOpen]);
+
+  const handleCreate = (data: PurchaseOrderFormData) => {
+    const cleanData = {
+      ...data,
+      vendorId: data.vendorId === "" ? undefined : data.vendorId,
+      departmentId: data.departmentId === "none" ? undefined : data.departmentId,
+      totalAmount: data.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0).toString(),
+    };
+    createMutation.mutate(cleanData);
+  };
+
+  const handleEdit = (order: PurchaseOrderWithDetails) => {
+    setEditingOrder(order);
+    editForm.reset({
+      poNumber: order.poNumber,
+      vendorId: order.vendorId || "",
+      reference: order.reference || "",
+      orderDate: order.orderDate,
+      departmentId: order.departmentId || "none",
+      status: order.status as any,
+      notes: order.notes || "",
+      totalAmount: order.totalAmount,
+      items: order.items?.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unitPrice),
+        assetId: item.assetId || "",
+      })) || [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }],
+    });
+  };
+
+  const handleUpdate = (data: PurchaseOrderFormData) => {
+    if (!editingOrder) return;
+    const cleanData = {
+      ...data,
+      vendorId: data.vendorId === "" ? undefined : data.vendorId,
+      departmentId: data.departmentId === "none" ? undefined : data.departmentId,
+      totalAmount: data.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0).toString(),
+    };
+    updateMutation.mutate({ id: editingOrder.id, data: cleanData });
+  };
+
+  const handleAdvanceStatus = (order: PurchaseOrderWithDetails) => {
+    const nextStatus = WORKFLOW[order.status];
+    if (!nextStatus) return;
+    updateMutation.mutate({ id: order.id, data: { status: nextStatus as any } });
   };
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-8">
-        <div className="flex items-center justify-center h-64">
-          <p>Loading purchase orders...</p>
-        </div>
+      <div className="flex-1 p-8 flex items-center justify-center h-64">
+        <p>Loading purchase orders...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 p-8 overflow-auto" data-testid="purchase-orders-page">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+    <div className="flex-1 p-4 md:p-8 overflow-auto" data-testid="purchase-orders-page">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Purchase Orders</h1>
-            <p className="text-muted-foreground">Manage procurement requests and orders</p>
+            <h1 className="text-2xl font-bold text-foreground">Purchase Orders</h1>
+            <p className="text-sm text-muted-foreground">Manage procurement requests</p>
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
-              <Button data-testid="button-add-purchase-order">
-                <Plus className="w-4 h-4 mr-2" />
-                Create Order
+              <Button size="sm" data-testid="button-add-purchase-order">
+                <Plus className="w-4 h-4 mr-1" />
+                New Order
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Create Purchase Order</DialogTitle>
-                <DialogDescription>
-                  Create a new purchase order for equipment and supplies
-                </DialogDescription>
+                <DialogDescription>Create a new purchase order for equipment and supplies</DialogDescription>
               </DialogHeader>
-              <PurchaseOrderForm 
-                form={createForm} 
-                onSubmit={handleCreate} 
-                submitText="Create Order" 
+              <PurchaseOrderForm
+                form={createForm}
+                onSubmit={handleCreate}
+                submitText="Create Order"
+                vendors={vendors}
+                departments={departments}
               />
             </DialogContent>
           </Dialog>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Status filter */}
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-44" data-testid="select-status-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-sm text-muted-foreground">
+            {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {/* Orders list */}
+        <div className="space-y-3">
           {paginatedPOs.map((order) => {
             const totalAmount = parseFloat(order.totalAmount || "0");
             const itemCount = order.items?.length || 0;
-            
+            const nextStatus = WORKFLOW[order.status];
+
             return (
-              <Card key={order.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-2">
-                      <ShoppingCart className="w-5 h-5 text-primary" />
-                      <div>
-                        <CardTitle className="text-lg">{order.poNumber}</CardTitle>
-                        <CardDescription className="flex items-center space-x-2 mt-1">
-                          <Badge className={statusColors[order.status as keyof typeof statusColors]}>
-                            {order.status}
-                          </Badge>
-                          <span>•</span>
-                          <span>{format(new Date(order.orderDate), "MMM d, yyyy")}</span>
-                        </CardDescription>
+              <Card key={order.id} className="overflow-hidden" data-testid={`po-card-${order.id}`}>
+                <CardContent className="p-4">
+                  {/* Top row: PO number + badges + actions */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ShoppingCart className="w-4 h-4 text-primary shrink-0" />
+                        <span className="font-semibold text-sm truncate">{order.poNumber}</span>
+                        <Badge className={`text-xs ${statusColors[order.status] ?? ""}`}>
+                          {order.status}
+                        </Badge>
                       </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {format(new Date(order.orderDate), "MMM d, yyyy")}
+                      </p>
                     </div>
-                    <div className="flex space-x-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-8 w-8 p-0"
                         onClick={() => handleEdit(order)}
                         data-testid={`button-edit-${order.id}`}
                       >
@@ -605,6 +639,7 @@ export default function PurchaseOrders() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                         onClick={() => deleteMutation.mutate(order.id)}
                         data-testid={`button-delete-${order.id}`}
                       >
@@ -612,90 +647,111 @@ export default function PurchaseOrders() {
                       </Button>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {order.notes && (
-                      <p className="text-sm text-muted-foreground">{order.notes}</p>
+
+                  {/* Details row */}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                    {order.vendor && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <User className="w-3 h-3" /> {order.vendor.name}
+                      </span>
                     )}
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      {order.vendor && (
-                        <div className="flex items-center space-x-2 text-sm">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                          <span>Vendor: {order.vendor.name}</span>
+                    {order.department && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Building2 className="w-3 h-3" /> {order.department.name}
+                      </span>
+                    )}
+                    {order.reference && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <FileText className="w-3 h-3" /> {order.reference}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Package className="w-3 h-3" /> {itemCount} item{itemCount !== 1 ? "s" : ""}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs font-medium">
+                      <DollarSign className="w-3 h-3" /> {totalAmount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {order.notes && (
+                    <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{order.notes}</p>
+                  )}
+
+                  {/* Item list (collapsed) */}
+                  {order.items && order.items.length > 0 && (
+                    <div className="mt-2 space-y-0.5">
+                      {order.items.slice(0, 2).map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-xs text-muted-foreground">
+                          <span className="truncate mr-2">{item.description}</span>
+                          <span className="shrink-0">{item.quantity}× ${item.unitPrice}</span>
                         </div>
+                      ))}
+                      {order.items.length > 2 && (
+                        <p className="text-xs text-muted-foreground">+{order.items.length - 2} more…</p>
                       )}
-                      
-                      {order.reference && (
-                        <div className="flex items-center space-x-2 text-sm">
-                          <FileText className="w-4 h-4 text-muted-foreground" />
-                          <span>Ref: {order.reference}</span>
-                        </div>
-                      )}
-                      
-                      {order.department && (
-                        <div className="flex items-center space-x-2 text-sm">
-                          <Building2 className="w-4 h-4 text-muted-foreground" />
-                          <span>{order.department.name}</span>
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center space-x-2 text-sm">
-                        <Package className="w-4 h-4 text-muted-foreground" />
-                        <span>{itemCount} Items</span>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2 text-sm">
-                        <DollarSign className="w-4 h-4 text-muted-foreground" />
-                        <span>${totalAmount.toLocaleString()}</span>
-                      </div>
                     </div>
+                  )}
 
-                    {order.items && order.items.length > 0 && (
-                      <div className="mt-4">
-                        <h4 className="text-sm font-medium mb-2">Items:</h4>
-                        <div className="space-y-1">
-                          {order.items.slice(0, 3).map((item, index) => (
-                            <div key={index} className="text-sm text-muted-foreground flex justify-between">
-                              <span>{item.description}</span>
-                              <span>{item.quantity}x ${item.unitPrice}</span>
-                            </div>
-                          ))}
-                          {order.items.length > 3 && (
-                            <p className="text-xs text-muted-foreground">
-                              +{order.items.length - 3} more items...
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {order.status === "delivered" && (
-                      <div className="mt-4 pt-4 border-t">
+                  {/* Workflow advance button */}
+                  {(nextStatus || order.status === "received") && (
+                    <div className="mt-3 flex gap-2">
+                      {nextStatus && (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="w-full gap-2"
+                          className="text-xs h-8"
+                          disabled={updateMutation.isPending}
+                          onClick={() => handleAdvanceStatus(order)}
+                          data-testid={`button-advance-${order.id}`}
+                        >
+                          {WORKFLOW_LABEL[nextStatus] ?? `Mark ${nextStatus}`}
+                        </Button>
+                      )}
+                      {order.status === "received" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-8 gap-1"
                           disabled={createAssetsMutation.isPending}
                           onClick={() => {
-                            if (window.confirm(`Create ${order.items?.length ?? 0} asset(s) from this purchase order?`)) {
+                            if (window.confirm(`Create ${order.items?.length ?? 0} asset(s) from this PO?`)) {
                               createAssetsMutation.mutate(order.id);
                             }
                           }}
                           data-testid={`button-create-assets-${order.id}`}
                         >
-                          <Boxes className="h-4 w-4" />
-                          {createAssetsMutation.isPending ? "Creating..." : "Create Assets from PO"}
+                          <Boxes className="h-3 w-3" />
+                          {createAssetsMutation.isPending ? "Creating…" : "Create Assets"}
                         </Button>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );
           })}
         </div>
+
+        {/* Empty state */}
+        {filteredOrders.length === 0 && (
+          <div className="text-center py-12">
+            <ShoppingCart className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">
+              {statusFilter === "__all__" ? "No purchase orders found" : `No ${statusFilter} orders`}
+            </h3>
+            <p className="text-muted-foreground text-sm mb-4">
+              {statusFilter === "__all__"
+                ? "Create your first purchase order to start managing procurement"
+                : "Try a different status filter"}
+            </p>
+            {statusFilter === "__all__" && (
+              <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-add-first-order">
+                <Plus className="w-4 h-4 mr-2" />
+                Create Your First Order
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -704,7 +760,7 @@ export default function PurchaseOrders() {
               <PaginationContent>
                 <PaginationItem>
                   <PaginationPrevious
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                   />
                 </PaginationItem>
@@ -721,7 +777,7 @@ export default function PurchaseOrders() {
                 ))}
                 <PaginationItem>
                   <PaginationNext
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                     className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
                   />
                 </PaginationItem>
@@ -729,38 +785,24 @@ export default function PurchaseOrders() {
             </Pagination>
           </div>
         )}
-
-        {orders.length === 0 && (
-          <div className="text-center py-12">
-            <ShoppingCart className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-foreground mb-2">No purchase orders found</h3>
-            <p className="text-muted-foreground mb-4">
-              Create your first purchase order to start managing procurement
-            </p>
-            <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-add-first-order">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Your First Order
-            </Button>
-          </div>
-        )}
-
-        {/* Edit Dialog */}
-        <Dialog open={!!editingOrder} onOpenChange={() => setEditingOrder(null)}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Purchase Order</DialogTitle>
-              <DialogDescription>
-                Update purchase order information and items
-              </DialogDescription>
-            </DialogHeader>
-            <PurchaseOrderForm 
-              form={editForm} 
-              onSubmit={handleUpdate} 
-              submitText="Update Order" 
-            />
-          </DialogContent>
-        </Dialog>
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editingOrder} onOpenChange={() => setEditingOrder(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Purchase Order</DialogTitle>
+            <DialogDescription>Update purchase order information and items</DialogDescription>
+          </DialogHeader>
+          <PurchaseOrderForm
+            form={editForm}
+            onSubmit={handleUpdate}
+            submitText="Update Order"
+            vendors={vendors}
+            departments={departments}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
