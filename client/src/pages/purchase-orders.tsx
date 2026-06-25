@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter } from "lucide-react";
+import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, PackageCheck, Layers } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -385,6 +385,7 @@ export default function PurchaseOrders() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrderWithDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("__all__");
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
 
   const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
@@ -542,6 +543,61 @@ export default function PurchaseOrders() {
     updateMutation.mutate({ id: order.id, data: { status: nextStatus as any } });
   };
 
+  const handleBulkApprove = async () => {
+    const pending = orders.filter((o) => o.status === "pending");
+    if (!pending.length) return toast({ title: "Nothing to approve", description: "No pending orders found." });
+    setIsBulkLoading(true);
+    try {
+      await Promise.all(pending.map((o) => apiRequest("PUT", `/api/purchase-orders/${o.id}`, { status: "approved" })));
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      toast({ title: "Approved", description: `${pending.length} order(s) marked as approved.` });
+    } catch {
+      toast({ title: "Error", description: "Some orders could not be approved.", variant: "destructive" });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  };
+
+  const handleBulkReceive = async () => {
+    const eligible = orders.filter((o) => o.status !== "received" && o.status !== "cancelled");
+    if (!eligible.length) return toast({ title: "Nothing to receive", description: "No orders to mark as received." });
+    setIsBulkLoading(true);
+    try {
+      await Promise.all(eligible.map((o) => apiRequest("PUT", `/api/purchase-orders/${o.id}`, { status: "received" })));
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      toast({ title: "Received", description: `${eligible.length} order(s) marked as received.` });
+    } catch {
+      toast({ title: "Error", description: "Some orders could not be updated.", variant: "destructive" });
+    } finally {
+      setIsBulkLoading(false);
+    }
+  };
+
+  const handleBulkCreateAssets = async () => {
+    const receivedWithItems = orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0);
+    if (!receivedWithItems.length) {
+      return toast({ title: "Nothing to process", description: "No received orders with items found. Edit received orders to add items first." });
+    }
+    setIsBulkLoading(true);
+    let totalCreated = 0;
+    let failed = 0;
+    for (const o of receivedWithItems) {
+      try {
+        const result: any = await apiRequest("POST", `/api/purchase-orders/${o.id}/create-assets`);
+        totalCreated += result?.created ?? 0;
+      } catch {
+        failed++;
+      }
+    }
+    await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+    setIsBulkLoading(false);
+    if (failed > 0) {
+      toast({ title: "Partially done", description: `${totalCreated} asset(s) created. ${failed} order(s) failed (may already have assets).`, variant: "destructive" });
+    } else {
+      toast({ title: "Assets Created", description: `${totalCreated} asset(s) created from ${receivedWithItems.length} order(s).` });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex-1 p-8 flex items-center justify-center h-64">
@@ -582,24 +638,63 @@ export default function PurchaseOrders() {
           </Dialog>
         </div>
 
-        {/* Status filter */}
-        <div className="flex items-center gap-2 mb-4">
-          <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44" data-testid="select-status-filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span className="text-sm text-muted-foreground">
-            {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
-          </span>
+        {/* Status filter + bulk actions */}
+        <div className="flex flex-col gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44" data-testid="select-status-filter">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">
+              {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* Bulk actions row */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8 gap-1"
+              disabled={isBulkLoading}
+              onClick={handleBulkApprove}
+              data-testid="button-bulk-approve"
+            >
+              <CheckCheck className="w-3 h-3" />
+              Approve All Pending
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8 gap-1"
+              disabled={isBulkLoading}
+              onClick={handleBulkReceive}
+              data-testid="button-bulk-receive"
+            >
+              <PackageCheck className="w-3 h-3" />
+              Receive All
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8 gap-1"
+              disabled={isBulkLoading}
+              onClick={handleBulkCreateAssets}
+              data-testid="button-bulk-create-assets"
+            >
+              <Layers className="w-3 h-3" />
+              {isBulkLoading ? "Processing…" : "Create Assets for All Received"}
+            </Button>
+          </div>
         </div>
 
         {/* Orders list */}
@@ -694,35 +789,40 @@ export default function PurchaseOrders() {
 
                   {/* Workflow advance button */}
                   {(nextStatus || order.status === "received") && (
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {nextStatus && (
                         <Button
                           size="sm"
                           variant="outline"
                           className="text-xs h-8"
-                          disabled={updateMutation.isPending}
+                          disabled={updateMutation.isPending || isBulkLoading}
                           onClick={() => handleAdvanceStatus(order)}
                           data-testid={`button-advance-${order.id}`}
                         >
                           {WORKFLOW_LABEL[nextStatus] ?? `Mark ${nextStatus}`}
                         </Button>
                       )}
-                      {order.status === "received" && (
+                      {order.status === "received" && itemCount > 0 && (
                         <Button
                           size="sm"
                           variant="outline"
                           className="text-xs h-8 gap-1"
-                          disabled={createAssetsMutation.isPending}
+                          disabled={createAssetsMutation.isPending || isBulkLoading}
                           onClick={() => {
-                            if (window.confirm(`Create ${order.items?.length ?? 0} asset(s) from this PO?`)) {
+                            if (window.confirm(`Create ${itemCount} asset(s) from this PO?`)) {
                               createAssetsMutation.mutate(order.id);
                             }
                           }}
                           data-testid={`button-create-assets-${order.id}`}
                         >
                           <Boxes className="h-3 w-3" />
-                          {createAssetsMutation.isPending ? "Creating…" : "Create Assets"}
+                          {createAssetsMutation.isPending ? "Creating…" : `Create ${itemCount} Asset${itemCount !== 1 ? "s" : ""}`}
                         </Button>
+                      )}
+                      {order.status === "received" && itemCount === 0 && (
+                        <p className="text-xs text-muted-foreground italic self-center">
+                          No items — edit this PO to add items before creating assets
+                        </p>
                       )}
                     </div>
                   )}
