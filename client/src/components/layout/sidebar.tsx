@@ -43,10 +43,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
+import { useModules } from "@/hooks/use-modules";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const { isModuleEnabled } = useModules();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
   const navigationSections = [
@@ -58,6 +60,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     },
     {
       title: "Asset Management",
+      moduleKey: "asset_management",
       items: [
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
@@ -155,7 +158,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Navigation Menu */}
       <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
-        {navigationSections.map((section) => (
+        {navigationSections
+          .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
+          .map((section) => (
           <div key={section.title}>
             <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-3">
               {section.title}

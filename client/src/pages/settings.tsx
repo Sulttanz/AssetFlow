@@ -6,11 +6,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings as SettingsIcon, ShieldCheck, ShieldAlert, Loader2, CheckCircle2 } from "lucide-react";
+import { Settings as SettingsIcon, ShieldCheck, ShieldAlert, Loader2, CheckCircle2, Blocks } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { useModules, type ModuleSettingView } from "@/hooks/use-modules";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -49,6 +51,30 @@ export default function Settings() {
       toast({
         title: "Error",
         description: error.message || "Failed to update settings. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { modules, isLoading: isModulesLoading } = useModules();
+  const canManageModules = user?.permissions?.includes("system_admin");
+
+  const toggleModuleMutation = useMutation({
+    mutationFn: async ({ moduleKey, enabled }: { moduleKey: string; enabled: boolean }) => {
+      const response = await apiRequest("PUT", `/api/module-settings/${moduleKey}`, { enabled });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/module-settings"] });
+      toast({
+        title: "Module updated",
+        description: "Module status has been updated successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update module. Please try again.",
         variant: "destructive",
       });
     },
@@ -259,6 +285,53 @@ export default function Settings() {
             </div>
           </CardContent>
         </Card>
+
+        {canManageModules && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Blocks className="h-5 w-5 text-primary" />
+                Modules
+              </CardTitle>
+              <CardDescription>
+                Enable or disable modules to customize which features are available in this system.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isModulesLoading ? (
+                <p className="text-sm text-muted-foreground">Loading modules...</p>
+              ) : (
+                modules.map((module: ModuleSettingView) => (
+                  <div
+                    key={module.key}
+                    className="flex items-center justify-between p-4 border rounded-lg bg-muted/30"
+                    data-testid={`module-row-${module.key}`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{module.name}</p>
+                        {module.core && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                            Core
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground">{module.description}</p>
+                    </div>
+                    <Switch
+                      checked={module.enabled}
+                      disabled={module.core || toggleModuleMutation.isPending}
+                      onCheckedChange={(checked) =>
+                        toggleModuleMutation.mutate({ moduleKey: module.key, enabled: checked })
+                      }
+                      data-testid={`switch-module-${module.key}`}
+                    />
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* 2FA Setup Dialog */}

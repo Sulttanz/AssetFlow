@@ -1,1 +1,2 @@
 - [PO delete protection pattern](po-delete-protection.md) — deletion of records with derived/dependent data should block by default, offer admin unlink-not-delete override with explicit confirmation.
+- [drizzle-kit push interactive prompt](drizzle-push-interactive-prompt.md) — hangs on unique-constraint prompt even with --force; rename the DB constraint to match Drizzle's expected name to fix.

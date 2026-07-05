@@ -521,6 +521,20 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").default(sql`now()`).notNull(),
 });
 
+// Module Settings - controls which product modules (Asset Management, ITSM, etc.)
+// are enabled for this deployment.
+export const moduleSettings = pgTable("module_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  moduleKey: text("module_key").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+  updatedBy: varchar("updated_by"),
+});
+
+export const insertModuleSettingSchema = createInsertSchema(moduleSettings).omit({ id: true, updatedAt: true });
+export type InsertModuleSetting = z.infer<typeof insertModuleSettingSchema>;
+export type ModuleSetting = typeof moduleSettings.$inferSelect;
+
 // ─── New Professional ITAM Tables ───────────────────────────────────────────
 
 export const contracts = pgTable("contracts", {

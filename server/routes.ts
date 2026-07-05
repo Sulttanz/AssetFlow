@@ -14,9 +14,26 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   assetAttachments
 } from "@shared/schema";
+import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+
+// Middleware factory to gate a route behind a module being enabled
+export function requireModule(moduleKey: string) {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const setting = await storage.getModuleSetting(moduleKey);
+      const enabled = setting ? setting.enabled : true;
+      if (!enabled) {
+        return res.status(403).json({ message: "This module is not enabled" });
+      }
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify module status" });
+    }
+  };
+}
 
 // Audit logging helper function
 async function logAudit(
@@ -3692,6 +3709,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(setting);
     } catch (error) {
       res.status(500).json({ message: "Failed to update setting" });
+    }
+  });
+
+  // ====================
+  // MODULE SETTINGS ROUTES
+  // ====================
+
+  app.get("/api/module-settings", requireAuth, async (req, res) => {
+    try {
+      const settingsList = await storage.getModuleSettings();
+      const enriched = MODULE_REGISTRY.map((def) => {
+        const found = settingsList.find((s) => s.moduleKey === def.key);
+        return {
+          key: def.key,
+          name: def.label,
+          description: def.description,
+          core: def.core,
+          enabled: found ? found.enabled : true,
+          updatedAt: found?.updatedAt ?? null,
+          updatedBy: found?.updatedBy ?? null,
+        };
+      });
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch module settings" });
+    }
+  });
+
+  app.put("/api/module-settings/:moduleKey", requireAuth, requirePermission('system_admin'), async (req: any, res) => {
+    try {
+      const { moduleKey } = req.params;
+      const { enabled } = req.body;
+
+      if (!isValidModuleKey(moduleKey)) {
+        return res.status(404).json({ message: "Unknown module" });
+      }
+      if (typeof enabled !== "boolean") {
+        return res.status(400).json({ message: "enabled must be a boolean" });
+      }
+
+      const definition = getModuleDefinition(moduleKey);
+      if (definition?.core && !enabled) {
+        return res.status(400).json({ message: "Core modules cannot be disabled" });
+      }
+
+      const updatedBy = req.user?.id;
+      const setting = await storage.updateModuleSetting(moduleKey, enabled, updatedBy);
+      res.json(setting);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update module setting" });
     }
   });
 

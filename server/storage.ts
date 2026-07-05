@@ -4,6 +4,7 @@ import {
   type MaintenanceSchedule, type MaintenanceRecord, type User, type Role, type Permission,
   type UserRole, type RolePermission, type SystemSetting, type AuditLog, type Setting,
   type DropdownOption, type InsertDropdownOption,
+  type ModuleSetting, type InsertModuleSetting,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
@@ -15,9 +16,10 @@ import {
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
-  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions,
+  budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
 } from "@shared/schema";
+import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, isNull, and, inArray, sql } from "drizzle-orm";
@@ -158,6 +160,11 @@ export interface IStorage {
   updateSetting(key: string, value: string): Promise<Setting>;
   getNextAssetIdNumber(): Promise<number>;
   createSetting(setting: InsertSetting): Promise<Setting>;
+
+  // Module Settings
+  getModuleSettings(): Promise<ModuleSetting[]>;
+  getModuleSetting(moduleKey: string): Promise<ModuleSetting | undefined>;
+  updateModuleSetting(moduleKey: string, enabled: boolean, updatedBy?: string): Promise<ModuleSetting>;
 
   // Audit Logs
   getAuditLogs(): Promise<AuditLog[]>;
@@ -1912,6 +1919,53 @@ export class MemStorage implements IStorage {
     return newSetting;
   }
 
+  // Module Settings (in-memory storage)
+  private moduleSettingsMap: Map<string, ModuleSetting> = new Map(
+    MODULE_REGISTRY.map((m) => {
+      const id = randomUUID();
+      const setting: ModuleSetting = {
+        id,
+        moduleKey: m.key,
+        enabled: true,
+        updatedAt: new Date(),
+        updatedBy: null,
+      };
+      return [id, setting];
+    })
+  );
+
+  async getModuleSettings(): Promise<ModuleSetting[]> {
+    return Array.from(this.moduleSettingsMap.values());
+  }
+
+  async getModuleSetting(moduleKey: string): Promise<ModuleSetting | undefined> {
+    return Array.from(this.moduleSettingsMap.values()).find((s) => s.moduleKey === moduleKey);
+  }
+
+  async updateModuleSetting(moduleKey: string, enabled: boolean, updatedBy?: string): Promise<ModuleSetting> {
+    const existing = await this.getModuleSetting(moduleKey);
+    if (existing) {
+      const updated: ModuleSetting = {
+        ...existing,
+        enabled,
+        updatedAt: new Date(),
+        updatedBy: updatedBy || null,
+      };
+      this.moduleSettingsMap.set(existing.id, updated);
+      return updated;
+    }
+    const id = randomUUID();
+    const created: ModuleSetting = {
+      id,
+      moduleKey,
+      enabled,
+      updatedAt: new Date(),
+      updatedBy: updatedBy || null,
+    };
+    this.moduleSettingsMap.set(id, created);
+    return created;
+  }
+
   // Settings (in-memory storage)
   private settingsMap: Map<string, Setting> = new Map();
 
@@ -2805,6 +2859,43 @@ export class DatabaseStorage implements IStorage {
     }
     
     const result = await db.update(settings).set(updateData).where(eq(settings.key, key)).returning();
+    return result[0];
+  }
+
+  // Module Settings Methods
+  async getModuleSettings(): Promise<ModuleSetting[]> {
+    const existing = await db.select().from(moduleSettings);
+    const existingKeys = new Set(existing.map((m) => m.moduleKey));
+    const missing = MODULE_REGISTRY.filter((m) => !existingKeys.has(m.key));
+    if (missing.length > 0) {
+      const created = await db
+        .insert(moduleSettings)
+        .values(missing.map((m) => ({ moduleKey: m.key, enabled: true })))
+        .returning();
+      return [...existing, ...created];
+    }
+    return existing;
+  }
+
+  async getModuleSetting(moduleKey: string): Promise<ModuleSetting | undefined> {
+    const result = await db.select().from(moduleSettings).where(eq(moduleSettings.moduleKey, moduleKey));
+    return result[0] || undefined;
+  }
+
+  async updateModuleSetting(moduleKey: string, enabled: boolean, updatedBy?: string): Promise<ModuleSetting> {
+    const existing = await this.getModuleSetting(moduleKey);
+    if (!existing) {
+      const result = await db
+        .insert(moduleSettings)
+        .values({ moduleKey, enabled, updatedBy: updatedBy || null })
+        .returning();
+      return result[0];
+    }
+    const result = await db
+      .update(moduleSettings)
+      .set({ enabled, updatedAt: new Date(), updatedBy: updatedBy || null })
+      .where(eq(moduleSettings.moduleKey, moduleKey))
+      .returning();
     return result[0];
   }
 
