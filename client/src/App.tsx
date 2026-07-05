@@ -66,43 +66,43 @@ function Router() {
                 <Switch>
                   <ProtectedRoute path="/" component={Dashboard} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
-                  <ProtectedRoute path="/assets" component={Assets} />
-                  <ProtectedRoute path="/employees" component={Employees} />
+                  <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" />
+                  <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
                   <ProtectedRoute path="/audit-logs" component={AuditLogs} />
-                  <ProtectedRoute path="/assignments" component={Assignments} />
-                  <ProtectedRoute path="/locations" component={Locations} />
-                  <ProtectedRoute path="/departments" component={Departments} />
-                  <ProtectedRoute path="/vendors" component={Vendors} />
-                  <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} />
-                  <ProtectedRoute path="/budgets" component={Budgets} />
-                  <ProtectedRoute path="/maintenance" component={Maintenance} />
-                  <ProtectedRoute path="/reports" component={Reports} />
-                  <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} />
-                  <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} />
-                  <ProtectedRoute path="/reports/hardware-inventory" component={HardwareInventoryReport} />
-                  <ProtectedRoute path="/reports/assignments" component={AssignmentsReport} />
-                  <ProtectedRoute path="/reports/maintenance" component={MaintenanceReport} />
-                  <ProtectedRoute path="/reports/purchase-orders" component={PurchaseOrdersReport} />
-                  <ProtectedRoute path="/reports/budget" component={BudgetReport} />
-                  <ProtectedRoute path="/reports/department" component={DepartmentReport} />
-                  <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} />
-                  <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} />
-                  <ProtectedRoute path="/reports/released-assets" component={ReleasedAssetsReport} />
-                  <ProtectedRoute path="/reports/depreciation" component={DepreciationReport} />
-                  <ProtectedRoute path="/reports/missing-data" component={MissingDataReport} />
-                  <ProtectedRoute path="/reports/assignment-history" component={AssignmentHistoryReport} />
+                  <ProtectedRoute path="/assignments" component={Assignments} requiredModule="asset_management" />
+                  <ProtectedRoute path="/locations" component={Locations} requiredModule="asset_management" />
+                  <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
+                  <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />
+                  <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" />
+                  <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" />
+                  <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports" component={Reports} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/hardware-inventory" component={HardwareInventoryReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/assignments" component={AssignmentsReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/maintenance" component={MaintenanceReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/purchase-orders" component={PurchaseOrdersReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/budget" component={BudgetReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/department" component={DepartmentReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/vendor-analysis" component={VendorAnalysisReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/released-assets" component={ReleasedAssetsReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/depreciation" component={DepreciationReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/missing-data" component={MissingDataReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/assignment-history" component={AssignmentHistoryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/import" component={ImportPage} />
                   <ProtectedRoute path="/settings" component={Settings} />
-                  <ProtectedRoute path="/asset-disposal" component={AssetDisposal} />
-                  <ProtectedRoute path="/bookings" component={AssetBookings} />
-                  <ProtectedRoute path="/contracts" component={Contracts} />
-                  <ProtectedRoute path="/asset-audits" component={AssetAudits} />
-                  <ProtectedRoute path="/asset-requests" component={AssetRequests} />
+                  <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
+                  <ProtectedRoute path="/bookings" component={AssetBookings} requiredModule="asset_management" />
+                  <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" />
+                  <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
+                  <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <Route component={NotFound} />
                 </Switch>
               </div>

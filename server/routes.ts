@@ -339,7 +339,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Asset Bookings routes
-  app.get("/api/asset-bookings", requireAuth, async (req, res) => {
+  app.get("/api/asset-bookings", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const bookings = await storage.getAssetBookings();
       res.json(bookings);
@@ -348,7 +348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/asset-bookings", requireAuth, async (req, res) => {
+  app.post("/api/asset-bookings", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const validatedData = insertAssetBookingSchema.parse(req.body);
       const booking = await storage.createAssetBooking(validatedData);
@@ -397,7 +397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Asset Disposal routes
-  app.get("/api/asset-disposal", requireAuth, async (req, res) => {
+  app.get("/api/asset-disposal", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const records = await storage.getAssetDisposalRecords();
       res.json(records);
@@ -406,7 +406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/asset-disposal", requireAuth, async (req, res) => {
+  app.post("/api/asset-disposal", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const validatedData = insertAssetDisposalRecordSchema.parse({
         ...req.body,
@@ -571,7 +571,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Asset Requests routes
-  app.get("/api/asset-requests", requireAuth, async (req, res) => {
+  app.get("/api/asset-requests", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const requests = await storage.getAssetRequests();
       res.json(requests);
@@ -580,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/asset-requests", requireAuth, async (req, res) => {
+  app.post("/api/asset-requests", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const validatedData = insertAssetRequestSchema.parse(req.body);
       const request = await storage.createAssetRequest(validatedData);
@@ -1118,7 +1118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ====================
 
   // Assets routes - all require authentication
-  app.get("/api/assets", requireAuth, async (req, res) => {
+  app.get("/api/assets", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const assets = await storage.getAssetsWithAssignments();
       res.json(assets);
@@ -1139,7 +1139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/assets", requireAuth, requirePermission('asset_create'), async (req, res) => {
+  app.post("/api/assets", requireAuth, requireModule('asset_management'), requirePermission('asset_create'), async (req, res) => {
     try {
       console.log("Asset creation request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.parse(req.body);
@@ -1350,7 +1350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Employees routes
-  app.get("/api/employees", requireAuth, async (req, res) => {
+  app.get("/api/employees", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const employees = await storage.getEmployeesWithDetails();
       res.json(employees);
@@ -1371,7 +1371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees", requireAuth, requirePermission('employee_create'), async (req, res) => {
+  app.post("/api/employees", requireAuth, requireModule('asset_management'), requirePermission('employee_create'), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.parse(req.body);
       const employee = await storage.createEmployee(validatedData);
@@ -1449,7 +1449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Assignments routes
-  app.get("/api/assignments", requireAuth, async (req, res) => {
+  app.get("/api/assignments", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const assignments = await storage.getAssignmentsWithDetails();
       res.json(assignments);
@@ -1470,7 +1470,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/assignments", requireAuth, requirePermission('assignment_create'), async (req, res) => {
+  app.post("/api/assignments", requireAuth, requireModule('asset_management'), requirePermission('assignment_create'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.parse(req.body);
       const assignment = await storage.createAssignment(validatedData);

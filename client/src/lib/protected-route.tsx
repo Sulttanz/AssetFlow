@@ -1,19 +1,23 @@
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2 } from "lucide-react";
+import { useModules } from "@/hooks/use-modules";
+import { Loader2, PackageX } from "lucide-react";
 import { Redirect, Route } from "wouter";
 
 export function ProtectedRoute({
   path,
   component: Component,
   requiredPermission,
+  requiredModule,
 }: {
   path: string;
   component: () => React.JSX.Element;
   requiredPermission?: string;
+  requiredModule?: string;
 }) {
   const { user, isLoading } = useAuth();
+  const { isModuleEnabled, isLoading: isModulesLoading } = useModules();
 
-  if (isLoading) {
+  if (isLoading || (requiredModule && isModulesLoading)) {
     return (
       <Route path={path}>
         <div className="flex items-center justify-center min-h-screen">
@@ -40,6 +44,22 @@ export function ProtectedRoute({
             <h1 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h1>
             <p className="text-gray-600">You don't have permission to access this page.</p>
             <p className="text-sm text-gray-400 mt-2">Required permission: {requiredPermission}</p>
+          </div>
+        </div>
+      </Route>
+    );
+  }
+
+  // Check the owning module is enabled for this deployment
+  if (requiredModule && !isModuleEnabled(requiredModule)) {
+    return (
+      <Route path={path}>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center" data-testid="module-not-enabled">
+            <PackageX className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <h1 className="text-2xl font-bold mb-2">Module Not Enabled</h1>
+            <p className="text-gray-600">This feature is part of a module that isn't enabled for this deployment.</p>
+            <p className="text-sm text-gray-400 mt-2">Ask a system administrator to enable it in Settings.</p>
           </div>
         </div>
       </Route>
