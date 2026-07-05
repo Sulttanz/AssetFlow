@@ -2088,6 +2088,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const po = await storage.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
       if (po.status !== 'received') return res.status(400).json({ message: "Purchase order must be in 'received' status to create assets" });
+      if (po.assetsCreated) return res.status(400).json({ message: "Assets have already been created for this purchase order" });
 
       const items = await storage.getPurchaseOrderItems(req.params.id);
       if (!items.length) return res.status(400).json({ message: "No items found in purchase order" });
@@ -2119,6 +2120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      await storage.updatePurchaseOrder(po.id, { assetsCreated: true });
       await logAudit(req.user?.id, 'CREATE', 'assets', po.id, `Assets from PO #${po.poNumber}`, null, { count: createdAssets.length }, req);
       res.json({ created: createdAssets.length, assets: createdAssets });
     } catch (error) {

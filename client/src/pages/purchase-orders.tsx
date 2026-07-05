@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -386,6 +387,7 @@ export default function PurchaseOrders() {
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("__all__");
   const [isBulkLoading, setIsBulkLoading] = useState(false);
+  const [selectedForAssets, setSelectedForAssets] = useState<Set<string>>(new Set());
 
   const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
@@ -403,6 +405,11 @@ export default function PurchaseOrders() {
     if (statusFilter === "__all__") return orders;
     return orders.filter((o) => o.status === statusFilter);
   }, [orders, statusFilter]);
+
+  const eligibleForAssets = useMemo(
+    () => orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0 && !o.assetsCreated),
+    [orders]
+  );
 
   const totalPages = useMemo(() => Math.ceil(filteredOrders.length / ITEMS_PER_PAGE), [filteredOrders]);
 
@@ -460,11 +467,18 @@ export default function PurchaseOrders() {
     mutationFn: (id: string) => apiRequest("POST", `/api/purchase-orders/${id}/create-assets`),
     onSuccess: async (data: any) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       const count = data?.created ?? "some";
       toast({ title: "Assets Created", description: `${count} asset(s) created from this purchase order.` });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create assets from purchase order", variant: "destructive" });
+    onError: async (error: any) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      const message = typeof error?.message === "string" ? error.message.replace(/^\d+:\s*/, "") : "";
+      toast({
+        title: "Error",
+        description: message || "Failed to create assets from purchase order",
+        variant: "destructive",
+      });
     },
   });
 
@@ -573,15 +587,33 @@ export default function PurchaseOrders() {
     }
   };
 
+  const toggleSelectForAssets = (id: string) => {
+    setSelectedForAssets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllForAssets = () => {
+    setSelectedForAssets((prev) =>
+      prev.size === eligibleForAssets.length ? new Set() : new Set(eligibleForAssets.map((o) => o.id))
+    );
+  };
+
   const handleBulkCreateAssets = async () => {
-    const receivedWithItems = orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0);
-    if (!receivedWithItems.length) {
-      return toast({ title: "Nothing to process", description: "No received orders with items found. Edit received orders to add items first." });
+    const targets = selectedForAssets.size > 0
+      ? eligibleForAssets.filter((o) => selectedForAssets.has(o.id))
+      : eligibleForAssets;
+
+    if (!targets.length) {
+      return toast({ title: "Nothing to process", description: "No received orders with items (and without assets already created) were found." });
     }
     setIsBulkLoading(true);
     let totalCreated = 0;
     let failed = 0;
-    for (const o of receivedWithItems) {
+    for (const o of targets) {
       try {
         const result: any = await apiRequest("POST", `/api/purchase-orders/${o.id}/create-assets`);
         totalCreated += result?.created ?? 0;
@@ -590,11 +622,15 @@ export default function PurchaseOrders() {
       }
     }
     await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
     setIsBulkLoading(false);
-    if (failed > 0) {
-      toast({ title: "Partially done", description: `${totalCreated} asset(s) created. ${failed} order(s) failed (may already have assets).`, variant: "destructive" });
+    setSelectedForAssets(new Set());
+    if (failed > 0 && totalCreated > 0) {
+      toast({ title: "Partially done", description: `${totalCreated} asset(s) created. ${failed} order(s) failed.`, variant: "destructive" });
+    } else if (failed > 0) {
+      toast({ title: "Error", description: `Failed to create assets for ${failed} order(s).`, variant: "destructive" });
     } else {
-      toast({ title: "Assets Created", description: `${totalCreated} asset(s) created from ${receivedWithItems.length} order(s).` });
+      toast({ title: "Assets Created", description: `${totalCreated} asset(s) created from ${targets.length} order(s).` });
     }
   };
 
@@ -687,14 +723,34 @@ export default function PurchaseOrders() {
               size="sm"
               variant="outline"
               className="text-xs h-8 gap-1"
-              disabled={isBulkLoading}
+              disabled={isBulkLoading || eligibleForAssets.length === 0}
               onClick={handleBulkCreateAssets}
               data-testid="button-bulk-create-assets"
             >
               <Layers className="w-3 h-3" />
-              {isBulkLoading ? "Processing…" : "Create Assets for All Received"}
+              {isBulkLoading
+                ? "Processing…"
+                : selectedForAssets.size > 0
+                ? `Create Assets for ${selectedForAssets.size} Selected`
+                : "Create Assets for All Eligible"}
             </Button>
           </div>
+
+          {/* Selection helper for asset creation */}
+          {eligibleForAssets.length > 0 && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <Checkbox
+                id="select-all-eligible"
+                checked={selectedForAssets.size > 0 && selectedForAssets.size === eligibleForAssets.length}
+                onCheckedChange={toggleSelectAllForAssets}
+                data-testid="checkbox-select-all-eligible"
+              />
+              <label htmlFor="select-all-eligible" className="text-xs text-muted-foreground cursor-pointer select-none">
+                Select all {eligibleForAssets.length} order{eligibleForAssets.length !== 1 ? "s" : ""} eligible for asset creation
+                {selectedForAssets.size > 0 ? ` (${selectedForAssets.size} selected)` : ""}
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Orders list */}
@@ -703,23 +759,39 @@ export default function PurchaseOrders() {
             const totalAmount = parseFloat(order.totalAmount || "0");
             const itemCount = order.items?.length || 0;
             const nextStatus = WORKFLOW[order.status];
+            const isEligibleForAssets = order.status === "received" && itemCount > 0 && !order.assetsCreated;
 
             return (
               <Card key={order.id} className="overflow-hidden" data-testid={`po-card-${order.id}`}>
                 <CardContent className="p-4">
                   {/* Top row: PO number + badges + actions */}
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <ShoppingCart className="w-4 h-4 text-primary shrink-0" />
-                        <span className="font-semibold text-sm truncate">{order.poNumber}</span>
-                        <Badge className={`text-xs ${statusColors[order.status] ?? ""}`}>
-                          {order.status}
-                        </Badge>
+                    <div className="min-w-0 flex-1 flex items-start gap-2">
+                      {isEligibleForAssets && (
+                        <Checkbox
+                          className="mt-1 shrink-0"
+                          checked={selectedForAssets.has(order.id)}
+                          onCheckedChange={() => toggleSelectForAssets(order.id)}
+                          data-testid={`checkbox-select-${order.id}`}
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <ShoppingCart className="w-4 h-4 text-primary shrink-0" />
+                          <span className="font-semibold text-sm truncate">{order.poNumber}</span>
+                          <Badge className={`text-xs ${statusColors[order.status] ?? ""}`}>
+                            {order.status}
+                          </Badge>
+                          {order.assetsCreated && (
+                            <Badge variant="outline" className="text-xs gap-1">
+                              <Boxes className="w-3 h-3" /> Assets Created
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {format(new Date(order.orderDate), "MMM d, yyyy")}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {format(new Date(order.orderDate), "MMM d, yyyy")}
-                      </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button
@@ -802,7 +874,7 @@ export default function PurchaseOrders() {
                           {WORKFLOW_LABEL[nextStatus] ?? `Mark ${nextStatus}`}
                         </Button>
                       )}
-                      {order.status === "received" && itemCount > 0 && (
+                      {isEligibleForAssets && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -822,6 +894,11 @@ export default function PurchaseOrders() {
                       {order.status === "received" && itemCount === 0 && (
                         <p className="text-xs text-muted-foreground italic self-center">
                           No items — edit this PO to add items before creating assets
+                        </p>
+                      )}
+                      {order.status === "received" && itemCount > 0 && order.assetsCreated && (
+                        <p className="text-xs text-muted-foreground italic self-center">
+                          Assets already created for this PO
                         </p>
                       )}
                     </div>

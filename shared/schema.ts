@@ -367,6 +367,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   status: text("status").notNull().default("pending"), // pending, ordered, delivered, cancelled
   departmentId: varchar("department_id").references(() => departments.id),
   notes: text("notes"),
+  assetsCreated: boolean("assets_created").notNull().default(false),
 });
 
 export const purchaseOrderItems = pgTable("purchase_order_items", {
