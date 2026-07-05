@@ -2060,7 +2060,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!purchaseOrder) {
         return res.status(404).json({ message: "Purchase order not found" });
       }
-      
+
+      if (purchaseOrder.assetsCreated) {
+        const permissions = await storage.getUserPermissions(req.user!.id);
+        const isSystemAdmin = permissions.includes('system_admin');
+
+        if (!isSystemAdmin) {
+          return res.status(403).json({
+            message: "This purchase order has created assets and cannot be deleted. Contact a system administrator if you need to remove it.",
+          });
+        }
+
+        if (req.body?.confirmAdminDelete !== true) {
+          return res.status(400).json({
+            message: "This purchase order has created assets. Confirm admin deletion to proceed.",
+            requiresConfirmation: true,
+          });
+        }
+
+        // Unlink assets instead of deleting them, to preserve assignment/maintenance/depreciation history
+        const linkedAssets = await storage.getAssetsByPurchaseOrderNumber(purchaseOrder.poNumber);
+        for (const asset of linkedAssets) {
+          await storage.updateAsset(asset.id, { purchaseOrderNumber: null });
+        }
+
+        await logAudit(req.user?.id, 'UPDATE', 'assets', purchaseOrder.id, `Unlinked ${linkedAssets.length} asset(s) from deleted PO #${purchaseOrder.poNumber}`, null, { count: linkedAssets.length }, req);
+      }
+
       // Delete items first
       const items = await storage.getPurchaseOrderItems(req.params.id);
       for (const item of items) {
