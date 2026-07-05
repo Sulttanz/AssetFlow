@@ -3,11 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, FileSpreadsheet, Printer, AlertTriangle } from "lucide-react";
+import { Download, FileSpreadsheet, Printer, AlertTriangle, Pencil } from "lucide-react";
 import { exportToExcel, exportToPDF } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import AssetForm from "@/components/assets/asset-form";
+import { queryClient } from "@/lib/queryClient";
+import type { Asset } from "@shared/schema";
 
 interface MissingDataItem {
   id: string;
@@ -28,10 +32,21 @@ interface MissingDataReport {
 export default function MissingDataReport() {
   const printRef = useRef<HTMLDivElement>(null);
   const [typeFilter, setTypeFilter] = useState("all");
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
 
   const { data: report, isLoading } = useQuery<MissingDataReport>({
     queryKey: ['/api/reports/missing-data'],
   });
+
+  const { data: editingAsset, isLoading: isLoadingAsset } = useQuery<Asset>({
+    queryKey: ['/api/assets', editingAssetId],
+    enabled: !!editingAssetId,
+  });
+
+  const handleUpdateSuccess = () => {
+    setEditingAssetId(null);
+    queryClient.invalidateQueries({ queryKey: ['/api/reports/missing-data'] });
+  };
 
   const filteredItems = useMemo(() => {
     if (!report) return [];
@@ -190,6 +205,7 @@ export default function MissingDataReport() {
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Missing Fields</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -208,6 +224,17 @@ export default function MissingDataReport() {
                           ))}
                         </div>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditingAssetId(item.id)}
+                          data-testid={`button-update-${item.id}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                          Update
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -216,6 +243,25 @@ export default function MissingDataReport() {
           </Card>
         )}
       </div>
+
+      <Dialog open={!!editingAssetId} onOpenChange={(open) => !open && setEditingAssetId(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Update Asset</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 pr-1">
+            {isLoadingAsset ? (
+              <div className="p-8 text-center text-muted-foreground">Loading asset...</div>
+            ) : editingAsset ? (
+              <AssetForm
+                asset={editingAsset}
+                onSuccess={handleUpdateSuccess}
+                onCancel={() => setEditingAssetId(null)}
+              />
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
