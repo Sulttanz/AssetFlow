@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { 
   Plus, 
   ClipboardCheck, 
@@ -9,11 +10,13 @@ import {
   XCircle, 
   Clock, 
   AlertCircle,
+  AlertTriangle,
   MapPin,
   Building2,
   User,
   Calendar,
   ChevronRight,
+  ArrowRight,
   Loader2
 } from "lucide-react";
 import { format } from "date-fns";
@@ -389,6 +392,8 @@ export default function AssetAudits() {
           </Dialog>
         </div>
 
+        <MissingDataWidget />
+
         {isLoadingSessions ? (
           <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin" /></div>
         ) : (
@@ -648,5 +653,36 @@ export default function AssetAudits() {
         </Dialog>
       </div>
     </div>
+  );
+}
+
+function MissingDataWidget() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ['/api/reports/missing-data'],
+  });
+
+  if (isLoading || !data || data.assetsWithMissingData === 0) return null;
+
+  return (
+    <Card className="mb-6 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+      <CardContent className="p-4 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-500 shrink-0" />
+          <div>
+            <p className="font-medium text-sm" data-testid="text-missing-data-count">
+              {data.assetsWithMissingData} asset{data.assetsWithMissingData !== 1 ? "s" : ""} missing required information
+            </p>
+            <p className="text-xs text-muted-foreground">
+              e.g. manufacturer, model, CPU, RAM, storage, or manufacture date — based on asset type
+            </p>
+          </div>
+        </div>
+        <Link href="/reports/missing-data">
+          <Button variant="outline" size="sm" data-testid="button-view-missing-data">
+            View Report <ArrowRight className="w-4 h-4 ml-2" />
+          </Button>
+        </Link>
+      </CardContent>
+    </Card>
   );
 }

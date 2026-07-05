@@ -112,6 +112,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
             { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets" },
             { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation" },
+            { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data" },
             { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history" },
           ]
         },

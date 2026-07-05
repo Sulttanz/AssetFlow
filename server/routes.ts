@@ -3086,6 +3086,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const MISSING_DATA_FIELDS: Record<string, { key: string; label: string }[]> = {
+    laptop: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "processor", label: "CPU" },
+      { key: "ram", label: "RAM" },
+      { key: "storage", label: "Storage" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    desktop: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "processor", label: "CPU" },
+      { key: "ram", label: "RAM" },
+      { key: "storage", label: "Storage" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    server: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "processor", label: "CPU" },
+      { key: "ram", label: "RAM" },
+      { key: "storage", label: "Storage" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    monitor: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    phone: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "storage", label: "Storage" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    printer: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    network: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+      { key: "acquisitionDate", label: "Manufacture/Acquisition Date" },
+    ],
+    software: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model/Version" },
+    ],
+    other: [
+      { key: "manufacturer", label: "Manufacturer" },
+      { key: "model", label: "Model" },
+    ],
+  };
+
+  app.get("/api/reports/missing-data", requireAuth, async (req, res) => {
+    try {
+      const assets = await storage.getAssets();
+      const items = assets
+        .map((a: any) => {
+          const rules = MISSING_DATA_FIELDS[a.type] || MISSING_DATA_FIELDS.other;
+          const missingFields = rules
+            .filter((f) => {
+              const value = a[f.key];
+              return value === null || value === undefined || String(value).trim() === "";
+            })
+            .map((f) => f.label);
+          return {
+            id: a.id,
+            name: a.name,
+            assetTag: a.assetTag || null,
+            type: a.type || "other",
+            status: a.status || "available",
+            missingFields,
+          };
+        })
+        .filter((item) => item.missingFields.length > 0);
+
+      const byType: Record<string, number> = {};
+      for (const item of items) {
+        byType[item.type] = (byType[item.type] || 0) + 1;
+      }
+
+      res.json({
+        totalAssets: assets.length,
+        assetsWithMissingData: items.length,
+        byType,
+        items,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate missing data report" });
+    }
+  });
+
   app.get("/api/reports/maintenance", requireAuth, async (req, res) => {
     try {
       const schedules = await storage.getMaintenanceSchedules();
