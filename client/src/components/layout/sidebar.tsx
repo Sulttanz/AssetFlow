@@ -99,7 +99,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets" },
-        { name: "Ticket Report", href: "/reports/tickets", icon: FileBarChart, current: location === "/reports/tickets" },
       ]
     },
     {
@@ -126,6 +125,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation" },
             { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data" },
             { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history" },
+            ...(isModuleEnabled("itsm") ? [{ name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets" }] : []),
           ]
         },
       ]
