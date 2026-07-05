@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
+import { useHasPermission } from "@/hooks/use-auth";
 import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Department, type Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
@@ -388,6 +389,7 @@ export default function PurchaseOrders() {
   const [statusFilter, setStatusFilter] = useState("__all__");
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [selectedForAssets, setSelectedForAssets] = useState<Set<string>>(new Set());
+  const isSystemAdmin = useHasPermission("system_admin");
 
   const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
@@ -453,13 +455,38 @@ export default function PurchaseOrders() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/purchase-orders/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+    mutationFn: ({ id, confirmAdminDelete }: { id: string; confirmAdminDelete?: boolean }) =>
+      apiRequest("DELETE", `/api/purchase-orders/${id}`, confirmAdminDelete ? { confirmAdminDelete: true } : undefined),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       toast({ title: "Success", description: "Purchase order deleted successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete purchase order", variant: "destructive" });
+    onError: (error: any, variables) => {
+      const raw = typeof error?.message === "string" ? error.message.replace(/^\d+:\s*/, "") : "";
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // not JSON
+      }
+
+      if (parsed?.requiresConfirmation) {
+        const confirmed = window.confirm(
+          "This purchase order has created assets. Deleting it will unlink those assets (they will remain in inventory) but the PO record will be permanently removed. Continue as admin?"
+        );
+        if (confirmed) {
+          deleteMutation.mutate({ id: variables.id, confirmAdminDelete: true });
+          return;
+        }
+        return;
+      }
+
+      toast({
+        title: "Error",
+        description: parsed?.message || raw || "Failed to delete purchase order",
+        variant: "destructive",
+      });
     },
   });
 
@@ -806,8 +833,34 @@ export default function PurchaseOrders() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        onClick={() => deleteMutation.mutate(order.id)}
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive disabled:opacity-40"
+                        disabled={order.assetsCreated && !isSystemAdmin}
+                        title={
+                          order.assetsCreated && !isSystemAdmin
+                            ? "This purchase order has created assets and cannot be deleted. Contact a system administrator."
+                            : order.assetsCreated
+                            ? "This PO has created assets — deleting will unlink them (admin action)"
+                            : undefined
+                        }
+                        onClick={() => {
+                          if (order.assetsCreated && !isSystemAdmin) {
+                            toast({
+                              title: "Cannot delete",
+                              description: "This purchase order has created assets and cannot be deleted. Contact a system administrator.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          if (order.assetsCreated && isSystemAdmin) {
+                            const confirmed = window.confirm(
+                              "This purchase order has created assets. Deleting it will unlink those assets (they will remain in inventory) but the PO record will be permanently removed. Continue as admin?"
+                            );
+                            if (!confirmed) return;
+                            deleteMutation.mutate({ id: order.id, confirmAdminDelete: true });
+                            return;
+                          }
+                          deleteMutation.mutate({ id: order.id });
+                        }}
                         data-testid={`button-delete-${order.id}`}
                       >
                         <Trash2 className="w-4 h-4" />

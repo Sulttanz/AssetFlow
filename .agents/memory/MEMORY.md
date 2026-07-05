@@ -1,0 +1,1 @@
+- [PO delete protection pattern](po-delete-protection.md) — deletion of records with derived/dependent data should block by default, offer admin unlink-not-delete override with explicit confirmation.

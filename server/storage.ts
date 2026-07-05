@@ -28,6 +28,7 @@ export interface IStorage {
   getAssets(): Promise<Asset[]>;
   getAssetsWithAssignments(): Promise<AssetWithAssignment[]>;
   getAsset(id: string): Promise<Asset | undefined>;
+  getAssetsByPurchaseOrderNumber(poNumber: string): Promise<Asset[]>;
   createAsset(asset: InsertAsset): Promise<Asset>;
   updateAsset(id: string, asset: Partial<InsertAsset>): Promise<Asset | undefined>;
   deleteAsset(id: string): Promise<boolean>;
@@ -395,6 +396,10 @@ export class MemStorage implements IStorage {
   // Assets
   async getAssets(): Promise<Asset[]> {
     return Array.from(this.assets.values());
+  }
+
+  async getAssetsByPurchaseOrderNumber(poNumber: string): Promise<Asset[]> {
+    return Array.from(this.assets.values()).filter((a) => a.purchaseOrderNumber === poNumber);
   }
 
   async getAssetsWithAssignments(): Promise<AssetWithAssignment[]> {
@@ -2065,6 +2070,10 @@ export class DatabaseStorage implements IStorage {
   // Assets
   async getAssets(): Promise<Asset[]> {
     return await db.select().from(assets);
+  }
+
+  async getAssetsByPurchaseOrderNumber(poNumber: string): Promise<Asset[]> {
+    return await db.select().from(assets).where(eq(assets.purchaseOrderNumber, poNumber));
   }
 
   async getAssetsWithAssignments(): Promise<AssetWithAssignment[]> {
