@@ -41,6 +41,10 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { Link } from "wouter";
+import { useModules } from "@/hooks/use-modules";
+import { Ticket } from "lucide-react";
+import type { TicketWithDetails } from "@shared/schema";
 
 interface DashboardStats {
   totalAssets: number;
@@ -60,11 +64,13 @@ const DEFAULT_WIDGETS = {
   recentAssignments: true,
   upcomingMaintenance: true,
   budgetOverview: true,
+  openTickets: true,
 };
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
 
 export default function Dashboard() {
+  const { isModuleEnabled } = useModules();
   const [widgets, setWidgets] = useState(() => {
     const saved = localStorage.getItem("dashboard_widgets");
     return saved ? JSON.parse(saved) : DEFAULT_WIDGETS;
@@ -93,6 +99,15 @@ export default function Dashboard() {
   const { data: budgetsData } = useQuery<any[]>({
     queryKey: ["/api/budgets"],
   });
+
+  const itsmEnabled = isModuleEnabled("itsm");
+
+  const { data: tickets } = useQuery<TicketWithDetails[]>({
+    queryKey: ["/api/tickets"],
+    enabled: itsmEnabled,
+  });
+
+  const openTickets = tickets?.filter((t) => t.status === "open" || t.status === "in_progress") ?? [];
 
   const toggleWidget = (key: keyof typeof DEFAULT_WIDGETS) => {
     setWidgets((prev: typeof DEFAULT_WIDGETS) => ({ ...prev, [key]: !prev[key] }));
@@ -136,7 +151,9 @@ export default function Dashboard() {
                 </p>
               </div>
               <div className="grid gap-2">
-                {Object.entries(widgets).map(([key, value]) => (
+                {Object.entries(widgets)
+                  .filter(([key]) => key !== "openTickets" || itsmEnabled)
+                  .map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between">
                     <Label htmlFor={`widget-${key}`} className="capitalize">
                       {key.replace(/([A-Z])/g, ' $1').trim()}
@@ -419,6 +436,70 @@ export default function Dashboard() {
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
                         No budget data available
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {itsmEnabled && widgets.openTickets && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-medium">Open Tickets</CardTitle>
+              <Ticket className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ticket #</TableHead>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Requester</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {openTickets.slice(0, 5).map((ticket) => (
+                    <TableRow key={ticket.id}>
+                      <TableCell className="font-mono text-sm">
+                        <Link href="/tickets" className="hover:underline">
+                          {ticket.ticketNumber}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="font-medium max-w-[220px] truncate">{ticket.title}</TableCell>
+                      <TableCell>
+                        <Badge
+                          className={
+                            ticket.priority === "critical"
+                              ? "bg-red-100 text-red-800"
+                              : ticket.priority === "high"
+                              ? "bg-orange-100 text-orange-800"
+                              : ticket.priority === "medium"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-gray-100 text-gray-800"
+                          }
+                        >
+                          {ticket.priority}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={ticket.status === "open" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}>
+                          {ticket.status.replace("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {ticket.requester ? `${ticket.requester.firstName} ${ticket.requester.lastName}` : "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {openTickets.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-4 text-muted-foreground">
+                        No open tickets
                       </TableCell>
                     </TableRow>
                   )}

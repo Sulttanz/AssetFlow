@@ -12,6 +12,7 @@ import {
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
+  insertTicketSchema, insertTicketCommentSchema,
   assetAttachments
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
@@ -64,9 +65,50 @@ async function logAudit(
   }
 }
 
+// Idempotently ensures ITSM permissions exist and are granted to the System Administrator role.
+// This runs on every startup so it works for deployments that already have their permission
+// set seeded (the one-time /api/system/seed-data route only seeds when no users exist yet).
+async function ensureItsmPermissions() {
+  try {
+    const ITSM_PERMISSIONS: Array<{ name: string; description: string; resource: string; action: string }> = [
+      { name: "ticket_view_all", description: "View all tickets (full queue)", resource: "tickets", action: "view" },
+      { name: "ticket_manage", description: "Assign, update status, edit, and delete any ticket", resource: "tickets", action: "manage" },
+    ];
+
+    const existingPermissions = await storage.getPermissions();
+    const existingByName = new Map(existingPermissions.map(p => [p.name, p]));
+
+    const createdOrExisting: string[] = [];
+    for (const perm of ITSM_PERMISSIONS) {
+      let permission = existingByName.get(perm.name);
+      if (!permission) {
+        permission = await storage.createPermission(perm);
+        console.log(`✅ Created missing permission: ${perm.name}`);
+      }
+      createdOrExisting.push(permission.id);
+    }
+
+    const rolesWithDetails = await storage.getRolesWithDetails();
+    const adminRole = rolesWithDetails.find(r => r.name === "System Administrator");
+    if (adminRole) {
+      const grantedPermissionIds = new Set((adminRole.permissions || []).map(p => p.id));
+      for (const permissionId of createdOrExisting) {
+        if (!grantedPermissionIds.has(permissionId)) {
+          await storage.assignRolePermission(adminRole.id, permissionId);
+          console.log(`✅ Granted ITSM permission to System Administrator role`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Failed to ensure ITSM permissions:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication system
   setupAuth(app);
+
+  await ensureItsmPermissions();
 
   // ====================
   // USER MANAGEMENT ROUTES
@@ -589,6 +631,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.errors });
       res.status(500).json({ message: "Failed to create asset request" });
+    }
+  });
+
+  // ====================
+  // ITSM TICKETING ROUTES
+  // ====================
+
+  async function canManageAllTickets(userId: string): Promise<boolean> {
+    const perms = await storage.getUserPermissions(userId);
+    return perms.includes("ticket_manage") || perms.includes("ticket_view_all");
+  }
+
+  async function canManageTicket(userId: string): Promise<boolean> {
+    const perms = await storage.getUserPermissions(userId);
+    return perms.includes("ticket_manage");
+  }
+
+  app.get("/api/tickets", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const all = await storage.getTickets();
+      if (await canManageAllTickets(user.id)) {
+        return res.json(all);
+      }
+      const own = all.filter(t => t.requesterId === user.id || t.assignedToId === user.id);
+      res.json(own);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch tickets" });
+    }
+  });
+
+  app.get("/api/tickets/:id", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isOwner = ticket.requesterId === user.id || ticket.assignedToId === user.id;
+      if (!isOwner && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      res.json(ticket);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch ticket" });
+    }
+  });
+
+  app.post("/api/tickets", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const validatedData = insertTicketSchema.parse({ ...req.body, requesterId: user.id });
+      const ticket = await storage.createTicket(validatedData);
+      await logAudit(user.id, 'CREATE', 'tickets', ticket.id, ticket.title, null, ticket, req);
+      res.status(201).json(ticket);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create ticket" });
+    }
+  });
+
+  app.put("/api/tickets/:id", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const existing = await storage.getTicket(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ticket not found" });
+
+      const isManager = await canManageTicket(user.id);
+      const isOwner = existing.requesterId === user.id;
+      if (!isManager && !isOwner) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      let updatePayload = req.body;
+      if (!isManager) {
+        // Requesters without ticket_manage may only edit their own ticket's basic details
+        const { title, description, category, priority } = req.body;
+        updatePayload = { title, description, category, priority };
+      }
+
+      const validatedData = insertTicketSchema.partial().parse(updatePayload);
+      const ticket = await storage.updateTicket(req.params.id, validatedData);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
+      res.json(ticket);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update ticket" });
+    }
+  });
+
+  app.delete("/api/tickets/:id", requireAuth, requireModule('itsm'), requirePermission('ticket_manage'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const existing = await storage.getTicket(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ticket not found" });
+      const deleted = await storage.deleteTicket(req.params.id);
+      if (deleted) await logAudit(user.id, 'DELETE', 'tickets', existing.id, existing.title, existing, null, req);
+      res.json({ success: deleted });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete ticket" });
+    }
+  });
+
+  app.get("/api/tickets/:id/comments", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isOwner = ticket.requesterId === user.id || ticket.assignedToId === user.id;
+      if (!isOwner && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const comments = await storage.getTicketComments(req.params.id);
+      res.json(comments);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch comments" });
+    }
+  });
+
+  app.post("/api/tickets/:id/comments", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isOwner = ticket.requesterId === user.id || ticket.assignedToId === user.id;
+      if (!isOwner && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const validatedData = insertTicketCommentSchema.parse({ ticketId: req.params.id, authorId: user.id, message: req.body.message });
+      const comment = await storage.createTicketComment(validatedData);
+      await logAudit(user.id, 'CREATE', 'ticket_comments', comment.id, `Comment on ${ticket.ticketNumber}`, null, comment, req);
+      res.status(201).json(comment);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid comment data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create comment" });
+    }
+  });
+
+  app.get("/api/reports/tickets", requireAuth, requireModule('itsm'), requirePermission('ticket_view_all'), async (req, res) => {
+    try {
+      const tickets = await storage.getTickets();
+      res.json(tickets);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch ticket report data" });
     }
   });
 

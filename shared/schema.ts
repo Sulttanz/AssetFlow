@@ -656,6 +656,74 @@ export const insertAssetAttachmentSchema = createInsertSchema(assetAttachments).
 export type InsertAssetAttachment = z.infer<typeof insertAssetAttachmentSchema>;
 export type AssetAttachment = typeof assetAttachments.$inferSelect;
 
+// ─── ITSM Module: Incident & Service Request Ticketing ──────────────────────
+
+export const tickets = pgTable("tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketNumber: text("ticket_number").notNull().unique(), // e.g. INC-000001, SR-000001
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  type: text("type").notNull().default("incident"), // incident, service_request
+  category: text("category"), // Hardware, Software, Network, Access, Other
+  priority: text("priority").notNull().default("medium"), // low, medium, high, critical
+  status: text("status").notNull().default("open"), // open, in_progress, resolved, closed
+  assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
+  requesterId: varchar("requester_id").notNull().references(() => users.id),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  dueDate: date("due_date"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const ticketComments = pgTable("ticket_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  authorId: varchar("author_id").notNull().references(() => users.id),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const insertTicketSchema = createInsertSchema(tickets).omit({
+  id: true,
+  ticketNumber: true,
+  createdAt: true,
+  updatedAt: true,
+  resolvedAt: true,
+});
+export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({ id: true, createdAt: true });
+
+export type InsertTicket = z.infer<typeof insertTicketSchema>;
+export type Ticket = typeof tickets.$inferSelect;
+export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
+export type TicketComment = typeof ticketComments.$inferSelect;
+
+export const ticketsRelations = relations(tickets, ({ one, many }) => ({
+  asset: one(assets, { fields: [tickets.assetId], references: [assets.id] }),
+  requester: one(users, { fields: [tickets.requesterId], references: [users.id] }),
+  assignedTo: one(users, { fields: [tickets.assignedToId], references: [users.id] }),
+  department: one(departments, { fields: [tickets.departmentId], references: [departments.id] }),
+  comments: many(ticketComments),
+}));
+
+export const ticketCommentsRelations = relations(ticketComments, ({ one }) => ({
+  ticket: one(tickets, { fields: [ticketComments.ticketId], references: [tickets.id] }),
+  author: one(users, { fields: [ticketComments.authorId], references: [users.id] }),
+}));
+
+export type TicketCommentWithAuthor = TicketComment & {
+  author?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+};
+
+export type TicketWithDetails = Ticket & {
+  asset?: Asset;
+  requester?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  department?: Department;
+  commentCount?: number;
+};
+
 // ────────────────────────────────────────────────────────────────────────────
 
 // Dropdown Options Insert Schema

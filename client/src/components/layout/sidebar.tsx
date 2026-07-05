@@ -33,7 +33,8 @@ import {
   ClipboardCheck,
   GitBranch,
   Menu,
-  X
+  X,
+  Ticket
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -91,6 +92,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Maintenance", href: "/maintenance", icon: Wrench, current: location === "/maintenance" },
         { name: "Asset Audits", href: "/asset-audits", icon: ClipboardCheck, current: location === "/asset-audits" },
+      ]
+    },
+    {
+      title: "IT Service Management",
+      moduleKey: "itsm",
+      items: [
+        { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets" },
+        { name: "Ticket Report", href: "/reports/tickets", icon: FileBarChart, current: location === "/reports/tickets" },
       ]
     },
     {

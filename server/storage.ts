@@ -15,14 +15,16 @@ import {
   type AssetWithAssignment, type AssignmentWithDetails, type LocationWithDetails,
   type DepartmentWithDetails, type VendorWithDetails, type EmployeeWithDetails, type PurchaseOrderWithDetails,
   type MaintenanceRecordWithDetails, type MaintenanceScheduleWithDetails, type UserWithDetails, type RoleWithDetails,
+  type Ticket, type InsertTicket, type TicketComment, type InsertTicketComment, type TicketWithDetails, type TicketCommentWithAuthor,
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
   budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
+  tickets, ticketComments,
 } from "@shared/schema";
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, isNull, and, inArray, sql } from "drizzle-orm";
+import { eq, isNull, and, inArray, sql, desc } from "drizzle-orm";
 import { EventEmitter } from "events";
 
 export interface IStorage {
@@ -211,6 +213,15 @@ export interface IStorage {
   createAssetRequest(request: InsertAssetRequest): Promise<AssetRequest>;
   updateAssetRequest(id: string, request: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined>;
 
+  // Tickets (ITSM)
+  getTickets(): Promise<TicketWithDetails[]>;
+  getTicket(id: string): Promise<TicketWithDetails | undefined>;
+  createTicket(ticket: InsertTicket): Promise<Ticket>;
+  updateTicket(id: string, ticket: Partial<InsertTicket>): Promise<Ticket | undefined>;
+  deleteTicket(id: string): Promise<boolean>;
+  getTicketComments(ticketId: string): Promise<TicketCommentWithAuthor[]>;
+  createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
+
   // 2FA
   getUserById(id: string): Promise<User | undefined>;
   updateUser2FA(userId: string, secret: string | null, enabled: boolean): Promise<User | undefined>;
@@ -248,6 +259,8 @@ export class MemStorage implements IStorage {
   private assetAuditItems: Map<string, AssetAuditItem>;
   private assetRelationships: Map<string, AssetRelationship>;
   private assetRequests: Map<string, AssetRequest>;
+  private tickets: Map<string, Ticket>;
+  private ticketComments: Map<string, TicketComment>;
   
   // User Management Collections
   private users: Map<string, User>;
@@ -279,6 +292,8 @@ export class MemStorage implements IStorage {
     this.assetAuditItems = new Map();
     this.assetRelationships = new Map();
     this.assetRequests = new Map();
+    this.tickets = new Map();
+    this.ticketComments = new Map();
     
     // Initialize user management collections
     this.users = new Map();
@@ -1608,6 +1623,96 @@ export class MemStorage implements IStorage {
     const updatedRequest = { ...request, ...updateData };
     this.assetRequests.set(id, updatedRequest);
     return updatedRequest;
+  }
+
+  // Tickets (ITSM)
+  private toUserSummary(user?: User) {
+    if (!user) return undefined;
+    return { id: user.id, username: user.username, firstName: user.firstName, lastName: user.lastName };
+  }
+
+  private async toTicketWithDetails(ticket: Ticket): Promise<TicketWithDetails> {
+    const commentCount = Array.from(this.ticketComments.values()).filter(c => c.ticketId === ticket.id).length;
+    return {
+      ...ticket,
+      asset: ticket.assetId ? this.assets.get(ticket.assetId) : undefined,
+      requester: this.toUserSummary(this.users.get(ticket.requesterId)),
+      assignedTo: ticket.assignedToId ? this.toUserSummary(this.users.get(ticket.assignedToId)) : undefined,
+      department: ticket.departmentId ? this.departments.get(ticket.departmentId) : undefined,
+      commentCount,
+    };
+  }
+
+  async getTickets(): Promise<TicketWithDetails[]> {
+    const all = Array.from(this.tickets.values()).sort((a, b) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    return Promise.all(all.map(t => this.toTicketWithDetails(t)));
+  }
+
+  async getTicket(id: string): Promise<TicketWithDetails | undefined> {
+    const ticket = this.tickets.get(id);
+    if (!ticket) return undefined;
+    return this.toTicketWithDetails(ticket);
+  }
+
+  async createTicket(ticket: InsertTicket): Promise<Ticket> {
+    const id = randomUUID();
+    const seq = this.tickets.size + 1;
+    const prefix = ticket.type === "service_request" ? "SR" : "INC";
+    const newTicket: Ticket = {
+      ...ticket,
+      id,
+      ticketNumber: `${prefix}-${String(seq).padStart(6, "0")}`,
+      category: ticket.category ?? null,
+      priority: ticket.priority ?? "medium",
+      status: ticket.status ?? "open",
+      assetId: ticket.assetId ?? null,
+      assignedToId: ticket.assignedToId ?? null,
+      departmentId: ticket.departmentId ?? null,
+      dueDate: ticket.dueDate ?? null,
+      resolvedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.tickets.set(id, newTicket);
+    return newTicket;
+  }
+
+  async updateTicket(id: string, updateData: Partial<InsertTicket>): Promise<Ticket | undefined> {
+    const ticket = this.tickets.get(id);
+    if (!ticket) return undefined;
+    const wasResolved = ticket.status === "resolved" || ticket.status === "closed";
+    const willBeResolved = updateData.status === "resolved" || updateData.status === "closed";
+    const updatedTicket: Ticket = {
+      ...ticket,
+      ...updateData,
+      resolvedAt: !wasResolved && willBeResolved ? new Date() : ticket.resolvedAt,
+      updatedAt: new Date(),
+    };
+    this.tickets.set(id, updatedTicket);
+    return updatedTicket;
+  }
+
+  async deleteTicket(id: string): Promise<boolean> {
+    Array.from(this.ticketComments.values())
+      .filter(c => c.ticketId === id)
+      .forEach(c => this.ticketComments.delete(c.id));
+    return this.tickets.delete(id);
+  }
+
+  async getTicketComments(ticketId: string): Promise<TicketCommentWithAuthor[]> {
+    return Array.from(this.ticketComments.values())
+      .filter(c => c.ticketId === ticketId)
+      .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime())
+      .map(c => ({ ...c, author: this.toUserSummary(this.users.get(c.authorId)) }));
+  }
+
+  async createTicketComment(comment: InsertTicketComment): Promise<TicketComment> {
+    const id = randomUUID();
+    const newComment: TicketComment = { ...comment, id, createdAt: new Date() };
+    this.ticketComments.set(id, newComment);
+    return newComment;
   }
 
   // 2FA
@@ -3109,6 +3214,82 @@ export class DatabaseStorage implements IStorage {
   async updateAssetRequest(id: string, request: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined> {
     const result = await db.update(assetRequests).set(request).where(eq(assetRequests.id, id)).returning();
     return result[0] || undefined;
+  }
+
+  // Tickets (ITSM)
+  private toUserSummary(user?: User) {
+    if (!user) return undefined;
+    return { id: user.id, username: user.username, firstName: user.firstName, lastName: user.lastName };
+  }
+
+  private async toTicketWithDetails(ticket: Ticket): Promise<TicketWithDetails> {
+    const [asset, requester, assignedTo, department, commentRows] = await Promise.all([
+      ticket.assetId ? db.select().from(assets).where(eq(assets.id, ticket.assetId)).then(r => r[0]) : Promise.resolve(undefined),
+      db.select().from(users).where(eq(users.id, ticket.requesterId)).then(r => r[0]),
+      ticket.assignedToId ? db.select().from(users).where(eq(users.id, ticket.assignedToId)).then(r => r[0]) : Promise.resolve(undefined),
+      ticket.departmentId ? db.select().from(departments).where(eq(departments.id, ticket.departmentId)).then(r => r[0]) : Promise.resolve(undefined),
+      db.select({ id: ticketComments.id }).from(ticketComments).where(eq(ticketComments.ticketId, ticket.id)),
+    ]);
+    return {
+      ...ticket,
+      asset,
+      requester: this.toUserSummary(requester),
+      assignedTo: this.toUserSummary(assignedTo),
+      department,
+      commentCount: commentRows.length,
+    };
+  }
+
+  async getTickets(): Promise<TicketWithDetails[]> {
+    const all = await db.select().from(tickets).orderBy(desc(tickets.createdAt));
+    return Promise.all(all.map(t => this.toTicketWithDetails(t)));
+  }
+
+  async getTicket(id: string): Promise<TicketWithDetails | undefined> {
+    const result = await db.select().from(tickets).where(eq(tickets.id, id));
+    if (!result[0]) return undefined;
+    return this.toTicketWithDetails(result[0]);
+  }
+
+  async createTicket(ticket: InsertTicket): Promise<Ticket> {
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(tickets);
+    const seq = Number(countResult[0]?.count || 0) + 1;
+    const prefix = ticket.type === "service_request" ? "SR" : "INC";
+    const ticketNumber = `${prefix}-${String(seq).padStart(6, "0")}`;
+    const result = await db.insert(tickets).values({ ...ticket, ticketNumber }).returning();
+    return result[0];
+  }
+
+  async updateTicket(id: string, updateData: Partial<InsertTicket>): Promise<Ticket | undefined> {
+    const existing = await db.select().from(tickets).where(eq(tickets.id, id));
+    if (!existing[0]) return undefined;
+    const wasResolved = existing[0].status === "resolved" || existing[0].status === "closed";
+    const willBeResolved = updateData.status === "resolved" || updateData.status === "closed";
+    const result = await db.update(tickets).set({
+      ...updateData,
+      resolvedAt: !wasResolved && willBeResolved ? new Date() : existing[0].resolvedAt,
+      updatedAt: new Date(),
+    }).where(eq(tickets.id, id)).returning();
+    return result[0] || undefined;
+  }
+
+  async deleteTicket(id: string): Promise<boolean> {
+    await db.delete(ticketComments).where(eq(ticketComments.ticketId, id));
+    const result = await db.delete(tickets).where(eq(tickets.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async getTicketComments(ticketId: string): Promise<TicketCommentWithAuthor[]> {
+    const rows = await db.select().from(ticketComments).where(eq(ticketComments.ticketId, ticketId)).orderBy(ticketComments.createdAt);
+    return Promise.all(rows.map(async c => ({
+      ...c,
+      author: this.toUserSummary(await db.select().from(users).where(eq(users.id, c.authorId)).then(r => r[0])),
+    })));
+  }
+
+  async createTicketComment(comment: InsertTicketComment): Promise<TicketComment> {
+    const result = await db.insert(ticketComments).values(comment).returning();
+    return result[0];
   }
 
   // 2FA
