@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, PackageCheck, Layers } from "lucide-react";
+import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, PackageCheck, Layers, Copy } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -442,6 +442,7 @@ export default function PurchaseOrders() {
   const [editingOrder, setEditingOrder] = useState<PurchaseOrderWithDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("__all__");
+  const [itemSearch, setItemSearch] = useState("");
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [selectedForAssets, setSelectedForAssets] = useState<Set<string>>(new Set());
   const isSystemAdmin = useHasPermission("system_admin");
@@ -459,9 +460,23 @@ export default function PurchaseOrders() {
   });
 
   const filteredOrders = useMemo(() => {
-    if (statusFilter === "__all__") return orders;
-    return orders.filter((o) => o.status === statusFilter);
-  }, [orders, statusFilter]);
+    let result = orders;
+    if (statusFilter !== "__all__") {
+      result = result.filter((o) => o.status === statusFilter);
+    }
+    const query = itemSearch.trim().toLowerCase();
+    if (query) {
+      result = result.filter((o) => {
+        if (o.poNumber.toLowerCase().includes(query)) return true;
+        return (o.items ?? []).some((item) =>
+          item.description.toLowerCase().includes(query) ||
+          (item.assetType ?? "").toLowerCase().includes(query) ||
+          (item.serialNumber ?? "").toLowerCase().includes(query)
+        );
+      });
+    }
+    return result;
+  }, [orders, statusFilter, itemSearch]);
 
   const eligibleForAssets = useMemo(
     () => orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0 && !o.assetsCreated),
@@ -624,6 +639,29 @@ export default function PurchaseOrders() {
     });
   };
 
+  const handleDuplicate = (order: PurchaseOrderWithDetails) => {
+    createForm.reset({
+      poNumber: generatePONumber(),
+      vendorId: order.vendorId || "",
+      reference: order.reference || "",
+      orderDate: new Date().toISOString().split("T")[0],
+      departmentId: order.departmentId || "none",
+      status: "pending" as const,
+      notes: order.notes || "",
+      totalAmount: order.totalAmount,
+      items: order.items?.map((item) => ({
+        description: item.description,
+        assetType: item.assetType || "other",
+        serialNumber: "",
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unitPrice),
+        assetId: "",
+      })) || [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
+    });
+    setIsCreateDialogOpen(true);
+    toast({ title: "Order duplicated", description: "Review the new order and click Create Order to save it." });
+  };
+
   const handleUpdate = (data: PurchaseOrderFormData) => {
     if (!editingOrder) return;
     const cleanData = {
@@ -760,7 +798,7 @@ export default function PurchaseOrders() {
 
         {/* Status filter + bulk actions */}
         <div className="flex flex-col gap-2 mb-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-44" data-testid="select-status-filter">
@@ -774,6 +812,13 @@ export default function PurchaseOrders() {
                 ))}
               </SelectContent>
             </Select>
+            <Input
+              value={itemSearch}
+              onChange={(e) => setItemSearch(e.target.value)}
+              placeholder="Search PO # or item name, type, serial…"
+              className="w-full sm:w-72"
+              data-testid="input-item-search"
+            />
             <span className="text-sm text-muted-foreground">
               {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""}
             </span>
@@ -886,6 +931,16 @@ export default function PurchaseOrders() {
                         data-testid={`button-edit-${order.id}`}
                       >
                         <Edit2 className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        title="Duplicate this purchase order"
+                        onClick={() => handleDuplicate(order)}
+                        data-testid={`button-duplicate-${order.id}`}
+                      >
+                        <Copy className="w-4 h-4" />
                       </Button>
                       <Button
                         variant="ghost"
