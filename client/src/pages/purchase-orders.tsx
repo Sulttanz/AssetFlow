@@ -34,7 +34,9 @@ const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
   vendorId: z.string().optional(),
   departmentId: z.string().optional(),
   items: z.array(z.object({
-    description: z.string().min(1, "Item description is required"),
+    description: z.string().min(1, "Asset name is required"),
+    assetType: z.string().optional(),
+    serialNumber: z.string().optional(),
     quantity: z.number().min(1, "Quantity must be at least 1"),
     unitPrice: z.number().min(0, "Unit price must be positive"),
     assetId: z.string().optional()
@@ -243,7 +245,7 @@ function PurchaseOrderForm({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => append({ description: "", quantity: 1, unitPrice: 0, assetId: "" })}
+              onClick={() => append({ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" })}
               data-testid="button-add-item"
             >
               <Plus className="w-4 h-4 mr-1" />
@@ -274,7 +276,7 @@ function PurchaseOrderForm({
                   name={`items.${index}.description`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Description</FormLabel>
+                      <FormLabel>Asset Name</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="e.g., Dell Laptop 15-inch" data-testid={`input-item-description-${index}`} />
                       </FormControl>
@@ -282,6 +284,59 @@ function PurchaseOrderForm({
                     </FormItem>
                   )}
                 />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name={`items.${index}.assetType`}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Asset Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "other"}>
+                          <FormControl>
+                            <SelectTrigger data-testid={`select-item-type-${index}`}>
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="laptop">Laptop</SelectItem>
+                            <SelectItem value="desktop">Desktop</SelectItem>
+                            <SelectItem value="monitor">Monitor</SelectItem>
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="printer">Printer</SelectItem>
+                            <SelectItem value="server">Server</SelectItem>
+                            <SelectItem value="network">Network Equipment</SelectItem>
+                            <SelectItem value="software">Software</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name={`items.${index}.serialNumber`}
+                    render={({ field }) => {
+                      const qty = form.watch(`items.${index}.quantity`) || 1;
+                      return (
+                        <FormItem>
+                          <FormLabel>Serial Number {qty > 1 ? "(qty > 1)" : "(Optional)"}</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              disabled={qty > 1}
+                              placeholder={qty > 1 ? "Set per-asset later" : "e.g., SN-12345"}
+                              data-testid={`input-item-serial-${index}`}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
@@ -518,7 +573,7 @@ export default function PurchaseOrders() {
     status: "pending" as const,
     notes: "",
     totalAmount: "0",
-    items: [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }],
+    items: [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
   };
 
   const createForm = useForm<PurchaseOrderFormData>({
@@ -560,10 +615,12 @@ export default function PurchaseOrders() {
       totalAmount: order.totalAmount,
       items: order.items?.map((item) => ({
         description: item.description,
+        assetType: item.assetType || "other",
+        serialNumber: item.serialNumber || "",
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
         assetId: item.assetId || "",
-      })) || [{ description: "", quantity: 1, unitPrice: 0, assetId: "" }],
+      })) || [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
     });
   };
 
@@ -901,8 +958,16 @@ export default function PurchaseOrders() {
                   {order.items && order.items.length > 0 && (
                     <div className="mt-2 space-y-0.5">
                       {order.items.slice(0, 2).map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-xs text-muted-foreground">
-                          <span className="truncate mr-2">{item.description}</span>
+                        <div key={idx} className="flex justify-between items-start text-xs text-muted-foreground gap-2">
+                          <span className="truncate">
+                            {item.description}
+                            {item.assetType && item.assetType !== "other" && (
+                              <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">({item.assetType})</span>
+                            )}
+                            {item.serialNumber && (
+                              <span className="ml-1 text-[10px] opacity-70">SN: {item.serialNumber}</span>
+                            )}
+                          </span>
                           <span className="shrink-0">{item.quantity}× ${item.unitPrice}</span>
                         </div>
                       ))}

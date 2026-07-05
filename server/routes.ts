@@ -1955,6 +1955,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.createPurchaseOrderItem({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
+            assetType: item.assetType || "other",
+            serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             totalPrice: totalPrice.toString(),
@@ -2016,6 +2018,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.createPurchaseOrderItem({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
+            assetType: item.assetType || "other",
+            serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             totalPrice: totalPrice.toString(),
@@ -2134,9 +2138,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const assetName = qty > 1 ? `${item.description} #${i + 1}` : item.description;
           const asset = await storage.createAsset({
             name: assetName,
-            type: 'other',
+            type: item.assetType || 'other',
             status: 'available',
             vendor: vendorName,
+            serialNumber: qty === 1 ? (item.serialNumber || undefined) : undefined,
             purchasePrice: item.unitPrice,
             purchaseDate: po.orderDate,
             purchaseOrderNumber: po.poNumber,

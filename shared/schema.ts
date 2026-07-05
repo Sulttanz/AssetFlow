@@ -375,6 +375,8 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   purchaseOrderId: varchar("purchase_order_id").notNull().references(() => purchaseOrders.id),
   assetId: varchar("asset_id").references(() => assets.id),
   description: text("description").notNull(),
+  assetType: text("asset_type").default("other"),
+  serialNumber: text("serial_number"),
   quantity: integer("quantity").notNull().default(1),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
