@@ -3716,6 +3716,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MODULE SETTINGS ROUTES
   // ====================
 
+  // Public status of enabled modules — used by the login page to advertise
+  // only the capabilities this deployment actually has enabled. No sensitive
+  // data (just key/label/enabled), so no auth required.
+  app.get("/api/module-status", async (req, res) => {
+    try {
+      const settingsList = await storage.getModuleSettings();
+      const enriched = MODULE_REGISTRY.map((def) => {
+        const found = settingsList.find((s) => s.moduleKey === def.key);
+        return {
+          key: def.key,
+          name: def.label,
+          core: def.core,
+          enabled: found ? found.enabled : true,
+        };
+      });
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch module status" });
+    }
+  });
+
   app.get("/api/module-settings", requireAuth, async (req, res) => {
     try {
       const settingsList = await storage.getModuleSettings();

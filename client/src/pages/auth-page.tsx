@@ -5,13 +5,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Shield, Users, BarChart3, Package, Settings } from "lucide-react";
+import { Loader2, Shield, Users, BarChart3, Package, Settings, Ticket, LifeBuoy } from "lucide-react";
 import { Redirect } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useQuery } from "@tanstack/react-query";
+import type { ComponentType } from "react";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -26,6 +27,45 @@ type SystemStatus = {
   needsSetup: boolean;
 };
 
+type ModuleStatus = {
+  key: string;
+  name: string;
+  core: boolean;
+  enabled: boolean;
+};
+
+type Highlight = {
+  icon: ComponentType<{ className?: string }>;
+  color: "blue" | "green" | "purple" | "orange" | "pink" | "indigo";
+  title: string;
+  description: string;
+};
+
+// Feature highlights advertised on the login page, grouped by the module
+// that provides them. Only highlights whose module is enabled on this
+// deployment are shown, so the page reflects what the system can actually do.
+const MODULE_HIGHLIGHTS: Record<string, Highlight[]> = {
+  asset_management: [
+    { icon: Package, color: "blue", title: "Asset Tracking", description: "Complete lifecycle management for all IT equipment" },
+    { icon: Users, color: "green", title: "Employee Management", description: "Manage staff assignments and department structures" },
+    { icon: BarChart3, color: "purple", title: "Budget Planning", description: "Financial planning and expense tracking" },
+    { icon: Shield, color: "orange", title: "Maintenance", description: "Preventive maintenance and service records" },
+  ],
+  itsm: [
+    { icon: Ticket, color: "pink", title: "Incident Tickets", description: "Log and track IT incidents through to resolution" },
+    { icon: LifeBuoy, color: "indigo", title: "Service Requests", description: "Streamlined intake for employee service requests" },
+  ],
+};
+
+const COLOR_CLASSES: Record<Highlight["color"], { bg: string; icon: string }> = {
+  blue: { bg: "bg-blue-100 dark:bg-blue-900/30", icon: "text-blue-600 dark:text-blue-400" },
+  green: { bg: "bg-green-100 dark:bg-green-900/30", icon: "text-green-600 dark:text-green-400" },
+  purple: { bg: "bg-purple-100 dark:bg-purple-900/30", icon: "text-purple-600 dark:text-purple-400" },
+  orange: { bg: "bg-orange-100 dark:bg-orange-900/30", icon: "text-orange-600 dark:text-orange-400" },
+  pink: { bg: "bg-pink-100 dark:bg-pink-900/30", icon: "text-pink-600 dark:text-pink-400" },
+  indigo: { bg: "bg-indigo-100 dark:bg-indigo-900/30", icon: "text-indigo-600 dark:text-indigo-400" },
+};
+
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
 
@@ -34,6 +74,16 @@ export default function AuthPage() {
     queryKey: ["/api/system/status"],
     retry: false,
   });
+
+  // Only advertise capabilities this deployment actually has enabled
+  const { data: moduleStatus } = useQuery<ModuleStatus[]>({
+    queryKey: ["/api/module-status"],
+    retry: false,
+  });
+
+  const enabledModuleKeys = moduleStatus?.filter((m) => m.enabled).map((m) => m.key) ?? ["asset_management"];
+  const highlights = enabledModuleKeys.flatMap((key) => MODULE_HIGHLIGHTS[key] ?? []);
+  const hasItsm = enabledModuleKeys.includes("itsm");
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -160,61 +210,33 @@ export default function AuthPage() {
         <div className="text-center md:text-left space-y-6">
           <div>
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              IT Asset Management System
+              {hasItsm ? "IT Asset & Service Management System" : "IT Asset Management System"}
             </h1>
             <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">
-              Comprehensive solution for managing your organization's IT assets, employees, and resources.
+              {hasItsm
+                ? "Comprehensive solution for managing your organization's IT assets, employees, and support requests."
+                : "Comprehensive solution for managing your organization's IT assets, employees, and resources."}
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="flex items-start space-x-3">
-              <div className="rounded-lg bg-blue-100 dark:bg-blue-900/30 p-2">
-                <Package className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Asset Tracking</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Complete lifecycle management for all IT equipment
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="rounded-lg bg-green-100 dark:bg-green-900/30 p-2">
-                <Users className="w-6 h-6 text-green-600 dark:text-green-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Employee Management</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Manage staff assignments and department structures
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="rounded-lg bg-purple-100 dark:bg-purple-900/30 p-2">
-                <BarChart3 className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Budget Planning</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Financial planning and expense tracking
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="rounded-lg bg-orange-100 dark:bg-orange-900/30 p-2">
-                <Shield className="w-6 h-6 text-orange-600 dark:text-orange-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Maintenance</h3>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Preventive maintenance and service records
-                </p>
-              </div>
-            </div>
+            {highlights.map((item) => {
+              const Icon = item.icon;
+              const colors = COLOR_CLASSES[item.color];
+              return (
+                <div key={item.title} className="flex items-start space-x-3">
+                  <div className={`rounded-lg ${colors.bg} p-2`}>
+                    <Icon className={`w-6 h-6 ${colors.icon}`} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{item.title}</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {item.description}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="mt-8 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border">
