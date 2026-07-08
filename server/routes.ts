@@ -12,8 +12,8 @@ import {
   insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
-  insertTicketSchema, insertTicketCommentSchema,
-  assetAttachments
+  insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
+  assetAttachments, ticketAttachments
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { db } from "./db";
@@ -1520,6 +1520,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       console.error("Delete attachment error:", error);
+      res.status(500).json({ message: "Failed to delete attachment" });
+    }
+  });
+
+  // Ticket Attachments
+  app.get("/api/tickets/:id/attachments", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isOwner = ticket.requesterId === user.id || ticket.assignedToId === user.id;
+      if (!isOwner && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.ticketId, req.params.id));
+      res.json(rows);
+    } catch (error) {
+      console.error("Fetch ticket attachments error:", error);
+      res.status(500).json({ message: "Failed to fetch attachments" });
+    }
+  });
+
+  app.post("/api/tickets/:id/attachments", requireAuth, requireModule('itsm'), diskUpload.single('file'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isOwner = ticket.requesterId === user.id || ticket.assignedToId === user.id;
+      if (!isOwner && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const validatedData = insertTicketAttachmentSchema.parse({
+        ticketId: req.params.id,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        filePath: req.file.path,
+        description: req.body.description || null,
+        uploadedBy: user.id,
+      });
+      const [row] = await db.insert(ticketAttachments).values(validatedData).returning();
+      await logAudit(user.id, 'CREATE', 'ticket_attachments', row.id, req.file.originalname, null, row, req);
+      res.status(201).json(row);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.errors });
+      console.error("Upload ticket attachment error:", error);
+      res.status(500).json({ message: "Failed to upload attachment" });
+    }
+  });
+
+  app.delete("/api/tickets/:id/attachments/:attachId", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      const isManager = await canManageTicket(user.id);
+      const isOwner = ticket.requesterId === user.id;
+      if (!isManager && !isOwner) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const [deleted] = await db.delete(ticketAttachments)
+        .where(and(eq(ticketAttachments.id, req.params.attachId), eq(ticketAttachments.ticketId, req.params.id)))
+        .returning();
+      if (deleted?.filePath) {
+        const fs = await import('fs');
+        try { fs.unlinkSync(deleted.filePath); } catch (_) {}
+      }
+      if (deleted) await logAudit(user.id, 'DELETE', 'ticket_attachments', deleted.id, deleted.originalName, deleted, null, req);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Delete ticket attachment error:", error);
       res.status(500).json({ message: "Failed to delete attachment" });
     }
   });
@@ -4694,6 +4767,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { category: "paymentTerms", value: "net-90", label: "Net 90", displayOrder: 2 },
         { category: "paymentTerms", value: "cod", label: "COD", displayOrder: 3 },
         { category: "paymentTerms", value: "prepaid", label: "Prepaid", displayOrder: 4 },
+        // Ticket Category
+        { category: "ticketCategory", value: "hardware", label: "Hardware", displayOrder: 0 },
+        { category: "ticketCategory", value: "software", label: "Software", displayOrder: 1 },
+        { category: "ticketCategory", value: "network", label: "Network", displayOrder: 2 },
+        { category: "ticketCategory", value: "access", label: "Access / Account", displayOrder: 3 },
+        { category: "ticketCategory", value: "email", label: "Email", displayOrder: 4 },
+        { category: "ticketCategory", value: "printer", label: "Printer", displayOrder: 5 },
+        { category: "ticketCategory", value: "security", label: "Security", displayOrder: 6 },
+        { category: "ticketCategory", value: "other", label: "Other", displayOrder: 7 },
       ];
 
       let created = 0;

@@ -16,8 +16,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertTicketSchema, type TicketWithDetails, type TicketCommentWithAuthor, type UserWithDetails, type Asset, type Department } from "@shared/schema";
-import { Ticket, Search, Send, Plus } from "lucide-react";
+import { insertTicketSchema, type TicketWithDetails, type TicketCommentWithAuthor, type UserWithDetails, type Asset, type Department, type DropdownOption } from "@shared/schema";
+import { Ticket, Search, Send, Plus, Upload, FileText, Download, X } from "lucide-react";
 import { format } from "date-fns";
 import {
   Pagination,
@@ -85,6 +85,56 @@ export default function Tickets() {
   const { data: users } = useQuery<UserWithDetails[]>({
     queryKey: ["/api/users"],
     enabled: canManage,
+  });
+
+  const { data: ticketCategories } = useQuery<DropdownOption[]>({
+    queryKey: ["/api/dropdowns/options/ticketCategory"],
+  });
+
+  const [attachmentDescription, setAttachmentDescription] = useState("");
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+
+  const { data: attachments = [], refetch: refetchAttachments } = useQuery<any[]>({
+    queryKey: ["/api/tickets", selectedTicket?.id, "attachments"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/tickets/${selectedTicket!.id}/attachments`);
+      return res.json();
+    },
+    enabled: !!selectedTicket,
+  });
+
+  const uploadAttachmentMutation = useMutation({
+    mutationFn: async ({ file, description }: { file: File; description: string }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("description", description);
+      const res = await fetch(`/api/tickets/${selectedTicket?.id}/attachments`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchAttachments();
+      setAttachmentFile(null);
+      setAttachmentDescription("");
+      toast({ title: "File uploaded", description: "Attachment saved successfully" });
+    },
+    onError: () => {
+      toast({ title: "Upload failed", description: "Could not upload the file", variant: "destructive" });
+    },
+  });
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (attachId: string) => {
+      await apiRequest("DELETE", `/api/tickets/${selectedTicket?.id}/attachments/${attachId}`);
+    },
+    onSuccess: () => {
+      refetchAttachments();
+      toast({ title: "Deleted", description: "Attachment removed" });
+    },
   });
 
   const { data: comments, isLoading: commentsLoading } = useQuery<TicketCommentWithAuthor[]>({
@@ -409,9 +459,20 @@ export default function Tickets() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Category</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. Hardware, Network" {...field} value={field.value || ""} />
-                      </FormControl>
+                      <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {ticketCategories?.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -470,7 +531,7 @@ export default function Tickets() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Category: </span>
-                    {selectedTicket.category || "-"}
+                    {ticketCategories?.find((c) => c.value === selectedTicket.category)?.label || selectedTicket.category || "-"}
                   </div>
                   <div>
                     <span className="text-muted-foreground">Requester: </span>
@@ -559,6 +620,77 @@ export default function Tickets() {
                       <div className="mt-1 text-sm">{userLabel(selectedTicket.assignedTo)}</div>
                     )}
                   </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium mb-3">Attachments</h4>
+                  <div className="border rounded-lg p-3 space-y-3 mb-3">
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="file"
+                        onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
+                        className="block flex-1 text-sm text-muted-foreground file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:cursor-pointer"
+                      />
+                      <Input
+                        placeholder="Description (optional)"
+                        value={attachmentDescription}
+                        onChange={(e) => setAttachmentDescription(e.target.value)}
+                        className="sm:w-56"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!attachmentFile || uploadAttachmentMutation.isPending}
+                        onClick={() =>
+                          attachmentFile &&
+                          uploadAttachmentMutation.mutate({ file: attachmentFile, description: attachmentDescription })
+                        }
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        {uploadAttachmentMutation.isPending ? "Uploading..." : "Upload"}
+                      </Button>
+                    </div>
+                  </div>
+                  {attachments.length === 0 ? (
+                    <div className="text-center py-6 text-muted-foreground border rounded-lg mb-4">
+                      <FileText className="mx-auto h-8 w-8 mb-2 opacity-40" />
+                      <p className="text-sm">No attachments yet</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y border rounded-lg mb-4">
+                      {attachments.map((att: any) => (
+                        <div key={att.id} className="flex items-center justify-between p-2 hover:bg-muted/30">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <FileText className="h-6 w-6 text-muted-foreground shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{att.originalName}</p>
+                              {att.description && <p className="text-xs text-muted-foreground truncate">{att.description}</p>}
+                              <p className="text-xs text-muted-foreground">
+                                {att.fileSize ? `${(att.fileSize / 1024).toFixed(1)} KB · ` : ""}
+                                {att.uploadedAt ? new Date(att.uploadedAt).toLocaleDateString() : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            <Button type="button" variant="ghost" size="sm" asChild>
+                              <a href={`/api/uploads/${att.fileName}`} download={att.originalName} target="_blank" rel="noreferrer">
+                                <Download className="h-4 w-4" />
+                              </a>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                              disabled={deleteAttachmentMutation.isPending}
+                            >
+                              <X className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t pt-4">

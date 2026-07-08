@@ -43,6 +43,9 @@ const categories = [
   { value: "budgetCategory", label: "Budget Category" },
   { value: "purchaseOrderStatus", label: "Purchase Order Status" },
   { value: "paymentTerms", label: "Payment Terms" },
+
+  // IT Service Management
+  { value: "ticketCategory", label: "Ticket Category" },
 ];
 
 const formSchema = insertDropdownOptionSchema.extend({

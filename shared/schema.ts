@@ -685,6 +685,19 @@ export const ticketComments = pgTable("ticket_comments", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
+export const ticketAttachments = pgTable("ticket_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  originalName: text("original_name").notNull(),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  filePath: text("file_path").notNull(),
+  description: text("description"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").default(sql`now()`),
+});
+
 export const insertTicketSchema = createInsertSchema(tickets).omit({
   id: true,
   ticketNumber: true,
@@ -693,11 +706,14 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   resolvedAt: true,
 });
 export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({ id: true, createdAt: true });
+export const insertTicketAttachmentSchema = createInsertSchema(ticketAttachments).omit({ id: true, uploadedAt: true });
 
 export type InsertTicket = z.infer<typeof insertTicketSchema>;
 export type Ticket = typeof tickets.$inferSelect;
 export type InsertTicketComment = z.infer<typeof insertTicketCommentSchema>;
 export type TicketComment = typeof ticketComments.$inferSelect;
+export type InsertTicketAttachment = z.infer<typeof insertTicketAttachmentSchema>;
+export type TicketAttachment = typeof ticketAttachments.$inferSelect;
 
 export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   asset: one(assets, { fields: [tickets.assetId], references: [assets.id] }),
@@ -705,11 +721,17 @@ export const ticketsRelations = relations(tickets, ({ one, many }) => ({
   assignedTo: one(users, { fields: [tickets.assignedToId], references: [users.id] }),
   department: one(departments, { fields: [tickets.departmentId], references: [departments.id] }),
   comments: many(ticketComments),
+  attachments: many(ticketAttachments),
 }));
 
 export const ticketCommentsRelations = relations(ticketComments, ({ one }) => ({
   ticket: one(tickets, { fields: [ticketComments.ticketId], references: [tickets.id] }),
   author: one(users, { fields: [ticketComments.authorId], references: [users.id] }),
+}));
+
+export const ticketAttachmentsRelations = relations(ticketAttachments, ({ one }) => ({
+  ticket: one(tickets, { fields: [ticketAttachments.ticketId], references: [tickets.id] }),
+  uploader: one(users, { fields: [ticketAttachments.uploadedBy], references: [users.id] }),
 }));
 
 export type TicketCommentWithAuthor = TicketComment & {
