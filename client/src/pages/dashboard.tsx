@@ -109,6 +109,19 @@ export default function Dashboard() {
 
   const openTickets = tickets?.filter((t) => t.status === "open" || t.status === "in_progress") ?? [];
 
+  const overdueTickets = tickets?.filter(
+    (t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "resolved" && t.status !== "closed"
+  ) ?? [];
+
+  const resolvedTickets = tickets?.filter((t) => t.resolvedAt && t.createdAt) ?? [];
+  const avgResolutionHours = resolvedTickets.length > 0
+    ? resolvedTickets.reduce((sum, t) => {
+        const created = new Date(t.createdAt as any).getTime();
+        const resolved = new Date(t.resolvedAt as any).getTime();
+        return sum + (resolved - created) / (1000 * 60 * 60);
+      }, 0) / resolvedTickets.length
+    : null;
+
   const toggleWidget = (key: keyof typeof DEFAULT_WIDGETS) => {
     setWidgets((prev: typeof DEFAULT_WIDGETS) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -452,6 +465,28 @@ export default function Dashboard() {
               <Ticket className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Open / In Progress</p>
+                  <p className="text-2xl font-semibold">{openTickets.length}</p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Overdue</p>
+                  <p className={`text-2xl font-semibold ${overdueTickets.length > 0 ? "text-destructive" : ""}`}>
+                    {overdueTickets.length}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Avg. Resolution Time</p>
+                  <p className="text-2xl font-semibold">
+                    {avgResolutionHours === null
+                      ? "-"
+                      : avgResolutionHours < 24
+                      ? `${avgResolutionHours.toFixed(1)}h`
+                      : `${(avgResolutionHours / 24).toFixed(1)}d`}
+                  </p>
+                </div>
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>

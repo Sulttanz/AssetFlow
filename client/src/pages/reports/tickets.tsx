@@ -66,7 +66,23 @@ export default function TicketReport() {
     const resolved = records.filter((t) => t.status === "resolved").length;
     const closed = records.filter((t) => t.status === "closed").length;
     const critical = records.filter((t) => t.priority === "critical" && t.status !== "resolved" && t.status !== "closed").length;
-    return { total: records.length, open, inProgress, resolved, closed, critical };
+    const now = new Date();
+    const overdue = records.filter(
+      (t) =>
+        t.dueDate &&
+        new Date(t.dueDate) < now &&
+        t.status !== "resolved" &&
+        t.status !== "closed"
+    ).length;
+    const resolvedWithTimes = records.filter((t) => t.resolvedAt && t.createdAt);
+    const avgResolutionHours = resolvedWithTimes.length
+      ? resolvedWithTimes.reduce((sum, t) => {
+          const created = new Date(t.createdAt as any).getTime();
+          const resolved = new Date(t.resolvedAt as any).getTime();
+          return sum + (resolved - created) / (1000 * 60 * 60);
+        }, 0) / resolvedWithTimes.length
+      : 0;
+    return { total: records.length, open, inProgress, resolved, closed, critical, overdue, avgResolutionHours };
   }, [records]);
 
   const handleExportExcel = async () => {
@@ -151,7 +167,7 @@ export default function TicketReport() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
@@ -216,6 +232,34 @@ export default function TicketReport() {
               <CardContent>
                 <div className="text-2xl font-bold text-red-600">{isLoading ? "—" : summary.critical}</div>
                 <p className="text-xs text-muted-foreground">Unresolved</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" /> Overdue
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{isLoading ? "—" : summary.overdue}</div>
+                <p className="text-xs text-muted-foreground">Past due date</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> Avg. Resolution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {isLoading
+                    ? "—"
+                    : summary.avgResolutionHours >= 24
+                    ? `${(summary.avgResolutionHours / 24).toFixed(1)}d`
+                    : `${summary.avgResolutionHours.toFixed(1)}h`}
+                </div>
+                <p className="text-xs text-muted-foreground">Time to resolve</p>
               </CardContent>
             </Card>
           </div>

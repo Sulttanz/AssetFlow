@@ -3,3 +3,4 @@
 - [Schema push after adding tables](schema-push-new-tables.md) — new Drizzle tables added to shared/schema.ts won't exist in the actual DB until `npm run db:push` is run; e2e tests will hit 500s until then.
 - [Sidebar nav collapse pattern](sidebar-collapsible-sections.md) — sidebar section headers and nested submenu items use independent collapse state; keep both levels separate when adding new sections.
 - [Dev server no auto-reload](dev-server-no-watch.md) — tsx dev server does not restart on server-file edits (only Vite HMR is automatic); restart the workflow before testing backend changes.
+- [ITSM ticketing scope decisions](itsm-ticketing-module.md) — RBAC/requester/category/scope-toggle decisions made building the ticketing pillar; consult before extending tickets further.

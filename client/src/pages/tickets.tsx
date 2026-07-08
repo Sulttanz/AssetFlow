@@ -60,6 +60,7 @@ export default function Tickets() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
+  const [scopeFilter, setScopeFilter] = useState<"mine" | "all">("all");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -207,6 +208,9 @@ export default function Tickets() {
   const filteredTickets = useMemo(() => {
     if (!tickets) return [];
     let list = tickets;
+    if (canViewAll && scopeFilter === "mine") {
+      list = list.filter((t) => t.requesterId === user?.id || t.assignedToId === user?.id);
+    }
     if (statusFilter !== "all") {
       list = list.filter((t) => t.status === statusFilter);
     }
@@ -279,6 +283,23 @@ export default function Tickets() {
                   <SelectItem value="closed">Closed</SelectItem>
                 </SelectContent>
               </Select>
+              {canViewAll && (
+                <Select
+                  value={scopeFilter}
+                  onValueChange={(v) => {
+                    setScopeFilter(v as "mine" | "all");
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="Scope" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Tickets</SelectItem>
+                    <SelectItem value="mine">My Tickets</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {isLoading ? (
@@ -548,7 +569,7 @@ export default function Tickets() {
                   <p className="mt-1 text-sm whitespace-pre-wrap">{selectedTicket.description}</p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Priority</label>
                     {canManage ? (
@@ -618,6 +639,26 @@ export default function Tickets() {
                       </Select>
                     ) : (
                       <div className="mt-1 text-sm">{userLabel(selectedTicket.assignedTo)}</div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Due Date</label>
+                    {canManage ? (
+                      <Input
+                        type="date"
+                        className="mt-1"
+                        value={selectedTicket.dueDate ? format(new Date(selectedTicket.dueDate), "yyyy-MM-dd") : ""}
+                        onChange={(e) =>
+                          updateMutation.mutate({
+                            id: selectedTicket.id,
+                            data: { dueDate: e.target.value || null },
+                          })
+                        }
+                      />
+                    ) : (
+                      <div className="mt-1 text-sm">
+                        {selectedTicket.dueDate ? format(new Date(selectedTicket.dueDate), "MMM d, yyyy") : "-"}
+                      </div>
                     )}
                   </div>
                 </div>
