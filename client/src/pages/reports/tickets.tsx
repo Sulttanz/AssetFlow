@@ -26,6 +26,7 @@ const statusColors: Record<string, string> = {
   in_progress: "bg-purple-100 text-purple-800",
   resolved: "bg-green-100 text-green-800",
   closed: "bg-gray-100 text-gray-800",
+  cancelled: "bg-red-100 text-red-800",
 };
 
 export default function TicketReport() {
@@ -65,14 +66,17 @@ export default function TicketReport() {
     const inProgress = records.filter((t) => t.status === "in_progress").length;
     const resolved = records.filter((t) => t.status === "resolved").length;
     const closed = records.filter((t) => t.status === "closed").length;
-    const critical = records.filter((t) => t.priority === "critical" && t.status !== "resolved" && t.status !== "closed").length;
+    const critical = records.filter(
+      (t) => t.priority === "critical" && t.status !== "resolved" && t.status !== "closed" && t.status !== "cancelled"
+    ).length;
     const now = new Date();
     const overdue = records.filter(
       (t) =>
         t.dueDate &&
         new Date(`${(t.dueDate as string).slice(0, 10)}T00:00:00`) < now &&
         t.status !== "resolved" &&
-        t.status !== "closed"
+        t.status !== "closed" &&
+        t.status !== "cancelled"
     ).length;
     const resolvedWithTimes = records.filter((t) => t.resolvedAt && t.createdAt);
     const avgResolutionHours = resolvedWithTimes.length
@@ -284,6 +288,7 @@ export default function TicketReport() {
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="resolved">Resolved</SelectItem>
                 <SelectItem value="closed">Closed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
             <Select value={priorityFilter} onValueChange={setPriorityFilter}>

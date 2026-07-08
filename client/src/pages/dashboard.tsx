@@ -114,7 +114,8 @@ export default function Dashboard() {
       t.dueDate &&
       new Date(`${t.dueDate.slice(0, 10)}T00:00:00`) < new Date() &&
       t.status !== "resolved" &&
-      t.status !== "closed"
+      t.status !== "closed" &&
+      t.status !== "cancelled"
   ) ?? [];
 
   const resolvedTickets = tickets?.filter((t) => t.resolvedAt && t.createdAt) ?? [];
