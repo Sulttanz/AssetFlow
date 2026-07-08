@@ -148,15 +148,34 @@ export default function Tickets() {
     enabled: !!selectedTicket,
   });
 
+  const [newTicketFiles, setNewTicketFiles] = useState<File[]>([]);
+
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/tickets", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (createdTicket: TicketWithDetails) => {
+      if (newTicketFiles.length > 0) {
+        for (const file of newTicketFiles) {
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("description", "");
+            await fetch(`/api/tickets/${createdTicket.id}/attachments`, {
+              method: "POST",
+              body: formData,
+              credentials: "include",
+            });
+          } catch (_) {
+            // continue attempting remaining files even if one fails
+          }
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       setIsFormOpen(false);
       form.reset();
+      setNewTicketFiles([]);
       toast({ title: "Success", description: "Ticket created" });
     },
     onError: (error: any) => {
@@ -525,8 +544,42 @@ export default function Tickets() {
                   )}
                 />
               </div>
+              <div>
+                <FormLabel>Attachments (optional)</FormLabel>
+                <Input
+                  type="file"
+                  multiple
+                  className="mt-1.5"
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    setNewTicketFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+                {newTicketFiles.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {newTicketFiles.map((file, idx) => (
+                      <div key={`${file.name}-${idx}`} className="flex items-center justify-between text-sm bg-muted rounded-md px-2 py-1">
+                        <span className="flex items-center gap-1.5 truncate">
+                          <FileText className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{file.name}</span>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 shrink-0"
+                          onClick={() => setNewTicketFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => { setIsFormOpen(false); setNewTicketFiles([]); }}>Cancel</Button>
                 <Button type="submit" disabled={createMutation.isPending}>Submit Ticket</Button>
               </DialogFooter>
             </form>
