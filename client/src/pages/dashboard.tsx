@@ -110,7 +110,11 @@ export default function Dashboard() {
   const openTickets = tickets?.filter((t) => t.status === "open" || t.status === "in_progress") ?? [];
 
   const overdueTickets = tickets?.filter(
-    (t) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "resolved" && t.status !== "closed"
+    (t) =>
+      t.dueDate &&
+      new Date(`${t.dueDate.slice(0, 10)}T00:00:00`) < new Date() &&
+      t.status !== "resolved" &&
+      t.status !== "closed"
   ) ?? [];
 
   const resolvedTickets = tickets?.filter((t) => t.resolvedAt && t.createdAt) ?? [];

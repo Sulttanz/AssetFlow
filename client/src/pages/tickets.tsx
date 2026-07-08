@@ -224,7 +224,7 @@ export default function Tickets() {
       );
     }
     return list;
-  }, [tickets, statusFilter, search]);
+  }, [tickets, statusFilter, search, scopeFilter, canViewAll, user?.id]);
 
   const paginatedTickets = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -647,7 +647,7 @@ export default function Tickets() {
                       <Input
                         type="date"
                         className="mt-1"
-                        value={selectedTicket.dueDate ? format(new Date(selectedTicket.dueDate), "yyyy-MM-dd") : ""}
+                        value={selectedTicket.dueDate ? selectedTicket.dueDate.slice(0, 10) : ""}
                         onChange={(e) =>
                           updateMutation.mutate({
                             id: selectedTicket.id,
@@ -657,7 +657,9 @@ export default function Tickets() {
                       />
                     ) : (
                       <div className="mt-1 text-sm">
-                        {selectedTicket.dueDate ? format(new Date(selectedTicket.dueDate), "MMM d, yyyy") : "-"}
+                        {selectedTicket.dueDate
+                          ? format(new Date(`${selectedTicket.dueDate.slice(0, 10)}T00:00:00`), "MMM d, yyyy")
+                          : "-"}
                       </div>
                     )}
                   </div>

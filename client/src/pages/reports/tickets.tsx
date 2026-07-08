@@ -70,7 +70,7 @@ export default function TicketReport() {
     const overdue = records.filter(
       (t) =>
         t.dueDate &&
-        new Date(t.dueDate) < now &&
+        new Date(`${(t.dueDate as string).slice(0, 10)}T00:00:00`) < now &&
         t.status !== "resolved" &&
         t.status !== "closed"
     ).length;
