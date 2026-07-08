@@ -710,6 +710,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const validatedData = insertTicketSchema.partial().parse(updatePayload);
+
+      const willBeResolved = validatedData.status === "resolved" || validatedData.status === "closed";
+      const wasResolved = existing.status === "resolved" || existing.status === "closed";
+      if (willBeResolved && !wasResolved && !(validatedData.resolutionCode || existing.resolutionCode)) {
+        return res.status(400).json({ message: "A resolution code is required to resolve this ticket" });
+      }
+
       const ticket = await storage.updateTicket(req.params.id, validatedData);
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
@@ -1853,10 +1860,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
 
-      const [assets, maintenanceSchedules, budgets] = await Promise.all([
+      const [assets, maintenanceSchedules, budgets, tickets] = await Promise.all([
         storage.getAssets(),
         storage.getMaintenanceSchedules(),
         storage.getBudgets(),
+        storage.getTickets(),
       ]);
 
       const alerts: any[] = [];
@@ -1966,6 +1974,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             assetId: asset.id,
             link: '/assets',
           });
+        }
+      }
+
+      // Ticket SLA alerts (breached / at risk)
+      for (const ticket of tickets) {
+        const isOpen = ticket.status !== "resolved" && ticket.status !== "closed" && ticket.status !== "cancelled";
+        if (!isOpen || !ticket.slaResolutionDueAt) continue;
+        const dueAt = new Date(ticket.slaResolutionDueAt);
+        if (dueAt < today) {
+          const hoursOver = Math.ceil((today.getTime() - dueAt.getTime()) / (1000 * 60 * 60));
+          alerts.push({
+            type: 'ticket',
+            severity: 'high',
+            title: `SLA Breached: ${ticket.ticketNumber}`,
+            message: `${ticket.title} is ${hoursOver}h past its resolution SLA`,
+            ticketId: ticket.id,
+            link: '/tickets',
+          });
+        } else {
+          const hoursLeft = (dueAt.getTime() - today.getTime()) / (1000 * 60 * 60);
+          if (hoursLeft <= 2) {
+            alerts.push({
+              type: 'ticket',
+              severity: 'medium',
+              title: `SLA At Risk: ${ticket.ticketNumber}`,
+              message: `${ticket.title} is due within ${Math.ceil(hoursLeft)}h`,
+              ticketId: ticket.id,
+              link: '/tickets',
+            });
+          }
         }
       }
 

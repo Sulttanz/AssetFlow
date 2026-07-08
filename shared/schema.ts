@@ -665,6 +665,8 @@ export const tickets = pgTable("tickets", {
   description: text("description").notNull(),
   type: text("type").notNull().default("incident"), // incident, service_request
   category: text("category"), // Hardware, Software, Network, Access, Other
+  impact: text("impact"), // low, medium, high
+  urgency: text("urgency"), // low, medium, high
   priority: text("priority").notNull().default("medium"), // low, medium, high, critical
   status: text("status").notNull().default("open"), // open, in_progress, resolved, closed
   assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
@@ -672,6 +674,11 @@ export const tickets = pgTable("tickets", {
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
   dueDate: date("due_date"),
+  resolutionCode: text("resolution_code"), // set when status becomes resolved
+  reopenCount: integer("reopen_count").notNull().default(0),
+  slaResponseDueAt: timestamp("sla_response_due_at"),
+  slaResolutionDueAt: timestamp("sla_resolution_due_at"),
+  firstRespondedAt: timestamp("first_responded_at"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
@@ -704,7 +711,38 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   createdAt: true,
   updatedAt: true,
   resolvedAt: true,
+  reopenCount: true,
+  slaResponseDueAt: true,
+  slaResolutionDueAt: true,
+  firstRespondedAt: true,
 });
+
+// Impact x Urgency -> derived Priority matrix (ITIL-style)
+export const TICKET_PRIORITY_MATRIX: Record<string, Record<string, string>> = {
+  high: { high: "critical", medium: "high", low: "medium" },
+  medium: { high: "high", medium: "medium", low: "low" },
+  low: { high: "medium", medium: "low", low: "low" },
+};
+
+// Response/resolution SLA targets (in hours) per priority
+export const TICKET_SLA_HOURS: Record<string, { response: number; resolution: number }> = {
+  critical: { response: 1, resolution: 4 },
+  high: { response: 2, resolution: 8 },
+  medium: { response: 4, resolution: 24 },
+  low: { response: 8, resolution: 72 },
+};
+
+export const TICKET_RESOLUTION_CODES = [
+  "Hardware Replaced",
+  "Software Fix",
+  "Configuration Change",
+  "User Error / Training Provided",
+  "No Fault Found",
+  "Duplicate",
+  "Workaround Provided",
+  "Other",
+] as const;
+
 export const insertTicketCommentSchema = createInsertSchema(ticketComments).omit({ id: true, createdAt: true });
 export const insertTicketAttachmentSchema = createInsertSchema(ticketAttachments).omit({ id: true, uploadedAt: true });
 

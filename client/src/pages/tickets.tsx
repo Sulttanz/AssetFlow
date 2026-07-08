@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertTicketSchema, type TicketWithDetails, type TicketCommentWithAuthor, type UserWithDetails, type Asset, type Department, type DropdownOption } from "@shared/schema";
+import { insertTicketSchema, TICKET_PRIORITY_MATRIX, TICKET_RESOLUTION_CODES, type TicketWithDetails, type TicketCommentWithAuthor, type UserWithDetails, type Asset, type Department, type DropdownOption } from "@shared/schema";
 import { Ticket, Search, Send, Plus, Upload, FileText, Download, X } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -47,9 +47,11 @@ const statusColors: Record<string, string> = {
 };
 
 const createTicketFormSchema = insertTicketSchema
-  .omit({ requesterId: true, assignedToId: true, departmentId: true, dueDate: true, status: true })
+  .omit({ requesterId: true, assignedToId: true, departmentId: true, dueDate: true, status: true, priority: true, resolutionCode: true })
   .extend({
     assetId: z.string().optional(),
+    impact: z.enum(["low", "medium", "high"]),
+    urgency: z.enum(["low", "medium", "high"]),
   });
 
 function userLabel(u?: { username: string; firstName: string; lastName: string } | null) {
@@ -239,10 +241,15 @@ export default function Tickets() {
       description: "",
       type: "incident",
       category: "",
-      priority: "medium",
+      impact: "medium",
+      urgency: "medium",
       assetId: "",
     },
   });
+
+  const watchedImpact = form.watch("impact");
+  const watchedUrgency = form.watch("urgency");
+  const previewPriority = TICKET_PRIORITY_MATRIX[watchedImpact]?.[watchedUrgency] || "medium";
 
   const filteredTickets = useMemo(() => {
     if (!tickets) return [];
@@ -543,31 +550,6 @@ export default function Tickets() {
                 />
                 <FormField
                   control={form.control}
-                  name="priority"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Priority</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select priority" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="low">Low</SelectItem>
-                          <SelectItem value="medium">Medium</SelectItem>
-                          <SelectItem value="high">High</SelectItem>
-                          <SelectItem value="critical">Critical</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
                   name="category"
                   render={({ field }) => (
                     <FormItem>
@@ -590,24 +572,46 @@ export default function Tickets() {
                     </FormItem>
                   )}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
-                  name="assetId"
+                  name="impact"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Related Asset (optional)</FormLabel>
+                      <FormLabel>Impact</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="None" />
+                            <SelectValue placeholder="Select impact" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {assets?.map((asset) => (
-                            <SelectItem key={asset.id} value={asset.id}>
-                              {asset.name} ({asset.assetTag})
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="urgency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Urgency</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select urgency" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -615,6 +619,34 @@ export default function Tickets() {
                   )}
                 />
               </div>
+              <div className="text-sm flex items-center gap-2">
+                <span className="text-muted-foreground">Resulting priority:</span>
+                <Badge className={priorityColors[previewPriority]}>{previewPriority}</Badge>
+              </div>
+              <FormField
+                control={form.control}
+                name="assetId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Related Asset (optional)</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {assets?.map((asset) => (
+                          <SelectItem key={asset.id} value={asset.id}>
+                            {asset.name} ({asset.assetTag})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <div>
                 <FormLabel>Attachments (optional)</FormLabel>
                 <Input
@@ -746,11 +778,28 @@ export default function Tickets() {
                     )}
                   </div>
                   <div>
-                    <label className="text-sm text-muted-foreground">Status</label>
+                    <label className="text-sm text-muted-foreground flex items-center gap-1">
+                      Status
+                      {(selectedTicket.reopenCount || 0) > 0 && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">
+                          Reopened {selectedTicket.reopenCount}x
+                        </Badge>
+                      )}
+                    </label>
                     {canManage ? (
                       <Select
                         value={selectedTicket.status}
-                        onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { status: v } })}
+                        onValueChange={(v) => {
+                          if (v === "resolved" && !selectedTicket.resolutionCode) {
+                            toast({
+                              title: "Resolution code required",
+                              description: "Select a resolution code before marking this ticket resolved.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          updateMutation.mutate({ id: selectedTicket.id, data: { status: v } });
+                        }}
                       >
                         <SelectTrigger className="mt-1">
                           <SelectValue />
@@ -815,6 +864,102 @@ export default function Tickets() {
                           : "-"}
                       </div>
                     )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div>
+                    <label className="text-sm text-muted-foreground">Impact</label>
+                    {canManage ? (
+                      <Select
+                        value={selectedTicket.impact || undefined}
+                        onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { impact: v } })}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Not set" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="mt-1 text-sm capitalize">{selectedTicket.impact || "-"}</div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground">Urgency</label>
+                    {canManage ? (
+                      <Select
+                        value={selectedTicket.urgency || undefined}
+                        onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { urgency: v } })}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Not set" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="mt-1 text-sm capitalize">{selectedTicket.urgency || "-"}</div>
+                    )}
+                  </div>
+                  <div className="col-span-2 sm:col-span-2">
+                    <label className="text-sm text-muted-foreground">Resolution Code</label>
+                    {canManage ? (
+                      <Select
+                        value={selectedTicket.resolutionCode || undefined}
+                        onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { resolutionCode: v } })}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Not set" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TICKET_RESOLUTION_CODES.map((code) => (
+                            <SelectItem key={code} value={code}>{code}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="mt-1 text-sm">{selectedTicket.resolutionCode || "-"}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border rounded-lg p-3">
+                  <h4 className="text-sm font-medium mb-2">SLA Tracking</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Response Due: </span>
+                      <span>{selectedTicket.slaResponseDueAt ? format(new Date(selectedTicket.slaResponseDueAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                      {selectedTicket.firstRespondedAt && <Badge className="ml-2 bg-green-100 text-green-800">Responded</Badge>}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Resolution Due: </span>
+                      <span>{selectedTicket.slaResolutionDueAt ? format(new Date(selectedTicket.slaResolutionDueAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                      {selectedTicket.slaResolutionDueAt && selectedTicket.status !== "resolved" && selectedTicket.status !== "closed" && (
+                        new Date(selectedTicket.slaResolutionDueAt) < new Date() ? (
+                          <Badge className="ml-2 bg-red-100 text-red-800">Breached</Badge>
+                        ) : (
+                          <Badge className="ml-2 bg-blue-100 text-blue-800">On Track</Badge>
+                        )
+                      )}
+                      {selectedTicket.slaResolutionDueAt && selectedTicket.resolvedAt && (
+                        new Date(selectedTicket.resolvedAt) > new Date(selectedTicket.slaResolutionDueAt) ? (
+                          <Badge className="ml-2 bg-red-100 text-red-800">Resolved Late</Badge>
+                        ) : (
+                          <Badge className="ml-2 bg-green-100 text-green-800">Resolved On Time</Badge>
+                        )
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Resolved At: </span>
+                      <span>{selectedTicket.resolvedAt ? format(new Date(selectedTicket.resolvedAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                    </div>
                   </div>
                 </div>
 

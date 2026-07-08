@@ -13,9 +13,14 @@ Two permissions gate the whole module: view-all-tickets vs. manage-tickets (assi
 Ticket category is an admin-managed dropdown, not a hardcoded enum — matches the pattern used for other configurable lists in the app.
 
 ## Due date / SLA
-SLA breach automation (auto-escalation, notifications) is explicitly out of scope. What *is* in scope: a manual due-date field settable by managers, an "overdue" computed flag, and average-resolution-time metrics. These derived metrics are duplicated (dashboard widget + report page) and computed client-side from the ticket list rather than a shared aggregation endpoint — if the ticket list response shape changes, update both call sites.
+A manual due-date field (settable by managers) coexists with a separate, automatic SLA system added later: `impact` + `urgency` fields auto-derive `priority` via a `TICKET_PRIORITY_MATRIX` lookup (server-side, on create/update), which in turn drives `slaResponseDueAt`/`slaResolutionDueAt` computed from `TICKET_SLA_HOURS`. `/api/alerts` polls tickets and emits "ticket" alerts (severity high = breached, medium = due within 2h). The "overdue" flag and average-resolution-time metrics are still computed client-side from the ticket list rather than a shared aggregation endpoint — if the ticket list response shape changes, update both dashboard and report call sites.
 
-**Why:** the task spec asked for these metrics on both the dashboard and the reports page, and there was no existing shared aggregation endpoint to reuse.
+**Why:** the task spec asked for these metrics on both the dashboard and the reports page, and there was no existing shared aggregation endpoint to reuse. SLA timers/priority matrix were added in a later pass to strengthen incident management before Change Management was built.
+
+## Resolution codes & reopen tracking
+Moving a ticket's status to `resolved` requires a non-null `resolutionCode` (enforced server-side in `PUT /api/tickets/:id`, not just client-side) — resolving without one returns an error. Moving a ticket back from `resolved`/`closed` to `open`/`in_progress` ("reopening") increments `reopenCount` and clears `resolvedAt`; this is detected by comparing old vs. new status inside the same update handler, not via a separate endpoint.
+
+**Why:** resolution codes give reportable close-reasons; reopen tracking flags tickets that were prematurely marked resolved, both requested to strengthen Incident Management quality signals.
 
 ## Date column gotcha
 Due date is a plain `date` (not `timestamp`) column, stored as a `"YYYY-MM-DD"` string. Feed `<input type="date">` that raw string directly and send it back as-is — don't round-trip through `new Date(...).toISOString()` or `new Date(dateOnlyString)` for display/comparison, since both introduce a timezone-driven off-by-one-day risk. Parse as local time by appending `T00:00:00` when you need a Date object.

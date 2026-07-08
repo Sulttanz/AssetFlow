@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Search, Plus, Bell, Shield, Wrench, DollarSign, Monitor } from "lucide-react";
+import { Search, Plus, Bell, Shield, Wrench, DollarSign, Monitor, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,11 +13,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Alert {
-  type: "warranty" | "maintenance" | "budget" | "license";
+  type: "warranty" | "maintenance" | "budget" | "license" | "ticket";
   message: string;
-  severity: "critical" | "warning" | "info";
+  severity: "critical" | "warning" | "info" | "high" | "medium" | "low";
   assetId?: number;
   budgetId?: number;
+  ticketId?: string;
 }
 
 interface HeaderProps {
@@ -36,12 +37,16 @@ const alertIcons: Record<string, React.ComponentType<{ className?: string }>> = 
   maintenance: Wrench,
   budget: DollarSign,
   license: Monitor,
+  ticket: AlertTriangle,
 };
 
 const severityColors: Record<string, string> = {
   critical: "text-destructive",
+  high: "text-destructive",
   warning: "text-yellow-600 dark:text-yellow-400",
+  medium: "text-yellow-600 dark:text-yellow-400",
   info: "text-blue-600 dark:text-blue-400",
+  low: "text-blue-600 dark:text-blue-400",
 };
 
 const alertNav: Record<string, string> = {
@@ -49,6 +54,7 @@ const alertNav: Record<string, string> = {
   maintenance: "/maintenance",
   budget: "/budgets",
   license: "/assets",
+  ticket: "/tickets",
 };
 
 export default function Header({
@@ -69,7 +75,7 @@ export default function Header({
     refetchInterval: 60_000,
   });
 
-  const criticalCount = alerts.filter((a) => a.severity === "critical").length;
+  const criticalCount = alerts.filter((a) => a.severity === "critical" || a.severity === "high").length;
   const badgeCount = alerts.length;
 
   const grouped: Record<string, Alert[]> = {};
@@ -133,7 +139,7 @@ export default function Header({
                         <div className="px-4 py-2 bg-muted/50">
                           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
                             <Icon className="h-3 w-3" />
-                            {type === "warranty" ? "Warranty Expiring" : type === "maintenance" ? "Overdue Maintenance" : type === "budget" ? "Budget Alerts" : "License Alerts"}
+                            {type === "warranty" ? "Warranty Expiring" : type === "maintenance" ? "Overdue Maintenance" : type === "budget" ? "Budget Alerts" : type === "ticket" ? "Ticket SLA Alerts" : "License Alerts"}
                           </span>
                         </div>
                         {items.map((alert, idx) => (

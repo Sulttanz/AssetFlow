@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  Download, FileSpreadsheet, Printer, Ticket, AlertCircle, Clock, CheckCircle2, Archive, Search,
+  Download, FileSpreadsheet, Printer, Ticket, AlertCircle, Clock, CheckCircle2, Archive, Search, ShieldAlert, RotateCcw,
 } from "lucide-react";
 import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
@@ -86,8 +86,31 @@ export default function TicketReport() {
           return sum + (resolved - created) / (1000 * 60 * 60);
         }, 0) / resolvedWithTimes.length
       : 0;
-    return { total: records.length, open, inProgress, resolved, closed, critical, overdue, avgResolutionHours };
+    const slaBreached = records.filter((t) => {
+      if (t.status === "resolved" || t.status === "closed" || t.status === "cancelled") {
+        return t.slaResolutionDueAt && t.resolvedAt && new Date(t.resolvedAt as any) > new Date(t.slaResolutionDueAt as any);
+      }
+      return t.slaResolutionDueAt && new Date(t.slaResolutionDueAt as any) < now;
+    }).length;
+    const reopened = records.filter((t) => (t.reopenCount || 0) > 0).length;
+    return { total: records.length, open, inProgress, resolved, closed, critical, overdue, avgResolutionHours, slaBreached, reopened };
   }, [records]);
+
+  const getSlaStatus = (t: TicketWithDetails) => {
+    const isDone = t.status === "resolved" || t.status === "closed" || t.status === "cancelled";
+    if (!t.slaResolutionDueAt) return { label: "N/A", className: "bg-gray-100 text-gray-600" };
+    const due = new Date(t.slaResolutionDueAt as any);
+    if (isDone) {
+      if (!t.resolvedAt) return { label: "N/A", className: "bg-gray-100 text-gray-600" };
+      const resolvedAt = new Date(t.resolvedAt as any);
+      return resolvedAt > due
+        ? { label: "Resolved Late", className: "bg-red-100 text-red-800" }
+        : { label: "On Time", className: "bg-green-100 text-green-800" };
+    }
+    return due < new Date()
+      ? { label: "Breached", className: "bg-red-100 text-red-800" }
+      : { label: "On Track", className: "bg-blue-100 text-blue-800" };
+  };
 
   const handleExportExcel = async () => {
     if (!filtered.length) return;
@@ -99,6 +122,8 @@ export default function TicketReport() {
         category: t.category || "N/A",
         priority: t.priority,
         status: t.status,
+        slaStatus: getSlaStatus(t).label,
+        reopenCount: t.reopenCount || 0,
         requester: t.requester ? `${t.requester.firstName} ${t.requester.lastName}` : "N/A",
         assignedTo: t.assignedTo ? `${t.assignedTo.firstName} ${t.assignedTo.lastName}` : "Unassigned",
         createdAt: t.createdAt ? formatDate(t.createdAt as any) : "N/A",
@@ -111,6 +136,8 @@ export default function TicketReport() {
         { header: "Category", key: "category", width: 14 },
         { header: "Priority", key: "priority", width: 12 },
         { header: "Status", key: "status", width: 14 },
+        { header: "SLA Status", key: "slaStatus", width: 14 },
+        { header: "Reopen Count", key: "reopenCount", width: 12 },
         { header: "Requester", key: "requester", width: 20 },
         { header: "Assigned To", key: "assignedTo", width: 20 },
         { header: "Created", key: "createdAt", width: 14 },
@@ -171,7 +198,7 @@ export default function TicketReport() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-10 gap-4 mb-6">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
@@ -266,6 +293,28 @@ export default function TicketReport() {
                 <p className="text-xs text-muted-foreground">Time to resolve</p>
               </CardContent>
             </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <ShieldAlert className="h-3 w-3" /> SLA Breached
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{isLoading ? "—" : summary.slaBreached}</div>
+                <p className="text-xs text-muted-foreground">Missed SLA</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <RotateCcw className="h-3 w-3" /> Reopened
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-600">{isLoading ? "—" : summary.reopened}</div>
+                <p className="text-xs text-muted-foreground">Reopened at least once</p>
+              </CardContent>
+            </Card>
           </div>
 
           <div className="flex flex-wrap gap-3 mb-4 print:hidden">
@@ -345,28 +394,43 @@ export default function TicketReport() {
                       <TableHead>Type</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>SLA</TableHead>
+                      <TableHead>Reopens</TableHead>
                       <TableHead>Requester</TableHead>
                       <TableHead>Assigned To</TableHead>
                       <TableHead>Created</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map((t) => (
-                      <TableRow key={t.id}>
-                        <TableCell className="font-mono text-sm">{t.ticketNumber}</TableCell>
-                        <TableCell className="font-medium max-w-[240px] truncate">{t.title}</TableCell>
-                        <TableCell className="capitalize">{t.type.replace("_", " ")}</TableCell>
-                        <TableCell>
-                          <Badge className={priorityColors[t.priority]}>{t.priority}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={statusColors[t.status]}>{t.status.replace("_", " ")}</Badge>
-                        </TableCell>
-                        <TableCell>{t.requester ? `${t.requester.firstName} ${t.requester.lastName}` : "-"}</TableCell>
-                        <TableCell>{t.assignedTo ? `${t.assignedTo.firstName} ${t.assignedTo.lastName}` : "Unassigned"}</TableCell>
-                        <TableCell className="text-sm">{t.createdAt ? formatDate(t.createdAt as any) : "-"}</TableCell>
-                      </TableRow>
-                    ))}
+                    {filtered.map((t) => {
+                      const sla = getSlaStatus(t);
+                      return (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-mono text-sm">{t.ticketNumber}</TableCell>
+                          <TableCell className="font-medium max-w-[240px] truncate">{t.title}</TableCell>
+                          <TableCell className="capitalize">{t.type.replace("_", " ")}</TableCell>
+                          <TableCell>
+                            <Badge className={priorityColors[t.priority]}>{t.priority}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={statusColors[t.status]}>{t.status.replace("_", " ")}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={sla.className}>{sla.label}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {t.reopenCount ? (
+                              <Badge className="bg-orange-100 text-orange-800">{t.reopenCount}x</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{t.requester ? `${t.requester.firstName} ${t.requester.lastName}` : "-"}</TableCell>
+                          <TableCell>{t.assignedTo ? `${t.assignedTo.firstName} ${t.assignedTo.lastName}` : "Unassigned"}</TableCell>
+                          <TableCell className="text-sm">{t.createdAt ? formatDate(t.createdAt as any) : "-"}</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

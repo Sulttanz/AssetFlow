@@ -20,12 +20,28 @@ import {
   budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
   tickets, ticketComments,
+  TICKET_PRIORITY_MATRIX, TICKET_SLA_HOURS,
 } from "@shared/schema";
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, isNull, and, inArray, sql, desc } from "drizzle-orm";
 import { EventEmitter } from "events";
+
+function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
+  if (impact && urgency && TICKET_PRIORITY_MATRIX[impact]?.[urgency]) {
+    return TICKET_PRIORITY_MATRIX[impact][urgency];
+  }
+  return fallback ?? "medium";
+}
+
+function computeTicketSlaDates(priority: string, from: Date): { slaResponseDueAt: Date; slaResolutionDueAt: Date } {
+  const hours = TICKET_SLA_HOURS[priority] ?? TICKET_SLA_HOURS.medium;
+  return {
+    slaResponseDueAt: new Date(from.getTime() + hours.response * 60 * 60 * 1000),
+    slaResolutionDueAt: new Date(from.getTime() + hours.resolution * 60 * 60 * 1000),
+  };
+}
 
 export interface IStorage {
   // Assets
@@ -1686,20 +1702,31 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const seq = this.tickets.size + 1;
     const prefix = ticket.type === "service_request" ? "SR" : "INC";
+    const now = new Date();
+    const priority = deriveTicketPriority(ticket.impact, ticket.urgency, ticket.priority);
+    const { slaResponseDueAt, slaResolutionDueAt } = computeTicketSlaDates(priority, now);
     const newTicket: Ticket = {
       ...ticket,
       id,
+      type: ticket.type ?? "incident",
       ticketNumber: `${prefix}-${String(seq).padStart(6, "0")}`,
       category: ticket.category ?? null,
-      priority: ticket.priority ?? "medium",
+      impact: ticket.impact ?? null,
+      urgency: ticket.urgency ?? null,
+      priority,
       status: ticket.status ?? "open",
       assetId: ticket.assetId ?? null,
       assignedToId: ticket.assignedToId ?? null,
       departmentId: ticket.departmentId ?? null,
       dueDate: ticket.dueDate ?? null,
+      resolutionCode: null,
+      reopenCount: 0,
+      slaResponseDueAt,
+      slaResolutionDueAt,
+      firstRespondedAt: null,
       resolvedAt: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
     this.tickets.set(id, newTicket);
     return newTicket;
@@ -1710,10 +1737,20 @@ export class MemStorage implements IStorage {
     if (!ticket) return undefined;
     const wasResolved = ticket.status === "resolved" || ticket.status === "closed";
     const willBeResolved = updateData.status === "resolved" || updateData.status === "closed";
+    const isReopen = wasResolved && updateData.status && !willBeResolved;
+    const priority = (updateData.impact || updateData.urgency)
+      ? deriveTicketPriority(updateData.impact ?? ticket.impact, updateData.urgency ?? ticket.urgency, updateData.priority ?? ticket.priority)
+      : (updateData.priority ?? ticket.priority);
+    const firstRespondedAt = !ticket.firstRespondedAt && updateData.status && updateData.status !== "open"
+      ? new Date()
+      : ticket.firstRespondedAt;
     const updatedTicket: Ticket = {
       ...ticket,
       ...updateData,
-      resolvedAt: !wasResolved && willBeResolved ? new Date() : ticket.resolvedAt,
+      priority,
+      firstRespondedAt,
+      reopenCount: isReopen ? (ticket.reopenCount ?? 0) + 1 : ticket.reopenCount,
+      resolvedAt: !wasResolved && willBeResolved ? new Date() : (isReopen ? null : ticket.resolvedAt),
       updatedAt: new Date(),
     };
     this.tickets.set(id, updatedTicket);
@@ -3308,18 +3345,38 @@ export class DatabaseStorage implements IStorage {
     const seq = Number(countResult[0]?.count || 0) + 1;
     const prefix = ticket.type === "service_request" ? "SR" : "INC";
     const ticketNumber = `${prefix}-${String(seq).padStart(6, "0")}`;
-    const result = await db.insert(tickets).values({ ...ticket, ticketNumber }).returning();
+    const now = new Date();
+    const priority = deriveTicketPriority(ticket.impact, ticket.urgency, ticket.priority);
+    const { slaResponseDueAt, slaResolutionDueAt } = computeTicketSlaDates(priority, now);
+    const result = await db.insert(tickets).values({
+      ...ticket,
+      ticketNumber,
+      priority,
+      slaResponseDueAt,
+      slaResolutionDueAt,
+    }).returning();
     return result[0];
   }
 
   async updateTicket(id: string, updateData: Partial<InsertTicket>): Promise<Ticket | undefined> {
     const existing = await db.select().from(tickets).where(eq(tickets.id, id));
     if (!existing[0]) return undefined;
-    const wasResolved = existing[0].status === "resolved" || existing[0].status === "closed";
+    const ticket = existing[0];
+    const wasResolved = ticket.status === "resolved" || ticket.status === "closed";
     const willBeResolved = updateData.status === "resolved" || updateData.status === "closed";
+    const isReopen = wasResolved && !!updateData.status && !willBeResolved;
+    const priority = (updateData.impact || updateData.urgency)
+      ? deriveTicketPriority(updateData.impact ?? ticket.impact, updateData.urgency ?? ticket.urgency, updateData.priority ?? ticket.priority)
+      : (updateData.priority ?? ticket.priority);
+    const firstRespondedAt = !ticket.firstRespondedAt && updateData.status && updateData.status !== "open"
+      ? new Date()
+      : ticket.firstRespondedAt;
     const result = await db.update(tickets).set({
       ...updateData,
-      resolvedAt: !wasResolved && willBeResolved ? new Date() : existing[0].resolvedAt,
+      priority,
+      firstRespondedAt,
+      reopenCount: isReopen ? (ticket.reopenCount ?? 0) + 1 : ticket.reopenCount,
+      resolvedAt: !wasResolved && willBeResolved ? new Date() : (isReopen ? null : ticket.resolvedAt),
       updatedAt: new Date(),
     }).where(eq(tickets.id, id)).returning();
     return result[0] || undefined;
