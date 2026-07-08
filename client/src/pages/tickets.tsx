@@ -62,6 +62,7 @@ export default function Tickets() {
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
   const [scopeFilter, setScopeFilter] = useState<"mine" | "all">("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -200,6 +201,21 @@ export default function Tickets() {
     },
   });
 
+  const assignMutation = useMutation({
+    mutationFn: async ({ id, assignedToId }: { id: string; assignedToId: string | null }) => {
+      const res = await apiRequest("PUT", `/api/tickets/${id}`, { assignedToId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
+      toast({ title: "Success", description: "Assignment updated" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error?.message || "Failed to update assignment", variant: "destructive" });
+    },
+  });
+
   const commentMutation = useMutation({
     mutationFn: async ({ id, message }: { id: string; message: string }) => {
       const res = await apiRequest("POST", `/api/tickets/${id}/comments`, { message });
@@ -237,6 +253,13 @@ export default function Tickets() {
     if (statusFilter !== "all") {
       list = list.filter((t) => t.status === statusFilter);
     }
+    if (canManage && assigneeFilter !== "all") {
+      if (assigneeFilter === "unassigned") {
+        list = list.filter((t) => !t.assignedToId);
+      } else {
+        list = list.filter((t) => t.assignedToId === assigneeFilter);
+      }
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -247,7 +270,7 @@ export default function Tickets() {
       );
     }
     return list;
-  }, [tickets, statusFilter, search, scopeFilter, canViewAll, user?.id]);
+  }, [tickets, statusFilter, assigneeFilter, canManage, search, scopeFilter, canViewAll, user?.id]);
 
   const paginatedTickets = useMemo(() => {
     const start = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -324,6 +347,28 @@ export default function Tickets() {
                   </SelectContent>
                 </Select>
               )}
+              {canManage && (
+                <Select
+                  value={assigneeFilter}
+                  onValueChange={(v) => {
+                    setAssigneeFilter(v);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Assignee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Assignees</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {users?.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.firstName} {u.lastName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {isLoading ? (
@@ -361,7 +406,30 @@ export default function Tickets() {
                           <Badge className={statusColors[ticket.status]}>{ticket.status.replace("_", " ")}</Badge>
                         </TableCell>
                         <TableCell>{userLabel(ticket.requester)}</TableCell>
-                        <TableCell>{userLabel(ticket.assignedTo)}</TableCell>
+                        <TableCell>
+                          {canManage ? (
+                            <Select
+                              value={ticket.assignedToId || "unassigned"}
+                              onValueChange={(v) =>
+                                assignMutation.mutate({ id: ticket.id, assignedToId: v === "unassigned" ? null : v })
+                              }
+                            >
+                              <SelectTrigger className="h-8 w-[160px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="unassigned">Unassigned</SelectItem>
+                                {users?.map((u) => (
+                                  <SelectItem key={u.id} value={u.id}>
+                                    {u.firstName} {u.lastName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            userLabel(ticket.assignedTo)
+                          )}
+                        </TableCell>
                         <TableCell>{ticket.createdAt ? format(new Date(ticket.createdAt), "MMM d, yyyy") : "-"}</TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => setSelectedTicket(ticket)}>

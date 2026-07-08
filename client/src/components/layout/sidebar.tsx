@@ -104,7 +104,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets" },
-        { name: "Assign Tickets", href: "/tickets/assign", icon: LinkIcon, current: location === "/tickets/assign", permission: "ticket_manage" },
       ]
     },
     {

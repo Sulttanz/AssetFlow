@@ -26,9 +26,9 @@ Deleting a ticket attachment is manager-only (`ticket_manage` permission) — th
 **Why:** explicit user request — attachments should not be removable by the person who filed the ticket, only by IT staff/admin, to preserve an audit trail of what was submitted.
 
 ## Assignment UI
-Ticket assignment also has a dedicated page (`/tickets/assign`, `ticket_manage`-gated) separate from the main Tickets list/detail view — a table of tickets with an inline assignee dropdown per row, for bulk/quick reassignment. The inline assignee dropdown inside the ticket detail dialog was kept too; both call the same `PUT /api/tickets/:id { assignedToId }`.
+The standalone `/tickets/assign` page was removed (2026-07-08) after the user found it redundant with the main Tickets page. Its useful bits — an assignee filter (including "Unassigned") and an inline per-row assignee dropdown that updates without opening the ticket detail dialog — were folded into the Tickets page itself (`ticket_manage`-gated). The ticket detail dialog's own assignee dropdown was kept too; all three call the same `PUT /api/tickets/:id { assignedToId }`.
 
-**Why:** explicit user request for an easier way to control assignments outside the per-ticket detail popup.
+**Why:** one page covering status filtering, assignee filtering, and both bulk (inline) and detailed (dialog) assignment was judged simpler than maintaining two overlapping pages.
 
 ## Requester contact info has no direct FK
 A ticket's `requesterId` points to `users`, but email/mobile/job title/department/location live on the separate `employees` table — there's no FK between them. The link is inferred at read time by matching `employees.email === users.email`; if no employee record shares that email, only the user's own `email` is available and the rest come back empty.
