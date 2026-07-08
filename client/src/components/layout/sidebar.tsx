@@ -52,6 +52,26 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { isModuleEnabled } = useModules();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
+  const SECTION_TITLES = [
+    "Overview",
+    "Asset Management",
+    "Organization",
+    "Financial",
+    "Operations",
+    "IT Service Management",
+    "Analytics",
+    "Tools",
+    "System",
+  ];
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() =>
+    SECTION_TITLES.reduce((acc, title) => ({ ...acc, [title]: true }), {} as Record<string, boolean>)
+  );
+
+  const toggleSection = (title: string) => {
+    setExpandedSections((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
+
   const navigationSections = [
     {
       title: "Overview",
@@ -169,80 +189,96 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
         {navigationSections
           .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
-          .map((section) => (
-          <div key={section.title}>
-            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 px-3">
-              {section.title}
-            </h3>
-            <div className="space-y-0.5">
-              {section.items.map((item: any) => {
-                const Icon = item.icon;
+          .map((section) => {
+            const isSectionExpanded = expandedSections[section.title] ?? true;
+            return (
+              <div key={section.title}>
+                <button
+                  onClick={() => toggleSection(section.title)}
+                  className="w-full flex items-center justify-between px-3 mb-1.5 group"
+                  data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
+                    {section.title}
+                  </h3>
+                  {isSectionExpanded ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
+                  )}
+                </button>
+                {isSectionExpanded && (
+                  <div className="space-y-0.5">
+                    {section.items.map((item: any) => {
+                      const Icon = item.icon;
 
-                if (item.hasSubmenu) {
-                  const isExpanded = section.title === "Analytics" ? reportsExpanded : false;
-                  return (
-                    <div key={item.name}>
-                      <button
-                        onClick={() => setReportsExpanded(!reportsExpanded)}
-                        className={cn(
-                          "w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium",
-                          item.current
-                            ? "bg-primary/10 text-primary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                        )}
-                        data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <Icon className="w-4 h-4 shrink-0" />
-                          <span>{item.name}</span>
-                        </div>
-                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      </button>
-                      {isExpanded && item.submenu && (
-                        <div className="ml-4 mt-0.5 space-y-0.5">
-                          {item.submenu.map((subitem: any) => (
-                            <Link
-                              key={subitem.name}
-                              href={subitem.href}
-                              onClick={onNavigate}
+                      if (item.hasSubmenu) {
+                        const isExpanded = section.title === "Analytics" ? reportsExpanded : false;
+                        return (
+                          <div key={item.name}>
+                            <button
+                              onClick={() => setReportsExpanded(!reportsExpanded)}
                               className={cn(
-                                "flex items-center px-3 py-2 rounded-md text-sm",
-                                subitem.current
-                                  ? "bg-primary/10 text-primary font-medium"
+                                "w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium",
+                                item.current
+                                  ? "bg-primary/10 text-primary"
                                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
                               )}
-                              data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
+                              data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                             >
-                              <span>{subitem.name}</span>
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
+                              <div className="flex items-center space-x-3">
+                                <Icon className="w-4 h-4 shrink-0" />
+                                <span>{item.name}</span>
+                              </div>
+                              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                            </button>
+                            {isExpanded && item.submenu && (
+                              <div className="ml-4 mt-0.5 space-y-0.5">
+                                {item.submenu.map((subitem: any) => (
+                                  <Link
+                                    key={subitem.name}
+                                    href={subitem.href}
+                                    onClick={onNavigate}
+                                    className={cn(
+                                      "flex items-center px-3 py-2 rounded-md text-sm",
+                                      subitem.current
+                                        ? "bg-primary/10 text-primary font-medium"
+                                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                    )}
+                                    data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                  >
+                                    <span>{subitem.name}</span>
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
 
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={onNavigate}
-                    className={cn(
-                      "flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium",
-                      item.current
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                    )}
-                    data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
-                  >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span>{item.name}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                      return (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          onClick={onNavigate}
+                          className={cn(
+                            "flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium",
+                            item.current
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                          )}
+                          data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
+                        >
+                          <Icon className="w-4 h-4 shrink-0" />
+                          <span>{item.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
       </nav>
 
       {/* User Profile */}
