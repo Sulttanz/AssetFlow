@@ -173,6 +173,7 @@ export default function Tickets() {
         }
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       setIsFormOpen(false);
       form.reset();
       setNewTicketFiles([]);
@@ -190,6 +191,7 @@ export default function Tickets() {
     },
     onSuccess: (updated: TicketWithDetails) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       setSelectedTicket(updated);
       toast({ title: "Success", description: "Ticket updated" });
     },
@@ -206,6 +208,7 @@ export default function Tickets() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", selectedTicket?.id, "comments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       setCommentText("");
     },
     onError: (error: any) => {

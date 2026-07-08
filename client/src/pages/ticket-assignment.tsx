@@ -53,6 +53,7 @@ export default function TicketAssignment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       toast({ title: "Success", description: "Assignment updated" });
     },
     onError: (error: any) => {

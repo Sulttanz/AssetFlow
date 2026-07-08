@@ -34,3 +34,8 @@ Ticket assignment also has a dedicated page (`/tickets/assign`, `ticket_manage`-
 A ticket's `requesterId` points to `users`, but email/mobile/job title/department/location live on the separate `employees` table — there's no FK between them. The link is inferred at read time by matching `employees.email === users.email`; if no employee record shares that email, only the user's own `email` is available and the rest come back empty.
 
 **Why:** the schema was never designed to link `users` and `employees` directly; email-matching is the only bridge that already existed in the codebase (same pattern used for Excel assignment import).
+
+## Ticket Report has its own React Query cache key
+`/reports/tickets` fetches `["/api/reports/tickets"]`, a separate cache key from `["/api/tickets"]` used by the Tickets and Assign Tickets pages, even though both endpoints return the same ticket data. Any mutation that changes ticket status/assignment must invalidate both keys or the report page shows stale status until a hard reload.
+
+**Why:** discovered as a bug — status changes on the Tickets/Assignment pages weren't reflected in the Ticket Report because only `/api/tickets` was invalidated.
