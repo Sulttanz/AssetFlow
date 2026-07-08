@@ -47,6 +47,7 @@ import Contracts from "@/pages/contracts";
 import AssetAudits from "@/pages/asset-audits";
 import AssetRequests from "@/pages/asset-requests";
 import Tickets from "@/pages/tickets";
+import TicketAssignment from "@/pages/ticket-assignment";
 import TicketReport from "@/pages/reports/tickets";
 import Sidebar from "@/components/layout/sidebar";
 
@@ -106,6 +107,7 @@ function Router() {
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <ProtectedRoute path="/tickets" component={Tickets} requiredModule="itsm" />
+                  <ProtectedRoute path="/tickets/assign" component={TicketAssignment} requiredModule="itsm" requiredPermission="ticket_manage" />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
                   <Route component={NotFound} />
                 </Switch>

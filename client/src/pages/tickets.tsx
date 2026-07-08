@@ -589,18 +589,18 @@ export default function Tickets() {
 
       {/* Ticket Detail Dialog */}
       <Dialog open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col p-0 gap-0">
           {selectedTicket && (
             <>
-              <DialogHeader>
+              <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
                 <DialogTitle className="flex items-center gap-2">
-                  <Ticket className="h-5 w-5" />
-                  {selectedTicket.ticketNumber} - {selectedTicket.title}
+                  <Ticket className="h-5 w-5 shrink-0" />
+                  <span className="truncate">{selectedTicket.ticketNumber} - {selectedTicket.title}</span>
                 </DialogTitle>
               </DialogHeader>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="space-y-4 overflow-y-auto px-6 py-4 flex-1 min-h-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-muted-foreground">Type: </span>
                     <span className="capitalize">{selectedTicket.type.replace("_", " ")}</span>
@@ -624,7 +624,7 @@ export default function Tickets() {
                   <p className="mt-1 text-sm whitespace-pre-wrap">{selectedTicket.description}</p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Priority</label>
                     {canManage ? (
@@ -776,15 +776,17 @@ export default function Tickets() {
                                 <Download className="h-4 w-4" />
                               </a>
                             </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteAttachmentMutation.mutate(att.id)}
-                              disabled={deleteAttachmentMutation.isPending}
-                            >
-                              <X className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canManage && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteAttachmentMutation.mutate(att.id)}
+                                disabled={deleteAttachmentMutation.isPending}
+                              >
+                                <X className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}

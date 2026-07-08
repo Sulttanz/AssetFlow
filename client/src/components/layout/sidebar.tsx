@@ -49,6 +49,7 @@ import { useModules } from "@/hooks/use-modules";
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const hasPermission = (permission?: string) => !permission || !!user?.permissions?.includes(permission);
   const { isModuleEnabled } = useModules();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
@@ -103,6 +104,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets" },
+        { name: "Assign Tickets", href: "/tickets/assign", icon: LinkIcon, current: location === "/tickets/assign", permission: "ticket_manage" },
       ]
     },
     {
@@ -200,7 +202,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </button>
                 {isSectionExpanded && (
                   <div className="space-y-0.5">
-                    {section.items.map((item: any) => {
+                    {section.items.filter((item: any) => hasPermission(item.permission)).map((item: any) => {
                       const Icon = item.icon;
 
                       if (item.hasSubmenu) {

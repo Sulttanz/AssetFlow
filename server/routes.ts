@@ -1578,9 +1578,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ticket = await storage.getTicket(req.params.id);
       if (!ticket) return res.status(404).json({ message: "Ticket not found" });
       const isManager = await canManageTicket(user.id);
-      const isOwner = ticket.requesterId === user.id;
-      if (!isManager && !isOwner) {
-        return res.status(403).json({ message: "Insufficient permissions" });
+      if (!isManager) {
+        return res.status(403).json({ message: "Only IT staff or administrators can delete attachments" });
       }
       const [deleted] = await db.delete(ticketAttachments)
         .where(and(eq(ticketAttachments.id, req.params.attachId), eq(ticketAttachments.ticketId, req.params.id)))
