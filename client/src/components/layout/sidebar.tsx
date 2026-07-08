@@ -52,22 +52,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { isModuleEnabled } = useModules();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
-  const SECTION_TITLES = [
-    "Overview",
-    "Asset Management",
-    "Organization",
-    "Financial",
-    "Operations",
-    "IT Service Management",
-    "Analytics",
-    "Tools",
-    "System",
-  ];
-
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() =>
-    SECTION_TITLES.reduce((acc, title) => ({ ...acc, [title]: true }), {} as Record<string, boolean>)
-  );
-
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => ({ ...prev, [title]: !prev[title] }));
   };
@@ -170,6 +154,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     }
   ];
 
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    const activeSection = navigationSections.find((section) =>
+      section.items.some((item: any) => item.current || item.submenu?.some((sub: any) => sub.current))
+    );
+    return activeSection ? { [activeSection.title]: true } : {};
+  });
+
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Logo/Header */}
@@ -190,7 +181,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         {navigationSections
           .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
           .map((section) => {
-            const isSectionExpanded = expandedSections[section.title] ?? true;
+            const isSectionExpanded = expandedSections[section.title] ?? false;
             return (
               <div key={section.title}>
                 <button
