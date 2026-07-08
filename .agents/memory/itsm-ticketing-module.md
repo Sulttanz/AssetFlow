@@ -29,3 +29,8 @@ Deleting a ticket attachment is manager-only (`ticket_manage` permission) — th
 Ticket assignment also has a dedicated page (`/tickets/assign`, `ticket_manage`-gated) separate from the main Tickets list/detail view — a table of tickets with an inline assignee dropdown per row, for bulk/quick reassignment. The inline assignee dropdown inside the ticket detail dialog was kept too; both call the same `PUT /api/tickets/:id { assignedToId }`.
 
 **Why:** explicit user request for an easier way to control assignments outside the per-ticket detail popup.
+
+## Requester contact info has no direct FK
+A ticket's `requesterId` points to `users`, but email/mobile/job title/department/location live on the separate `employees` table — there's no FK between them. The link is inferred at read time by matching `employees.email === users.email`; if no employee record shares that email, only the user's own `email` is available and the rest come back empty.
+
+**Why:** the schema was never designed to link `users` and `employees` directly; email-matching is the only bridge that already existed in the codebase (same pattern used for Excel assignment import).

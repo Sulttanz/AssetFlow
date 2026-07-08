@@ -740,7 +740,12 @@ export type TicketCommentWithAuthor = TicketComment & {
 
 export type TicketWithDetails = Ticket & {
   asset?: Asset;
-  requester?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  requester?: Pick<User, "id" | "username" | "firstName" | "lastName" | "email"> & {
+    mobile?: string | null;
+    jobTitle?: string | null;
+    department?: string | null;
+    location?: string | null;
+  };
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   department?: Department;
   commentCount?: number;

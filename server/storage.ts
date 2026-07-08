@@ -1631,12 +1631,38 @@ export class MemStorage implements IStorage {
     return { id: user.id, username: user.username, firstName: user.firstName, lastName: user.lastName };
   }
 
+  private toRequesterDetails(user?: User) {
+    if (!user) return undefined;
+    const employee = Array.from(this.employees.values()).find(e => e.email === user.email);
+    let departmentName: string | null | undefined = employee?.department ?? undefined;
+    let locationName: string | undefined;
+    if (employee?.departmentId) {
+      const dept = this.departments.get(employee.departmentId);
+      if (dept) departmentName = dept.name;
+    }
+    if (employee?.locationId) {
+      const loc = this.locations.get(employee.locationId);
+      if (loc) locationName = loc.name;
+    }
+    return {
+      id: user.id,
+      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      mobile: employee?.mobile ?? undefined,
+      jobTitle: employee?.position ?? undefined,
+      department: departmentName,
+      location: locationName,
+    };
+  }
+
   private async toTicketWithDetails(ticket: Ticket): Promise<TicketWithDetails> {
     const commentCount = Array.from(this.ticketComments.values()).filter(c => c.ticketId === ticket.id).length;
     return {
       ...ticket,
       asset: ticket.assetId ? this.assets.get(ticket.assetId) : undefined,
-      requester: this.toUserSummary(this.users.get(ticket.requesterId)),
+      requester: this.toRequesterDetails(this.users.get(ticket.requesterId)),
       assignedTo: ticket.assignedToId ? this.toUserSummary(this.users.get(ticket.assignedToId)) : undefined,
       department: ticket.departmentId ? this.departments.get(ticket.departmentId) : undefined,
       commentCount,
@@ -3222,8 +3248,34 @@ export class DatabaseStorage implements IStorage {
     return { id: user.id, username: user.username, firstName: user.firstName, lastName: user.lastName };
   }
 
+  private async toRequesterDetails(user?: User) {
+    if (!user) return undefined;
+    const employee = await db.select().from(employees).where(eq(employees.email, user.email)).then(r => r[0]);
+    let departmentName: string | null | undefined = employee?.department ?? undefined;
+    let locationName: string | undefined;
+    if (employee?.departmentId) {
+      const dept = await db.select().from(departments).where(eq(departments.id, employee.departmentId)).then(r => r[0]);
+      if (dept) departmentName = dept.name;
+    }
+    if (employee?.locationId) {
+      const loc = await db.select().from(locations).where(eq(locations.id, employee.locationId)).then(r => r[0]);
+      if (loc) locationName = loc.name;
+    }
+    return {
+      id: user.id,
+      username: user.username,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      mobile: employee?.mobile ?? undefined,
+      jobTitle: employee?.position ?? undefined,
+      department: departmentName,
+      location: locationName,
+    };
+  }
+
   private async toTicketWithDetails(ticket: Ticket): Promise<TicketWithDetails> {
-    const [asset, requester, assignedTo, department, commentRows] = await Promise.all([
+    const [asset, requesterUser, assignedTo, department, commentRows] = await Promise.all([
       ticket.assetId ? db.select().from(assets).where(eq(assets.id, ticket.assetId)).then(r => r[0]) : Promise.resolve(undefined),
       db.select().from(users).where(eq(users.id, ticket.requesterId)).then(r => r[0]),
       ticket.assignedToId ? db.select().from(users).where(eq(users.id, ticket.assignedToId)).then(r => r[0]) : Promise.resolve(undefined),
@@ -3233,7 +3285,7 @@ export class DatabaseStorage implements IStorage {
     return {
       ...ticket,
       asset,
-      requester: this.toUserSummary(requester),
+      requester: await this.toRequesterDetails(requesterUser),
       assignedTo: this.toUserSummary(assignedTo),
       department,
       commentCount: commentRows.length,

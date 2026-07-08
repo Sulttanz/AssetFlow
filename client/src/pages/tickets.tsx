@@ -589,7 +589,7 @@ export default function Tickets() {
 
       {/* Ticket Detail Dialog */}
       <Dialog open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>
-        <DialogContent className="max-w-2xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col p-0 gap-0">
           {selectedTicket && (
             <>
               <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
@@ -616,6 +616,32 @@ export default function Tickets() {
                   <div>
                     <span className="text-muted-foreground">Asset: </span>
                     {selectedTicket.asset ? `${selectedTicket.asset.name} (${selectedTicket.asset.assetTag})` : "-"}
+                  </div>
+                </div>
+
+                <div className="border rounded-lg p-3">
+                  <h4 className="text-sm font-medium mb-2">Requester Information</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Email: </span>
+                      <span>{selectedTicket.requester?.email || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Mobile: </span>
+                      <span>{selectedTicket.requester?.mobile || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Job Title: </span>
+                      <span>{selectedTicket.requester?.jobTitle || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Department: </span>
+                      <span>{selectedTicket.requester?.department || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Location: </span>
+                      <span>{selectedTicket.requester?.location || "-"}</span>
+                    </div>
                   </div>
                 </div>
 
