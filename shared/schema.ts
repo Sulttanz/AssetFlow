@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -673,6 +673,7 @@ export const tickets = pgTable("tickets", {
   requesterId: varchar("requester_id").notNull().references(() => users.id),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  catalogItemId: varchar("catalog_item_id"), // references catalog_items.id — no FK to avoid forward-ref
   dueDate: date("due_date"),
   resolutionCode: text("resolution_code"), // set when status becomes resolved
   reopenCount: integer("reopen_count").notNull().default(0),
@@ -689,6 +690,7 @@ export const ticketComments = pgTable("ticket_comments", {
   ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
   authorId: varchar("author_id").notNull().references(() => users.id),
   message: text("message").notNull(),
+  isInternal: boolean("is_internal").default(false), // agent-only notes not visible to requester
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
@@ -716,6 +718,24 @@ export const insertTicketSchema = createInsertSchema(tickets).omit({
   slaResolutionDueAt: true,
   firstRespondedAt: true,
 });
+
+// SLA Policies - admin-configurable SLA targets per ticket type/category/priority
+export const slaPolicies = pgTable("sla_policies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  ticketType: text("ticket_type"), // "incident" | "service_request" | null (all)
+  category: text("category"),      // "Hardware" | "Security" | null (all)
+  priority: text("priority").notNull(), // "critical" | "high" | "medium" | "low"
+  responseHours: real("response_hours").notNull(),
+  resolutionHours: real("resolution_hours").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertSlaPolicySchema = createInsertSchema(slaPolicies).omit({ id: true, createdAt: true, updatedAt: true });
+export type SlaPolicy = typeof slaPolicies.$inferSelect;
+export type InsertSlaPolicy = z.infer<typeof insertSlaPolicySchema>;
 
 // Impact x Urgency -> derived Priority matrix (ITIL-style)
 export const TICKET_PRIORITY_MATRIX: Record<string, Record<string, string>> = {
@@ -1027,4 +1047,140 @@ export type MaintenanceRecordWithDetails = MaintenanceRecord & {
 export type MaintenanceScheduleWithDetails = MaintenanceSchedule & {
   asset: Asset;
   lastRecord?: MaintenanceRecord;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Knowledge Base
+// ─────────────────────────────────────────────────────────────────────────────
+export const kbArticles = pgTable("kb_articles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  category: text("category").notNull(),
+  tags: text("tags"),            // comma-separated
+  status: text("status").notNull().default("draft"), // draft | published | archived
+  views: integer("views").default(0),
+  helpfulCount: integer("helpful_count").default(0),
+  notHelpfulCount: integer("not_helpful_count").default(0),
+  authorId: varchar("author_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true });
+export type KbArticle = typeof kbArticles.$inferSelect;
+export type InsertKbArticle = z.infer<typeof insertKbArticleSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Problem Management
+// ─────────────────────────────────────────────────────────────────────────────
+export const problems = pgTable("problems", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  problemNumber: text("problem_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("open"),  // open | investigating | known_error | resolved | closed
+  priority: text("priority").notNull().default("medium"),
+  category: text("category"),
+  rootCause: text("root_cause"),
+  workaround: text("workaround"),
+  resolution: text("resolution"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const problemIncidents = pgTable("problem_incidents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  problemId: varchar("problem_id").notNull().references(() => problems.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  linkedAt: timestamp("linked_at").default(sql`now()`),
+});
+
+export const insertProblemSchema = createInsertSchema(problems).omit({ id: true, problemNumber: true, createdAt: true, updatedAt: true, resolvedAt: true });
+export type Problem = typeof problems.$inferSelect;
+export type InsertProblem = z.infer<typeof insertProblemSchema>;
+export type ProblemIncident = typeof problemIncidents.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Service Catalog
+// ─────────────────────────────────────────────────────────────────────────────
+export const catalogItems = pgTable("catalog_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(),   // hardware, software, access, facilities, other
+  icon: text("icon"),
+  fulfillmentTeam: text("fulfillment_team"),
+  slaHours: integer("sla_hours"),
+  approvalRequired: boolean("approval_required").default(false),
+  isActive: boolean("is_active").default(true),
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertCatalogItemSchema = createInsertSchema(catalogItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type CatalogItem = typeof catalogItems.$inferSelect;
+export type InsertCatalogItem = z.infer<typeof insertCatalogItemSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Change Management
+// ─────────────────────────────────────────────────────────────────────────────
+export const changes = pgTable("changes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeNumber: text("change_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default("normal"),     // standard | normal | emergency
+  status: text("status").notNull().default("draft"),  // draft | submitted | approved | rejected | in_progress | completed | cancelled
+  priority: text("priority").notNull().default("medium"),
+  risk: text("risk").default("low"),                  // low | medium | high | critical
+  impact: text("impact"),
+  rollbackPlan: text("rollback_plan"),
+  implementationPlan: text("implementation_plan"),
+  testPlan: text("test_plan"),
+  scheduledStart: timestamp("scheduled_start"),
+  scheduledEnd: timestamp("scheduled_end"),
+  actualStart: timestamp("actual_start"),
+  actualEnd: timestamp("actual_end"),
+  requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const changeApprovals = pgTable("change_approvals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  approverId: varchar("approver_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  decision: text("decision"),   // approved | rejected | pending
+  comments: text("comments"),
+  decidedAt: timestamp("decided_at"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true, actualStart: true, actualEnd: true });
+export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true });
+export type Change = typeof changes.$inferSelect;
+export type InsertChange = z.infer<typeof insertChangeSchema>;
+export type ChangeApproval = typeof changeApprovals.$inferSelect;
+export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;
+
+export type ChangeWithDetails = Change & {
+  requestedBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  department?: Department;
+  approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+};
+
+export type ProblemWithDetails = Problem & {
+  assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  createdBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;
+  department?: Department;
+  linkedTickets?: { ticketId: string; ticketNumber: string; title: string }[];
 };

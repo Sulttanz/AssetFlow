@@ -70,6 +70,7 @@ export default function Tickets() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<TicketWithDetails | null>(null);
   const [commentText, setCommentText] = useState("");
+  const [commentIsInternal, setCommentIsInternal] = useState(false);
 
   const canManage = !!user?.permissions?.includes("ticket_manage");
   const canViewAll = canManage || !!user?.permissions?.includes("ticket_view_all");
@@ -219,8 +220,8 @@ export default function Tickets() {
   });
 
   const commentMutation = useMutation({
-    mutationFn: async ({ id, message }: { id: string; message: string }) => {
-      const res = await apiRequest("POST", `/api/tickets/${id}/comments`, { message });
+    mutationFn: async ({ id, message, isInternal }: { id: string; message: string; isInternal?: boolean }) => {
+      const res = await apiRequest("POST", `/api/tickets/${id}/comments`, { message, isInternal });
       return res.json();
     },
     onSuccess: () => {
@@ -228,6 +229,7 @@ export default function Tickets() {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       setCommentText("");
+      setCommentIsInternal(false);
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error?.message || "Failed to add comment", variant: "destructive" });
@@ -1043,9 +1045,14 @@ export default function Tickets() {
                       <Skeleton className="h-10 w-full" />
                     ) : comments && comments.length > 0 ? (
                       comments.map((c) => (
-                        <div key={c.id} className="text-sm bg-muted/50 rounded-md p-2">
+                        <div key={c.id} className={`text-sm rounded-md p-2 border ${(c as any).isInternal ? "bg-amber-50 border-amber-200" : "bg-muted/50 border-transparent"}`}>
                           <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                            <span className="font-medium">{userLabel(c.author)}</span>
+                            <span className="font-medium flex items-center gap-1">
+                              {userLabel(c.author)}
+                              {(c as any).isInternal && (
+                                <span className="text-amber-700 font-semibold">(internal note)</span>
+                              )}
+                            </span>
                             <span>{c.createdAt ? format(new Date(c.createdAt), "MMM d, yyyy h:mm a") : ""}</span>
                           </div>
                           <p className="whitespace-pre-wrap">{c.message}</p>
@@ -1055,20 +1062,36 @@ export default function Tickets() {
                       <p className="text-sm text-muted-foreground">No comments yet</p>
                     )}
                   </div>
-                  <div className="flex gap-2">
-                    <Textarea
-                      placeholder="Add a comment..."
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                      className="min-h-[60px]"
-                    />
-                    <Button
-                      size="icon"
-                      disabled={!commentText.trim() || commentMutation.isPending}
-                      onClick={() => commentMutation.mutate({ id: selectedTicket.id, message: commentText })}
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
+                  <div className="space-y-2">
+                    {canManage && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="internal-note-toggle"
+                          checked={commentIsInternal}
+                          onChange={(e) => setCommentIsInternal(e.target.checked)}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <label htmlFor="internal-note-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                          Internal note (visible to agents only)
+                        </label>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Textarea
+                        placeholder={commentIsInternal ? "Add an internal note (only visible to agents)..." : "Add a comment..."}
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        className={`min-h-[60px] ${commentIsInternal ? "border-amber-300 bg-amber-50" : ""}`}
+                      />
+                      <Button
+                        size="icon"
+                        disabled={!commentText.trim() || commentMutation.isPending}
+                        onClick={() => commentMutation.mutate({ id: selectedTicket.id, message: commentText, isInternal: commentIsInternal })}
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

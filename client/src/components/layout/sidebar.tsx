@@ -32,9 +32,13 @@ import {
   FileSignature,
   ClipboardCheck,
   GitBranch,
+  GitMerge,
   Menu,
   X,
-  Ticket
+  Ticket,
+  Clock,
+  AlertTriangle,
+  BookOpen,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -104,6 +108,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets" },
+        { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
+        { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
+        { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
       ]
     },
     {
@@ -151,6 +159,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Dropdowns", href: "/dropdowns", icon: Settings, current: location === "/dropdowns" },
         { name: "Audit Logs", href: "/audit-logs", icon: FileText, current: location === "/audit-logs" },
         { name: "System Settings", href: "/system-settings", icon: Settings, current: location === "/system-settings" },
+        { name: "SLA Policies", href: "/sla-policies", icon: Clock, current: location === "/sla-policies" },
       ]
     }
   ];

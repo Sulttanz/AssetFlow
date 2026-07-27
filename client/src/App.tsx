@@ -48,6 +48,11 @@ import AssetAudits from "@/pages/asset-audits";
 import AssetRequests from "@/pages/asset-requests";
 import Tickets from "@/pages/tickets";
 import TicketReport from "@/pages/reports/tickets";
+import SlaPolicies from "@/pages/sla-policies";
+import KnowledgeBase from "@/pages/knowledge-base";
+import Problems from "@/pages/problems";
+import ServiceCatalog from "@/pages/service-catalog";
+import Changes from "@/pages/changes";
 import Sidebar from "@/components/layout/sidebar";
 
 function Router() {
@@ -107,6 +112,11 @@ function Router() {
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <ProtectedRoute path="/tickets" component={Tickets} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
+                  <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredPermission="system_admin" />
+                  <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} />
+                  <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" />
+                  <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
+                  <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" />
                   <Route component={NotFound} />
                 </Switch>
               </div>

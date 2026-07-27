@@ -765,7 +765,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isOwner && !(await canManageAllTickets(user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const validatedData = insertTicketCommentSchema.parse({ ticketId: req.params.id, authorId: user.id, message: req.body.message });
+      const canManage = await canManageAllTickets(user.id);
+      // Only agents/admins can post internal notes
+      const isInternal = canManage ? (req.body.isInternal === true) : false;
+      const validatedData = insertTicketCommentSchema.parse({ ticketId: req.params.id, authorId: user.id, message: req.body.message, isInternal });
       const comment = await storage.createTicketComment(validatedData);
       await logAudit(user.id, 'CREATE', 'ticket_comments', comment.id, `Comment on ${ticket.ticketNumber}`, null, comment, req);
       res.status(201).json(comment);
@@ -4829,6 +4832,285 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       res.status(500).json({ message: "Failed to seed dropdown options" });
     }
+  });
+
+  // ── SLA Policies ─────────────────────────────────────────────────────────
+  app.get("/api/sla-policies", requireAuth, async (req, res) => {
+    try {
+      const policies = await storage.getSlaPolicies();
+      res.json(policies);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch SLA policies" });
+    }
+  });
+
+  app.post("/api/sla-policies", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const policy = await storage.createSlaPolicy(req.body);
+      res.status(201).json(policy);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create SLA policy" });
+    }
+  });
+
+  app.put("/api/sla-policies/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const policy = await storage.updateSlaPolicy(req.params.id, req.body);
+      if (!policy) return res.status(404).json({ message: "SLA policy not found" });
+      res.json(policy);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update SLA policy" });
+    }
+  });
+
+  app.delete("/api/sla-policies/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const deleted = await storage.deleteSlaPolicy(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "SLA policy not found" });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete SLA policy" });
+    }
+  });
+
+  // ── Knowledge Base ───────────────────────────────────────────────────────
+  app.get("/api/kb/articles", requireAuth, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const articles = await storage.getKbArticles(status);
+      res.json(articles);
+    } catch { res.status(500).json({ message: "Failed to fetch articles" }); }
+  });
+
+  app.get("/api/kb/search", requireAuth, async (req, res) => {
+    try {
+      const q = req.query.q as string;
+      if (!q) return res.json([]);
+      res.json(await storage.searchKbArticles(q));
+    } catch { res.status(500).json({ message: "Search failed" }); }
+  });
+
+  app.get("/api/kb/articles/:id", requireAuth, async (req, res) => {
+    try {
+      const article = await storage.getKbArticle(req.params.id);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      await storage.incrementKbArticleViews(req.params.id);
+      res.json(article);
+    } catch { res.status(500).json({ message: "Failed to fetch article" }); }
+  });
+
+  app.post("/api/kb/articles", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const article = await storage.createKbArticle({ ...req.body, authorId: user.id });
+      res.status(201).json(article);
+    } catch { res.status(500).json({ message: "Failed to create article" }); }
+  });
+
+  app.put("/api/kb/articles/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const article = await storage.updateKbArticle(req.params.id, req.body);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      res.json(article);
+    } catch { res.status(500).json({ message: "Failed to update article" }); }
+  });
+
+  app.delete("/api/kb/articles/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const deleted = await storage.deleteKbArticle(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Article not found" });
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to delete article" }); }
+  });
+
+  app.post("/api/kb/articles/:id/rate", requireAuth, async (req, res) => {
+    try {
+      await storage.rateKbArticle(req.params.id, req.body.helpful === true);
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to rate article" }); }
+  });
+
+  // ── Problem Management ───────────────────────────────────────────────────
+  app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getProblems()); }
+    catch { res.status(500).json({ message: "Failed to fetch problems" }); }
+  });
+
+  app.get("/api/problems/:id", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const p = await storage.getProblem(req.params.id);
+      if (!p) return res.status(404).json({ message: "Problem not found" });
+      res.json(p);
+    } catch { res.status(500).json({ message: "Failed to fetch problem" }); }
+  });
+
+  app.post("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const problem = await storage.createProblem({ ...req.body, createdById: user.id });
+      res.status(201).json(problem);
+    } catch { res.status(500).json({ message: "Failed to create problem" }); }
+  });
+
+  app.put("/api/problems/:id", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const problem = await storage.updateProblem(req.params.id, req.body);
+      if (!problem) return res.status(404).json({ message: "Problem not found" });
+      res.json(problem);
+    } catch { res.status(500).json({ message: "Failed to update problem" }); }
+  });
+
+  app.delete("/api/problems/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const deleted = await storage.deleteProblem(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Problem not found" });
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to delete problem" }); }
+  });
+
+  app.post("/api/problems/:id/link-incident", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const link = await storage.linkIncidentToProblem(req.params.id, req.body.ticketId);
+      res.status(201).json(link);
+    } catch { res.status(500).json({ message: "Failed to link incident" }); }
+  });
+
+  app.delete("/api/problems/:id/link-incident/:ticketId", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      await storage.unlinkIncidentFromProblem(req.params.id, req.params.ticketId);
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to unlink incident" }); }
+  });
+
+  // ── Service Catalog ──────────────────────────────────────────────────────
+  app.get("/api/catalog/items", requireAuth, async (req, res) => {
+    try {
+      const activeOnly = req.query.activeOnly === "true";
+      res.json(await storage.getCatalogItems(activeOnly));
+    } catch { res.status(500).json({ message: "Failed to fetch catalog items" }); }
+  });
+
+  app.get("/api/catalog/items/:id", requireAuth, async (req, res) => {
+    try {
+      const item = await storage.getCatalogItem(req.params.id);
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      res.json(item);
+    } catch { res.status(500).json({ message: "Failed to fetch catalog item" }); }
+  });
+
+  app.post("/api/catalog/items", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const item = await storage.createCatalogItem(req.body);
+      res.status(201).json(item);
+    } catch { res.status(500).json({ message: "Failed to create catalog item" }); }
+  });
+
+  app.put("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const item = await storage.updateCatalogItem(req.params.id, req.body);
+      if (!item) return res.status(404).json({ message: "Item not found" });
+      res.json(item);
+    } catch { res.status(500).json({ message: "Failed to update catalog item" }); }
+  });
+
+  app.delete("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const deleted = await storage.deleteCatalogItem(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Item not found" });
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to delete catalog item" }); }
+  });
+
+  // Catalog self-service: create ticket from catalog item
+  app.post("/api/catalog/items/:id/request", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const item = await storage.getCatalogItem(req.params.id);
+      if (!item || !item.isActive) return res.status(404).json({ message: "Catalog item not found" });
+      const ticket = await storage.createTicket({
+        title: `Service Request: ${item.name}`,
+        description: req.body.description || `User requested: ${item.name}`,
+        type: "service_request",
+        category: item.category,
+        priority: "medium",
+        status: "open",
+        requesterId: user.id,
+        assignedToId: null,
+        assetId: null,
+        departmentId: null,
+        impact: null,
+        urgency: null,
+        dueDate: item.slaHours ? new Date(Date.now() + item.slaHours * 3600000).toISOString().split("T")[0] : null,
+        tags: null,
+        catalogItemId: item.id,
+      } as any);
+      res.status(201).json(ticket);
+    } catch { res.status(500).json({ message: "Failed to create service request" }); }
+  });
+
+  // ── Change Management ────────────────────────────────────────────────────
+  app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getChanges()); }
+    catch { res.status(500).json({ message: "Failed to fetch changes" }); }
+  });
+
+  app.get("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      res.json(ch);
+    } catch { res.status(500).json({ message: "Failed to fetch change" }); }
+  });
+
+  app.post("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const change = await storage.createChange({ ...req.body, requestedById: user.id });
+      res.status(201).json(change);
+    } catch { res.status(500).json({ message: "Failed to create change" }); }
+  });
+
+  app.put("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const change = await storage.updateChange(req.params.id, req.body);
+      if (!change) return res.status(404).json({ message: "Change not found" });
+      res.json(change);
+    } catch { res.status(500).json({ message: "Failed to update change" }); }
+  });
+
+  app.delete("/api/changes/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const deleted = await storage.deleteChange(req.params.id);
+      if (!deleted) return res.status(404).json({ message: "Change not found" });
+      res.json({ success: true });
+    } catch { res.status(500).json({ message: "Failed to delete change" }); }
+  });
+
+  app.get("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getChangeApprovals(req.params.id)); }
+    catch { res.status(500).json({ message: "Failed to fetch approvals" }); }
+  });
+
+  app.post("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId: user.id, decision: "pending" });
+      res.status(201).json(approval);
+    } catch { res.status(500).json({ message: "Failed to add approval" }); }
+  });
+
+  app.put("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const approval = await storage.updateChangeApproval(req.params.approvalId, req.body.decision, req.body.comments);
+      if (!approval) return res.status(404).json({ message: "Approval not found" });
+      // Auto-update change status based on decisions
+      const allApprovals = await storage.getChangeApprovals(req.params.changeId);
+      const hasRejected = allApprovals.some(a => a.decision === "rejected");
+      const allApproved = allApprovals.every(a => a.decision === "approved");
+      if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" });
+      else if (allApproved && allApprovals.length > 0) await storage.updateChange(req.params.changeId, { status: "approved" });
+      res.json(approval);
+    } catch { res.status(500).json({ message: "Failed to update approval" }); }
   });
 
   const httpServer = createServer(app);

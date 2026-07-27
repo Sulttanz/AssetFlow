@@ -5,6 +5,11 @@ import {
   type UserRole, type RolePermission, type SystemSetting, type AuditLog, type Setting,
   type DropdownOption, type InsertDropdownOption,
   type ModuleSetting, type InsertModuleSetting,
+  type SlaPolicy, type InsertSlaPolicy,
+  type KbArticle, type InsertKbArticle,
+  type Problem, type InsertProblem, type ProblemIncident, type ProblemWithDetails,
+  type CatalogItem, type InsertCatalogItem,
+  type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
@@ -19,7 +24,7 @@ import {
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
   budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
-  tickets, ticketComments,
+  tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, catalogItems, changes, changeApprovals,
   TICKET_PRIORITY_MATRIX, TICKET_SLA_HOURS,
 } from "@shared/schema";
 import { MODULE_REGISTRY } from "@shared/modules";
@@ -35,11 +40,58 @@ function deriveTicketPriority(impact?: string | null, urgency?: string | null, f
   return fallback ?? "medium";
 }
 
-function computeTicketSlaDates(priority: string, from: Date): { slaResponseDueAt: Date; slaResolutionDueAt: Date } {
-  const hours = TICKET_SLA_HOURS[priority] ?? TICKET_SLA_HOURS.medium;
+async function computeTicketSlaDates(
+  priority: string,
+  from: Date,
+  ticketType?: string | null,
+  category?: string | null,
+): Promise<{ slaResponseDueAt: Date; slaResolutionDueAt: Date }> {
+  // Try to find the most-specific active DB policy first
+  // Specificity order: type+category+priority > type+priority > priority only
+  let responseHours: number | undefined;
+  let resolutionHours: number | undefined;
+
+  try {
+    const policies = await db
+      .select()
+      .from(slaPolicies)
+      .where(and(eq(slaPolicies.priority, priority), eq(slaPolicies.isActive, true)));
+
+    // Most specific: type + category + priority
+    if (ticketType && category) {
+      const match = policies.find(
+        (p) => p.ticketType === ticketType && p.category === category,
+      );
+      if (match) { responseHours = match.responseHours; resolutionHours = match.resolutionHours; }
+    }
+    // Next: type + priority (no category filter)
+    if (responseHours === undefined && ticketType) {
+      const match = policies.find(
+        (p) => p.ticketType === ticketType && (p.category === null || p.category === ""),
+      );
+      if (match) { responseHours = match.responseHours; resolutionHours = match.resolutionHours; }
+    }
+    // Fallback: priority-only policy (type and category both null/empty)
+    if (responseHours === undefined) {
+      const match = policies.find(
+        (p) => (p.ticketType === null || p.ticketType === "") && (p.category === null || p.category === ""),
+      );
+      if (match) { responseHours = match.responseHours; resolutionHours = match.resolutionHours; }
+    }
+  } catch {
+    // DB not available (e.g. MemStorage tests) — fall through to hardcoded defaults
+  }
+
+  // Final fallback: hardcoded constants
+  if (responseHours === undefined) {
+    const defaults = TICKET_SLA_HOURS[priority] ?? TICKET_SLA_HOURS.medium;
+    responseHours = defaults.response;
+    resolutionHours = defaults.resolution;
+  }
+
   return {
-    slaResponseDueAt: new Date(from.getTime() + hours.response * 60 * 60 * 1000),
-    slaResolutionDueAt: new Date(from.getTime() + hours.resolution * 60 * 60 * 1000),
+    slaResponseDueAt: new Date(from.getTime() + responseHours! * 60 * 60 * 1000),
+    slaResolutionDueAt: new Date(from.getTime() + (resolutionHours ?? responseHours!) * 60 * 60 * 1000),
   };
 }
 
@@ -248,6 +300,48 @@ export interface IStorage {
   createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption>;
   updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined>;
   deleteDropdownOption(id: string): Promise<boolean>;
+
+  // SLA Policies
+  getSlaPolicies(): Promise<SlaPolicy[]>;
+  createSlaPolicy(policy: InsertSlaPolicy): Promise<SlaPolicy>;
+  updateSlaPolicy(id: string, policy: Partial<InsertSlaPolicy>): Promise<SlaPolicy | undefined>;
+  deleteSlaPolicy(id: string): Promise<boolean>;
+
+  // Knowledge Base
+  getKbArticles(status?: string): Promise<KbArticle[]>;
+  getKbArticle(id: string): Promise<KbArticle | undefined>;
+  searchKbArticles(query: string): Promise<KbArticle[]>;
+  createKbArticle(article: InsertKbArticle): Promise<KbArticle>;
+  updateKbArticle(id: string, article: Partial<InsertKbArticle>): Promise<KbArticle | undefined>;
+  deleteKbArticle(id: string): Promise<boolean>;
+  incrementKbArticleViews(id: string): Promise<void>;
+  rateKbArticle(id: string, helpful: boolean): Promise<void>;
+
+  // Problem Management
+  getProblems(): Promise<ProblemWithDetails[]>;
+  getProblem(id: string): Promise<ProblemWithDetails | undefined>;
+  createProblem(problem: InsertProblem): Promise<Problem>;
+  updateProblem(id: string, problem: Partial<InsertProblem>): Promise<Problem | undefined>;
+  deleteProblem(id: string): Promise<boolean>;
+  linkIncidentToProblem(problemId: string, ticketId: string): Promise<ProblemIncident>;
+  unlinkIncidentFromProblem(problemId: string, ticketId: string): Promise<boolean>;
+
+  // Service Catalog
+  getCatalogItems(activeOnly?: boolean): Promise<CatalogItem[]>;
+  getCatalogItem(id: string): Promise<CatalogItem | undefined>;
+  createCatalogItem(item: InsertCatalogItem): Promise<CatalogItem>;
+  updateCatalogItem(id: string, item: Partial<InsertCatalogItem>): Promise<CatalogItem | undefined>;
+  deleteCatalogItem(id: string): Promise<boolean>;
+
+  // Change Management
+  getChanges(): Promise<ChangeWithDetails[]>;
+  getChange(id: string): Promise<ChangeWithDetails | undefined>;
+  createChange(change: InsertChange): Promise<Change>;
+  updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
+  deleteChange(id: string): Promise<boolean>;
+  getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
+  createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
+  updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
 
   // Data Management
   clearAllData(): Promise<boolean>;
@@ -1704,7 +1798,7 @@ export class MemStorage implements IStorage {
     const prefix = ticket.type === "service_request" ? "SR" : "INC";
     const now = new Date();
     const priority = deriveTicketPriority(ticket.impact, ticket.urgency, ticket.priority);
-    const { slaResponseDueAt, slaResolutionDueAt } = computeTicketSlaDates(priority, now);
+    const { slaResponseDueAt, slaResolutionDueAt } = await computeTicketSlaDates(priority, now, ticket.type, ticket.category);
     const newTicket: Ticket = {
       ...ticket,
       id,
@@ -2256,6 +2350,70 @@ export class MemStorage implements IStorage {
     this.auditLogs.set(id, newLog);
     return newLog;
   }
+
+  // SLA Policies (MemStorage stubs — not used in production)
+  async getSlaPolicies(): Promise<SlaPolicy[]> { return []; }
+  async createSlaPolicy(policy: InsertSlaPolicy): Promise<SlaPolicy> {
+    const id = randomUUID();
+    const now = new Date();
+    const record: SlaPolicy = { id, ...policy, ticketType: policy.ticketType ?? null, category: policy.category ?? null, isActive: policy.isActive ?? true, createdAt: now, updatedAt: now };
+    return record;
+  }
+  async updateSlaPolicy(id: string, policy: Partial<InsertSlaPolicy>): Promise<SlaPolicy | undefined> { return undefined; }
+  async deleteSlaPolicy(id: string): Promise<boolean> { return false; }
+
+  // Knowledge Base (MemStorage stubs)
+  async getKbArticles(_status?: string): Promise<KbArticle[]> { return []; }
+  async getKbArticle(_id: string): Promise<KbArticle | undefined> { return undefined; }
+  async searchKbArticles(_query: string): Promise<KbArticle[]> { return []; }
+  async createKbArticle(article: InsertKbArticle): Promise<KbArticle> {
+    const id = randomUUID(); const now = new Date();
+    return { id, ...article, views: 0, helpfulCount: 0, notHelpfulCount: 0, authorId: article.authorId ?? null, tags: article.tags ?? null, status: article.status ?? "draft", createdAt: now, updatedAt: now };
+  }
+  async updateKbArticle(_id: string, _a: Partial<InsertKbArticle>): Promise<KbArticle | undefined> { return undefined; }
+  async deleteKbArticle(_id: string): Promise<boolean> { return false; }
+  async incrementKbArticleViews(_id: string): Promise<void> {}
+  async rateKbArticle(_id: string, _helpful: boolean): Promise<void> {}
+
+  // Problem Management (MemStorage stubs)
+  async getProblems(): Promise<ProblemWithDetails[]> { return []; }
+  async getProblem(_id: string): Promise<ProblemWithDetails | undefined> { return undefined; }
+  async createProblem(problem: InsertProblem): Promise<Problem> {
+    const id = randomUUID(); const now = new Date();
+    const seq = 1;
+    return { id, problemNumber: `PRB-${String(seq).padStart(6,"0")}`, ...problem, rootCause: problem.rootCause ?? null, workaround: problem.workaround ?? null, resolution: problem.resolution ?? null, category: problem.category ?? null, assignedToId: problem.assignedToId ?? null, departmentId: problem.departmentId ?? null, createdById: problem.createdById ?? null, description: problem.description ?? null, resolvedAt: null, createdAt: now, updatedAt: now };
+  }
+  async updateProblem(_id: string, _p: Partial<InsertProblem>): Promise<Problem | undefined> { return undefined; }
+  async deleteProblem(_id: string): Promise<boolean> { return false; }
+  async linkIncidentToProblem(problemId: string, ticketId: string): Promise<ProblemIncident> {
+    return { id: randomUUID(), problemId, ticketId, linkedAt: new Date() };
+  }
+  async unlinkIncidentFromProblem(_problemId: string, _ticketId: string): Promise<boolean> { return false; }
+
+  // Service Catalog (MemStorage stubs)
+  async getCatalogItems(_activeOnly?: boolean): Promise<CatalogItem[]> { return []; }
+  async getCatalogItem(_id: string): Promise<CatalogItem | undefined> { return undefined; }
+  async createCatalogItem(item: InsertCatalogItem): Promise<CatalogItem> {
+    const id = randomUUID(); const now = new Date();
+    return { id, ...item, description: item.description ?? null, icon: item.icon ?? null, fulfillmentTeam: item.fulfillmentTeam ?? null, slaHours: item.slaHours ?? null, approvalRequired: item.approvalRequired ?? false, isActive: item.isActive ?? true, displayOrder: item.displayOrder ?? 0, createdAt: now, updatedAt: now };
+  }
+  async updateCatalogItem(_id: string, _i: Partial<InsertCatalogItem>): Promise<CatalogItem | undefined> { return undefined; }
+  async deleteCatalogItem(_id: string): Promise<boolean> { return false; }
+
+  // Change Management (MemStorage stubs)
+  async getChanges(): Promise<ChangeWithDetails[]> { return []; }
+  async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
+  async createChange(change: InsertChange): Promise<Change> {
+    const id = randomUUID(); const now = new Date();
+    return { id, changeNumber: `CHG-000001`, ...change, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, actualStart: null, actualEnd: null, createdAt: now, updatedAt: now };
+  }
+  async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
+  async deleteChange(_id: string): Promise<boolean> { return false; }
+  async getChangeApprovals(_changeId: string): Promise<ChangeApproval[]> { return []; }
+  async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
+    return { id: randomUUID(), ...approval, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, createdAt: new Date() };
+  }
+  async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
 
   // Data Management
   async clearAllData(): Promise<boolean> {
@@ -3347,7 +3505,7 @@ export class DatabaseStorage implements IStorage {
     const ticketNumber = `${prefix}-${String(seq).padStart(6, "0")}`;
     const now = new Date();
     const priority = deriveTicketPriority(ticket.impact, ticket.urgency, ticket.priority);
-    const { slaResponseDueAt, slaResolutionDueAt } = computeTicketSlaDates(priority, now);
+    const { slaResponseDueAt, slaResolutionDueAt } = await computeTicketSlaDates(priority, now, ticket.type, ticket.category);
     const result = await db.insert(tickets).values({
       ...ticket,
       ticketNumber,
@@ -3438,6 +3596,192 @@ export class DatabaseStorage implements IStorage {
   async deleteDropdownOption(id: string): Promise<boolean> {
     const result = await db.delete(dropdownOptions).where(eq(dropdownOptions.id, id));
     return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // SLA Policies
+  async getSlaPolicies(): Promise<SlaPolicy[]> {
+    return await db.select().from(slaPolicies).orderBy(slaPolicies.priority, slaPolicies.ticketType);
+  }
+
+  async createSlaPolicy(policy: InsertSlaPolicy): Promise<SlaPolicy> {
+    const result = await db.insert(slaPolicies).values(policy).returning();
+    return result[0];
+  }
+
+  async updateSlaPolicy(id: string, policy: Partial<InsertSlaPolicy>): Promise<SlaPolicy | undefined> {
+    const result = await db.update(slaPolicies).set({ ...policy, updatedAt: new Date() }).where(eq(slaPolicies.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteSlaPolicy(id: string): Promise<boolean> {
+    const result = await db.delete(slaPolicies).where(eq(slaPolicies.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  // ── Knowledge Base ──────────────────────────────────────────────────────────
+  async getKbArticles(status?: string): Promise<KbArticle[]> {
+    const rows = await db.select().from(kbArticles).orderBy(desc(kbArticles.updatedAt));
+    return status ? rows.filter(r => r.status === status) : rows;
+  }
+  async getKbArticle(id: string): Promise<KbArticle | undefined> {
+    const rows = await db.select().from(kbArticles).where(eq(kbArticles.id, id));
+    return rows[0];
+  }
+  async searchKbArticles(query: string): Promise<KbArticle[]> {
+    const q = query.toLowerCase();
+    const all = await db.select().from(kbArticles).where(eq(kbArticles.status, "published"));
+    return all.filter(a => a.title.toLowerCase().includes(q) || (a.content || "").toLowerCase().includes(q) || (a.tags || "").toLowerCase().includes(q));
+  }
+  async createKbArticle(article: InsertKbArticle): Promise<KbArticle> {
+    const result = await db.insert(kbArticles).values(article).returning();
+    return result[0];
+  }
+  async updateKbArticle(id: string, article: Partial<InsertKbArticle>): Promise<KbArticle | undefined> {
+    const result = await db.update(kbArticles).set({ ...article, updatedAt: new Date() }).where(eq(kbArticles.id, id)).returning();
+    return result[0];
+  }
+  async deleteKbArticle(id: string): Promise<boolean> {
+    const result = await db.delete(kbArticles).where(eq(kbArticles.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async incrementKbArticleViews(id: string): Promise<void> {
+    await db.update(kbArticles).set({ views: sql`${kbArticles.views} + 1` }).where(eq(kbArticles.id, id));
+  }
+  async rateKbArticle(id: string, helpful: boolean): Promise<void> {
+    if (helpful) {
+      await db.update(kbArticles).set({ helpfulCount: sql`${kbArticles.helpfulCount} + 1` }).where(eq(kbArticles.id, id));
+    } else {
+      await db.update(kbArticles).set({ notHelpfulCount: sql`${kbArticles.notHelpfulCount} + 1` }).where(eq(kbArticles.id, id));
+    }
+  }
+
+  // ── Problem Management ──────────────────────────────────────────────────────
+  private async buildProblemDetails(prob: Problem): Promise<ProblemWithDetails> {
+    const [assignedRows, createdRows, deptRows, linkedRows] = await Promise.all([
+      prob.assignedToId ? db.select().from(users).where(eq(users.id, prob.assignedToId)) : Promise.resolve([]),
+      prob.createdById  ? db.select().from(users).where(eq(users.id, prob.createdById))  : Promise.resolve([]),
+      prob.departmentId ? db.select().from(departments).where(eq(departments.id, prob.departmentId)) : Promise.resolve([]),
+      db.select().from(problemIncidents).where(eq(problemIncidents.problemId, prob.id)),
+    ]);
+    const linkedTickets = await Promise.all(linkedRows.map(async li => {
+      const t = await db.select().from(tickets).where(eq(tickets.id, li.ticketId));
+      return t[0] ? { ticketId: t[0].id, ticketNumber: t[0].ticketNumber, title: t[0].title } : null;
+    }));
+    return {
+      ...prob,
+      assignedTo: assignedRows[0] ? this.toUserSummary(assignedRows[0]) : undefined,
+      createdBy:  createdRows[0]  ? this.toUserSummary(createdRows[0])  : undefined,
+      department: deptRows[0],
+      linkedTickets: linkedTickets.filter(Boolean) as any[],
+    };
+  }
+  async getProblems(): Promise<ProblemWithDetails[]> {
+    const rows = await db.select().from(problems).orderBy(desc(problems.createdAt));
+    return Promise.all(rows.map(p => this.buildProblemDetails(p)));
+  }
+  async getProblem(id: string): Promise<ProblemWithDetails | undefined> {
+    const rows = await db.select().from(problems).where(eq(problems.id, id));
+    if (!rows[0]) return undefined;
+    return this.buildProblemDetails(rows[0]);
+  }
+  async createProblem(problem: InsertProblem): Promise<Problem> {
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(problems);
+    const seq = Number(countResult[0]?.count || 0) + 1;
+    const result = await db.insert(problems).values({ ...problem, problemNumber: `PRB-${String(seq).padStart(6,"0")}` }).returning();
+    return result[0];
+  }
+  async updateProblem(id: string, problem: Partial<InsertProblem>): Promise<Problem | undefined> {
+    const result = await db.update(problems).set({ ...problem, updatedAt: new Date() }).where(eq(problems.id, id)).returning();
+    return result[0];
+  }
+  async deleteProblem(id: string): Promise<boolean> {
+    const result = await db.delete(problems).where(eq(problems.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async linkIncidentToProblem(problemId: string, ticketId: string): Promise<ProblemIncident> {
+    const result = await db.insert(problemIncidents).values({ problemId, ticketId }).returning();
+    return result[0];
+  }
+  async unlinkIncidentFromProblem(problemId: string, ticketId: string): Promise<boolean> {
+    const result = await db.delete(problemIncidents).where(and(eq(problemIncidents.problemId, problemId), eq(problemIncidents.ticketId, ticketId)));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ── Service Catalog ─────────────────────────────────────────────────────────
+  async getCatalogItems(activeOnly = false): Promise<CatalogItem[]> {
+    const rows = await db.select().from(catalogItems).orderBy(catalogItems.displayOrder, catalogItems.name);
+    return activeOnly ? rows.filter(r => r.isActive) : rows;
+  }
+  async getCatalogItem(id: string): Promise<CatalogItem | undefined> {
+    const rows = await db.select().from(catalogItems).where(eq(catalogItems.id, id));
+    return rows[0];
+  }
+  async createCatalogItem(item: InsertCatalogItem): Promise<CatalogItem> {
+    const result = await db.insert(catalogItems).values(item).returning();
+    return result[0];
+  }
+  async updateCatalogItem(id: string, item: Partial<InsertCatalogItem>): Promise<CatalogItem | undefined> {
+    const result = await db.update(catalogItems).set({ ...item, updatedAt: new Date() }).where(eq(catalogItems.id, id)).returning();
+    return result[0];
+  }
+  async deleteCatalogItem(id: string): Promise<boolean> {
+    const result = await db.delete(catalogItems).where(eq(catalogItems.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // ── Change Management ───────────────────────────────────────────────────────
+  private async buildChangeDetails(ch: Change): Promise<ChangeWithDetails> {
+    const [reqRows, assignRows, deptRows, approvalRows] = await Promise.all([
+      ch.requestedById ? db.select().from(users).where(eq(users.id, ch.requestedById)) : Promise.resolve([]),
+      ch.assignedToId  ? db.select().from(users).where(eq(users.id, ch.assignedToId))  : Promise.resolve([]),
+      ch.departmentId  ? db.select().from(departments).where(eq(departments.id, ch.departmentId)) : Promise.resolve([]),
+      db.select().from(changeApprovals).where(eq(changeApprovals.changeId, ch.id)),
+    ]);
+    const approvalsWithUsers = await Promise.all(approvalRows.map(async a => ({
+      ...a,
+      approver: this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId)).then(r => r[0])),
+    })));
+    return {
+      ...ch,
+      requestedBy: reqRows[0] ? this.toUserSummary(reqRows[0]) : undefined,
+      assignedTo:  assignRows[0] ? this.toUserSummary(assignRows[0]) : undefined,
+      department:  deptRows[0],
+      approvals:   approvalsWithUsers,
+    };
+  }
+  async getChanges(): Promise<ChangeWithDetails[]> {
+    const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
+    return Promise.all(rows.map(c => this.buildChangeDetails(c)));
+  }
+  async getChange(id: string): Promise<ChangeWithDetails | undefined> {
+    const rows = await db.select().from(changes).where(eq(changes.id, id));
+    if (!rows[0]) return undefined;
+    return this.buildChangeDetails(rows[0]);
+  }
+  async createChange(change: InsertChange): Promise<Change> {
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(changes);
+    const seq = Number(countResult[0]?.count || 0) + 1;
+    const result = await db.insert(changes).values({ ...change, changeNumber: `CHG-${String(seq).padStart(6,"0")}` }).returning();
+    return result[0];
+  }
+  async updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined> {
+    const result = await db.update(changes).set({ ...change, updatedAt: new Date() }).where(eq(changes.id, id)).returning();
+    return result[0];
+  }
+  async deleteChange(id: string): Promise<boolean> {
+    const result = await db.delete(changes).where(eq(changes.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+  async getChangeApprovals(changeId: string): Promise<ChangeApproval[]> {
+    return db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+  }
+  async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
+    const result = await db.insert(changeApprovals).values(approval).returning();
+    return result[0];
+  }
+  async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
+    const result = await db.update(changeApprovals).set({ decision, comments: comments ?? null, decidedAt: new Date() }).where(eq(changeApprovals.id, id)).returning();
+    return result[0];
   }
 
   // Clear all data (for DatabaseStorage compatibility with interface)

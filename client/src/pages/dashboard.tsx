@@ -127,6 +127,26 @@ export default function Dashboard() {
       }, 0) / resolvedTickets.length
     : null;
 
+  // FCR: resolved on first touch (reopenCount === 0)
+  const fcrRate = resolvedTickets.length > 0
+    ? Math.round((resolvedTickets.filter((t: any) => (t.reopenCount ?? 0) === 0).length / resolvedTickets.length) * 100)
+    : null;
+
+  // SLA compliance: resolved before slaResolutionDueAt
+  const slaEligible = resolvedTickets.filter((t: any) => t.slaResolutionDueAt && t.resolvedAt);
+  const slaCompliance = slaEligible.length > 0
+    ? Math.round((slaEligible.filter((t: any) => new Date(t.resolvedAt) <= new Date(t.slaResolutionDueAt)).length / slaEligible.length) * 100)
+    : null;
+
+  // Category breakdown for open tickets
+  const categoryBreakdown = (tickets ?? [])
+    .filter((t: any) => t.status === "open" || t.status === "in_progress")
+    .reduce((acc: Record<string, number>, t: any) => {
+      const cat = t.category || "Uncategorised";
+      acc[cat] = (acc[cat] ?? 0) + 1;
+      return acc;
+    }, {});
+
   const toggleWidget = (key: keyof typeof DEFAULT_WIDGETS) => {
     setWidgets((prev: typeof DEFAULT_WIDGETS) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -482,7 +502,7 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <p className="text-xs text-muted-foreground">Avg. Resolution Time</p>
+                  <p className="text-xs text-muted-foreground">Avg. Resolution</p>
                   <p className="text-2xl font-semibold">
                     {avgResolutionHours === null
                       ? "-"
@@ -490,6 +510,36 @@ export default function Dashboard() {
                       ? `${avgResolutionHours.toFixed(1)}h`
                       : `${(avgResolutionHours / 24).toFixed(1)}d`}
                   </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">FCR Rate</p>
+                  <p className={`text-2xl font-semibold ${fcrRate !== null && fcrRate >= 70 ? "text-green-600" : fcrRate !== null ? "text-amber-600" : ""}`}>
+                    {fcrRate === null ? "-" : `${fcrRate}%`}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">SLA Compliance</p>
+                  <p className={`text-2xl font-semibold ${slaCompliance !== null && slaCompliance >= 90 ? "text-green-600" : slaCompliance !== null ? "text-amber-600" : ""}`}>
+                    {slaCompliance === null ? "-" : `${slaCompliance}%`}
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3 col-span-1">
+                  <p className="text-xs text-muted-foreground mb-1">By Category (open)</p>
+                  {Object.keys(categoryBreakdown).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No data</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {Object.entries(categoryBreakdown)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 3)
+                        .map(([cat, count]) => (
+                          <div key={cat} className="flex items-center justify-between text-xs">
+                            <span className="truncate max-w-[100px]">{cat}</span>
+                            <span className="font-semibold ml-1">{count}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <Table>

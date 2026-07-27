@@ -12,6 +12,11 @@ Two permissions gate the whole module: view-all-tickets vs. manage-tickets (assi
 ## Category field
 Ticket category is an admin-managed dropdown, not a hardcoded enum — matches the pattern used for other configurable lists in the app.
 
+## SLA Policies (configurable)
+An `sla_policies` DB table stores admin-defined SLA rules with fields: `ticket_type`, `category`, `priority`, `response_hours`, `resolution_hours`, `is_active`. `computeTicketSlaDates()` in `server/storage.ts` does a DB lookup at ticket-creation time, resolving by specificity: type+category+priority → type+priority → priority-only → hardcoded `TICKET_SLA_HOURS` fallback. The admin page lives at `/sla-policies` (System sidebar section, requires `system_admin`). Categories available in the picker: Hardware, Software, Network, Security, Access, Operations, Other.
+
+**Why:** Users need different SLA targets per ticket type and category (end-user vs security vs operations). Hardcoded constants are kept as a documented fallback.
+
 ## Due date / SLA
 A manual due-date field (settable by managers) coexists with a separate, automatic SLA system added later: `impact` + `urgency` fields auto-derive `priority` via a `TICKET_PRIORITY_MATRIX` lookup (server-side, on create/update), which in turn drives `slaResponseDueAt`/`slaResolutionDueAt` computed from `TICKET_SLA_HOURS`. `/api/alerts` polls tickets and emits "ticket" alerts (severity high = breached, medium = due within 2h). The "overdue" flag and average-resolution-time metrics are still computed client-side from the ticket list rather than a shared aggregation endpoint — if the ticket list response shape changes, update both dashboard and report call sites.
 
