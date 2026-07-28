@@ -48,6 +48,9 @@ import AssetAudits from "@/pages/asset-audits";
 import AssetRequests from "@/pages/asset-requests";
 import Tickets from "@/pages/tickets";
 import TicketReport from "@/pages/reports/tickets";
+import ProblemsReport from "@/pages/reports/problems";
+import ChangesReport from "@/pages/reports/changes";
+import KnowledgeBaseReport from "@/pages/reports/knowledge-base";
 import SlaPolicies from "@/pages/sla-policies";
 import KnowledgeBase from "@/pages/knowledge-base";
 import Problems from "@/pages/problems";
@@ -112,6 +115,9 @@ function Router() {
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <ProtectedRoute path="/tickets" component={Tickets} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
+                  <ProtectedRoute path="/reports/problems" component={ProblemsReport} requiredModule="itsm" />
+                  <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />
+                  <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} requiredModule="itsm" />
                   <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredPermission="system_admin" />
                   <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} />
                   <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" />

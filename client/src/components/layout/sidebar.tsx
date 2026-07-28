@@ -138,7 +138,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation" },
             { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data" },
             { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history" },
-            ...(isModuleEnabled("itsm") ? [{ name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets" }] : []),
+            ...(isModuleEnabled("itsm") ? [
+              { name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets" },
+              { name: "Problem Report", href: "/reports/problems", current: location === "/reports/problems" },
+              { name: "Change Report", href: "/reports/changes", current: location === "/reports/changes" },
+              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles" },
+            ] : []),
           ]
         },
       ]

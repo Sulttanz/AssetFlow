@@ -5113,6 +5113,307 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
   });
 
+  // ── ITSM Report Endpoints ────────────────────────────────────────────────────
+  app.get("/api/reports/problems", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getProblems()); }
+    catch { res.status(500).json({ message: "Failed to fetch problem report" }); }
+  });
+
+  app.get("/api/reports/changes", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getChanges()); }
+    catch { res.status(500).json({ message: "Failed to fetch change report" }); }
+  });
+
+  app.get("/api/reports/kb-articles", requireAuth, async (req, res) => {
+    try { res.json(await storage.getKbArticles()); }
+    catch { res.status(500).json({ message: "Failed to fetch KB report" }); }
+  });
+
+  // ── ITSM Sample Data Seed ────────────────────────────────────────────────────
+  app.post("/api/system/seed-itsm", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const users = await storage.getUsers();
+      if (users.length === 0) return res.status(400).json({ message: "No users found — seed base data first" });
+
+      const adminUser = users.find(u => u.username === "ahmad.sulttan") || users[0];
+      const secondUser = users[1] || adminUser;
+      const thirdUser = users[2] || adminUser;
+
+      // ── Service Catalog Items ───────────────────────────────────────────────
+      const catalogData = [
+        { name: "New Laptop Request", description: "Request a new laptop for a new hire or replacement unit", category: "hardware", icon: "💻", fulfillmentTeam: "IT Hardware", slaHours: 72, approvalRequired: true, isActive: true, displayOrder: 1 },
+        { name: "Software License Request", description: "Request a new software license or additional seat for existing software", category: "software", icon: "📦", fulfillmentTeam: "IT Software", slaHours: 48, approvalRequired: true, isActive: true, displayOrder: 2 },
+        { name: "VPN Access", description: "Request VPN access for remote work connectivity", category: "access", icon: "🔐", fulfillmentTeam: "IT Security", slaHours: 24, approvalRequired: false, isActive: true, displayOrder: 3 },
+        { name: "Password Reset", description: "Reset your account password or unlock your account", category: "access", icon: "🔑", fulfillmentTeam: "IT Helpdesk", slaHours: 4, approvalRequired: false, isActive: true, displayOrder: 4 },
+        { name: "New User Onboarding", description: "Set up all accounts, hardware, and access for a new employee", category: "access", icon: "👤", fulfillmentTeam: "IT Helpdesk", slaHours: 48, approvalRequired: true, isActive: true, displayOrder: 5 },
+        { name: "Monitor / Peripheral Request", description: "Request an additional or replacement monitor, keyboard, or mouse", category: "hardware", icon: "🖥️", fulfillmentTeam: "IT Hardware", slaHours: 48, approvalRequired: false, isActive: true, displayOrder: 6 },
+        { name: "Meeting Room AV Support", description: "Request AV setup or troubleshooting for a meeting room", category: "other", icon: "📽️", fulfillmentTeam: "IT Facilities", slaHours: 8, approvalRequired: false, isActive: true, displayOrder: 7 },
+        { name: "Mobile Device Enrollment", description: "Enroll a corporate mobile device in MDM", category: "hardware", icon: "📱", fulfillmentTeam: "IT Security", slaHours: 24, approvalRequired: true, isActive: true, displayOrder: 8 },
+      ];
+      const createdCatalogItems: any[] = [];
+      for (const item of catalogData) {
+        createdCatalogItems.push(await storage.createCatalogItem(item));
+      }
+
+      // ── KB Articles ─────────────────────────────────────────────────────────
+      const kbData = [
+        {
+          title: "How to Connect to VPN",
+          content: "## Connecting to the Corporate VPN\n\n### Prerequisites\n- VPN client installed (GlobalProtect)\n- Active corporate credentials\n\n### Steps\n1. Open GlobalProtect from your system tray\n2. Enter the portal address: `vpn.company.com`\n3. Sign in with your corporate credentials\n4. Select the appropriate gateway\n5. Click Connect\n\n### Troubleshooting\n- If connection fails, try disconnecting and reconnecting\n- Ensure your account is not locked\n- Contact IT if issues persist",
+          category: "Network", tags: "vpn,remote,connectivity", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Password Reset Procedure",
+          content: "## Resetting Your Password\n\n### Self-Service Reset\n1. Go to `https://passwordreset.company.com`\n2. Enter your username\n3. Follow the verification steps (email or phone)\n4. Set a new password meeting the requirements\n\n### Password Requirements\n- Minimum 12 characters\n- At least 1 uppercase, 1 lowercase, 1 number, 1 special character\n- Cannot reuse last 5 passwords\n\n### Helpdesk Reset\nIf self-service fails, raise a ticket via the Service Catalog.",
+          category: "Access Management", tags: "password,account,access", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Setting Up Multi-Factor Authentication (MFA)",
+          content: "## Enable MFA for Your Account\n\n### Supported MFA Methods\n- Microsoft Authenticator (preferred)\n- SMS one-time passcode\n- Hardware token (issued on request)\n\n### Setup Steps\n1. Log in to the self-service portal at `https://account.company.com`\n2. Navigate to **Security → MFA**\n3. Click **Add authentication method**\n4. Follow the on-screen instructions\n\n### Troubleshooting\n- Lost your phone? Contact IT Security to reset MFA\n- Time-sync issues? Ensure your phone clock is automatic",
+          category: "Security", tags: "mfa,2fa,security,authentication", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Laptop Troubleshooting: Blue Screen of Death (BSOD)",
+          content: "## BSOD Troubleshooting Guide\n\n### Immediate Steps\n1. Note the error code displayed (e.g., `KERNEL_SECURITY_CHECK_FAILURE`)\n2. Allow Windows to restart automatically\n3. Check if the issue recurs\n\n### Common Causes & Fixes\n| Cause | Fix |\n|---|---|\n| Driver issue | Roll back recent driver updates |\n| RAM failure | Run Windows Memory Diagnostic |\n| Disk error | Run `chkdsk /f /r` in elevated CMD |\n| Overheating | Clean vents, check thermal paste |\n\n### Escalation\nIf BSODs persist more than 3 times in a week, raise an incident ticket with the stop code and a description.",
+          category: "Hardware", tags: "bsod,bluescreen,crash,windows", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Wi-Fi Connectivity Issues",
+          content: "## Resolving Wi-Fi Issues\n\n### Quick Checks\n1. Is your Wi-Fi adapter enabled? (`Fn + F2` on most laptops)\n2. Are you connecting to the correct SSID (`CORP-WiFi-5G`)\n3. Try forgetting and reconnecting to the network\n\n### Steps\n1. Open **Settings → Network & Internet → Wi-Fi**\n2. Click **Manage known networks**\n3. Remove the corporate SSID\n4. Reconnect and enter credentials\n\n### Still Not Working?\nCheck if colleagues in the same area are affected (possible access point outage) and raise an incident ticket.",
+          category: "Network", tags: "wifi,wireless,connectivity,network", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Requesting Software via Service Catalog",
+          content: "## How to Request Software\n\n1. Navigate to **Service Catalog** in the ITSM portal\n2. Find the **Software License Request** item\n3. Click **Request Service**\n4. Fill in the software name, version, and business justification\n5. Submit — your manager will receive an approval request\n\n### Approval Timeline\nApprovals typically take 1–2 business days. You will be notified by email.",
+          category: "Software", tags: "software,license,catalog,request", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Email Not Syncing on Mobile Device",
+          content: "## Fix Email Sync Issues on Mobile\n\n### Android\n1. Go to **Settings → Accounts → Work Account**\n2. Tap your email account and select **Sync now**\n3. If prompted, re-enter your password\n\n### iOS\n1. Go to **Settings → Mail → Accounts**\n2. Tap your Exchange account\n3. Toggle **Mail** off and back on\n\n### If Still Not Working\n- Check that your account is not locked (try logging in via web browser)\n- Ensure MFA is configured for mobile\n- Raise a service request if you need device re-enrollment",
+          category: "Software", tags: "email,mobile,exchange,sync", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "DRAFT: Printer Setup Guide",
+          content: "## Adding a Network Printer\n\n*This article is under review.*\n\n### Steps\n1. Go to **Settings → Printers & Scanners**\n2. Click **Add a printer or scanner**\n3. Select the printer from the list or enter the IP address manually\n\n*Full guide including driver download links to be added.*",
+          category: "Hardware", tags: "printer,setup,network", status: "draft", authorId: adminUser.id,
+        },
+        {
+          title: "Data Backup and Recovery Policy",
+          content: "## Backup Policy Summary\n\n### What is Backed Up\n- All data stored on corporate OneDrive (continuous sync)\n- File server shares (nightly snapshot, 30-day retention)\n- Email (180-day retention, managed by IT)\n\n### What is NOT Backed Up\n- Local `C:\\` drive data not in OneDrive\n- Personal USB drives\n\n### Recovery Requests\nFor file recovery, raise an incident ticket with:\n- File/folder path\n- Approximate date of last good version\n- Business justification if urgency is high",
+          category: "Data Management", tags: "backup,recovery,data,policy", status: "published", authorId: adminUser.id,
+        },
+        {
+          title: "Understanding SLA Priorities",
+          content: "## IT Support Priority Levels\n\n| Priority | Response Time | Resolution Time | Examples |\n|---|---|---|---|\n| Critical | 15 min | 4 hours | Complete outage, security breach |\n| High | 1 hour | 8 hours | Major function unavailable |\n| Medium | 4 hours | 24 hours | Minor functionality impacted |\n| Low | 8 hours | 72 hours | Cosmetic issues, requests |\n\n### How Priority is Set\nPriority is determined from **Impact × Urgency** at ticket creation. Agents may adjust after triage.",
+          category: "Process", tags: "sla,priority,process,support", status: "published", authorId: adminUser.id,
+        },
+      ];
+      for (const article of kbData) {
+        await storage.createKbArticle(article as any);
+      }
+
+      // ── Tickets (Incidents + Service Requests) ──────────────────────────────
+      const now = new Date();
+      const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000);
+
+      const ticketInserts = [
+        { title: "Cannot connect to VPN from home", description: "User reports inability to connect to the corporate VPN since yesterday morning. GlobalProtect shows 'gateway unreachable'.", type: "incident", category: "Network", impact: "medium", urgency: "high", requesterId: secondUser.id, assignedToId: adminUser.id, status: "in_progress" },
+        { title: "Email client crashing on startup", description: "Outlook crashes immediately after the splash screen on Windows 11. Issue started after a Windows Update last Tuesday.", type: "incident", category: "Software", impact: "medium", urgency: "medium", requesterId: thirdUser.id, assignedToId: adminUser.id, status: "open" },
+        { title: "Laptop screen flickering intermittently", description: "Screen flickers every 5–10 minutes, particularly when running on battery. Has been happening for 2 weeks.", type: "incident", category: "Hardware", impact: "low", urgency: "low", requesterId: secondUser.id, status: "open" },
+        { title: "Cannot access shared network drive", description: "User cannot map \\\\FILESERVER\\Finance. Getting 'Access Denied' error. Was working before password change.", type: "incident", category: "Access Management", impact: "high", urgency: "high", requesterId: thirdUser.id, assignedToId: secondUser.id, status: "resolved" },
+        { title: "Company-wide email service outage", description: "Exchange Online showing 503 errors for all users. Microsoft 365 admin portal shows 'Service Degraded'. All email affected.", type: "incident", category: "Network", impact: "high", urgency: "high", requesterId: adminUser.id, assignedToId: adminUser.id, status: "resolved" },
+        { title: "Printer not found on network", description: "Floor 3 shared printer is no longer visible on the network. Affects 12 users.", type: "incident", category: "Hardware", impact: "medium", urgency: "medium", requesterId: secondUser.id, assignedToId: adminUser.id, status: "open" },
+        { title: "User account locked after too many failed attempts", description: "Account locked following 5 failed login attempts this morning. User confirms they forgot their new password.", type: "incident", category: "Access Management", impact: "low", urgency: "high", requesterId: thirdUser.id, assignedToId: secondUser.id, status: "resolved" },
+        { title: "BSOD: DRIVER_IRQL_NOT_LESS_OR_EQUAL", description: "Laptop crashing with blue screen 2–3 times daily. Stop code: DRIVER_IRQL_NOT_LESS_OR_EQUAL. Appears after docking station connection.", type: "incident", category: "Hardware", impact: "high", urgency: "high", requesterId: secondUser.id, assignedToId: adminUser.id, status: "in_progress" },
+        { title: "Request new laptop for onboarding — Sarah Chen", description: "New hire Sarah Chen joining the Finance team on 2026-08-01. Requires standard Finance laptop build.", type: "service_request", category: "Hardware", impact: "low", urgency: "medium", requesterId: adminUser.id, catalogItemId: createdCatalogItems[0]?.id, status: "open" },
+        { title: "Adobe Creative Cloud license needed", description: "Marketing team requires 3 additional Adobe CC licenses for new designers joining next month.", type: "service_request", category: "Software", impact: "low", urgency: "medium", requesterId: thirdUser.id, status: "open" },
+        { title: "VPN access for remote contractor — James Liu", description: "New contractor James Liu requires VPN access for a 3-month engagement starting 2026-08-05.", type: "service_request", category: "Access Management", impact: "low", urgency: "low", requesterId: adminUser.id, status: "resolved" },
+        { title: "Wi-Fi drops every 30 minutes in Building B", description: "Multiple users in Building B report Wi-Fi disconnecting roughly every 30 minutes. Reconnects automatically but interrupts calls.", type: "incident", category: "Network", impact: "medium", urgency: "medium", requesterId: secondUser.id, assignedToId: adminUser.id, status: "in_progress" },
+      ];
+
+      const createdTickets: any[] = [];
+      for (const t of ticketInserts) {
+        const ticket = await storage.createTicket(t as any);
+        createdTickets.push(ticket);
+      }
+
+      // Mark a few as resolved with timestamps by updating them
+      const resolvedIds = [createdTickets[3]?.id, createdTickets[4]?.id, createdTickets[6]?.id, createdTickets[10]?.id].filter(Boolean);
+      for (const id of resolvedIds) {
+        await storage.updateTicket(id, { status: "resolved" });
+      }
+
+      // ── Problems ─────────────────────────────────────────────────────────────
+      const problemData = [
+        {
+          title: "Recurring VPN gateway unreachable errors",
+          description: "Multiple users across different locations intermittently report VPN gateway unreachable errors. Issue has been occurring for 3 weeks. Not consistently reproducible.",
+          status: "investigating", priority: "high", category: "Network",
+          workaround: "Users can switch to the backup gateway (vpn2.company.com) as a temporary workaround.",
+          assignedToId: adminUser.id, createdById: adminUser.id,
+        },
+        {
+          title: "Microsoft Exchange Online periodic slowdowns",
+          description: "Email delivery delays of 5–15 minutes affect 20–30% of users during peak hours (09:00–10:30 and 14:00–15:30). Correlates with Microsoft 365 service health advisories.",
+          status: "known_error", priority: "high", category: "Software",
+          workaround: "Users can access Outlook on the Web (OWA) which appears unaffected. No fix available until Microsoft resolves the upstream issue.",
+          rootCause: "Microsoft Exchange Online throttling policies triggered by high-volume mail flow patterns from marketing automation tools.",
+          assignedToId: adminUser.id, createdById: adminUser.id,
+        },
+        {
+          title: "Docking station driver conflict causing BSODs",
+          description: "A subset of users with Lenovo ThinkPad laptops connected to the USB-C docking station experience BSODs. The stop code DRIVER_IRQL_NOT_LESS_OR_EQUAL points to a specific NIC driver conflict.",
+          status: "investigating", priority: "critical", category: "Hardware",
+          workaround: "Users can connect peripherals directly to the laptop and avoid the docking station until resolved.",
+          assignedToId: adminUser.id, createdById: adminUser.id,
+        },
+        {
+          title: "Network drive access lost after password change",
+          description: "Users consistently lose access to mapped network drives immediately after a password change. They must manually disconnect and remap drives.",
+          status: "resolved", priority: "medium", category: "Access Management",
+          rootCause: "Windows credential caching does not automatically update stored SMB credentials when domain password changes.",
+          workaround: "Run `net use * /delete` then remap drives after a password change.",
+          resolution: "GPO deployed to force credential refresh on password change events. Verified in UAT. Deployed to production 2026-07-10.",
+          assignedToId: secondUser.id, createdById: adminUser.id,
+        },
+      ];
+
+      const createdProblems: any[] = [];
+      for (const p of problemData) {
+        createdProblems.push(await storage.createProblem(p as any));
+      }
+
+      // Link incidents to problems
+      const linkMap: Array<[number, number[]]> = [
+        [0, [0, 11]],   // VPN problem ← VPN ticket, Wi-Fi ticket
+        [1, [1, 4]],    // Exchange problem ← Email crash, Email outage
+        [2, [7]],       // BSOD problem ← BSOD ticket
+        [3, [3, 6]],    // Network drive problem ← network drive ticket, account locked
+      ];
+      for (const [pIdx, tIdxs] of linkMap) {
+        const problem = createdProblems[pIdx];
+        if (!problem) continue;
+        for (const tIdx of tIdxs) {
+          const ticket = createdTickets[tIdx];
+          if (!ticket) continue;
+          try { await storage.linkIncidentToProblem(problem.id, ticket.id); } catch (e) { console.error("link error", e); }
+        }
+      }
+
+      // ── Changes ────────────────────────────────────────────────────────────
+      const changeData = [
+        {
+          title: "VPN Gateway Firmware Upgrade to v8.1.4",
+          description: "Upgrade GlobalProtect gateway firmware from v8.0.12 to v8.1.4 to address known stability issues and CVE-2026-1234.",
+          type: "normal", status: "approved", priority: "high", risk: "medium",
+          impact: "All remote users will lose VPN connectivity for approximately 20 minutes during the maintenance window.",
+          implementationPlan: "1. Schedule maintenance window (Saturday 02:00–04:00)\n2. Take configuration backup\n3. Download firmware to staging server\n4. Apply firmware update\n5. Verify gateway health\n6. Send all-clear notification",
+          rollbackPlan: "Restore previous firmware from configuration backup. Estimated rollback time: 15 minutes.",
+          testPlan: "Test VPN connectivity from 5 geographically distinct locations. Verify MFA still works.",
+          scheduledStart: new Date(now.getTime() + 3 * 86400000),
+          scheduledEnd: new Date(now.getTime() + 3 * 86400000 + 7200000),
+          requestedById: adminUser.id, assignedToId: adminUser.id,
+        },
+        {
+          title: "Deploy Windows 11 24H2 Update via WSUS",
+          description: "Phased deployment of Windows 11 24H2 feature update across all managed endpoints. Deployment in 3 waves over 4 weeks.",
+          type: "normal", status: "in_progress", priority: "medium", risk: "medium",
+          impact: "Endpoints will restart once during deployment. Wave 1 (IT dept, 25 devices) complete. Wave 2 in progress.",
+          implementationPlan: "Wave 1: IT Dept (Week 1) ✓\nWave 2: Finance & HR (Week 2–3, in progress)\nWave 3: All remaining (Week 4)",
+          rollbackPlan: "Use WSUS to pause deployment and roll back via Windows RE for affected devices.",
+          testPlan: "Pilot 5 devices in IT, validate LOB apps, get sign-off from app owners.",
+          scheduledStart: daysAgo(7),
+          scheduledEnd: new Date(now.getTime() + 21 * 86400000),
+          requestedById: adminUser.id, assignedToId: secondUser.id,
+        },
+        {
+          title: "Enable Conditional Access Policy for Legacy Auth Block",
+          description: "Configure Azure AD Conditional Access to block legacy authentication protocols (SMTP AUTH, POP3, IMAP). This is required for the security baseline audit.",
+          type: "normal", status: "submitted", priority: "high", risk: "high",
+          impact: "Any applications using basic authentication will stop working. Legacy email clients may be affected.",
+          implementationPlan: "1. Run 30-day sign-in log analysis to identify legacy auth usage\n2. Notify affected teams\n3. Enable policy in Report-Only mode for 2 weeks\n4. Review impact report\n5. Enable enforcement mode",
+          rollbackPlan: "Disable the Conditional Access policy in Azure AD portal (immediate effect).",
+          testPlan: "Test with a non-critical service account using legacy auth to confirm block behaviour.",
+          scheduledStart: new Date(now.getTime() + 14 * 86400000),
+          scheduledEnd: new Date(now.getTime() + 45 * 86400000),
+          requestedById: adminUser.id, assignedToId: adminUser.id,
+        },
+        {
+          title: "Emergency: Patch CVE-2026-4455 (PrintSpooler RCE)",
+          description: "Critical PrintSpooler RCE vulnerability actively exploited in the wild. Microsoft has released an out-of-band patch. Emergency change to deploy patch within 24 hours.",
+          type: "emergency", status: "completed", priority: "critical", risk: "low",
+          impact: "Print Spooler service will restart on all endpoints. Active print jobs will be cancelled.",
+          implementationPlan: "Deploy via WSUS expedited approval. Force update via GPO with 2-hour deadline.",
+          rollbackPlan: "Uninstall patch via WSUS if critical business application breakage reported.",
+          testPlan: "Verify patch installed, verify printing still works on 3 test machines.",
+          scheduledStart: daysAgo(5),
+          scheduledEnd: daysAgo(4),
+          requestedById: adminUser.id, assignedToId: adminUser.id,
+        },
+        {
+          title: "Migrate File Server to SharePoint Online",
+          description: "Migrate 2TB of data from on-premises file server (\\\\FILESERVER\\Shared) to SharePoint Online document libraries. Part of the cloud-first strategy initiative.",
+          type: "normal", status: "draft", priority: "medium", risk: "high",
+          impact: "Users will need to update bookmarks and mapped drives. Access permissions will be reviewed and re-applied.",
+          implementationPlan: "Phase 1: Discovery & assessment\nPhase 2: Pilot migration (Finance team)\nPhase 3: Full migration\nPhase 4: Decommission file server",
+          rollbackPlan: "Keep on-premises file server running in parallel for 90 days post-migration.",
+          testPlan: "Validate file integrity via checksum, test access for all user groups.",
+          requestedById: secondUser.id, assignedToId: adminUser.id,
+        },
+        {
+          title: "Deploy Lenovo Docking Station Driver Update",
+          description: "Deploy updated Lenovo Universal Dock driver (v1.1.56.0) via SCCM to resolve BSOD issues on ThinkPad laptops.",
+          type: "standard", status: "approved", priority: "critical", risk: "low",
+          impact: "Docking station will briefly disconnect and reconnect during driver update. Estimated 2-minute disruption per device.",
+          implementationPlan: "1. Package driver update in SCCM\n2. Target ThinkPad collection\n3. Deploy as Available initially for self-service\n4. Force deploy after 48 hours",
+          rollbackPlan: "Redeploy previous driver package via SCCM.",
+          testPlan: "Test on 3 affected ThinkPads. Verify no BSOD for 24-hour monitoring period.",
+          scheduledStart: new Date(now.getTime() + 1 * 86400000),
+          scheduledEnd: new Date(now.getTime() + 3 * 86400000),
+          requestedById: adminUser.id, assignedToId: adminUser.id,
+        },
+      ];
+
+      const createdChanges: any[] = [];
+      for (const c of changeData) {
+        createdChanges.push(await storage.createChange(c as any));
+      }
+
+      // Add approvals to relevant changes
+      const approvalMap: Array<[number, Array<{ approverId: string; decision?: string; comments?: string }>]> = [
+        [0, [{ approverId: adminUser.id, decision: "approved", comments: "Risk assessment reviewed and accepted. Maintenance window confirmed with stakeholders." }, { approverId: secondUser.id, decision: "approved", comments: "IT Security sign-off given." }]],
+        [2, [{ approverId: adminUser.id }, { approverId: secondUser.id }]],  // pending
+        [5, [{ approverId: adminUser.id, decision: "approved", comments: "Critical fix — fast-tracked. Standard approval waived per emergency change procedure." }]],
+      ];
+      for (const [cIdx, approvals] of approvalMap) {
+        const change = createdChanges[cIdx];
+        if (!change) continue;
+        for (const a of approvals) {
+          await storage.createChangeApproval({
+            changeId: change.id,
+            approverId: a.approverId,
+            decision: a.decision || null,
+            comments: a.comments || null,
+          } as any);
+        }
+      }
+
+      res.json({
+        message: "ITSM sample data created successfully",
+        summary: {
+          catalogItems: createdCatalogItems.length,
+          kbArticles: kbData.length,
+          tickets: createdTickets.length,
+          problems: createdProblems.length,
+          changes: createdChanges.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error seeding ITSM data:", error);
+      res.status(500).json({ message: "Failed to seed ITSM data", error: String(error) });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
