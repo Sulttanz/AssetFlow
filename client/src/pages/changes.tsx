@@ -796,10 +796,10 @@ export default function Changes() {
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Assignee</label>
-              <Select value={assignUserId} onValueChange={setAssignUserId}>
+              <Select value={assignUserId || "__none__"} onValueChange={v => setAssignUserId(v === "__none__" ? "" : v)}>
                 <SelectTrigger><SelectValue placeholder="Select user…" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="__none__">Unassigned</SelectItem>
                   {allUsers.map(u => (
                     <SelectItem key={u.id} value={u.id}>
                       {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
@@ -810,10 +810,10 @@ export default function Changes() {
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Department</label>
-              <Select value={assignDeptId} onValueChange={setAssignDeptId}>
+              <Select value={assignDeptId || "__none__"} onValueChange={v => setAssignDeptId(v === "__none__" ? "" : v)}>
                 <SelectTrigger><SelectValue placeholder="Select department…" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="__none__">None</SelectItem>
                   {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -881,10 +881,13 @@ export default function Changes() {
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="assignedToId" render={({ field }) => (
                   <FormItem><FormLabel>Assign To</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select
+                      onValueChange={v => field.onChange(v === "__none__" ? "" : v)}
+                      value={field.value || "__none__"}
+                    >
                       <FormControl><SelectTrigger><SelectValue placeholder="Select implementer…" /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="">Unassigned</SelectItem>
+                        <SelectItem value="__none__">Unassigned</SelectItem>
                         {allUsers.map(u => (
                           <SelectItem key={u.id} value={u.id}>
                             {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
@@ -896,10 +899,13 @@ export default function Changes() {
                 )} />
                 <FormField control={form.control} name="departmentId" render={({ field }) => (
                   <FormItem><FormLabel>Department</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select
+                      onValueChange={v => field.onChange(v === "__none__" ? "" : v)}
+                      value={field.value || "__none__"}
+                    >
                       <FormControl><SelectTrigger><SelectValue placeholder="Select department…" /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="">None</SelectItem>
+                        <SelectItem value="__none__">None</SelectItem>
                         {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
                       </SelectContent>
                     </Select><FormMessage />

@@ -5065,17 +5065,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const user = req.user as any;
-      const change = await storage.createChange({ ...req.body, requestedById: user.id });
+      const body = { ...req.body };
+      if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
+      if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
+      if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
+      if (body.actualEnd)      body.actualEnd      = new Date(body.actualEnd);
+      // strip empty-string nullable FK fields so DB doesn't complain
+      if (!body.assignedToId) body.assignedToId = null;
+      if (!body.departmentId) body.departmentId = null;
+      const change = await storage.createChange({ ...body, requestedById: user.id });
       res.status(201).json(change);
-    } catch { res.status(500).json({ message: "Failed to create change" }); }
+    } catch (err) {
+      console.error("Failed to create change:", err);
+      res.status(500).json({ message: "Failed to create change", detail: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.put("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
-      const change = await storage.updateChange(req.params.id, req.body);
+      const body = { ...req.body };
+      if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
+      if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
+      if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
+      if (body.actualEnd)      body.actualEnd      = new Date(body.actualEnd);
+      if (!body.assignedToId)  body.assignedToId   = null;
+      if (!body.departmentId)  body.departmentId   = null;
+      const change = await storage.updateChange(req.params.id, body);
       if (!change) return res.status(404).json({ message: "Change not found" });
       res.json(change);
-    } catch { res.status(500).json({ message: "Failed to update change" }); }
+    } catch (err) {
+      console.error("Failed to update change:", err);
+      res.status(500).json({ message: "Failed to update change", detail: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.delete("/api/changes/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
