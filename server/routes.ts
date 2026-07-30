@@ -5107,10 +5107,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allApprovals = await storage.getChangeApprovals(req.params.changeId);
       const hasRejected = allApprovals.some(a => a.decision === "rejected");
       const allApproved = allApprovals.every(a => a.decision === "approved");
-      if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" });
-      else if (allApproved && allApprovals.length > 0) await storage.updateChange(req.params.changeId, { status: "approved" });
+      if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" } as any);
+      else if (allApproved && allApprovals.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
+  });
+
+  // ── Change Workflow Actions ───────────────────────────────────────────────
+  app.post("/api/changes/:id/assign", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const { assignedToId, departmentId } = req.body;
+      const change = await storage.updateChange(req.params.id, {
+        assignedToId: assignedToId || null,
+        departmentId: departmentId || null,
+        assignedAt: assignedToId ? new Date() : null,
+      } as any);
+      if (!change) return res.status(404).json({ message: "Change not found" });
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to assign change" }); }
+  });
+
+  app.post("/api/changes/:id/submit", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (!["draft","rejected"].includes(ch.status)) return res.status(400).json({ message: "Can only submit a draft or rejected change" });
+      const change = await storage.updateChange(req.params.id, { status: "submitted", submittedAt: new Date() } as any);
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
+  });
+
+  app.post("/api/changes/:id/start", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (ch.status !== "approved") return res.status(400).json({ message: "Change must be approved before starting" });
+      const user = req.user as any;
+      // Create default environment stages if none exist
+      const existing = await storage.getChangeStages(req.params.id);
+      if (existing.length === 0) await storage.createDefaultChangeStages(req.params.id);
+      await storage.updateChange(req.params.id, { status: "in_progress", actualStart: new Date(), assignedToId: ch.assignedToId || user.id, assignedAt: ch.assignedAt || new Date() } as any);
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to start change" }); }
+  });
+
+  app.post("/api/changes/:id/complete", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (ch.status !== "in_progress") return res.status(400).json({ message: "Change must be in progress to complete" });
+      await storage.updateChange(req.params.id, { status: "completed", actualEnd: new Date() } as any);
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to complete change" }); }
+  });
+
+  app.post("/api/changes/:id/cancel", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (["completed","cancelled"].includes(ch.status)) return res.status(400).json({ message: "Cannot cancel a completed or already cancelled change" });
+      await storage.updateChange(req.params.id, { status: "cancelled" } as any);
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to cancel change" }); }
+  });
+
+  // ── Environment Stages ───────────────────────────────────────────────────
+  app.get("/api/changes/:id/stages", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getChangeStages(req.params.id)); }
+    catch { res.status(500).json({ message: "Failed to fetch stages" }); }
+  });
+
+  app.post("/api/changes/:id/stages/init", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const existing = await storage.getChangeStages(req.params.id);
+      if (existing.length > 0) return res.json(existing);
+      const stages = await storage.createDefaultChangeStages(req.params.id);
+      res.status(201).json(stages);
+    } catch { res.status(500).json({ message: "Failed to initialize stages" }); }
+  });
+
+  app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { status, notes, evidence } = req.body;
+      const updates: any = { status, notes, evidence };
+      if (status === "in_progress" && !req.body.startedAt) updates.startedAt = new Date();
+      if ((status === "completed" || status === "failed") && !req.body.completedAt) updates.completedAt = new Date();
+      if (status === "in_progress" || status === "completed" || status === "failed") updates.deployedById = user.id;
+      const stage = await storage.updateChangeStage(req.params.stageId, updates);
+      if (!stage) return res.status(404).json({ message: "Stage not found" });
+      res.json(await storage.getChange(req.params.id));
+    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to update stage" }); }
   });
 
   // ── ITSM Report Endpoints ────────────────────────────────────────────────────

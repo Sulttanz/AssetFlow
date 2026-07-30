@@ -1147,6 +1147,9 @@ export const changes = pgTable("changes", {
   scheduledEnd: timestamp("scheduled_end"),
   actualStart: timestamp("actual_start"),
   actualEnd: timestamp("actual_end"),
+  assignedAt: timestamp("assigned_at"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
   requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
@@ -1164,18 +1167,38 @@ export const changeApprovals = pgTable("change_approvals", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
-export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true, actualStart: true, actualEnd: true });
+// Environment deployment pipeline stages per change
+export const changeEnvironmentStages = pgTable("change_environment_stages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  environment: text("environment").notNull(),  // development | testing | staging | production
+  order: integer("order").notNull(),
+  status: text("status").notNull().default("pending"), // pending | in_progress | completed | failed | skipped
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  evidence: text("evidence"),
+  deployedById: varchar("deployed_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true });
+export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages).omit({ id: true, createdAt: true, updatedAt: true });
 export type Change = typeof changes.$inferSelect;
 export type InsertChange = z.infer<typeof insertChangeSchema>;
 export type ChangeApproval = typeof changeApprovals.$inferSelect;
 export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;
+export type ChangeEnvironmentStage = typeof changeEnvironmentStages.$inferSelect;
+export type InsertChangeEnvironmentStage = z.infer<typeof insertChangeEnvironmentStageSchema>;
 
 export type ChangeWithDetails = Change & {
   requestedBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   department?: Department;
   approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+  stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
 };
 
 export type ProblemWithDetails = Problem & {

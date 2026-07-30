@@ -10,6 +10,8 @@ import {
   type Problem, type InsertProblem, type ProblemIncident, type ProblemWithDetails,
   type CatalogItem, type InsertCatalogItem,
   type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails,
+  type ChangeEnvironmentStage, type InsertChangeEnvironmentStage,
+  changeEnvironmentStages,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
@@ -3731,15 +3733,22 @@ export class DatabaseStorage implements IStorage {
 
   // ── Change Management ───────────────────────────────────────────────────────
   private async buildChangeDetails(ch: Change): Promise<ChangeWithDetails> {
-    const [reqRows, assignRows, deptRows, approvalRows] = await Promise.all([
+    const [reqRows, assignRows, deptRows, approvalRows, stageRows] = await Promise.all([
       ch.requestedById ? db.select().from(users).where(eq(users.id, ch.requestedById)) : Promise.resolve([]),
       ch.assignedToId  ? db.select().from(users).where(eq(users.id, ch.assignedToId))  : Promise.resolve([]),
       ch.departmentId  ? db.select().from(departments).where(eq(departments.id, ch.departmentId)) : Promise.resolve([]),
       db.select().from(changeApprovals).where(eq(changeApprovals.changeId, ch.id)),
+      db.select().from(changeEnvironmentStages).where(eq(changeEnvironmentStages.changeId, ch.id)).orderBy(changeEnvironmentStages.order),
     ]);
     const approvalsWithUsers = await Promise.all(approvalRows.map(async a => ({
       ...a,
       approver: this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId)).then(r => r[0])),
+    })));
+    const stagesWithUsers = await Promise.all(stageRows.map(async s => ({
+      ...s,
+      deployedBy: s.deployedById
+        ? this.toUserSummary(await db.select().from(users).where(eq(users.id, s.deployedById)).then(r => r[0]))
+        : undefined,
     })));
     return {
       ...ch,
@@ -3747,6 +3756,7 @@ export class DatabaseStorage implements IStorage {
       assignedTo:  assignRows[0] ? this.toUserSummary(assignRows[0]) : undefined,
       department:  deptRows[0],
       approvals:   approvalsWithUsers,
+      stages:      stagesWithUsers,
     };
   }
   async getChanges(): Promise<ChangeWithDetails[]> {
@@ -3772,6 +3782,33 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(changes).where(eq(changes.id, id));
     return (result.rowCount ?? 0) > 0;
   }
+
+  // ── Change Environment Stages ───────────────────────────────────────────────
+  async getChangeStages(changeId: string): Promise<ChangeEnvironmentStage[]> {
+    return db.select().from(changeEnvironmentStages)
+      .where(eq(changeEnvironmentStages.changeId, changeId))
+      .orderBy(changeEnvironmentStages.order);
+  }
+  async createDefaultChangeStages(changeId: string): Promise<ChangeEnvironmentStage[]> {
+    const envs = [
+      { environment: "development", order: 1 },
+      { environment: "testing",     order: 2 },
+      { environment: "staging",     order: 3 },
+      { environment: "production",  order: 4 },
+    ];
+    const rows = await db.insert(changeEnvironmentStages)
+      .values(envs.map(e => ({ changeId, ...e, status: "pending" })))
+      .returning();
+    return rows;
+  }
+  async updateChangeStage(id: string, data: Partial<InsertChangeEnvironmentStage> & { deployedById?: string | null }): Promise<ChangeEnvironmentStage | undefined> {
+    const result = await db.update(changeEnvironmentStages)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(changeEnvironmentStages.id, id))
+      .returning();
+    return result[0];
+  }
+
   async getChangeApprovals(changeId: string): Promise<ChangeApproval[]> {
     return db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
   }
