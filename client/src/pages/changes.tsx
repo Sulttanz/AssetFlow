@@ -106,10 +106,13 @@ function durationLabel(ms: number) {
 }
 
 // ── Form Schema ────────────────────────────────────────────────────────────────
+const STATUSES = ["draft","submitted","approved","rejected","in_progress","completed","cancelled"] as const;
+
 const formSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   type: z.enum(["standard","normal","emergency"]),
+  status: z.enum(STATUSES).optional(),
   priority: z.string(),
   risk: z.string().optional(),
   impact: z.string().optional(),
@@ -464,6 +467,7 @@ export default function Changes() {
     setEditingChange(c);
     form.reset({
       title: c.title, description: c.description ?? "", type: c.type as FormData["type"],
+      status: c.status as FormData["status"],
       priority: c.priority, risk: c.risk ?? "low", impact: c.impact ?? "",
       implementationPlan: c.implementationPlan ?? "", rollbackPlan: c.rollbackPlan ?? "", testPlan: c.testPlan ?? "",
       scheduledStart: c.scheduledStart ? c.scheduledStart.split("T")[0] : "",
@@ -878,6 +882,30 @@ export default function Changes() {
                   </FormItem>
                 )} />
               </div>
+
+              {/* Status override — only shown when editing */}
+              {editingChange && (
+                <FormField control={form.control} name="status" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-1.5">
+                      Status
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">override</span>
+                    </FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value ?? "draft"}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="submitted">Submitted</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select><FormMessage />
+                  </FormItem>
+                )} />
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="assignedToId" render={({ field }) => (
                   <FormItem><FormLabel>Assign To</FormLabel>
