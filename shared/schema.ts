@@ -1174,6 +1174,8 @@ export const changeEnvironmentStages = pgTable("change_environment_stages", {
   environment: text("environment").notNull(),  // development | testing | staging | production
   order: integer("order").notNull(),
   status: text("status").notNull().default("pending"), // pending | in_progress | completed | failed | skipped
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),  // who is responsible for this stage
+  dueDate: timestamp("due_date"),                    // when this stage must be completed (SLA)
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   notes: text("notes"),

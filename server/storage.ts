@@ -3744,12 +3744,17 @@ export class DatabaseStorage implements IStorage {
       ...a,
       approver: this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId)).then(r => r[0])),
     })));
-    const stagesWithUsers = await Promise.all(stageRows.map(async s => ({
-      ...s,
-      deployedBy: s.deployedById
-        ? this.toUserSummary(await db.select().from(users).where(eq(users.id, s.deployedById)).then(r => r[0]))
-        : undefined,
-    })));
+    const stagesWithUsers = await Promise.all(stageRows.map(async s => {
+      const [deployedByRows, assignedToRows] = await Promise.all([
+        s.deployedById ? db.select().from(users).where(eq(users.id, s.deployedById)) : Promise.resolve([]),
+        s.assignedToId ? db.select().from(users).where(eq(users.id, s.assignedToId)) : Promise.resolve([]),
+      ]);
+      return {
+        ...s,
+        deployedBy: deployedByRows[0] ? this.toUserSummary(deployedByRows[0]) : undefined,
+        assignedTo: assignedToRows[0] ? this.toUserSummary(assignedToRows[0]) : undefined,
+      };
+    }));
     return {
       ...ch,
       requestedBy: reqRows[0] ? this.toUserSummary(reqRows[0]) : undefined,

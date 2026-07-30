@@ -5210,8 +5210,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const user = req.user as any;
-      const { status, notes, evidence } = req.body;
-      const updates: any = { status, notes, evidence };
+      const { status, notes, evidence, assignedToId, dueDate } = req.body;
+      const updates: any = {};
+      if (status !== undefined)      updates.status = status;
+      if (notes !== undefined)        updates.notes = notes;
+      if (evidence !== undefined)     updates.evidence = evidence;
+      if (assignedToId !== undefined) updates.assignedToId = assignedToId || null;
+      if (dueDate !== undefined)      updates.dueDate = dueDate ? new Date(dueDate) : null;
       if (status === "in_progress" && !req.body.startedAt) updates.startedAt = new Date();
       if ((status === "completed" || status === "failed") && !req.body.completedAt) updates.completedAt = new Date();
       if (status === "in_progress" || status === "completed" || status === "failed") updates.deployedById = user.id;
