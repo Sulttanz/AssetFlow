@@ -572,7 +572,7 @@ export const assetBookings = pgTable("asset_bookings", {
 
 export const assetDisposalRecords = pgTable("asset_disposal_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "restrict" }),
   disposalDate: date("disposal_date").notNull(),
   disposalMethod: text("disposal_method").notNull(),
   reason: text("reason"),
@@ -605,7 +605,7 @@ export const assetAuditSessions = pgTable("asset_audit_sessions", {
 export const assetAuditItems = pgTable("asset_audit_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sessionId: varchar("session_id").notNull().references(() => assetAuditSessions.id, { onDelete: "cascade" }),
-  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "restrict" }),
   expectedLocation: text("expected_location"),
   actualLocation: text("actual_location"),
   status: text("status").default("pending"),

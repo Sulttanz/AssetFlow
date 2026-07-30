@@ -1,3 +1,4 @@
+- [Tier 1 security fixes](tier1-security-fixes.md) — session store (connect-pg-simple via Neon pool), rate limiting, path traversal, cascade restrict, logging cleanup.
 - [PO delete protection pattern](po-delete-protection.md) — deletion of records with derived/dependent data should block by default, offer admin unlink-not-delete override with explicit confirmation.
 - [drizzle-kit push interactive prompt](drizzle-push-interactive-prompt.md) — hangs on unique-constraint prompt even with --force; rename the DB constraint to match Drizzle's expected name to fix.
 - [Schema push after adding tables](schema-push-new-tables.md) — new Drizzle tables added to shared/schema.ts won't exist in the actual DB until `npm run db:push` is run; e2e tests will hit 500s until then.

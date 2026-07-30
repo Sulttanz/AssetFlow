@@ -1336,9 +1336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/assets", requireAuth, requireModule('asset_management'), requirePermission('asset_create'), async (req, res) => {
     try {
-      console.log("Asset creation request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.parse(req.body);
-      console.log("Validated data:", JSON.stringify(validatedData, null, 2));
       
       // Check asset ID generation mode and validate/generate accordingly
       const assetIdModeSetting = await storage.getSetting('asset_id_generation_mode');
@@ -1377,9 +1375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/assets/:id", requireAuth, requirePermission('asset_update'), async (req, res) => {
     try {
-      console.log("Asset update request body:", JSON.stringify(req.body, null, 2));
       const validatedData = insertAssetSchema.partial().parse(req.body);
-      console.log("Validated update data:", JSON.stringify(validatedData, null, 2));
       
       // Check asset ID generation mode and validate accordingly
       if (validatedData.assetTag !== undefined) {
@@ -1438,7 +1434,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       res.status(204).send();
-    } catch (error) {
+    } catch (error: any) {
+      // PostgreSQL FK violation: code 23503 = foreign_key_violation
+      if (error?.code === "23503") {
+        return res.status(409).json({
+          message: "Cannot delete this asset because it has linked records (disposal, audit, or maintenance history). Remove those records first or archive the asset instead.",
+        });
+      }
       console.error("Asset deletion error:", error);
       res.status(500).json({ message: "Failed to delete asset" });
     }
@@ -1609,7 +1611,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/uploads/:filename", requireAuth, async (req, res) => {
     try {
       const path = await import('path');
-      const filePath = path.join(process.cwd(), 'server/uploads', req.params.filename);
+      const fs = await import('fs');
+      // Sanitize: strip any directory components to prevent path traversal
+      const filename = path.basename(req.params.filename);
+      if (!filename || filename !== req.params.filename || filename.startsWith('.')) {
+        return res.status(400).json({ message: "Invalid filename" });
+      }
+      const uploadsDir = path.join(process.cwd(), 'server/uploads');
+      const filePath = path.join(uploadsDir, filename);
+      // Double-check resolved path is still inside the uploads directory
+      if (!filePath.startsWith(uploadsDir + path.sep) && filePath !== uploadsDir) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "File not found" });
+      }
       res.sendFile(filePath);
     } catch (error) {
       res.status(404).json({ message: "File not found" });
