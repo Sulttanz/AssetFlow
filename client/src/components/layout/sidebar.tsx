@@ -39,6 +39,7 @@ import {
   Clock,
   AlertTriangle,
   BookOpen,
+  Gauge,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -66,6 +67,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Overview",
       items: [
         { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
+        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis" },
       ]
     },
     {

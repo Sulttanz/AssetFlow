@@ -16,7 +16,12 @@ import {
   BarChart as BarChartIcon,
   History,
   Calendar,
-  DollarSign
+  DollarSign,
+  Gauge,
+  ShieldCheck,
+  GitMerge,
+  TrendingUp,
+  ExternalLink,
 } from "lucide-react";
 import {
   Popover,
@@ -59,6 +64,7 @@ interface DashboardStats {
 
 const DEFAULT_WIDGETS = {
   stats: true,
+  kpiSummary: true,
   statusChart: true,
   typeChart: true,
   recentAssignments: true,
@@ -105,6 +111,10 @@ export default function Dashboard() {
   const { data: tickets } = useQuery<TicketWithDetails[]>({
     queryKey: ["/api/tickets"],
     enabled: itsmEnabled,
+  });
+
+  const { data: kpiData } = useQuery<any>({
+    queryKey: ["/api/kpis"],
   });
 
   const openTickets = tickets?.filter((t) => t.status === "open" || t.status === "in_progress") ?? [];
@@ -210,6 +220,129 @@ export default function Dashboard() {
       </Header>
 
       <main className="p-6 space-y-6" data-testid="dashboard-content">
+        {/* ── KPI Summary Widget ─────────────────────────────────────────── */}
+        {widgets.kpiSummary && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-medium flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-muted-foreground" />
+                KPI Summary
+              </CardTitle>
+              <Link href="/kpis">
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1">
+                  Full KPI Dashboard <ExternalLink className="w-3 h-3" />
+                </Button>
+              </Link>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                {/* Asset Utilization */}
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-green-600" />
+                    <p className="text-xs text-muted-foreground">Utilization</p>
+                  </div>
+                  <p className={`text-xl font-bold ${(kpiData?.assets?.utilization ?? 0) >= 60 ? "text-green-600" : (kpiData?.assets?.utilization ?? 0) >= 40 ? "text-amber-500" : "text-red-500"}`}>
+                    {kpiData ? `${kpiData.assets.utilization}%` : <Skeleton className="h-6 w-10 inline-block" />}
+                  </p>
+                  <div className="w-full bg-secondary h-1 rounded-full overflow-hidden">
+                    <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(kpiData?.assets?.utilization ?? 0, 100)}%` }} />
+                  </div>
+                </div>
+                {/* Warranty Expiring */}
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                    <p className="text-xs text-muted-foreground">Warranty 90d</p>
+                  </div>
+                  <p className={`text-xl font-bold ${(kpiData?.assets?.expiringWarranty90 ?? 0) > 0 ? "text-amber-500" : "text-green-600"}`}>
+                    {kpiData ? kpiData.assets.expiringWarranty90 : <Skeleton className="h-6 w-10 inline-block" />}
+                  </p>
+                  <p className="text-xs text-muted-foreground">expiring</p>
+                </div>
+                {/* In Maintenance */}
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                    <p className="text-xs text-muted-foreground">Maintenance</p>
+                  </div>
+                  <p className="text-xl font-bold">
+                    {kpiData ? kpiData.assets.inMaintenance : <Skeleton className="h-6 w-10 inline-block" />}
+                  </p>
+                  <p className="text-xs text-muted-foreground">assets</p>
+                </div>
+                {/* Open Tickets (ITSM) */}
+                {itsmEnabled && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Ticket className="w-3.5 h-3.5 text-blue-600" />
+                      <p className="text-xs text-muted-foreground">Open Tickets</p>
+                    </div>
+                    <p className="text-xl font-bold">
+                      {kpiData ? kpiData.tickets.open : <Skeleton className="h-6 w-10 inline-block" />}
+                    </p>
+                    <p className={`text-xs ${(kpiData?.tickets?.overdue ?? 0) > 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                      {kpiData ? `${kpiData.tickets.overdue} overdue` : "—"}
+                    </p>
+                  </div>
+                )}
+                {/* SLA Compliance (ITSM) */}
+                {itsmEnabled && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+                      <p className="text-xs text-muted-foreground">SLA</p>
+                    </div>
+                    <p className={`text-xl font-bold ${kpiData?.tickets?.slaCompliance === null || kpiData?.tickets?.slaCompliance === undefined ? "" : kpiData.tickets.slaCompliance >= 90 ? "text-green-600" : kpiData.tickets.slaCompliance >= 75 ? "text-amber-500" : "text-red-500"}`}>
+                      {kpiData?.tickets?.slaCompliance !== null && kpiData?.tickets?.slaCompliance !== undefined ? `${kpiData.tickets.slaCompliance}%` : "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">compliance</p>
+                  </div>
+                )}
+                {/* FCR (ITSM) */}
+                {itsmEnabled && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-green-600" />
+                      <p className="text-xs text-muted-foreground">FCR Rate</p>
+                    </div>
+                    <p className={`text-xl font-bold ${kpiData?.tickets?.fcrRate === null || kpiData?.tickets?.fcrRate === undefined ? "" : kpiData.tickets.fcrRate >= 70 ? "text-green-600" : "text-amber-500"}`}>
+                      {kpiData?.tickets?.fcrRate !== null && kpiData?.tickets?.fcrRate !== undefined ? `${kpiData.tickets.fcrRate}%` : "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">first contact</p>
+                  </div>
+                )}
+                {/* Open Problems (ITSM) */}
+                {itsmEnabled && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-orange-600" />
+                      <p className="text-xs text-muted-foreground">Problems</p>
+                    </div>
+                    <p className={`text-xl font-bold ${(kpiData?.problems?.open ?? 0) > 3 ? "text-red-500" : (kpiData?.problems?.open ?? 0) > 0 ? "text-amber-500" : "text-green-600"}`}>
+                      {kpiData ? kpiData.problems.open : <Skeleton className="h-6 w-10 inline-block" />}
+                    </p>
+                    <p className="text-xs text-muted-foreground">open</p>
+                  </div>
+                )}
+                {/* Change Success (ITSM) */}
+                {itsmEnabled && (
+                  <div className="rounded-lg border p-3 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <GitMerge className="w-3.5 h-3.5 text-purple-600" />
+                      <p className="text-xs text-muted-foreground">Changes</p>
+                    </div>
+                    <p className={`text-xl font-bold ${kpiData?.changes?.successRate === null || kpiData?.changes?.successRate === undefined ? "" : kpiData.changes.successRate >= 90 ? "text-green-600" : kpiData.changes.successRate >= 75 ? "text-amber-500" : "text-red-500"}`}>
+                      {kpiData?.changes?.successRate !== null && kpiData?.changes?.successRate !== undefined ? `${kpiData.changes.successRate}%` : "—"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">success rate</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {widgets.stats && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Card data-testid="stats-total-assets">

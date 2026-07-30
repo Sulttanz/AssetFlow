@@ -5414,6 +5414,149 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── KPI Dashboard ────────────────────────────────────────────────────────
+  app.get("/api/kpis", requireAuth, async (req, res) => {
+    try {
+      const [tickets, assets, problems, changes] = await Promise.all([
+        storage.getTickets(),
+        storage.getAssets(),
+        storage.getProblems(),
+        storage.getChanges(),
+      ]);
+
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const in30 = new Date(now.getTime() + 30 * 86400000);
+      const in60 = new Date(now.getTime() + 60 * 86400000);
+      const in90 = new Date(now.getTime() + 90 * 86400000);
+
+      // ── Tickets ─────────────────────────────────────────────────────
+      const openTix = tickets.filter(t => t.status === "open" || t.status === "in_progress");
+      const overdueTix = tickets.filter(t =>
+        t.dueDate && new Date(t.dueDate) < now &&
+        !["resolved","closed","cancelled"].includes(t.status)
+      );
+      const resolvedTix = tickets.filter(t => t.resolvedAt && t.createdAt);
+      const avgResolutionHours = resolvedTix.length > 0
+        ? resolvedTix.reduce((s, t) => {
+            return s + (new Date(t.resolvedAt as any).getTime() - new Date(t.createdAt as any).getTime()) / 3600000;
+          }, 0) / resolvedTix.length
+        : null;
+      const fcrRate = resolvedTix.length > 0
+        ? Math.round((resolvedTix.filter(t => (t as any).reopenCount === 0).length / resolvedTix.length) * 100)
+        : null;
+      const slaEligible = resolvedTix.filter(t => (t as any).slaResolutionDueAt);
+      const slaCompliance = slaEligible.length > 0
+        ? Math.round((slaEligible.filter(t =>
+            new Date(t.resolvedAt as any) <= new Date((t as any).slaResolutionDueAt)
+          ).length / slaEligible.length) * 100)
+        : null;
+
+      // This week vs last week ticket counts
+      const weekAgo = new Date(now.getTime() - 7 * 86400000);
+      const twoWeeksAgo = new Date(now.getTime() - 14 * 86400000);
+      const ticketsThisWeek = tickets.filter(t => new Date(t.createdAt as any) >= weekAgo).length;
+      const ticketsLastWeek = tickets.filter(t => {
+        const d = new Date(t.createdAt as any);
+        return d >= twoWeeksAgo && d < weekAgo;
+      }).length;
+
+      // ── Assets ─────────────────────────────────────────────────────
+      const totalA = assets.length;
+      const assignedA = assets.filter(a => a.status === "assigned").length;
+      const utilization = totalA > 0 ? Math.round((assignedA / totalA) * 100) : 0;
+      const expW30 = assets.filter(a => a.warrantyExpiry && new Date(a.warrantyExpiry) >= now && new Date(a.warrantyExpiry) <= in30).length;
+      const expW60 = assets.filter(a => a.warrantyExpiry && new Date(a.warrantyExpiry) >= now && new Date(a.warrantyExpiry) <= in60).length;
+      const expW90 = assets.filter(a => a.warrantyExpiry && new Date(a.warrantyExpiry) >= now && new Date(a.warrantyExpiry) <= in90).length;
+
+      // ── Problems ─────────────────────────────────────────────────
+      const openProb = problems.filter(p => ["open","investigating","known_error"].includes(p.status));
+      const avgAgeOpenDays = openProb.length > 0
+        ? Math.round(openProb.reduce((s, p) => s + (now.getTime() - new Date(p.createdAt as any).getTime()) / 86400000, 0) / openProb.length)
+        : null;
+      const repeatProblems = problems.filter(p => ((p as any).linkedTickets?.length ?? 0) > 1).length;
+      const resolvedProbThisMonth = problems.filter(p => p.resolvedAt && new Date(p.resolvedAt) >= startOfMonth).length;
+
+      // ── Changes ──────────────────────────────────────────────────
+      const closedCh = changes.filter(c => ["completed","failed","cancelled"].includes(c.status));
+      const completedCh = changes.filter(c => c.status === "completed");
+      const successRate = closedCh.length > 0
+        ? Math.round((completedCh.length / closedCh.length) * 100)
+        : null;
+      const emergencyPct = changes.length > 0
+        ? Math.round((changes.filter(c => c.changeType === "emergency").length / changes.length) * 100)
+        : null;
+      const pendingApprovals = changes.reduce((s, c) => {
+        return s + ((c as any).approvals ?? []).filter((a: any) => a.decision === "pending").length;
+      }, 0);
+      const changesThisMonth = changes.filter(c => new Date(c.createdAt as any) >= startOfMonth).length;
+      const failedCh = changes.filter(c => c.status === "failed").length;
+
+      res.json({
+        tickets: {
+          open: openTix.length,
+          overdue: overdueTix.length,
+          avgResolutionHours,
+          fcrRate,
+          slaCompliance,
+          totalResolved: resolvedTix.length,
+          thisWeek: ticketsThisWeek,
+          lastWeek: ticketsLastWeek,
+          byPriority: {
+            critical: tickets.filter(t => t.priority === "critical").length,
+            high: tickets.filter(t => t.priority === "high").length,
+            medium: tickets.filter(t => t.priority === "medium").length,
+            low: tickets.filter(t => t.priority === "low").length,
+          },
+        },
+        assets: {
+          total: totalA,
+          utilization,
+          inMaintenance: assets.filter(a => a.status === "maintenance").length,
+          retired: assets.filter(a => a.status === "retired").length,
+          expiringWarranty30: expW30,
+          expiringWarranty60: expW60,
+          expiringWarranty90: expW90,
+          byStatus: {
+            assigned: assignedA,
+            available: assets.filter(a => a.status === "available").length,
+            maintenance: assets.filter(a => a.status === "maintenance").length,
+            retired: assets.filter(a => a.status === "retired").length,
+          },
+        },
+        problems: {
+          open: openProb.length,
+          investigating: problems.filter(p => p.status === "investigating").length,
+          knownErrors: problems.filter(p => p.status === "known_error").length,
+          avgAgeOpenDays,
+          repeatProblems,
+          resolvedThisMonth: resolvedProbThisMonth,
+          total: problems.length,
+        },
+        changes: {
+          total: changes.length,
+          successRate,
+          emergencyPct,
+          pendingApprovals,
+          thisMonth: changesThisMonth,
+          failed: failedCh,
+          byStatus: {
+            requested: changes.filter(c => c.status === "requested").length,
+            approved: changes.filter(c => c.status === "approved").length,
+            in_progress: changes.filter(c => c.status === "in_progress").length,
+            completed: completedCh.length,
+            failed: failedCh,
+            cancelled: changes.filter(c => c.status === "cancelled").length,
+          },
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("KPI error:", err);
+      res.status(500).json({ message: "Failed to compute KPIs" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
