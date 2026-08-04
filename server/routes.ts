@@ -1363,12 +1363,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, recordName, null, { name: validatedData.name, serialNumber: validatedData.serialNumber, assetTag: validatedData.assetTag, type: validatedData.type, status: validatedData.status || 'available' }, req);
       
       res.status(201).json(asset);
-    } catch (error) {
-      console.error("Asset creation error:", error);
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
-        console.error("Validation errors:", error.errors);
         return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
       }
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
+      }
+      console.error("Asset creation error:", error);
       res.status(500).json({ message: "Failed to create asset" });
     }
   });
@@ -1408,12 +1410,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'assets', asset.id, asset.serialNumber || asset.assetTag || asset.name || asset.id, oldAsset, asset, req);
       
       res.json(asset);
-    } catch (error) {
-      console.error("Asset update error:", error);
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
-        console.error("Update validation errors:", error.errors);
         return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
       }
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
+      }
+      console.error("Asset update error:", error);
       res.status(500).json({ message: "Failed to update asset" });
     }
   });
@@ -4562,7 +4566,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dropdowns/options", async (req, res) => {
     try {
-      const options = await storage.getDropdownOptions();
+      // Admin view passes ?all=true to see inactive options too
+      const options = req.query.all === "true"
+        ? await storage.getAllDropdownOptions()
+        : await storage.getDropdownOptions();
       res.json(options);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch dropdown options" });
@@ -4571,7 +4578,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/dropdowns/options/:category", async (req, res) => {
     try {
-      const options = await storage.getDropdownOptionsByCategory(req.params.category);
+      const options = req.query.all === "true"
+        ? await storage.getAllDropdownOptionsByCategory(req.params.category)
+        : await storage.getDropdownOptionsByCategory(req.params.category);
       res.json(options);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch dropdown options" });
@@ -4581,11 +4590,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dropdowns/options", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
       const validatedData = insertDropdownOptionSchema.parse(req.body);
+      // Duplicate check: same value + category must be unique
+      const existing = await storage.getDropdownOptionsByCategory(validatedData.category);
+      const duplicate = existing.find(o => o.value.toLowerCase() === validatedData.value.toLowerCase());
+      if (duplicate) {
+        return res.status(409).json({ message: `A "${duplicate.label}" option with value "${duplicate.value}" already exists in this category.` });
+      }
       const option = await storage.createDropdownOption(validatedData);
       res.status(201).json(option);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
+      }
+      if (error?.code === "23505") {
+        return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
       }
       res.status(500).json({ message: "Failed to create dropdown option" });
     }

@@ -3579,10 +3579,22 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(dropdownOptions).where(eq(dropdownOptions.isActive, true)).orderBy(dropdownOptions.displayOrder);
   }
 
+  // Admin view — returns all options regardless of isActive (for duplicate detection)
+  async getAllDropdownOptions(): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions).orderBy(dropdownOptions.category, dropdownOptions.displayOrder);
+  }
+
   async getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
     return await db.select().from(dropdownOptions).where(
       and(eq(dropdownOptions.category, category), eq(dropdownOptions.isActive, true))
     ).orderBy(dropdownOptions.displayOrder);
+  }
+
+  // Admin view by category — returns all options regardless of isActive
+  async getAllDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
+    return await db.select().from(dropdownOptions)
+      .where(eq(dropdownOptions.category, category))
+      .orderBy(dropdownOptions.displayOrder);
   }
 
   async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
