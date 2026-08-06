@@ -168,6 +168,29 @@ export default function DropdownManagement() {
     },
   });
 
+  const cleanupMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/dropdowns/cleanup-duplicates", {
+        category: selectedCategory,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to clean up duplicates");
+      }
+      return response.json() as Promise<{ deleted: number }>;
+    },
+    onSuccess: (data) => {
+      invalidateAll();
+      toast({
+        title: "Duplicates removed",
+        description: `${data.deleted} duplicate ${data.deleted === 1 ? "entry" : "entries"} deleted. Oldest record kept for each value.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Cleanup failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleMigrateFromAssets = async () => {
     setIsMigrating(true);
     try {
@@ -226,11 +249,23 @@ export default function DropdownManagement() {
         </div>
 
         {dupeCount > 0 && (
-          <div className="mb-4 flex items-center gap-2 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-yellow-800 text-sm">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>
-              <strong>{dupeCount} duplicate value{dupeCount !== 1 ? "s" : ""}</strong> detected in the current category. Duplicates are highlighted in yellow — delete or rename the extras.
-            </span>
+          <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-yellow-800 text-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>{dupeCount} duplicate {dupeCount === 1 ? "entry" : "entries"}</strong> detected in this category. The oldest record for each value will be kept.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => cleanupMutation.mutate()}
+              disabled={cleanupMutation.isPending}
+              className="shrink-0"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+              {cleanupMutation.isPending ? "Removing…" : "Delete Duplicates"}
+            </Button>
           </div>
         )}
 

@@ -4637,6 +4637,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete duplicate dropdown options — keep oldest per (category, value), remove the rest
+  app.post("/api/dropdowns/cleanup-duplicates", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    try {
+      const { category } = req.body as { category?: string };
+      const allOptions = category
+        ? await storage.getAllDropdownOptionsByCategory(category)
+        : await storage.getAllDropdownOptions();
+
+      // Group by category+value (case-insensitive)
+      const groups = new Map<string, typeof allOptions>();
+      for (const opt of allOptions) {
+        const key = `${opt.category}::${opt.value.toLowerCase()}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(opt);
+      }
+
+      // For each group with more than 1 entry, keep the oldest, delete the rest
+      const toDelete: string[] = [];
+      for (const [, group] of groups) {
+        if (group.length <= 1) continue;
+        group.sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
+        toDelete.push(...group.slice(1).map(o => o.id));
+      }
+
+      for (const id of toDelete) {
+        await storage.deleteDropdownOption(id);
+      }
+
+      res.json({ deleted: toDelete.length, ids: toDelete });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to clean up duplicates" });
+    }
+  });
+
   // Migrate existing data from assets table to dropdown options
   app.post("/api/dropdowns/migrate-from-assets", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
