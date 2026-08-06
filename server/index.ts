@@ -147,6 +147,72 @@ app.use((req, res, next) => {
       console.log(`💾 Database: ${dbConnected ? 'Connected' : 'Pending (will connect on first request)'}`);
       log(`serving on port ${port}`);
     });
+
+    // ── SLA Enforcement Background Job ──────────────────────────────────────
+    // Runs every 5 minutes. Finds open/in_progress tickets past their SLA
+    // resolution deadline and escalates priority + adds a system comment.
+    const SLA_JOB_INTERVAL_MS = 5 * 60 * 1000;
+    async function runSlaEnforcement() {
+      try {
+        const { db } = await import("./db");
+        const { tickets, ticketComments } = await import("@shared/schema");
+        const { eq, and, lte, notInArray, sql: drizzleSql } = await import("drizzle-orm");
+
+        const now = new Date();
+        const breachedTickets = await db
+          .select({ id: tickets.id, priority: tickets.priority, slaResolutionDueAt: tickets.slaResolutionDueAt })
+          .from(tickets)
+          .where(
+            and(
+              notInArray(tickets.status, ["resolved", "closed", "cancelled"]),
+              lte(tickets.slaResolutionDueAt, now)
+            )
+          );
+
+        for (const t of breachedTickets) {
+          // Escalate to critical if not already
+          const updates: Record<string, any> = { updatedAt: now };
+          if (t.priority !== "critical") updates.priority = "critical";
+          await db.update(tickets).set(updates).where(eq(tickets.id, t.id));
+
+          // Add system comment (avoid duplicates — check if one already exists in last 24h)
+          const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          const existing = await db
+            .select({ id: ticketComments.id })
+            .from(ticketComments)
+            .where(
+              and(
+                eq(ticketComments.ticketId, t.id),
+                eq(ticketComments.isInternal, true),
+                drizzleSql`${ticketComments.createdAt} >= ${since}`
+              )
+            );
+          // Look for SLA breach comment in recent comments
+          const hasSlaComment = existing.length > 0;
+          if (!hasSlaComment) {
+            await db.insert(ticketComments).values({
+              ticketId: t.id,
+              content: `⚠️ SLA Breached: This ticket has exceeded its resolution SLA deadline. Priority escalated to Critical automatically.`,
+              isInternal: true,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
+
+        if (breachedTickets.length > 0) {
+          console.log(`⏰ SLA job: escalated ${breachedTickets.length} breached ticket(s)`);
+        }
+      } catch (err) {
+        console.error("SLA enforcement job error:", err);
+      }
+    }
+
+    // Run once after 30s startup delay, then every 5 minutes
+    setTimeout(() => {
+      runSlaEnforcement();
+      setInterval(runSlaEnforcement, SLA_JOB_INTERVAL_MS);
+    }, 30_000);
     
     // Handle server startup errors
     server.on('error', (error: any) => {

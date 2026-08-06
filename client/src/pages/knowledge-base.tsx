@@ -15,14 +15,16 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { BookOpen, Plus, Search, Pencil, Trash2, ThumbsUp, ThumbsDown, Eye, Star } from "lucide-react";
+import { BookOpen, Plus, Search, Pencil, Trash2, ThumbsUp, ThumbsDown, Eye, Star, SendHorizonal, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { format } from "date-fns";
 
 interface KbArticle {
   id: string; title: string; content: string; category: string;
   tags: string | null; status: string; views: number;
   helpfulCount: number; notHelpfulCount: number;
-  authorId: string | null; createdAt: string; updatedAt: string;
+  authorId: string | null; reviewedById: string | null;
+  reviewedAt: string | null; publishedAt: string | null;
+  createdAt: string; updatedAt: string;
 }
 
 const KB_CATEGORIES = ["Hardware", "Software", "Network", "Security", "Access", "Operations", "HR & Onboarding", "General"];
@@ -32,12 +34,13 @@ const formSchema = z.object({
   content: z.string().min(10, "Content must be at least 10 characters"),
   category: z.string().min(1, "Category is required"),
   tags: z.string().optional(),
-  status: z.enum(["draft", "published", "archived"]),
+  status: z.enum(["draft", "under_review", "published", "archived"]),
 });
 type FormData = z.infer<typeof formSchema>;
 
 const STATUS_COLORS: Record<string, string> = {
   published: "bg-green-100 text-green-800",
+  under_review: "bg-blue-100 text-blue-800",
   draft: "bg-yellow-100 text-yellow-800",
   archived: "bg-gray-100 text-gray-600",
 };
@@ -80,6 +83,36 @@ export default function KnowledgeBase() {
   const rateMutation = useMutation({
     mutationFn: async ({ id, helpful }: { id: string; helpful: boolean }) => (await apiRequest("POST", `/api/kb/articles/${id}/rate`, { helpful })).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] }),
+  });
+
+  const requestReviewMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await apiRequest("POST", `/api/kb/articles/${id}/request-review`);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || "Failed"); }
+      return r.json();
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] }); toast({ title: "Submitted for review" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await apiRequest("POST", `/api/kb/articles/${id}/approve`);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || "Failed"); }
+      return r.json();
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] }); toast({ title: "Article approved and published" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await apiRequest("POST", `/api/kb/articles/${id}/reject`);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || "Failed"); }
+      return r.json();
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kb/articles"] }); toast({ title: "Article returned to draft" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const filtered = articles.filter(a => {
@@ -145,6 +178,7 @@ export default function KnowledgeBase() {
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="published">Published</SelectItem>
+              <SelectItem value="under_review">Under Review</SelectItem>
               <SelectItem value="draft">Draft</SelectItem>
               <SelectItem value="archived">Archived</SelectItem>
             </SelectContent>
@@ -191,6 +225,24 @@ export default function KnowledgeBase() {
                       <TableCell className="text-sm text-muted-foreground">{a.updatedAt ? format(new Date(a.updatedAt), "MMM d, yyyy") : "—"}</TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
+                          {a.status === "draft" && (
+                            <Button variant="ghost" size="sm" className="h-8 gap-1 text-blue-700" title="Submit for review"
+                              onClick={() => requestReviewMutation.mutate(a.id)}>
+                              <SendHorizonal className="h-3.5 w-3.5" />Review
+                            </Button>
+                          )}
+                          {a.status === "under_review" && (
+                            <>
+                              <Button variant="ghost" size="sm" className="h-8 gap-1 text-green-700" title="Approve & publish"
+                                onClick={() => approveMutation.mutate(a.id)}>
+                                <CheckCircle2 className="h-3.5 w-3.5" />Approve
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-8 gap-1 text-red-700" title="Return to draft"
+                                onClick={() => rejectMutation.mutate(a.id)}>
+                                <XCircle className="h-3.5 w-3.5" />Reject
+                              </Button>
+                            </>
+                          )}
                           <Button variant="ghost" size="icon" onClick={() => openEdit(a)}><Pencil className="h-4 w-4" /></Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>

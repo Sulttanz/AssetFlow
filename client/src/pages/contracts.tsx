@@ -144,6 +144,16 @@ export default function ContractsPage() {
     return isBefore(end, thirtyDaysFromNow) && !isBefore(end, new Date());
   };
 
+  const isRenewalDue = (renewalDate: string | null) => {
+    if (!renewalDate) return false;
+    const rd = new Date(renewalDate);
+    const sixtyDaysFromNow = addDays(new Date(), 60);
+    return isBefore(rd, sixtyDaysFromNow) && !isBefore(rd, new Date());
+  };
+
+  const expiringCount = contracts.filter(c => c.status !== "expired" && isExpiringSoon(c.endDate)).length;
+  const renewalDueCount = contracts.filter(c => isRenewalDue((c as any).renewalDate)).length;
+
   const ContractFormFields = ({ form }: { form: any }) => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <FormField
@@ -281,6 +291,17 @@ export default function ContractsPage() {
       />
       <FormField
         control={form.control}
+        name="renewalDate"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Renewal Date <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+            <FormControl><Input type="date" {...field} value={field.value ?? ""} /></FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
         name="value"
         render={({ field }) => (
           <FormItem>
@@ -391,6 +412,20 @@ export default function ContractsPage() {
           </Dialog>
         </div>
 
+        {/* Expiry / Renewal banners */}
+        {expiringCount > 0 && (
+          <div className="flex items-center gap-3 mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-800 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span><strong>{expiringCount} contract{expiringCount > 1 ? "s" : ""}</strong> expire within 30 days — review and renew if needed.</span>
+          </div>
+        )}
+        {renewalDueCount > 0 && (
+          <div className="flex items-center gap-3 mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-yellow-800 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span><strong>{renewalDueCount} contract{renewalDueCount > 1 ? "s" : ""}</strong> have a renewal date within 60 days.</span>
+          </div>
+        )}
+
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -475,9 +510,16 @@ export default function ContractsPage() {
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Calendar className="w-4 h-4" />
-                      <span className={expiringSoon ? "text-red-500 font-bold" : ""}>
-                        {contract.endDate ? format(new Date(contract.endDate), "MMM d, yyyy") : "No Expiry"}
-                      </span>
+                      <div>
+                        <span className={expiringSoon ? "text-red-500 font-bold" : ""}>
+                          {contract.endDate ? format(new Date(contract.endDate), "MMM d, yyyy") : "No Expiry"}
+                        </span>
+                        {(contract as any).renewalDate && (
+                          <p className={`text-xs mt-0.5 ${isRenewalDue((contract as any).renewalDate) ? "text-yellow-600 font-medium" : "text-muted-foreground"}`}>
+                            Renewal: {format(new Date((contract as any).renewalDate), "MMM d, yyyy")}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 font-semibold text-lg">

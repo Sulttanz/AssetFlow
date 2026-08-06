@@ -11,7 +11,8 @@ import {
   type CatalogItem, type InsertCatalogItem,
   type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails,
   type ChangeEnvironmentStage, type InsertChangeEnvironmentStage,
-  changeEnvironmentStages,
+  type ChangePIR, type InsertChangePIR,
+  changeEnvironmentStages, changePIRs,
   type InsertAsset, type InsertEmployee, type InsertAssignment, type InsertLocation, 
   type InsertDepartment, type InsertVendor, type InsertPurchaseOrder, type InsertPurchaseOrderItem,
   type InsertBudget, type InsertMaintenanceSchedule, type InsertMaintenanceRecord,
@@ -344,6 +345,9 @@ export interface IStorage {
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
   createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
   updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
+  getChangePIR(changeId: string): Promise<ChangePIR | undefined>;
+  createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR>;
+  updateChangePIR(changeId: string, pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined>;
 
   // Data Management
   clearAllData(): Promise<boolean>;
@@ -2416,6 +2420,11 @@ export class MemStorage implements IStorage {
     return { id: randomUUID(), ...approval, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, createdAt: new Date() };
   }
   async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
+  async getChangePIR(_changeId: string): Promise<ChangePIR | undefined> { return undefined; }
+  async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
+    return { id: randomUUID(), changeId: pir.changeId, outcome: pir.outcome ?? "successful", summary: pir.summary, lessonsLearned: pir.lessonsLearned ?? null, incidentsCaused: pir.incidentsCaused ?? null, followUpActions: pir.followUpActions ?? null, completedById: pir.completedById ?? null, createdAt: new Date(), updatedAt: new Date() };
+  }
+  async updateChangePIR(_changeId: string, _pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined> { return undefined; }
 
   // Data Management
   async clearAllData(): Promise<boolean> {
@@ -3835,6 +3844,19 @@ export class DatabaseStorage implements IStorage {
   }
   async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
     const result = await db.update(changeApprovals).set({ decision, comments: comments ?? null, decidedAt: new Date() }).where(eq(changeApprovals.id, id)).returning();
+    return result[0];
+  }
+
+  async getChangePIR(changeId: string): Promise<ChangePIR | undefined> {
+    const result = await db.select().from(changePIRs).where(eq(changePIRs.changeId, changeId));
+    return result[0];
+  }
+  async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
+    const result = await db.insert(changePIRs).values(pir).returning();
+    return result[0];
+  }
+  async updateChangePIR(changeId: string, pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined> {
+    const result = await db.update(changePIRs).set({ ...pir, updatedAt: new Date() }).where(eq(changePIRs.changeId, changeId)).returning();
     return result[0];
   }
 

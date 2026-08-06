@@ -546,8 +546,9 @@ export const contracts = pgTable("contracts", {
   assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
   startDate: date("start_date"),
   endDate: date("end_date"),
+  renewalDate: date("renewal_date"),
   value: decimal("value", { precision: 15, scale: 2 }),
-  status: text("status").default("active"),
+  status: text("status").default("active"),  // active | pending | expired
   ownerId: varchar("owner_id").references(() => employees.id, { onDelete: "set null" }),
   renewalTerms: text("renewal_terms"),
   terminationClause: text("termination_clause"),
@@ -1058,16 +1059,19 @@ export const kbArticles = pgTable("kb_articles", {
   content: text("content").notNull(),
   category: text("category").notNull(),
   tags: text("tags"),            // comma-separated
-  status: text("status").notNull().default("draft"), // draft | published | archived
+  status: text("status").notNull().default("draft"), // draft | under_review | published | archived
   views: integer("views").default(0),
   helpfulCount: integer("helpful_count").default(0),
   notHelpfulCount: integer("not_helpful_count").default(0),
   authorId: varchar("author_id").references(() => users.id, { onDelete: "set null" }),
+  reviewedById: varchar("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  publishedAt: timestamp("published_at"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
-export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true });
+export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true, reviewedById: true, reviewedAt: true, publishedAt: true });
 export type KbArticle = typeof kbArticles.$inferSelect;
 export type InsertKbArticle = z.infer<typeof insertKbArticleSchema>;
 
@@ -1085,6 +1089,8 @@ export const problems = pgTable("problems", {
   rootCause: text("root_cause"),
   workaround: text("workaround"),
   resolution: text("resolution"),
+  knownError: boolean("known_error").default(false),
+  knownErrorDate: timestamp("known_error_date"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -1185,15 +1191,32 @@ export const changeEnvironmentStages = pgTable("change_environment_stages", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
+// Post-Implementation Review
+export const changePIRs = pgTable("change_pirs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeId: varchar("change_id").notNull().unique().references(() => changes.id, { onDelete: "cascade" }),
+  outcome: text("outcome").notNull().default("successful"),  // successful | partial | failed | rolled_back
+  summary: text("summary").notNull(),
+  lessonsLearned: text("lessons_learned"),
+  incidentsCaused: text("incidents_caused"),
+  followUpActions: text("follow_up_actions"),
+  completedById: varchar("completed_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true });
 export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: true, createdAt: true, updatedAt: true, completedById: true });
 export type Change = typeof changes.$inferSelect;
 export type InsertChange = z.infer<typeof insertChangeSchema>;
 export type ChangeApproval = typeof changeApprovals.$inferSelect;
 export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;
 export type ChangeEnvironmentStage = typeof changeEnvironmentStages.$inferSelect;
 export type InsertChangeEnvironmentStage = z.infer<typeof insertChangeEnvironmentStageSchema>;
+export type ChangePIR = typeof changePIRs.$inferSelect;
+export type InsertChangePIR = z.infer<typeof insertChangePIRSchema>;
 
 export type ChangeWithDetails = Change & {
   requestedBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;

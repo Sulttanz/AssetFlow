@@ -16,7 +16,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { AlertTriangle, Plus, Search, Pencil, Trash2, Link2, Unlink } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { AlertTriangle, Plus, Search, Pencil, Trash2, Link2, Unlink, ShieldAlert } from "lucide-react";
 import { format } from "date-fns";
 import type { TicketWithDetails } from "@shared/schema";
 
@@ -24,6 +25,7 @@ interface ProblemWithDetails {
   id: string; problemNumber: string; title: string; description: string | null;
   status: string; priority: string; category: string | null;
   rootCause: string | null; workaround: string | null; resolution: string | null;
+  knownError: boolean | null; knownErrorDate: string | null;
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
   createdBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
   linkedTickets?: { ticketId: string; ticketNumber: string; title: string }[];
@@ -39,6 +41,7 @@ const formSchema = z.object({
   rootCause: z.string().optional(),
   workaround: z.string().optional(),
   resolution: z.string().optional(),
+  knownError: z.boolean().optional(),
 });
 type FormData = z.infer<typeof formSchema>;
 
@@ -69,7 +72,7 @@ export default function Problems() {
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { title: "", description: "", status: "open", priority: "medium", category: "", rootCause: "", workaround: "", resolution: "" },
+    defaultValues: { title: "", description: "", status: "open", priority: "medium", category: "", rootCause: "", workaround: "", resolution: "", knownError: false },
   });
 
   const createMutation = useMutation({
@@ -112,13 +115,13 @@ export default function Problems() {
 
   function openCreate() {
     setEditingProblem(null);
-    form.reset({ title: "", description: "", status: "open", priority: "medium", category: "", rootCause: "", workaround: "", resolution: "" });
+    form.reset({ title: "", description: "", status: "open", priority: "medium", category: "", rootCause: "", workaround: "", resolution: "", knownError: false });
     setDialogOpen(true);
   }
 
   function openEdit(p: ProblemWithDetails) {
     setEditingProblem(p);
-    form.reset({ title: p.title, description: p.description ?? "", status: p.status, priority: p.priority, category: p.category ?? "", rootCause: p.rootCause ?? "", workaround: p.workaround ?? "", resolution: p.resolution ?? "" });
+    form.reset({ title: p.title, description: p.description ?? "", status: p.status, priority: p.priority, category: p.category ?? "", rootCause: p.rootCause ?? "", workaround: p.workaround ?? "", resolution: p.resolution ?? "", knownError: p.knownError ?? false });
     setDialogOpen(true);
   }
 
@@ -186,7 +189,12 @@ export default function Problems() {
                     <TableRow key={p.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedProblem(p)}>
                       <TableCell className="font-mono text-sm">{p.problemNumber}</TableCell>
                       <TableCell className="font-medium">{p.title}</TableCell>
-                      <TableCell><Badge className={STATUS_COLORS[p.status] ?? ""}>{p.status.replace("_"," ")}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Badge className={STATUS_COLORS[p.status] ?? ""}>{p.status.replace("_"," ")}</Badge>
+                          {p.knownError && <Badge className="bg-yellow-100 text-yellow-800 gap-1"><ShieldAlert className="h-3 w-3" />KE</Badge>}
+                        </div>
+                      </TableCell>
                       <TableCell><Badge className={PRIORITY_COLORS[p.priority] ?? ""}>{p.priority}</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">{p.linkedTickets?.length ?? 0}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{p.createdAt ? format(new Date(p.createdAt), "MMM d, yyyy") : "—"}</TableCell>
@@ -222,6 +230,7 @@ export default function Problems() {
               <span className="font-mono text-sm text-muted-foreground">{currentProblem?.problemNumber}</span>
               <Badge className={STATUS_COLORS[currentProblem?.status ?? ""] ?? ""}>{currentProblem?.status?.replace("_"," ")}</Badge>
               <Badge className={PRIORITY_COLORS[currentProblem?.priority ?? ""] ?? ""}>{currentProblem?.priority}</Badge>
+              {currentProblem?.knownError && <Badge className="bg-yellow-100 text-yellow-800 gap-1"><ShieldAlert className="h-3 w-3" />Known Error</Badge>}
             </div>
             <DialogTitle>{currentProblem?.title}</DialogTitle>
           </DialogHeader>
@@ -312,6 +321,17 @@ export default function Problems() {
               )} />
               <FormField control={form.control} name="resolution" render={({ field }) => (
                 <FormItem><FormLabel>Resolution</FormLabel><FormControl><Textarea placeholder="Final resolution (when closed)…" className="min-h-[60px]" {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={form.control} name="knownError" render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel className="flex items-center gap-2">
+                      <ShieldAlert className="h-4 w-4 text-yellow-600" />Known Error
+                    </FormLabel>
+                    <p className="text-xs text-muted-foreground">Mark this as a documented known error in the KEDB</p>
+                  </div>
+                  <FormControl><Switch checked={field.value ?? false} onCheckedChange={field.onChange} /></FormControl>
+                </FormItem>
               )} />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

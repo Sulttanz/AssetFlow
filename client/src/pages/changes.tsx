@@ -514,6 +514,9 @@ export default function Changes() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assignUserId, setAssignUserId] = useState("");
   const [assignDeptId, setAssignDeptId] = useState("");
+  const [pirForm, setPirForm] = useState({ outcome: "successful", summary: "", lessonsLearned: "", incidentsCaused: "", followUpActions: "" });
+  const [pirData, setPirData] = useState<any>(null);
+  const [pirLoading, setPirLoading] = useState(false);
 
   const { data: changes = [], isLoading } = useQuery<ChangeWithDetails[]>({ queryKey: ["/api/changes"] });
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
@@ -571,6 +574,30 @@ export default function Changes() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/changes"] }); toast({ title: "Added as approver" }); },
     onError: () => toast({ title: "Error", description: "Failed to add approval", variant: "destructive" }),
   });
+
+  const pirMutation = useMutation({
+    mutationFn: async ({ changeId, method, data }: { changeId: string; method: "POST" | "PUT"; data: any }) => {
+      const r = await apiRequest(method, `/api/changes/${changeId}/pir`, data);
+      if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.message || "Failed"); }
+      return r.json();
+    },
+    onSuccess: (data) => { setPirData(data); toast({ title: "PIR saved" }); },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  async function loadPIR(changeId: string) {
+    setPirLoading(true);
+    try {
+      const r = await apiRequest("GET", `/api/changes/${changeId}/pir`);
+      if (r.ok) {
+        const d = await r.json();
+        setPirData(d);
+        setPirForm({ outcome: d.outcome, summary: d.summary, lessonsLearned: d.lessonsLearned ?? "", incidentsCaused: d.incidentsCaused ?? "", followUpActions: d.followUpActions ?? "" });
+      } else {
+        setPirData(null);
+      }
+    } finally { setPirLoading(false); }
+  }
 
   const decideMutation = useMutation({
     mutationFn: async ({ changeId, approvalId, decision }: { changeId: string; approvalId: string; decision: string }) =>
@@ -857,6 +884,7 @@ export default function Changes() {
               </TabsTrigger>
               <TabsTrigger value="approvals">Approvals ({currentChange?.approvals?.length ?? 0})</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
+              <TabsTrigger value="pir">PIR</TabsTrigger>
             </TabsList>
 
             {/* Details */}
@@ -948,6 +976,67 @@ export default function Changes() {
             {/* Timeline */}
             <TabsContent value="timeline">
               {currentChange && <ChangeTimeline change={currentChange} />}
+            </TabsContent>
+
+            {/* PIR */}
+            <TabsContent value="pir" className="space-y-4">
+              {!["completed","cancelled"].includes(currentChange?.status ?? "") ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCheck className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Post-Implementation Review is available after the change is completed or cancelled.</p>
+                </div>
+              ) : pirLoading ? (
+                <p className="text-sm text-center text-muted-foreground py-6">Loading…</p>
+              ) : (
+                <div className="space-y-4"
+                  onFocus={() => !pirData && !pirLoading && currentChange && loadPIR(currentChange.id)}>
+                  {!pirData && (
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => currentChange && loadPIR(currentChange.id)}>
+                      <CheckCircle2 className="h-4 w-4" />Load / Create PIR
+                    </Button>
+                  )}
+                  {(pirData !== null || pirLoading) && (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase mb-1.5 block">Outcome</label>
+                        <select
+                          className="w-full border rounded-md px-3 py-2 text-sm"
+                          value={pirForm.outcome}
+                          onChange={e => setPirForm(f => ({ ...f, outcome: e.target.value }))}>
+                          {[["successful","Successful"],["partial","Partial Success"],["failed","Failed"],["rolled_back","Rolled Back"]].map(([v,l]) => (
+                            <option key={v} value={v}>{l}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {[
+                        { key: "summary", label: "Summary *", placeholder: "What was implemented and what was the overall outcome?" },
+                        { key: "lessonsLearned", label: "Lessons Learned", placeholder: "What went well? What could be improved?" },
+                        { key: "incidentsCaused", label: "Incidents Caused", placeholder: "Any incidents or issues triggered by this change?" },
+                        { key: "followUpActions", label: "Follow-Up Actions", placeholder: "Any outstanding tasks or follow-up items?" },
+                      ].map(({ key, label, placeholder }) => (
+                        <div key={key}>
+                          <label className="text-xs font-medium text-muted-foreground uppercase mb-1.5 block">{label}</label>
+                          <textarea
+                            className="w-full border rounded-md px-3 py-2 text-sm min-h-[60px] resize-none"
+                            placeholder={placeholder}
+                            value={(pirForm as any)[key]}
+                            onChange={e => setPirForm(f => ({ ...f, [key]: e.target.value }))}
+                          />
+                        </div>
+                      ))}
+                      <Button size="sm" disabled={!pirForm.summary || pirMutation.isPending}
+                        onClick={() => currentChange && pirMutation.mutate({
+                          changeId: currentChange.id,
+                          method: pirData ? "PUT" : "POST",
+                          data: pirForm,
+                        })}>
+                        {pirMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCheck className="h-4 w-4 mr-2" />}
+                        {pirData ? "Update PIR" : "Save PIR"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </TabsContent>
           </Tabs>
 

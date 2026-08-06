@@ -326,6 +326,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/contracts", requireAuth, async (req, res) => {
     try {
       const contracts = await storage.getContracts();
+      // Auto-expire contracts whose endDate has passed but are still marked active/pending
+      const today = new Date().toISOString().split("T")[0];
+      const expiredIds = contracts
+        .filter(c => c.endDate && c.endDate < today && c.status !== "expired")
+        .map(c => c.id);
+      await Promise.all(expiredIds.map(id => storage.updateContract(id, { status: "expired" } as any)));
+      if (expiredIds.length > 0) {
+        const updated = await storage.getContracts();
+        return res.json(updated);
+      }
       res.json(contracts);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch contracts" });
@@ -4998,6 +5008,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to rate article" }); }
   });
 
+  // KB Review Workflow
+  app.post("/api/kb/articles/:id/request-review", requireAuth, async (req, res) => {
+    try {
+      const article = await storage.getKbArticle(req.params.id);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      if (article.status !== "draft") return res.status(400).json({ message: "Only draft articles can be submitted for review" });
+      const updated = await storage.updateKbArticle(req.params.id, { status: "under_review" } as any);
+      res.json(updated);
+    } catch { res.status(500).json({ message: "Failed to request review" }); }
+  });
+
+  app.post("/api/kb/articles/:id/approve", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const article = await storage.getKbArticle(req.params.id);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      if (article.status !== "under_review") return res.status(400).json({ message: "Only articles under review can be approved" });
+      const updated = await storage.updateKbArticle(req.params.id, { status: "published", reviewedById: user.id, reviewedAt: new Date(), publishedAt: new Date() } as any);
+      res.json(updated);
+    } catch { res.status(500).json({ message: "Failed to approve article" }); }
+  });
+
+  app.post("/api/kb/articles/:id/reject", requireAuth, requirePermission("system_admin"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const article = await storage.getKbArticle(req.params.id);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      if (article.status !== "under_review") return res.status(400).json({ message: "Only articles under review can be rejected" });
+      const updated = await storage.updateKbArticle(req.params.id, { status: "draft", reviewedById: user.id, reviewedAt: new Date() } as any);
+      res.json(updated);
+    } catch { res.status(500).json({ message: "Failed to reject article" }); }
+  });
+
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
     try { res.json(await storage.getProblems()); }
@@ -5200,6 +5243,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       else if (allApproved && allApprovals.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
+  });
+
+  // ── Change Post-Implementation Review (PIR) ──────────────────────────────
+  app.get("/api/changes/:id/pir", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const pir = await storage.getChangePIR(req.params.id);
+      if (!pir) return res.status(404).json({ message: "PIR not found" });
+      res.json(pir);
+    } catch { res.status(500).json({ message: "Failed to fetch PIR" }); }
+  });
+
+  app.post("/api/changes/:id/pir", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const ch = await storage.getChange(req.params.id);
+      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (!["completed", "cancelled"].includes(ch.status)) {
+        return res.status(400).json({ message: "PIR can only be created for completed or cancelled changes" });
+      }
+      const existing = await storage.getChangePIR(req.params.id);
+      if (existing) return res.status(409).json({ message: "PIR already exists for this change" });
+      const pir = await storage.createChangePIR({ ...req.body, changeId: req.params.id, completedById: user.id });
+      res.status(201).json(pir);
+    } catch { res.status(500).json({ message: "Failed to create PIR" }); }
+  });
+
+  app.put("/api/changes/:id/pir", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const pir = await storage.updateChangePIR(req.params.id, req.body);
+      if (!pir) return res.status(404).json({ message: "PIR not found" });
+      res.json(pir);
+    } catch { res.status(500).json({ message: "Failed to update PIR" }); }
   });
 
   // ── Change Workflow Actions ───────────────────────────────────────────────
