@@ -33,6 +33,7 @@ const formSchema = insertAssetSchema.extend({
   warrantyExpiry: z.string().optional(),
   serialNumber: z.string().optional(),
   vendor: z.string().optional(),
+  primaryVendorId: z.string().optional(),
   model: z.string().optional(),
   manufacturer: z.string().optional(),
   processor: z.string().optional(),
@@ -241,6 +242,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/dropdowns/options/assetCondition"],
   });
 
+  const { data: vendorsList = [] } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/vendors"],
+  });
+
   const { data: relationships = [], refetch: refetchRelationships } = useQuery<(AssetRelationship & { relatedAsset?: Asset })[]>({
     queryKey: [`/api/assets/${asset?.id}/relationships`],
     enabled: !!asset?.id,
@@ -408,6 +413,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       // Software License Tracking
       licenseKey: (asset as any)?.licenseKey ?? "",
       usedSeats: (asset as any)?.usedSeats?.toString() ?? "",
+      primaryVendorId: (asset as any)?.primaryVendorId ?? "",
     },
   });
 
@@ -533,6 +539,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       serialNumber: data.serialNumber || undefined,
       status: data.status || undefined,
       vendor: data.vendor || undefined,
+      primaryVendorId: (data as any).primaryVendorId || undefined,
       model: data.model || undefined,
       specifications: data.specifications || undefined,
       
@@ -1260,10 +1267,36 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
+                    name={"primaryVendorId" as any}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendor (Linked)</FormLabel>
+                        <Select
+                          onValueChange={v => field.onChange(v === "__none__" ? "" : v)}
+                          value={(field.value as string) || "__none__"}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-primary-vendor">
+                              <SelectValue placeholder="Select vendor…" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">None</SelectItem>
+                            {vendorsList.map(v => (
+                              <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
                     name="vendor"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Vendor Name</FormLabel>
+                        <FormLabel>Vendor Name (free text)</FormLabel>
                         <FormControl>
                           <Input placeholder="Enter vendor name" {...field} data-testid="input-vendor" />
                         </FormControl>

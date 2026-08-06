@@ -155,8 +155,18 @@ app.use((req, res, next) => {
     async function runSlaEnforcement() {
       try {
         const { db } = await import("./db");
-        const { tickets, ticketComments } = await import("@shared/schema");
+        const { tickets, ticketComments, users, userRoles, roles } = await import("@shared/schema");
         const { eq, and, lte, notInArray, sql: drizzleSql } = await import("drizzle-orm");
+
+        // Find a system_admin user to attribute SLA comments to
+        const [systemUser] = await db
+          .select({ id: users.id })
+          .from(users)
+          .innerJoin(userRoles, eq(userRoles.userId, users.id))
+          .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, "system_admin")))
+          .limit(1);
+        const systemAuthorId = systemUser?.id ?? null;
+        if (!systemAuthorId) return; // No admin user; skip this run
 
         const now = new Date();
         const breachedTickets = await db
@@ -192,6 +202,7 @@ app.use((req, res, next) => {
           if (!hasSlaComment) {
             await db.insert(ticketComments).values({
               ticketId: t.id,
+              authorId: systemAuthorId,
               content: `⚠️ SLA Breached: This ticket has exceeded its resolution SLA deadline. Priority escalated to Critical automatically.`,
               isInternal: true,
               createdAt: now,

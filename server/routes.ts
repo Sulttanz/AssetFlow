@@ -5296,7 +5296,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
       if (!["draft","rejected"].includes(ch.status)) return res.status(400).json({ message: "Can only submit a draft or rejected change" });
-      const change = await storage.updateChange(req.params.id, { status: "submitted", submittedAt: new Date() } as any);
+      // Auto-set CAB required for normal and emergency changes unless already explicitly configured
+      const cabRequired = (ch as any).cabRequired !== null && (ch as any).cabRequired !== undefined
+        ? (ch as any).cabRequired
+        : ["normal","emergency"].includes(ch.type);
+      const change = await storage.updateChange(req.params.id, { status: "submitted", submittedAt: new Date(), cabRequired } as any);
       res.json(await storage.getChange(req.params.id));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
   });

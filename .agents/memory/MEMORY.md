@@ -5,3 +5,5 @@
 - [Sidebar nav collapse pattern](sidebar-collapsible-sections.md) — sidebar section headers and nested submenu items use independent collapse state; keep both levels separate when adding new sections.
 - [Dev server no auto-reload](dev-server-no-watch.md) — tsx dev server does not restart on server-file edits (only Vite HMR is automatic); restart the workflow before testing backend changes.
 - [ITSM ticketing scope decisions](itsm-ticketing-module.md) — RBAC/requester/category/scope-toggle decisions made building the ticketing pillar; consult before extending tickets further.
+- [SLA job system author](sla-job-system-author.md) — SLA enforcement job must join users→userRoles→roles to find the system_admin authorId; users table has no role column.
+- [Asset vendor FK pattern](asset-vendor-fk.md) — assets has both primaryVendorId (FK→vendors) and legacy text vendor field; asset form populates both; vendor list from /api/vendors.

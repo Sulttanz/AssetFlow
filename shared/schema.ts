@@ -1156,6 +1156,8 @@ export const changes = pgTable("changes", {
   assignedAt: timestamp("assigned_at"),
   submittedAt: timestamp("submitted_at"),
   approvedAt: timestamp("approved_at"),
+  cabRequired: boolean("cab_required").default(false),
+  cabScheduledFor: timestamp("cab_scheduled_for"),
   requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),

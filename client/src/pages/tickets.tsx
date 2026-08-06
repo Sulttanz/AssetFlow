@@ -412,7 +412,14 @@ export default function Tickets() {
                           <Badge className={priorityColors[ticket.priority]}>{ticket.priority}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge className={statusColors[ticket.status]}>{ticket.status.replace("_", " ")}</Badge>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge className={statusColors[ticket.status]}>{ticket.status.replace("_", " ")}</Badge>
+                            {ticket.slaResolutionDueAt &&
+                              !["resolved","closed"].includes(ticket.status) &&
+                              new Date(ticket.slaResolutionDueAt) < new Date() && (
+                              <Badge className="bg-red-100 text-red-700 text-[10px] px-1.5 py-0 h-4">SLA Breached</Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{userLabel(ticket.requester)}</TableCell>
                         <TableCell>

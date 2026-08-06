@@ -48,6 +48,7 @@ interface ChangeWithDetails {
   scheduledStart: string | null; scheduledEnd: string | null;
   actualStart: string | null; actualEnd: string | null;
   assignedAt: string | null; submittedAt: string | null; approvedAt: string | null;
+  cabRequired: boolean | null; cabScheduledFor: string | null;
   requestedById: string | null; assignedToId: string | null; departmentId: string | null;
   requestedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
@@ -125,6 +126,8 @@ const formSchema = z.object({
   scheduledEnd: z.string().optional(),
   assignedToId: z.string().optional(),
   departmentId: z.string().optional(),
+  cabRequired: z.boolean().optional(),
+  cabScheduledFor: z.string().optional(),
 });
 type FormData = z.infer<typeof formSchema>;
 
@@ -620,7 +623,7 @@ export default function Changes() {
 
   function openCreate() {
     setEditingChange(null);
-    form.reset({ title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "" });
+    form.reset({ title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", cabRequired: true, cabScheduledFor: "" });
     setDialogOpen(true);
   }
 
@@ -635,6 +638,8 @@ export default function Changes() {
       scheduledStart: c.scheduledStart ? c.scheduledStart.split("T")[0] : "",
       scheduledEnd: c.scheduledEnd ? c.scheduledEnd.split("T")[0] : "",
       assignedToId: c.assignedToId ?? "", departmentId: c.departmentId ?? "",
+      cabRequired: c.cabRequired ?? (["normal","emergency"].includes(c.type)),
+      cabScheduledFor: c.cabScheduledFor ? c.cabScheduledFor.split("T")[0] : "",
     });
     setDialogOpen(true);
   }
@@ -646,6 +651,8 @@ export default function Changes() {
       implementationPlan: data.implementationPlan || null, rollbackPlan: data.rollbackPlan || null, testPlan: data.testPlan || null,
       scheduledStart: data.scheduledStart || null, scheduledEnd: data.scheduledEnd || null,
       assignedToId: data.assignedToId || null, departmentId: data.departmentId || null,
+      cabRequired: data.cabRequired ?? false,
+      cabScheduledFor: data.cabScheduledFor || null,
     };
     if (editingChange) updateMutation.mutate({ id: editingChange.id, data: payload });
     else createMutation.mutate(payload as any);
@@ -914,6 +921,28 @@ export default function Changes() {
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual Start</p><p className="text-sm flex items-center gap-1"><Play className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualStart ? format(new Date(currentChange.actualStart), "MMM d, yyyy h:mm a") : "—"}</p></div>
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual End</p><p className="text-sm flex items-center gap-1"><Square className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualEnd ? format(new Date(currentChange.actualEnd), "MMM d, yyyy h:mm a") : "—"}</p></div>
               </div>
+              {/* CAB Info */}
+              {currentChange?.cabRequired && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <UserCheck className="h-3.5 w-3.5" />Change Advisory Board
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">CAB Meeting Scheduled</p>
+                      <p className="font-medium">{currentChange.cabScheduledFor ? format(new Date(currentChange.cabScheduledFor), "MMM d, yyyy") : "Not yet scheduled"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Approvals</p>
+                      <p className="font-medium">
+                        {currentChange.approvals?.filter(a => a.decision === "approved").length ?? 0} approved ·{" "}
+                        {currentChange.approvals?.filter(a => a.decision === "pending").length ?? 0} pending
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">CAB members vote via the Approvals tab. All votes must be approved before the change can proceed.</p>
+                </div>
+              )}
             </TabsContent>
 
             {/* Plans */}
@@ -1206,6 +1235,24 @@ export default function Changes() {
                 )} />
                 <FormField control={form.control} name="scheduledEnd" render={({ field }) => (
                   <FormItem><FormLabel>Scheduled End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+              </div>
+              {/* CAB section */}
+              <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+                <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Change Advisory Board (CAB)</p>
+                <FormField control={form.control} name="cabRequired" render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between">
+                    <div>
+                      <FormLabel className="text-sm">CAB Review Required</FormLabel>
+                      <p className="text-xs text-muted-foreground">Normal and emergency changes require CAB approval</p>
+                    </div>
+                    <FormControl>
+                      <input type="checkbox" className="h-4 w-4 accent-blue-600" checked={field.value ?? false} onChange={e => field.onChange(e.target.checked)} />
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="cabScheduledFor" render={({ field }) => (
+                  <FormItem><FormLabel>CAB Meeting Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
               <FormField control={form.control} name="implementationPlan" render={({ field }) => (
