@@ -60,6 +60,14 @@ interface ChangeWithDetails {
 interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; }
 interface Department { id: string; name: string; }
 
+// ── Helpers ── (isPendingCAB must come before constants that use it) ───────────
+function isPendingCAB(c: ChangeWithDetails) {
+  if (!c.cabRequired) return false;
+  if (c.status !== "submitted") return false;
+  if (!c.approvals || c.approvals.length === 0) return true;
+  return c.approvals.some(a => a.decision === "pending" || a.decision === null);
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const TYPE_COLORS: Record<string, string> = {
   standard: "bg-green-100 text-green-800",
@@ -740,7 +748,7 @@ export default function Changes() {
           const doneOnTime     = allStages.filter(s => stageSla(s) === "done_on_time").length;
           return (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 {(["standard","normal","emergency"] as const).map(t => (
                   <Card key={t}><CardContent className="pt-4 pb-3">
                     <div className="text-2xl font-bold">{changes.filter(c => c.type === t).length}</div>
@@ -754,6 +762,10 @@ export default function Changes() {
                 <Card><CardContent className="pt-4 pb-3">
                   <div className="text-2xl font-bold text-blue-600">{changes.filter(c => c.status === "submitted").length}</div>
                   <p className="text-xs text-muted-foreground">Pending approval</p>
+                </CardContent></Card>
+                <Card className="border-amber-200 bg-amber-50/30"><CardContent className="pt-4 pb-3">
+                  <div className="text-2xl font-bold text-amber-700">{changes.filter(isPendingCAB).length}</div>
+                  <p className="text-xs text-muted-foreground">Pending CAB</p>
                 </CardContent></Card>
               </div>
               {/* SLA strip */}
@@ -834,7 +846,16 @@ export default function Changes() {
                         <TableCell className="font-medium max-w-[200px] truncate">{c.title}</TableCell>
                         <TableCell><Badge className={TYPE_COLORS[c.type] ?? ""}>{c.type}</Badge></TableCell>
                         <TableCell><Badge className={RISK_COLORS[c.risk ?? "low"] ?? ""}>{c.risk ?? "low"}</Badge></TableCell>
-                        <TableCell><Badge className={STATUS_COLORS[c.status] ?? ""}>{c.status.replace("_"," ")}</Badge></TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge className={STATUS_COLORS[c.status] ?? ""}>{c.status.replace("_"," ")}</Badge>
+                            {isPendingCAB(c) && (
+                              <Badge className="bg-amber-100 text-amber-800 gap-1 text-[10px] px-1.5">
+                                <UserCheck className="h-2.5 w-2.5" />Pending CAB
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{userLabel(c.assignedTo)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{c.scheduledStart ? format(new Date(c.scheduledStart), "MMM d") : "—"}</TableCell>
                         <TableCell className="text-right" onClick={e => e.stopPropagation()}>

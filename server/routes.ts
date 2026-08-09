@@ -5233,14 +5233,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
+      const user = req.user as any;
+      const VALID_DECISIONS = ["approved", "rejected"] as const;
+
+      // Validate decision enum
+      if (!VALID_DECISIONS.includes(req.body.decision)) {
+        return res.status(400).json({ message: "Invalid decision — must be 'approved' or 'rejected'" });
+      }
+
+      // Load approval and verify it belongs to the URL change
+      const allApprovals = await storage.getChangeApprovals(req.params.changeId);
+      const existing = allApprovals.find(a => a.id === req.params.approvalId);
+      if (!existing) return res.status(404).json({ message: "Approval not found for this change" });
+
+      // Only the approval's owner may cast a vote
+      if (existing.approverId !== user.id) {
+        return res.status(403).json({ message: "You can only vote on your own CAB approval" });
+      }
+
       const approval = await storage.updateChangeApproval(req.params.approvalId, req.body.decision, req.body.comments);
       if (!approval) return res.status(404).json({ message: "Approval not found" });
-      // Auto-update change status based on decisions
-      const allApprovals = await storage.getChangeApprovals(req.params.changeId);
-      const hasRejected = allApprovals.some(a => a.decision === "rejected");
-      const allApproved = allApprovals.every(a => a.decision === "approved");
+
+      // Auto-update change status based on all decisions
+      const updated = await storage.getChangeApprovals(req.params.changeId);
+      const hasRejected = updated.some(a => a.decision === "rejected");
+      const allApproved = updated.every(a => a.decision === "approved");
       if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" } as any);
-      else if (allApproved && allApprovals.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
+      else if (allApproved && updated.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
   });
@@ -5296,10 +5315,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
       if (!["draft","rejected"].includes(ch.status)) return res.status(400).json({ message: "Can only submit a draft or rejected change" });
-      // Auto-set CAB required for normal and emergency changes unless already explicitly configured
-      const cabRequired = (ch as any).cabRequired !== null && (ch as any).cabRequired !== undefined
-        ? (ch as any).cabRequired
-        : ["normal","emergency"].includes(ch.type);
+      // Force CAB required for normal/emergency types or high/critical risk.
+      // This is authoritative: user-supplied cabRequired=false cannot opt out of mandatory CAB.
+      const riskTriggersCAB = ["high","critical"].includes(ch.risk ?? "");
+      const typeTriggersCAB = ["normal","emergency"].includes(ch.type);
+      const cabRequired = typeTriggersCAB || riskTriggersCAB
+        ? true
+        : !!(ch as any).cabRequired; // standard low/medium risk: honour stored opt-in
       const change = await storage.updateChange(req.params.id, { status: "submitted", submittedAt: new Date(), cabRequired } as any);
       res.json(await storage.getChange(req.params.id));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
