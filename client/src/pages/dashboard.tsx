@@ -281,8 +281,8 @@ export default function Dashboard() {
                     <p className="text-xl font-bold">
                       {kpiData ? kpiData.tickets.open : <Skeleton className="h-6 w-10 inline-block" />}
                     </p>
-                    <p className={`text-xs ${(kpiData?.tickets?.overdue ?? 0) > 0 ? "text-red-500" : "text-muted-foreground"}`}>
-                      {kpiData ? `${kpiData.tickets.overdue} overdue` : "—"}
+                    <p className={`text-xs ${(kpiData?.tickets?.slaBreached ?? 0) > 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                      {kpiData ? `${kpiData.tickets.slaBreached ?? 0} SLA breached` : "—"}
                     </p>
                   </div>
                 )}

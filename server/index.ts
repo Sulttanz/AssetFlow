@@ -158,12 +158,12 @@ app.use((req, res, next) => {
         const { tickets, ticketComments, users, userRoles, roles } = await import("@shared/schema");
         const { eq, and, lte, notInArray, sql: drizzleSql } = await import("drizzle-orm");
 
-        // Find a system_admin user to attribute SLA comments to
+        // Find a System Administrator user to attribute SLA comments to
         const [systemUser] = await db
           .select({ id: users.id })
           .from(users)
           .innerJoin(userRoles, eq(userRoles.userId, users.id))
-          .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, "system_admin")))
+          .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, "System Administrator")))
           .limit(1);
         const systemAuthorId = systemUser?.id ?? null;
         if (!systemAuthorId) return; // No admin user; skip this run
@@ -185,28 +185,25 @@ app.use((req, res, next) => {
           if (t.priority !== "critical") updates.priority = "critical";
           await db.update(tickets).set(updates).where(eq(tickets.id, t.id));
 
-          // Add system comment (avoid duplicates — check if one already exists in last 24h)
-          const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          // Add system comment — avoid duplicates by checking for existing SLA breach comment
+          const SLA_BREACH_MARKER = "⚠️ SLA Breached:";
           const existing = await db
-            .select({ id: ticketComments.id })
+            .select({ id: ticketComments.id, message: ticketComments.message })
             .from(ticketComments)
             .where(
               and(
                 eq(ticketComments.ticketId, t.id),
-                eq(ticketComments.isInternal, true),
-                drizzleSql`${ticketComments.createdAt} >= ${since}`
+                eq(ticketComments.isInternal, true)
               )
             );
-          // Look for SLA breach comment in recent comments
-          const hasSlaComment = existing.length > 0;
+          const hasSlaComment = existing.some(c => c.message?.startsWith(SLA_BREACH_MARKER));
           if (!hasSlaComment) {
             await db.insert(ticketComments).values({
               ticketId: t.id,
               authorId: systemAuthorId,
-              content: `⚠️ SLA Breached: This ticket has exceeded its resolution SLA deadline. Priority escalated to Critical automatically.`,
+              message: `${SLA_BREACH_MARKER} This ticket has exceeded its resolution SLA deadline. Priority escalated to Critical automatically.`,
               isInternal: true,
               createdAt: now,
-              updatedAt: now,
             });
           }
         }

@@ -5696,6 +5696,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         t.dueDate && new Date(t.dueDate) < now &&
         !["resolved","closed","cancelled"].includes(t.status)
       );
+      const slaBreachedTix = tickets.filter(t =>
+        t.slaResolutionDueAt &&
+        new Date(t.slaResolutionDueAt as any) < now &&
+        !["resolved","closed","cancelled"].includes(t.status)
+      );
       const resolvedTix = tickets.filter(t => t.resolvedAt && t.createdAt);
       const avgResolutionHours = resolvedTix.length > 0
         ? resolvedTix.reduce((s, t) => {
@@ -5756,6 +5761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tickets: {
           open: openTix.length,
           overdue: overdueTix.length,
+          slaBreached: slaBreachedTix.length,
           avgResolutionHours,
           fcrRate,
           slaCompliance,
