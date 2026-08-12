@@ -5296,7 +5296,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const user = req.user as any;
-      const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId: user.id, decision: "pending" });
+
+      // If approverId is specified and differs from the caller, require admin/change_manage permission
+      let approverId: string = user.id;
+      if (req.body.approverId && req.body.approverId !== user.id) {
+        const callerPermissions = await storage.getUserPermissions(user.id);
+        const hasPermission = callerPermissions.includes("system_admin") || callerPermissions.includes("change_manage");
+        if (!hasPermission) {
+          return res.status(403).json({ message: "Only administrators can assign approvers on behalf of others" });
+        }
+        approverId = req.body.approverId;
+      }
+
+      const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId, decision: "pending" });
       res.status(201).json(approval);
     } catch { res.status(500).json({ message: "Failed to add approval" }); }
   });

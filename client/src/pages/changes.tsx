@@ -25,7 +25,7 @@ import {
   Building2, ArrowRight, Info, Loader2
 } from "lucide-react";
 import { format, formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, useHasPermission } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -516,6 +516,7 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
 export default function Changes() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdmin = useHasPermission("system_admin");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -529,6 +530,7 @@ export default function Changes() {
   const [pirForm, setPirForm] = useState({ outcome: "successful", summary: "", lessonsLearned: "", incidentsCaused: "", followUpActions: "" });
   const [pirData, setPirData] = useState<any>(null);
   const [pirLoading, setPirLoading] = useState(false);
+  const [addApproverUserId, setAddApproverUserId] = useState<string>("");
 
   const { data: changes = [], isLoading } = useQuery<ChangeWithDetails[]>({ queryKey: ["/api/changes"] });
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
@@ -582,9 +584,14 @@ export default function Changes() {
   });
 
   const addApproverMutation = useMutation({
-    mutationFn: async (changeId: string) => (await apiRequest("POST", `/api/changes/${changeId}/approvals`, {})).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/changes"] }); toast({ title: "Added as approver" }); },
-    onError: () => toast({ title: "Error", description: "Failed to add approval", variant: "destructive" }),
+    mutationFn: async ({ changeId, approverId }: { changeId: string; approverId?: string }) =>
+      (await apiRequest("POST", `/api/changes/${changeId}/approvals`, approverId ? { approverId } : {})).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      setAddApproverUserId("");
+      toast({ title: "Approver added" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to add approver", variant: "destructive" }),
   });
 
   const pirMutation = useMutation({
@@ -1038,10 +1045,46 @@ export default function Changes() {
                 </div>
               ))}
               <Separator />
-              {!myApproval && !["completed","cancelled"].includes(currentChange?.status ?? "") && (
-                <div className="space-y-2">
-                  <Textarea placeholder="Optional comment for your decision…" value={approvalComment} onChange={e => setApprovalComment(e.target.value)} className="min-h-[60px]" />
-                  <Button size="sm" className="gap-1" onClick={() => currentChange && addApproverMutation.mutate(currentChange.id)}><UserCheck className="h-4 w-4" />Add myself as approver</Button>
+              {!["completed","cancelled"].includes(currentChange?.status ?? "") && (
+                <div className="space-y-3">
+                  {/* Admin/manager: assign any user as approver */}
+                  {isAdmin && (
+                    <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/20">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assign Approver</p>
+                      <div className="flex gap-2 items-center">
+                        <Select value={addApproverUserId} onValueChange={setAddApproverUserId}>
+                          <SelectTrigger className="flex-1 h-8 text-sm">
+                            <SelectValue placeholder="Select a user…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allUsers
+                              .filter(u => !currentChange?.approvals?.some(a => a.approverId === u.id))
+                              .map(u => (
+                                <SelectItem key={u.id} value={u.id}>
+                                  {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          className="h-8 gap-1 shrink-0"
+                          disabled={!addApproverUserId || addApproverMutation.isPending}
+                          onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id, approverId: addApproverUserId })}
+                        >
+                          {addApproverMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                          Add Approver
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {/* Self-nomination */}
+                  {!myApproval && (
+                    <div className="space-y-2">
+                      <Textarea placeholder="Optional comment for your decision…" value={approvalComment} onChange={e => setApprovalComment(e.target.value)} className="min-h-[60px]" />
+                      <Button size="sm" variant="outline" className="gap-1" onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id })}><UserCheck className="h-4 w-4" />Add myself as approver</Button>
+                    </div>
+                  )}
                 </div>
               )}
             </TabsContent>
