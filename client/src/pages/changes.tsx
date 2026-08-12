@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -673,6 +674,11 @@ export default function Changes() {
   // Workflow action buttons based on status
   function WorkflowActions({ change }: { change: ChangeWithDetails }) {
     const id = change.id;
+    // CAB gate: cabRequired=true and not all approvals granted
+    const cabBlocking = !!change.cabRequired && (() => {
+      const approvals = change.approvals ?? [];
+      return approvals.length === 0 || approvals.some(a => a.decision !== "approved");
+    })();
     return (
       <div className="flex items-center gap-2 flex-wrap">
         {change.status === "draft" && (
@@ -688,10 +694,27 @@ export default function Changes() {
           </Button>
         )}
         {change.status === "approved" && (
-          <Button size="sm" className="gap-1.5 bg-orange-500 hover:bg-orange-600" disabled={isWorking}
-            onClick={() => workflowMutation.mutate({ id, action: "start" })}>
-            <Play className="h-3.5 w-3.5" />Start Implementation
-          </Button>
+          cabBlocking ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button size="sm" className="gap-1.5 bg-orange-500 hover:bg-orange-600" disabled>
+                      <Play className="h-3.5 w-3.5" />Start Implementation
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-center">
+                  CAB approval required — all CAB approvers must approve before implementation can start.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <Button size="sm" className="gap-1.5 bg-orange-500 hover:bg-orange-600" disabled={isWorking}
+              onClick={() => workflowMutation.mutate({ id, action: "start" })}>
+              <Play className="h-3.5 w-3.5" />Start Implementation
+            </Button>
+          )
         )}
         {change.status === "in_progress" && (
           <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700" disabled={isWorking}

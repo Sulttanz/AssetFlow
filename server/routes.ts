@@ -5184,6 +5184,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // strip empty-string nullable FK fields so DB doesn't complain
       if (!body.assignedToId) body.assignedToId = null;
       if (!body.departmentId) body.departmentId = null;
+      // New changes always start as draft regardless of caller-supplied status
+      body.status = "draft";
+      // Compute authoritative cabRequired from type/risk on creation
+      const typeTriggersCABOnCreate = ["normal", "emergency"].includes(body.type ?? "");
+      const riskTriggersCABOnCreate = ["high", "critical"].includes(body.risk ?? "");
+      if (typeTriggersCABOnCreate || riskTriggersCABOnCreate) {
+        body.cabRequired = true;
+      }
       const change = await storage.createChange({ ...body, requestedById: user.id });
       res.status(201).json(change);
     } catch (err) {
@@ -5194,6 +5202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
+      const oldChange = await storage.getChange(req.params.id);
       const body = { ...req.body };
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
       if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
@@ -5201,6 +5210,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.actualEnd)      body.actualEnd      = new Date(body.actualEnd);
       if (!body.assignedToId)  body.assignedToId   = null;
       if (!body.departmentId)  body.departmentId   = null;
+
+      // ── Authoritative CAB flag enforcement ──────────────────────────────────
+      // Derive requirement from the *resultant* type/risk (incoming body wins,
+      // fallback to stored). This covers type/risk escalation in the same request.
+      if (oldChange) {
+        const resultantType = ((body.type ?? oldChange.type) as string) || "";
+        const resultantRisk = ((body.risk ?? (oldChange as any).risk) as string) || "";
+        const typeTriggersCAB = ["normal", "emergency"].includes(resultantType);
+        const riskTriggersCAB = ["high", "critical"].includes(resultantRisk);
+
+        if (typeTriggersCAB || riskTriggersCAB) {
+          // Mandatory CAB — force true regardless of what the caller sent
+          body.cabRequired = true;
+        } else if (body.cabRequired === false) {
+          // Optional CAB being cleared — only allowed if no approvals have been added yet
+          const existingApprovals = await storage.getChangeApprovals(req.params.id);
+          if (existingApprovals.length > 0) {
+            // CAB process already started; cannot un-opt
+            body.cabRequired = !!(oldChange as any).cabRequired;
+          }
+        }
+      }
+
+      // ── CAB gate: block status transitions when approvals are pending ────────
+      // Applies to any move into in_progress or approved via this update endpoint.
+      // No admin bypass — the gate is hard for all roles; admins who must override
+      // should use the dedicated /approve flow or add approvals first.
+      if (
+        oldChange &&
+        body.status &&
+        body.status !== oldChange.status &&
+        (body.status === "in_progress" || body.status === "approved")
+      ) {
+        // Use the authoritative value computed above (resultant type/risk enforced)
+        const effectiveCabRequired =
+          body.cabRequired !== undefined
+            ? !!body.cabRequired
+            : !!(oldChange as any).cabRequired;
+
+        if (effectiveCabRequired) {
+          const approvals = await storage.getChangeApprovals(req.params.id);
+          const allApproved = approvals.length > 0 && approvals.every((a: any) => a.decision === "approved");
+          if (!allApproved) {
+            await logAudit(
+              (req.user as any)?.id,
+              "UPDATE",
+              "changes",
+              req.params.id,
+              oldChange.title,
+              { status: oldChange.status },
+              { status: body.status, blocked: true, note: "Status transition blocked: pending CAB approvals" },
+              req
+            );
+            return res.status(403).json({
+              message: "CAB approval is required. All CAB approvers must approve before this status change is permitted.",
+              code: "CAB_PENDING",
+            });
+          }
+        }
+      }
+
       const change = await storage.updateChange(req.params.id, body);
       if (!change) return res.status(404).json({ message: "Change not found" });
       res.json(change);
@@ -5332,6 +5402,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
       if (ch.status !== "approved") return res.status(400).json({ message: "Change must be approved before starting" });
+
+      // Block start if CAB approval is required but not yet fully granted
+      if (ch.cabRequired) {
+        const approvals = await storage.getChangeApprovals(req.params.id);
+        const allApproved = approvals.length > 0 && approvals.every(a => a.decision === "approved");
+        if (!allApproved) {
+          return res.status(400).json({
+            message: "CAB approval is required before implementation can start. All CAB approvals must be granted.",
+            code: "CAB_PENDING",
+          });
+        }
+      }
+
       const user = req.user as any;
       // Create default environment stages if none exist
       const existing = await storage.getChangeStages(req.params.id);
