@@ -59,7 +59,7 @@ function userLabel(u?: { username: string; firstName: string; lastName: string }
   return `${u.firstName} ${u.lastName}`;
 }
 
-export default function Tickets() {
+export default function Tickets({ viewMode = "management" }: { viewMode?: "management" | "assigned" }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -74,9 +74,11 @@ export default function Tickets() {
 
   const canManage = !!user?.permissions?.includes("ticket_manage");
   const canViewAll = canManage || !!user?.permissions?.includes("ticket_view_all");
+  const isAssignedView = viewMode === "assigned";
+  const canWorkTicket = canManage || isAssignedView;
 
   const { data: tickets, isLoading } = useQuery<TicketWithDetails[]>({
-    queryKey: ["/api/tickets"],
+    queryKey: [isAssignedView ? "/api/tickets/my-assigned" : "/api/tickets"],
   });
 
   const { data: assets } = useQuery<Asset[]>({
@@ -195,8 +197,11 @@ export default function Tickets() {
     },
     onSuccess: (updated: TicketWithDetails) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my-assigned"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
-      setSelectedTicket(updated);
+      setSelectedTicket((current) =>
+        current?.id === updated.id ? { ...current, ...updated } : updated
+      );
       toast({ title: "Success", description: "Ticket updated" });
     },
     onError: (error: any) => {
@@ -298,10 +303,10 @@ export default function Tickets() {
   return (
     <div className="flex-1 overflow-y-auto">
       <Header
-        title="Tickets"
-        description="Track and resolve incidents and service requests"
-        onAddClick={() => setIsFormOpen(true)}
-        addButtonText="New Ticket"
+        title={isAssignedView ? "My Assigned Tickets" : "Tickets"}
+        description={isAssignedView ? "Work on tickets assigned to you and close them when finished" : "Manage, assign, and track all incidents and service requests"}
+        onAddClick={isAssignedView ? undefined : () => setIsFormOpen(true)}
+        addButtonText={isAssignedView ? undefined : "New Ticket"}
       />
 
       <main className="p-4 sm:p-6 min-w-0">
@@ -339,7 +344,7 @@ export default function Tickets() {
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
-              {canViewAll && (
+              {canViewAll && !isAssignedView && (
                 <Select
                   value={scopeFilter}
                   onValueChange={(v) => {
@@ -356,7 +361,7 @@ export default function Tickets() {
                   </SelectContent>
                 </Select>
               )}
-              {canManage && (
+              {canManage && !isAssignedView && (
                 <Select
                   value={assigneeFilter}
                   onValueChange={(v) => {
@@ -424,7 +429,7 @@ export default function Tickets() {
                         </TableCell>
                         <TableCell>{userLabel(ticket.requester)}</TableCell>
                         <TableCell>
-                          {canManage ? (
+                          {canManage && !isAssignedView ? (
                             <Select
                               value={ticket.assignedToId || "unassigned"}
                               onValueChange={(v) =>
@@ -504,7 +509,7 @@ export default function Tickets() {
       </main>
 
       {/* Create Ticket Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={!isAssignedView && isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent className="max-w-lg w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>New Ticket</DialogTitle>
@@ -797,7 +802,7 @@ export default function Tickets() {
                         </Badge>
                       )}
                     </label>
-                    {canManage ? (
+                    {canWorkTicket ? (
                       <Select
                         value={selectedTicket.status}
                         onValueChange={(v) => {
@@ -820,7 +825,7 @@ export default function Tickets() {
                           <SelectItem value="in_progress">In Progress</SelectItem>
                           <SelectItem value="resolved">Resolved</SelectItem>
                           <SelectItem value="closed">Closed</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                          {canManage && <SelectItem value="cancelled">Cancelled</SelectItem>}
                         </SelectContent>
                       </Select>
                     ) : (
@@ -921,7 +926,7 @@ export default function Tickets() {
                   </div>
                   <div className="col-span-2 sm:col-span-2">
                     <label className="text-sm text-muted-foreground">Resolution Code</label>
-                    {canManage ? (
+                    {canWorkTicket ? (
                       <Select
                         value={selectedTicket.resolutionCode || undefined}
                         onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { resolutionCode: v } })}

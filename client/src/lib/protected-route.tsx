@@ -10,7 +10,7 @@ export function ProtectedRoute({
   requiredModule,
 }: {
   path: string;
-  component: () => React.JSX.Element;
+  component: React.ComponentType;
   requiredPermission?: string;
   requiredModule?: string;
 }) {

@@ -661,14 +661,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/tickets", requireAuth, requireModule('itsm'), async (req, res) => {
     try {
       const user = req.user as any;
-      const all = await storage.getTickets();
-      if (await canManageAllTickets(user.id)) {
-        return res.json(all);
+      if (!(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const own = all.filter(t => t.requesterId === user.id || t.assignedToId === user.id);
-      res.json(own);
+      res.json(await storage.getTickets());
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch tickets" });
+    }
+  });
+
+  app.get("/api/tickets/my-assigned", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const all = await storage.getTickets();
+      res.json(all.filter(ticket => ticket.assignedToId === user.id));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch assigned tickets" });
     }
   });
 
@@ -687,7 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tickets", requireAuth, requireModule('itsm'), async (req, res) => {
+  app.post("/api/tickets", requireAuth, requireModule('itsm'), requirePermission('ticket_manage'), async (req, res) => {
     try {
       const user = req.user as any;
       const validatedData = insertTicketSchema.parse({ ...req.body, requesterId: user.id });
@@ -708,12 +716,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const isManager = await canManageTicket(user.id);
       const isOwner = existing.requesterId === user.id;
-      if (!isManager && !isOwner) {
+      const isAssignedWorker = existing.assignedToId === user.id;
+      if (!isManager && !isOwner && !isAssignedWorker) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
       let updatePayload = req.body;
-      if (!isManager) {
+      if (isAssignedWorker && !isManager) {
+        const { status, resolutionCode } = req.body;
+        updatePayload = { status, resolutionCode };
+        if (status && !["open", "in_progress", "resolved", "closed"].includes(status)) {
+          return res.status(400).json({ message: "Assigned users cannot set this ticket status" });
+        }
+      } else if (!isManager) {
         // Requesters without ticket_manage may only edit their own ticket's basic details
         const { title, description, category, priority } = req.body;
         updatePayload = { title, description, category, priority };
