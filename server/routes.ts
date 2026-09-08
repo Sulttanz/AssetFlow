@@ -110,9 +110,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await ensureItsmPermissions();
 
-  // ====================
+  // --------------------
   // USER MANAGEMENT ROUTES
-  // ====================
+  // --------------------
 
   // Users CRUD routes
   app.get("/api/users", requireAuth, requirePermission('user_view'), async (req, res) => {
@@ -644,9 +644,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // ITSM TICKETING ROUTES
-  // ====================
+  // --------------------
 
   async function canManageAllTickets(userId: string): Promise<boolean> {
     const perms = await storage.getUserPermissions(userId);
@@ -1318,9 +1318,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // EXISTING ROUTES
-  // ====================
+  // --------------------
 
   // Assets routes - all require authentication
   app.get("/api/assets", requireAuth, requireModule('asset_management'), async (req, res) => {
@@ -4028,9 +4028,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // SETTINGS ROUTES
-  // ====================
+  // --------------------
   
   app.get("/api/settings/:key", requireAuth, async (req, res) => {
     try {
@@ -4058,9 +4058,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // MODULE SETTINGS ROUTES
-  // ====================
+  // --------------------
 
   // Public status of enabled modules — used by the login page to advertise
   // only the capabilities this deployment actually has enabled. No sensitive
@@ -4129,9 +4129,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // IMPORT/EXPORT ROUTES
-  // ====================
+  // --------------------
 
   // Configure multer for file uploads
   const upload = multer({ 
@@ -4588,9 +4588,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ====================
+  // --------------------
   // DROPDOWN OPTIONS ROUTES
-  // ====================
+  // --------------------
 
   app.get("/api/dropdowns/options", async (req, res) => {
     try {
@@ -5343,7 +5343,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId, decision: "pending" });
       res.status(201).json(approval);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(409).json({
+          message: "This CAB member is already assigned to the change.",
+          code: "CAB_APPROVER_DUPLICATE",
+        });
+      }
       console.error("Failed to add approval:", error);
       res.status(500).json({ message: "Failed to add approval" });
     }

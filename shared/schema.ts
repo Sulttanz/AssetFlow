@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1175,7 +1175,9 @@ export const changeApprovals = pgTable("change_approvals", {
   removedAt: timestamp("removed_at"),
   removedById: varchar("removed_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
-});
+}, (table) => ({
+  uniqueApproverPerChange: unique("change_approvals_change_id_approver_id_unique").on(table.changeId, table.approverId),
+}));
 
 // Environment deployment pipeline stages per change
 export const changeEnvironmentStages = pgTable("change_environment_stages", {
