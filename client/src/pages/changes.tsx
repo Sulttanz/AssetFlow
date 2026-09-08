@@ -1054,24 +1054,31 @@ export default function Changes() {
             {/* Approvals */}
             <TabsContent value="approvals" className="space-y-3">
               {currentChange?.approvals?.length === 0 && <p className="text-sm text-muted-foreground">No approvers added yet.</p>}
-              {currentChange?.approvals?.map(a => (
-                <div key={a.id} className="flex items-start justify-between bg-muted/40 rounded-md p-3 gap-3">
-                  <div>
-                    <p className="text-sm font-medium">{userLabel(a.approver)}</p>
-                    {a.comments && <p className="text-xs text-muted-foreground mt-1">{a.comments}</p>}
-                    {a.decidedAt && <p className="text-xs text-muted-foreground">{format(new Date(a.decidedAt), "MMM d, yyyy h:mm a")}</p>}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {a.decision === "approved" ? <Badge className="bg-green-100 text-green-800 gap-1"><CheckCircle2 className="h-3 w-3" />Approved</Badge>
-                     : a.decision === "rejected" ? <Badge className="bg-red-100 text-red-800 gap-1"><XCircle className="h-3 w-3" />Rejected</Badge>
-                     : <Badge className="bg-yellow-100 text-yellow-800 gap-1"><Clock className="h-3 w-3" />Pending</Badge>}
-                    {a.approverId === (user as any)?.id && a.decision === "pending" && (
-                      <div className="flex gap-1">
-                        <Button size="sm" variant="outline" className="h-7 gap-1 text-green-700 border-green-300 hover:bg-green-50" onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "approved" })}><CheckCircle2 className="h-3 w-3" />Approve</Button>
-                        <Button size="sm" variant="outline" className="h-7 gap-1 text-red-700 border-red-300 hover:bg-red-50" onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "rejected" })}><XCircle className="h-3 w-3" />Reject</Button>
-                      </div>
-                    )}
-                    {isAdmin && a.decision === "pending" && (
+              {currentChange?.approvals?.map(a => {
+                const isPending = a.decision === "pending" || a.decision === null;
+                const isMyPendingApproval = isPending && a.approverId === (user as any)?.id;
+                return (
+                <div key={a.id} className={cn(
+                  "rounded-md border p-3 space-y-3",
+                  isPending ? "border-amber-300 bg-amber-50/60" : "bg-muted/30",
+                )}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{userLabel(a.approver)}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {a.decidedAt
+                          ? `Decided ${format(new Date(a.decidedAt), "MMM d, yyyy h:mm a")}`
+                          : `Assigned ${format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}`}
+                      </p>
+                      <p className={cn("text-xs mt-2 whitespace-pre-wrap", a.comments ? "text-foreground" : "text-muted-foreground italic")}>
+                        {a.comments || (isPending ? "No comment yet." : "No comment provided.")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {a.decision === "approved" ? <Badge className="bg-green-100 text-green-800 gap-1"><CheckCircle2 className="h-3 w-3" />Approved</Badge>
+                       : a.decision === "rejected" ? <Badge className="bg-red-100 text-red-800 gap-1"><XCircle className="h-3 w-3" />Rejected</Badge>
+                       : <Badge className="bg-amber-100 text-amber-800 gap-1 border border-amber-300"><Clock className="h-3 w-3" />Pending</Badge>}
+                    {isAdmin && isPending && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button size="sm" variant="ghost" className="h-7 text-red-700" disabled={removeApproverMutation.isPending}>
@@ -1097,9 +1104,41 @@ export default function Changes() {
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+                    </div>
                   </div>
+                  {isMyPendingApproval && (
+                    <div className="space-y-2 rounded-md border border-amber-200 bg-background/80 p-3">
+                      <p className="text-xs font-semibold text-amber-900">Your CAB vote is pending</p>
+                      <Textarea
+                        placeholder="Optional comment for your decision…"
+                        value={approvalComment}
+                        onChange={e => setApprovalComment(e.target.value)}
+                        className="min-h-[60px] bg-background"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="h-8 gap-1 bg-green-600 hover:bg-green-700"
+                          disabled={decideMutation.isPending}
+                          onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "approved" })}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1 text-red-700 border-red-300 hover:bg-red-50"
+                          disabled={decideMutation.isPending}
+                          onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "rejected" })}
+                        >
+                          <XCircle className="h-3.5 w-3.5" />Reject
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
               <Separator />
               {!["completed","cancelled"].includes(currentChange?.status ?? "") && (
                 <div className="space-y-3">
@@ -1136,8 +1175,7 @@ export default function Changes() {
                   )}
                   {/* Self-nomination */}
                   {!myApproval && (
-                    <div className="space-y-2">
-                      <Textarea placeholder="Optional comment for your decision…" value={approvalComment} onChange={e => setApprovalComment(e.target.value)} className="min-h-[60px]" />
+                    <div>
                       <Button size="sm" variant="outline" className="gap-1" onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id })}><UserCheck className="h-4 w-4" />Add myself as approver</Button>
                     </div>
                   )}
