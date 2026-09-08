@@ -5547,6 +5547,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
+      const change = await storage.getChange(req.params.id);
+      if (!change) return res.status(404).json({ message: "Change not found" });
+      if (change.status !== "in_progress") {
+        return res.status(400).json({ message: "Environment stages can only be updated while the change is in progress" });
+      }
+
+      const existingStages = await storage.getChangeStages(req.params.id);
+      if (!existingStages.some(stage => stage.id === req.params.stageId)) {
+        return res.status(404).json({ message: "Stage not found for this change" });
+      }
+
       const user = req.user as any;
       const { status, notes, evidence, assignedToId, dueDate } = req.body;
       const updates: any = {};
