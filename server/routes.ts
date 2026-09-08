@@ -1893,11 +1893,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
 
-      const [assets, maintenanceSchedules, budgets, tickets] = await Promise.all([
+      const [assets, maintenanceSchedules, budgets, tickets, changes] = await Promise.all([
         storage.getAssets(),
         storage.getMaintenanceSchedules(),
         storage.getBudgets(),
         storage.getTickets(),
+        storage.getChanges(),
       ]);
 
       const alerts: any[] = [];
@@ -2038,6 +2039,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
         }
+      }
+
+      // Pending CAB votes assigned to the signed-in user
+      const currentUserId = (req.user as any)?.id;
+      for (const change of changes) {
+        const pendingVote = change.approvals?.find(
+          approval => approval.approverId === currentUserId && approval.decision === "pending"
+        );
+        if (!pendingVote) continue;
+        alerts.push({
+          type: "cab",
+          severity: change.type === "emergency" ? "high" : "medium",
+          title: `CAB Vote Pending: ${change.changeNumber}`,
+          message: `${change.title} is waiting for your CAB decision`,
+          changeId: change.id,
+          link: "/changes",
+        });
       }
 
       res.json(alerts);
@@ -5308,9 +5326,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         approverId = req.body.approverId;
       }
 
+      const approvalHistory = await storage.getAllChangeApprovalRecords(req.params.id);
+      const previous = approvalHistory.find(a => a.approverId === approverId);
+      if (previous?.removedAt) {
+        return res.status(409).json({
+          message: "This CAB member was removed from the change and cannot be re-added.",
+          code: "CAB_APPROVER_REMOVED",
+        });
+      }
+      if (previous) {
+        return res.status(409).json({
+          message: "This CAB member is already assigned to the change.",
+          code: "CAB_APPROVER_DUPLICATE",
+        });
+      }
+
       const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId, decision: "pending" });
       res.status(201).json(approval);
-    } catch { res.status(500).json({ message: "Failed to add approval" }); }
+    } catch (error) {
+      console.error("Failed to add approval:", error);
+      res.status(500).json({ message: "Failed to add approval" });
+    }
+  });
+
+  app.delete("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const callerPermissions = await storage.getUserPermissions(user.id);
+      const hasPermission = callerPermissions.includes("system_admin") || callerPermissions.includes("change_manage");
+      if (!hasPermission) return res.status(403).json({ message: "Only change managers can remove CAB approvers" });
+
+      const approvals = await storage.getChangeApprovals(req.params.changeId);
+      const approval = approvals.find(a => a.id === req.params.approvalId);
+      if (!approval) return res.status(404).json({ message: "Approval not found for this change" });
+      if (approval.decision !== "pending") {
+        return res.status(409).json({ message: "A CAB vote that has already been cast cannot be removed" });
+      }
+
+      const removed = await storage.removeChangeApproval(approval.id, user.id);
+      if (!removed) return res.status(404).json({ message: "Approval not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to remove approval:", error);
+      res.status(500).json({ message: "Failed to remove approval" });
+    }
   });
 
   app.put("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -5327,6 +5386,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allApprovals = await storage.getChangeApprovals(req.params.changeId);
       const existing = allApprovals.find(a => a.id === req.params.approvalId);
       if (!existing) return res.status(404).json({ message: "Approval not found for this change" });
+      if (existing.decision !== "pending") {
+        return res.status(409).json({ message: "This CAB vote has already been recorded and cannot be cast again" });
+      }
 
       // Only the approval's owner may cast a vote
       if (existing.approverId !== user.id) {
@@ -5418,6 +5480,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Block start if CAB approval is required but not yet fully granted
       if (ch.cabRequired) {
         const approvals = await storage.getChangeApprovals(req.params.id);
+        if (approvals.length === 0) {
+          return res.status(400).json({
+            message: "At least one CAB approver must be assigned before implementation can start.",
+            code: "CAB_APPROVERS_REQUIRED",
+          });
+        }
         const allApproved = approvals.length > 0 && approvals.every(a => a.decision === "approved");
         if (!allApproved) {
           return res.status(400).json({

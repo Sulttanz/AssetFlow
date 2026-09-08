@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ChangeApproval {
   id: string; changeId: string; approverId: string; decision: string | null;
-  comments: string | null; decidedAt: string | null; createdAt: string;
+  comments: string | null; decidedAt: string | null; removedAt?: string | null; createdAt: string;
   approver?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
 interface ChangeStage {
@@ -591,7 +591,17 @@ export default function Changes() {
       setAddApproverUserId("");
       toast({ title: "Approver added" });
     },
-    onError: () => toast({ title: "Error", description: "Failed to add approver", variant: "destructive" }),
+    onError: (error: any) => toast({ title: "Unable to add approver", description: error?.message ?? "Failed to add approver", variant: "destructive" }),
+  });
+
+  const removeApproverMutation = useMutation({
+    mutationFn: async ({ changeId, approvalId }: { changeId: string; approvalId: string }) =>
+      (await apiRequest("DELETE", `/api/changes/${changeId}/approvals/${approvalId}`)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      toast({ title: "CAB approver removed" });
+    },
+    onError: (error: any) => toast({ title: "Unable to remove approver", description: error?.message ?? "Failed to remove approver", variant: "destructive" }),
   });
 
   const pirMutation = useMutation({
@@ -992,6 +1002,26 @@ export default function Changes() {
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground">CAB members vote via the Approvals tab. All votes must be approved before the change can proceed.</p>
+                  {(currentChange.approvals?.length ?? 0) === 0 ? (
+                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      No CAB approvers have been assigned. Implementation cannot start until at least one approver is added and approves.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 pt-1">
+                      {currentChange.approvals?.map(approval => (
+                        <div key={approval.id} className="flex items-center justify-between rounded border bg-white/70 px-2.5 py-1.5 text-xs">
+                          <span className="font-medium">{userLabel(approval.approver)}</span>
+                          <span className={cn(
+                            "font-semibold capitalize",
+                            approval.decision === "approved" ? "text-green-700" :
+                            approval.decision === "rejected" ? "text-red-700" : "text-amber-700"
+                          )}>
+                            {approval.decision ?? "pending"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </TabsContent>
@@ -1040,6 +1070,32 @@ export default function Changes() {
                         <Button size="sm" variant="outline" className="h-7 gap-1 text-green-700 border-green-300 hover:bg-green-50" onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "approved" })}><CheckCircle2 className="h-3 w-3" />Approve</Button>
                         <Button size="sm" variant="outline" className="h-7 gap-1 text-red-700 border-red-300 hover:bg-red-50" onClick={() => currentChange && decideMutation.mutate({ changeId: currentChange.id, approvalId: a.id, decision: "rejected" })}><XCircle className="h-3 w-3" />Reject</Button>
                       </div>
+                    )}
+                    {isAdmin && a.decision === "pending" && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant="ghost" className="h-7 text-red-700" disabled={removeApproverMutation.isPending}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Remove CAB approver?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Remove {userLabel(a.approver)} from this change? They cannot be re-added later.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground"
+                              onClick={() => currentChange && removeApproverMutation.mutate({ changeId: currentChange.id, approvalId: a.id })}
+                            >
+                              Remove Approver
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     )}
                   </div>
                 </div>
@@ -1273,6 +1329,16 @@ export default function Changes() {
                         <SelectItem value="cancelled">Cancelled</SelectItem>
                       </SelectContent>
                     </Select><FormMessage />
+                    {editingChange.cabRequired &&
+                      field.value !== editingChange.status &&
+                      ["approved", "in_progress"].includes(field.value ?? "") && (
+                      <div className="mt-2 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>
+                          This override would skip the normal CAB workflow. The server will reject it unless at least one CAB approver is assigned and every vote is approved.
+                        </span>
+                      </div>
+                    )}
                   </FormItem>
                 )} />
               )}

@@ -343,8 +343,10 @@ export interface IStorage {
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
   deleteChange(id: string): Promise<boolean>;
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
+  getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]>;
   createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
   updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
+  removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined>;
   getChangePIR(changeId: string): Promise<ChangePIR | undefined>;
   createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR>;
   updateChangePIR(changeId: string, pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined>;
@@ -2416,10 +2418,12 @@ export class MemStorage implements IStorage {
   async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
   async deleteChange(_id: string): Promise<boolean> { return false; }
   async getChangeApprovals(_changeId: string): Promise<ChangeApproval[]> { return []; }
+  async getAllChangeApprovalRecords(_changeId: string): Promise<ChangeApproval[]> { return []; }
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
-    return { id: randomUUID(), ...approval, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, createdAt: new Date() };
+    return { id: randomUUID(), ...approval, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, createdAt: new Date() };
   }
   async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
+  async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
   async getChangePIR(_changeId: string): Promise<ChangePIR | undefined> { return undefined; }
   async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
     return { id: randomUUID(), changeId: pir.changeId, outcome: pir.outcome ?? "successful", summary: pir.summary, lessonsLearned: pir.lessonsLearned ?? null, incidentsCaused: pir.incidentsCaused ?? null, followUpActions: pir.followUpActions ?? null, completedById: pir.completedById ?? null, createdAt: new Date(), updatedAt: new Date() };
@@ -3758,7 +3762,7 @@ export class DatabaseStorage implements IStorage {
       ch.requestedById ? db.select().from(users).where(eq(users.id, ch.requestedById)) : Promise.resolve([]),
       ch.assignedToId  ? db.select().from(users).where(eq(users.id, ch.assignedToId))  : Promise.resolve([]),
       ch.departmentId  ? db.select().from(departments).where(eq(departments.id, ch.departmentId)) : Promise.resolve([]),
-      db.select().from(changeApprovals).where(eq(changeApprovals.changeId, ch.id)),
+      db.select().from(changeApprovals).where(and(eq(changeApprovals.changeId, ch.id), isNull(changeApprovals.removedAt))),
       db.select().from(changeEnvironmentStages).where(eq(changeEnvironmentStages.changeId, ch.id)).orderBy(changeEnvironmentStages.order),
     ]);
     const approvalsWithUsers = await Promise.all(approvalRows.map(async a => ({
@@ -3836,6 +3840,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getChangeApprovals(changeId: string): Promise<ChangeApproval[]> {
+    return db.select().from(changeApprovals).where(and(eq(changeApprovals.changeId, changeId), isNull(changeApprovals.removedAt)));
+  }
+  async getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]> {
     return db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
   }
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
@@ -3843,7 +3850,17 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
   async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
-    const result = await db.update(changeApprovals).set({ decision, comments: comments ?? null, decidedAt: new Date() }).where(eq(changeApprovals.id, id)).returning();
+    const result = await db.update(changeApprovals)
+      .set({ decision, comments: comments ?? null, decidedAt: new Date() })
+      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt)))
+      .returning();
+    return result[0];
+  }
+  async removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined> {
+    const result = await db.update(changeApprovals)
+      .set({ removedAt: new Date(), removedById })
+      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt)))
+      .returning();
     return result[0];
   }
 

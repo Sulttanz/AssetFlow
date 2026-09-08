@@ -1172,6 +1172,8 @@ export const changeApprovals = pgTable("change_approvals", {
   decision: text("decision"),   // approved | rejected | pending
   comments: text("comments"),
   decidedAt: timestamp("decided_at"),
+  removedAt: timestamp("removed_at"),
+  removedById: varchar("removed_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
