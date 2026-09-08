@@ -170,8 +170,8 @@ export default function Header({
       </div>
 
       {/* Row 2: Search + action buttons — full width below title on mobile */}
-      <div className="flex items-center gap-2 mt-3">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input
             type="text"
@@ -182,7 +182,9 @@ export default function Header({
           />
         </div>
 
-        {children}
+        <div className="flex flex-wrap items-center gap-2 max-w-full">
+          {children}
+        </div>
 
         {showAddButton && (
           <Button onClick={onAddClick} data-testid="add-button" size="sm" className="shrink-0">

@@ -304,11 +304,11 @@ export default function Tickets() {
         addButtonText="New Ticket"
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6 min-w-0">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             <div className="flex flex-wrap items-center gap-3 mb-4">
-              <div className="relative flex-1 min-w-[220px]">
+              <div className="relative flex-1 min-w-0 basis-full sm:basis-auto sm:min-w-[220px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by ticket #, title, category..."
@@ -327,7 +327,7 @@ export default function Tickets() {
                   setCurrentPage(1);
                 }}
               >
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -347,7 +347,7 @@ export default function Tickets() {
                     setCurrentPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-full sm:w-[160px]">
                     <SelectValue placeholder="Scope" />
                   </SelectTrigger>
                   <SelectContent>
@@ -364,7 +364,7 @@ export default function Tickets() {
                     setCurrentPage(1);
                   }}
                 >
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                     <SelectValue placeholder="Assignee" />
                   </SelectTrigger>
                   <SelectContent>
@@ -388,7 +388,8 @@ export default function Tickets() {
               </div>
             ) : (
               <div className="space-y-4">
-                <Table>
+                <div className="w-full overflow-x-auto rounded-md">
+                  <Table className="min-w-[980px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Ticket #</TableHead>
@@ -462,7 +463,8 @@ export default function Tickets() {
                       </TableRow>
                     )}
                   </TableBody>
-                </Table>
+                  </Table>
+                </div>
 
                 {totalPages > 1 && (
                   <div className="flex justify-center mt-4">
@@ -503,7 +505,7 @@ export default function Tickets() {
 
       {/* Create Ticket Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>New Ticket</DialogTitle>
           </DialogHeader>
@@ -535,7 +537,7 @@ export default function Tickets() {
                   </FormItem>
                 )}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="type"
@@ -582,7 +584,7 @@ export default function Tickets() {
                   )}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
                   name="impact"
@@ -690,9 +692,9 @@ export default function Tickets() {
                   </div>
                 )}
               </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => { setIsFormOpen(false); setNewTicketFiles([]); }}>Cancel</Button>
-                <Button type="submit" disabled={createMutation.isPending}>Submit Ticket</Button>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button className="w-full sm:w-auto" type="button" variant="outline" onClick={() => { setIsFormOpen(false); setNewTicketFiles([]); }}>Cancel</Button>
+                <Button className="w-full sm:w-auto" type="submit" disabled={createMutation.isPending}>Submit Ticket</Button>
               </DialogFooter>
             </form>
           </Form>

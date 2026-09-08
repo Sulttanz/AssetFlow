@@ -71,7 +71,7 @@ function Router() {
         {(params) => {
           // All other routes require authentication and use the main layout
           return (
-            <div className="flex h-screen bg-background">
+            <div className="flex min-h-[100dvh] bg-background overflow-x-hidden">
               <Sidebar />
               <div className="flex-1 overflow-auto pt-14 md:pt-0">
                 <Switch>

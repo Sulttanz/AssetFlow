@@ -104,11 +104,18 @@
     white-space: nowrap;
   }
 
-  /* Dialogs: full width on mobile */
-  [role="dialog"] > div,
-  [data-radix-popper-content-wrapper] {
-    max-width: 100vw !important;
-    width: 100vw !important;
+  /* Radix dialogs stay inside the viewport and scroll their own content. */
+  [data-radix-dialog-content] {
+    width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    overflow-y: auto;
+  }
+
+  [data-radix-popover-content],
+  [data-radix-select-content],
+  [data-radix-dropdown-menu-content] {
+    max-width: calc(100vw - 1rem);
   }
 
   /* Stat/summary card grids: single column */
@@ -135,4 +142,14 @@
   /* Headings */
   h1 { font-size: 1.4rem !important; }
   h2 { font-size: 1.15rem !important; }
+
+  /* Prevent long labels, controls and tab rows from forcing page width. */
+  input, textarea, select, [role="combobox"] {
+    max-width: 100%;
+  }
+  [role="tablist"] {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
 }
