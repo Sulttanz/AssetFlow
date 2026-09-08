@@ -680,6 +680,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/tickets/my-requests", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const all = await storage.getTickets();
+      res.json(all.filter(ticket => ticket.requesterId === user.id));
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch your requests" });
+    }
+  });
+
+  app.post("/api/tickets/my-requests", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const {
+        assignedToId: _assignedToId,
+        requesterId: _requesterId,
+        status: _status,
+        priority: _priority,
+        dueDate: _dueDate,
+        resolutionCode: _resolutionCode,
+        ...employeeFields
+      } = req.body;
+      const validatedData = insertTicketSchema.parse({ ...employeeFields, requesterId: user.id });
+      const ticket = await storage.createTicket(validatedData);
+      await logAudit(user.id, 'CREATE', 'tickets', ticket.id, ticket.title, null, ticket, req);
+      res.status(201).json(ticket);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create ticket" });
+    }
+  });
+
   app.get("/api/tickets/:id", requireAuth, requireModule('itsm'), async (req, res) => {
     try {
       const user = req.user as any;
@@ -729,9 +761,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "Assigned users cannot set this ticket status" });
         }
       } else if (!isManager) {
-        // Requesters without ticket_manage may only edit their own ticket's basic details
-        const { title, description, category, priority } = req.body;
-        updatePayload = { title, description, category, priority };
+        // Requesters without ticket_manage may only edit their own request content.
+        // Priority and all workflow/assignment fields remain service-desk controlled.
+        const { title, description, category } = req.body;
+        updatePayload = { title, description, category };
       }
 
       const validatedData = insertTicketSchema.partial().parse(updatePayload);
@@ -749,6 +782,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
       res.status(500).json({ message: "Failed to update ticket" });
+    }
+  });
+
+  app.post("/api/tickets/:id/close-request", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const existing = await storage.getTicket(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ticket not found" });
+      if (existing.requesterId !== user.id) {
+        return res.status(403).json({ message: "Only the requester can confirm closure" });
+      }
+      if (existing.status !== "resolved") {
+        return res.status(400).json({ message: "Only a resolved ticket can be closed by the requester" });
+      }
+      const ticket = await storage.updateTicket(existing.id, { status: "closed" });
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
+      res.json(ticket);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to close ticket" });
+    }
+  });
+
+  app.post("/api/tickets/:id/reopen-request", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const existing = await storage.getTicket(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ticket not found" });
+      if (existing.requesterId !== user.id) {
+        return res.status(403).json({ message: "Only the requester can reopen this ticket" });
+      }
+      if (!["resolved", "closed"].includes(existing.status)) {
+        return res.status(400).json({ message: "Only a resolved or closed ticket can be reopened" });
+      }
+      const { reason } = z.object({ reason: z.string().trim().min(5).max(2000) }).parse(req.body);
+      const ticket = await storage.updateTicket(existing.id, { status: "open" });
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      await storage.createTicketComment({
+        ticketId: existing.id,
+        authorId: user.id,
+        message: `Reopened by requester: ${reason}`,
+        isInternal: false,
+      });
+      await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
+      res.json(ticket);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A reopen reason of at least 5 characters is required", errors: error.errors });
+      res.status(500).json({ message: "Failed to reopen ticket" });
     }
   });
 

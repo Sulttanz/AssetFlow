@@ -59,7 +59,7 @@ function userLabel(u?: { username: string; firstName: string; lastName: string }
   return `${u.firstName} ${u.lastName}`;
 }
 
-export default function Tickets({ viewMode = "management" }: { viewMode?: "management" | "assigned" }) {
+export default function Tickets({ viewMode = "management" }: { viewMode?: "management" | "assigned" | "requests" }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -71,14 +71,23 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
   const [selectedTicket, setSelectedTicket] = useState<TicketWithDetails | null>(null);
   const [commentText, setCommentText] = useState("");
   const [commentIsInternal, setCommentIsInternal] = useState(false);
+  const [reopenReason, setReopenReason] = useState("");
+  const [isReopenOpen, setIsReopenOpen] = useState(false);
 
   const canManage = !!user?.permissions?.includes("ticket_manage");
   const canViewAll = canManage || !!user?.permissions?.includes("ticket_view_all");
   const isAssignedView = viewMode === "assigned";
+  const isRequestsView = viewMode === "requests";
   const canWorkTicket = canManage || isAssignedView;
 
   const { data: tickets, isLoading } = useQuery<TicketWithDetails[]>({
-    queryKey: [isAssignedView ? "/api/tickets/my-assigned" : "/api/tickets"],
+    queryKey: [
+      isAssignedView
+        ? "/api/tickets/my-assigned"
+        : isRequestsView
+          ? "/api/tickets/my-requests"
+          : "/api/tickets",
+    ],
   });
 
   const { data: assets } = useQuery<Asset[]>({
@@ -158,7 +167,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/tickets", data);
+      const res = await apiRequest("POST", isRequestsView ? "/api/tickets/my-requests" : "/api/tickets", data);
       return res.json();
     },
     onSuccess: async (createdTicket: TicketWithDetails) => {
@@ -179,6 +188,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
         }
       }
       queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       setIsFormOpen(false);
       form.reset();
@@ -238,6 +248,25 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error?.message || "Failed to add comment", variant: "destructive" });
+    },
+  });
+
+  const requesterStatusMutation = useMutation({
+    mutationFn: async ({ id, action, reason }: { id: string; action: "close" | "reopen"; reason?: string }) => {
+      const endpoint = action === "close" ? "close-request" : "reopen-request";
+      const res = await apiRequest("POST", `/api/tickets/${id}/${endpoint}`, reason ? { reason } : {});
+      return res.json();
+    },
+    onSuccess: (updated: TicketWithDetails) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets", updated.id, "comments"] });
+      setSelectedTicket((current) => current?.id === updated.id ? { ...current, ...updated } : updated);
+      setIsReopenOpen(false);
+      setReopenReason("");
+      toast({ title: "Success", description: updated.status === "closed" ? "Ticket closed" : "Ticket reopened" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error?.message || "Failed to update ticket", variant: "destructive" });
     },
   });
 
@@ -303,10 +332,16 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
   return (
     <div className="flex-1 overflow-y-auto">
       <Header
-        title={isAssignedView ? "My Assigned Tickets" : "Tickets"}
-        description={isAssignedView ? "Work on tickets assigned to you and close them when finished" : "Manage, assign, and track all incidents and service requests"}
+        title={isAssignedView ? "My Assigned Tickets" : isRequestsView ? "My Requests" : "Tickets"}
+        description={
+          isAssignedView
+            ? "Work on tickets assigned to you and close them when finished"
+            : isRequestsView
+              ? "Create support requests and follow their progress"
+              : "Manage, assign, and track all incidents and service requests"
+        }
         onAddClick={isAssignedView ? undefined : () => setIsFormOpen(true)}
-        addButtonText={isAssignedView ? undefined : "New Ticket"}
+        addButtonText={isAssignedView ? undefined : isRequestsView ? "New Request" : "New Ticket"}
       />
 
       <main className="p-4 sm:p-6 min-w-0">
@@ -1108,9 +1143,73 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     </div>
                   </div>
                 </div>
+
+                {isRequestsView && selectedTicket.status === "resolved" && (
+                  <div className="border-t pt-4 flex flex-col sm:flex-row gap-2 sm:justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsReopenOpen(true)}
+                    >
+                      Reopen — Still Not Fixed
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (window.confirm("Confirm that this request is resolved and close it?")) {
+                          requesterStatusMutation.mutate({ id: selectedTicket.id, action: "close" });
+                        }
+                      }}
+                      disabled={requesterStatusMutation.isPending}
+                    >
+                      Confirm Resolution & Close
+                    </Button>
+                  </div>
+                )}
+
+                {isRequestsView && selectedTicket.status === "closed" && (
+                  <div className="border-t pt-4 flex justify-end">
+                    <Button variant="outline" onClick={() => setIsReopenOpen(true)}>
+                      Reopen Request
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isReopenOpen} onOpenChange={setIsReopenOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reopen Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="reopen-reason" className="text-sm font-medium leading-none">
+              Why is the issue not resolved?
+            </label>
+            <Textarea
+              id="reopen-reason"
+              value={reopenReason}
+              onChange={(event) => setReopenReason(event.target.value)}
+              placeholder="Explain what is still not working..."
+              rows={5}
+            />
+            <p className="text-xs text-muted-foreground">At least 5 characters are required.</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsReopenOpen(false)}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={reopenReason.trim().length < 5 || requesterStatusMutation.isPending || !selectedTicket}
+              onClick={() => selectedTicket && requesterStatusMutation.mutate({
+                id: selectedTicket.id,
+                action: "reopen",
+                reason: reopenReason.trim(),
+              })}
+            >
+              Reopen Request
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
