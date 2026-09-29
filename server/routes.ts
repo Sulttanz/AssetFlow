@@ -5544,7 +5544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allApprovals = await storage.getChangeApprovals(req.params.changeId);
       const existing = allApprovals.find(a => a.id === req.params.approvalId);
       if (!existing) return res.status(404).json({ message: "Approval not found for this change" });
-      if (existing.decision !== "pending") {
+      if (existing.decision !== "pending" && existing.decision !== null) {
         return res.status(409).json({ message: "This CAB vote has already been recorded and cannot be cast again" });
       }
 
