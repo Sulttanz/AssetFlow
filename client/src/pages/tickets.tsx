@@ -342,6 +342,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
         }
         onAddClick={isAssignedView ? undefined : () => setIsFormOpen(true)}
         addButtonText={isAssignedView ? undefined : isRequestsView ? "New Request" : "New Ticket"}
+        showAddButton={!isAssignedView && (isRequestsView || canManage)}
       />
 
       <main className="p-4 sm:p-6 min-w-0">

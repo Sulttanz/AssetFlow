@@ -116,7 +116,7 @@ function Router() {
                   <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
-                  <ProtectedRoute path="/tickets" component={Tickets} requiredModule="itsm" requiredPermission="ticket_manage" />
+                  <ProtectedRoute path="/tickets" component={Tickets} requiredModule="itsm" requiredAnyPermission={["ticket_manage", "ticket_view_all"]} />
                   <ProtectedRoute path="/my-assigned-tickets" component={MyAssignedTickets} requiredModule="itsm" />
                   <ProtectedRoute path="/my-requests" component={MyRequests} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />

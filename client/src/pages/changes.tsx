@@ -1369,11 +1369,15 @@ export default function Changes() {
                     </Select><FormMessage />
                     {editingChange.cabRequired &&
                       field.value !== editingChange.status &&
-                      ["approved", "in_progress"].includes(field.value ?? "") && (
+                      ["approved", "in_progress"].includes(field.value ?? "") &&
+                      (!editingChange.approvals?.length ||
+                        editingChange.approvals.some(a => a.decision !== "approved")) && (
                       <div className="mt-2 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800">
                         <AlertTriangle className="h-4 w-4 shrink-0" />
                         <span>
-                          This override would skip the normal CAB workflow. The server will reject it unless at least one CAB approver is assigned and every vote is approved.
+                          {editingChange.approvals?.some(a => a.decision === "pending" || a.decision === null)
+                            ? "This would bypass pending CAB approvals. The attempt will be recorded in the audit log, but the server will reject it until every CAB approver has approved."
+                            : "CAB approval is required before this status change. The server will reject the override until at least one CAB approver is assigned and every vote is approved. The attempt will be recorded in the audit log."}
                         </span>
                       </div>
                     )}

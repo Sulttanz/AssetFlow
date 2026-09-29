@@ -54,7 +54,10 @@ import { useModules } from "@/hooks/use-modules";
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
-  const hasPermission = (permission?: string) => !permission || !!user?.permissions?.includes(permission);
+  const hasPermission = (permission?: string | string[]) =>
+    !permission || (Array.isArray(permission)
+      ? permission.some(p => user?.permissions?.includes(p))
+      : !!user?.permissions?.includes(permission));
   const { isModuleEnabled } = useModules();
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
@@ -109,7 +112,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "IT Service Management",
       moduleKey: "itsm",
       items: [
-        { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets", permission: "ticket_manage" },
+        { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets", permission: ["ticket_manage", "ticket_view_all"] },
         { name: "My Assigned Tickets", href: "/my-assigned-tickets", icon: ClipboardCheck, current: location === "/my-assigned-tickets" },
         { name: "My Requests", href: "/my-requests", icon: ClipboardList, current: location === "/my-requests" },
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
