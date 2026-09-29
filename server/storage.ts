@@ -2511,7 +2511,7 @@ export class MemStorage implements IStorage {
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
     const approver = approval.approverId ? this.users.get(approval.approverId) : undefined;
     if (!approver) throw new Error("CAB approver account not found");
-    return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, createdAt: new Date() };
+    return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
   }
   async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
   async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
@@ -3880,6 +3880,7 @@ export class DatabaseStorage implements IStorage {
     }
     for (const approval of approvalRows) {
       if (!approval.removedAt) addUser(approval.approverId);
+      else addUser(approval.removedById);
     }
     for (const stage of stageRows) {
       addUser(stage.deployedById);
@@ -3912,6 +3913,10 @@ export class DatabaseStorage implements IStorage {
           ...a,
           approver: a.approverId ? userById.get(a.approverId) : undefined,
         })),
+        removedApprovals: approvals.filter(a => a.removedAt).map(a => ({
+          ...a,
+          removedBy: a.removedById ? userById.get(a.removedById) : undefined,
+        })).sort((a, b) => b.removedAt!.getTime() - a.removedAt!.getTime()),
         removedApproverIds: approvals.filter(a => a.removedAt).map(a => a.originalApproverId),
         stages: (stagesByChange.get(ch.id) ?? []).map(s => ({
           ...s,
@@ -3995,8 +4000,11 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
   async removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined> {
+    const [remover] = await db.select().from(users).where(eq(users.id, removedById));
+    if (!remover) throw new Error("CAB remover account not found");
+    const removedByLabel = [remover.firstName, remover.lastName].filter(Boolean).join(" ") || remover.username;
     const result = await db.update(changeApprovals)
-      .set({ removedAt: new Date(), removedById })
+      .set({ removedAt: new Date(), removedById, removedByLabel })
       .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .returning();
     return result[0];

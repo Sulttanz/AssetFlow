@@ -23,16 +23,16 @@ function approval(id: string, decision: string | null, approverId = id, comments
   };
 }
 
-function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = []) {
+function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = []) {
   return {
     id: "change-1", changeNumber: "CHG-1", title: "CAB review fixture",
     type: "normal", status: "submitted", priority: "medium", risk: "low",
-    cabRequired: true, approvals, removedApproverIds, stages: [], createdAt: assignedAt, updatedAt: assignedAt,
+    cabRequired: true, approvals, removedApproverIds, removedApprovals, stages: [], createdAt: assignedAt, updatedAt: assignedAt,
   };
 }
 
-async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = []) {
-  queryClient.setQueryData(["/api/changes"], [change(approvals, removedApproverIds)]);
+async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = []) {
+  queryClient.setQueryData(["/api/changes"], [change(approvals, removedApproverIds, removedApprovals)]);
   queryClient.setQueryData(["/api/users"], ["alice", "bob", "carol", "dave"].map(id => ({
     id, username: id, firstName: id, lastName: null,
   })));
@@ -66,6 +66,28 @@ afterEach(() => {
 });
 
 describe("change detail CAB approvals", () => {
+  it("shows removed assignments as read-only history after both accounts are deleted, without affecting active counts or CAB gates", async () => {
+    auth.isAdmin = true;
+    const removed = {
+      ...approval("Former", "pending", "carol"),
+      approverId: null, approver: undefined,
+      removedAt: decidedAt, removedById: null, removedByLabel: "Morgan Manager",
+    };
+    const { user, panel } = await openApprovals([], ["carol"], [removed]);
+    const history = within(panel).getByRole("region", { name: "Removed CAB assignments" });
+    expect(within(history).getByText("Former Reviewer")).toBeTruthy();
+    expect(within(history).getByText(`Assigned ${format(new Date(assignedAt), "MMM d, yyyy h:mm a")}`)).toBeTruthy();
+    expect(within(history).getByText(`Removed ${format(new Date(decidedAt), "MMM d, yyyy h:mm a")} by Morgan Manager`)).toBeTruthy();
+    expect(within(history).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Approvals (0)" })).toBeTruthy();
+    expect(within(panel).getByText("No approvers added yet.")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(screen.getByText(/No CAB approvers have been added yet/)).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: "Approvals (0)" }));
+    await user.click(within(panel).getByRole("combobox"));
+    expect(screen.queryByRole("option", { name: "carol" })).toBeNull();
+  });
+
   it("does not offer removed or active CAB members for assignment", async () => {
     auth.isAdmin = true;
     const { user, panel } = await openApprovals([approval("Bob", "pending", "bob")], ["carol"]);

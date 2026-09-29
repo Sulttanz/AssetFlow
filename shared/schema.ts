@@ -1179,6 +1179,7 @@ export const changeApprovals = pgTable("change_approvals", {
   decidedAt: timestamp("decided_at"),
   removedAt: timestamp("removed_at"),
   removedById: varchar("removed_by_id").references(() => users.id, { onDelete: "set null" }),
+  removedByLabel: text("removed_by_label"),
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
@@ -1232,6 +1233,7 @@ export type ChangeWithDetails = Change & {
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   department?: Department;
   approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+  removedApprovals: (ChangeApproval & { removedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
   removedApproverIds: string[];
   stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
 };

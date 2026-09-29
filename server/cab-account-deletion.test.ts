@@ -59,10 +59,19 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
 
       const removed = await storage.removeChangeApproval(pending.id, removerId);
       expect(removed?.removedAt).toBeInstanceOf(Date);
+      expect(removed?.removedByLabel).toBe("Test Manager");
       const remaining = await storage.getChangeApprovals(changeId);
       expect(remaining.map(approval => approval.id)).toEqual([decided!.id]);
       expect(cabApprovalsGranted(remaining)).toBe(true);
       expect((await storage.getAllChangeApprovalRecords(changeId))).toHaveLength(2);
+      expect(await storage.deleteUser(removerId)).toBe(true);
+      const details = await storage.getChange(changeId);
+      expect(details?.approvals?.map(a => a.id)).toEqual([decided!.id]);
+      expect(details?.removedApproverIds).toEqual([approverId]);
+      expect(details?.removedApprovals).toMatchObject([{
+        id: pending.id, originalApproverId: approverId, approverLabel: "Casey Reviewer",
+        removedById: null, removedByLabel: "Test Manager", removedAt: removed!.removedAt,
+      }]);
     } finally {
       // Only delete fixtures identified by their generated IDs; never touch existing changes or users.
       try {

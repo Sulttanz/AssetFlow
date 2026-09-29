@@ -33,8 +33,9 @@ import { cn } from "@/lib/utils";
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ChangeApproval {
   id: string; changeId: string; approverId: string | null; originalApproverId: string; approverLabel: string; decision: string | null;
-  comments: string | null; decidedAt: string | null; removedAt?: string | null; createdAt: string;
+  comments: string | null; decidedAt: string | null; removedAt?: string | null; removedById?: string | null; removedByLabel?: string | null; createdAt: string;
   approver?: { id: string; username: string; firstName: string | null; lastName: string | null };
+  removedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
 interface ChangeStage {
   id: string; changeId: string; environment: string; order: number; status: string;
@@ -57,6 +58,7 @@ interface ChangeWithDetails {
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
   department?: { id: string; name: string };
   approvals?: ChangeApproval[];
+  removedApprovals?: ChangeApproval[];
   removedApproverIds: string[];
   stages?: ChangeStage[];
   createdAt: string; updatedAt: string;
@@ -715,6 +717,7 @@ export default function Changes() {
   const unavailableApproverIds = new Set([
     ...(currentChange?.approvals?.map(a => a.originalApproverId) ?? []),
     ...(currentChange?.removedApproverIds ?? []),
+    ...(currentChange?.removedApprovals?.map(a => a.originalApproverId) ?? []),
   ]);
   const canAddSelectedApprover = !!addApproverUserId && !unavailableApproverIds.has(addApproverUserId);
   const myPendingChanges = changes.filter(c => c.approvals?.some(a =>
@@ -1210,6 +1213,27 @@ export default function Changes() {
                 </div>
                 );
               })}
+              {!!currentChange?.removedApprovals?.length && (
+                <section aria-label="Removed CAB assignments" className="space-y-2 pt-2">
+                  <h3 className="text-sm font-semibold">Removed assignments</h3>
+                  <p className="text-xs text-muted-foreground">For history only — these members cannot vote or be re-added to this change.</p>
+                  {currentChange.removedApprovals.map(a => (
+                    <div key={a.id} className="rounded-md border bg-muted/20 p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{a.approverLabel}</span>
+                        <Badge variant="secondary">Removed</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Assigned {format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Removed {format(new Date(a.removedAt!), "MMM d, yyyy h:mm a")} by{" "}
+                        {a.removedByLabel || (a.removedBy ? userLabel(a.removedBy) : "Deleted account")}
+                      </p>
+                    </div>
+                  ))}
+                </section>
+              )}
               <Separator />
               {!["completed","cancelled"].includes(currentChange?.status ?? "") && (
                 <div className="space-y-3">
