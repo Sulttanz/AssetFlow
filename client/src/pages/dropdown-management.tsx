@@ -432,7 +432,7 @@ export default function DropdownManagement() {
                   <FormItem>
                     <FormLabel>Display Order</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value))} data-testid="input-order" />
+                      <Input type="number" {...field} value={field.value ?? ""} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseInt(e.target.value, 10))} data-testid="input-order" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -449,7 +449,7 @@ export default function DropdownManagement() {
                       <p className="text-sm text-muted-foreground">Enable this option to make it available in dropdowns</p>
                     </div>
                     <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} data-testid="toggle-active" />
+                      <Switch checked={field.value ?? false} onCheckedChange={field.onChange} data-testid="toggle-active" />
                     </FormControl>
                   </FormItem>
                 )}

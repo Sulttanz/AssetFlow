@@ -329,7 +329,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                       <FormItem>
                         <FormLabel>Country</FormLabel>
                         <FormControl>
-                          <Input {...field} data-testid="input-country" />
+                          <Input {...field} value={field.value ?? ""} data-testid="input-country" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -358,7 +358,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Vendor Type</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                           <FormControl>
                             <SelectTrigger data-testid="select-vendor-type">
                               <SelectValue placeholder="Select vendor type" />
@@ -424,7 +424,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                           <FormControl>
                             <SelectTrigger data-testid="select-status">
                               <SelectValue placeholder="Select status" />
@@ -685,7 +685,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                       <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                         <FormControl>
                           <Checkbox
-                            checked={field.value}
+                            checked={field.value ?? false}
                             onCheckedChange={field.onChange}
                             data-testid="checkbox-dpa"
                           />
@@ -707,7 +707,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                       <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                         <FormControl>
                           <Checkbox
-                            checked={field.value}
+                            checked={field.value ?? false}
                             onCheckedChange={field.onChange}
                             data-testid="checkbox-cyber-insurance"
                           />
@@ -729,7 +729,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                       <FormItem className="flex flex-row items-start space-x-3 space-y-0">
                         <FormControl>
                           <Checkbox
-                            checked={field.value}
+                            checked={field.value ?? false}
                             onCheckedChange={field.onChange}
                             data-testid="checkbox-background-check"
                           />
@@ -913,7 +913,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Payment Terms</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value ?? undefined}>
                         <FormControl>
                           <SelectTrigger data-testid="select-payment-terms">
                             <SelectValue placeholder="Select payment terms" />

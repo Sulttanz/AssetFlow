@@ -198,7 +198,6 @@ export default function Managers() {
           <EmployeeForm
             employee={selectedManager}
             onSuccess={handleFormSuccess}
-            isManager={true}
           />
         </DialogContent>
       </Dialog>

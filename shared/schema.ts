@@ -1033,7 +1033,7 @@ export type EmployeeWithDetails = Employee & {
   assignedAssets?: Asset[];
 };
 
-export type PurchaseOrderWithDetails = PurchaseOrder & {
+export type PurchaseOrderWithDetails = Omit<PurchaseOrder, "vendor"> & {
   vendor?: Vendor;
   department?: Department;
   items?: PurchaseOrderItem[];

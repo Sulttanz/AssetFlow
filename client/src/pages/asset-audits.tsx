@@ -419,7 +419,7 @@ export default function AssetAudits() {
                         <span>Progress</span>
                         <span>{session.verifiedCount} / {session.totalAssets}</span>
                       </div>
-                      <Progress value={session.totalAssets ? (session.verifiedCount / session.totalAssets) * 100 : 0} />
+                      <Progress value={session.totalAssets ? ((session.verifiedCount ?? 0) / session.totalAssets) * 100 : 0} />
                     </div>
                   </div>
                 </CardContent>
@@ -479,7 +479,7 @@ export default function AssetAudits() {
                   <span>Audit Progress</span>
                   <span>{selectedSession?.verifiedCount} of {selectedSession?.totalAssets} assets verified</span>
                 </div>
-                <Progress value={selectedSession?.totalAssets ? (selectedSession.verifiedCount / selectedSession.totalAssets) * 100 : 0} className="h-2" />
+                <Progress value={selectedSession?.totalAssets ? ((selectedSession.verifiedCount ?? 0) / selectedSession.totalAssets) * 100 : 0} className="h-2" />
               </div>
             </DialogHeader>
 

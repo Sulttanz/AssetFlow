@@ -301,7 +301,7 @@ export default function Problems() {
                     <FormItem><FormLabel>{label}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value ?? ""}>
                         <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent>{(opts as [string,string][]).map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+                        <SelectContent>{opts.map(([v,l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
                       </Select><FormMessage />
                     </FormItem>
                   )} />

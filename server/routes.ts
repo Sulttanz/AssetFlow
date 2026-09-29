@@ -39,7 +39,7 @@ export function requireModule(moduleKey: string) {
 // Audit logging helper function
 async function logAudit(
   userId: string | undefined,
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW',
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'BULK_UPDATE',
   tableName: string,
   recordId: string,
   recordName: string,
@@ -4580,7 +4580,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               maintenanceCosts: optionalString(assetData.maintenanceCosts),
               
               // Compliance & Controls
-              complianceStatus: optionalString(assetData.complianceStatus),
               securityControlsImplemented: optionalString(assetData.securityControlsImplemented),
               riskAssessmentScore: optionalString(assetData.riskAssessmentScore),
               
@@ -4595,7 +4594,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Auditing
               lastAuditDate: convertDate(assetData.lastAuditDate),
-              nextAuditDate: convertDate(assetData.nextAuditDate),
             });
             
             await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, asset.name, null, asset, req);
@@ -4815,11 +4813,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // For each group with more than 1 entry, keep the oldest, delete the rest
       const toDelete: string[] = [];
-      for (const [, group] of groups) {
-        if (group.length <= 1) continue;
+      groups.forEach(group => {
+        if (group.length <= 1) return;
         group.sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
         toDelete.push(...group.slice(1).map(o => o.id));
-      }
+      });
 
       for (const id of toDelete) {
         await storage.deleteDropdownOption(id);
@@ -4900,7 +4898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Insert migrated data
       for (const [category, values] of Object.entries(migratedData)) {
         let order = 0;
-        for (const value of values) {
+        for (const value of Array.from(values)) {
           if (value && value.trim()) {
             const key = `${category}:${value}`;
             if (!existingKeys.has(key)) {
@@ -6103,7 +6101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? Math.round((completedCh.length / closedCh.length) * 100)
         : null;
       const emergencyPct = changes.length > 0
-        ? Math.round((changes.filter(c => c.changeType === "emergency").length / changes.length) * 100)
+        ? Math.round((changes.filter(c => c.type === "emergency").length / changes.length) * 100)
         : null;
       const pendingApprovals = changes.reduce((s, c) => {
         return s + ((c as any).approvals ?? []).filter((a: any) => a.decision === "pending").length;

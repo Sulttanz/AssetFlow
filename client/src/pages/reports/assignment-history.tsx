@@ -116,7 +116,7 @@ export default function AssignmentHistoryReport() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <Header title="Assignment History" />
+      <Header title="Assignment History" description="Review asset assignment and return history." />
       <main className="flex-1 p-6 space-y-6">
         <div ref={printRef}>
           {/* Page header */}

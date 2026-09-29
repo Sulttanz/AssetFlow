@@ -521,7 +521,7 @@ export default function Vendors() {
               </DialogHeader>
               <ComprehensiveVendorForm 
                 vendor={null}
-                onSubmit={async (data) => await createMutation.mutateAsync(data)}
+                onSubmit={async (data) => { await createMutation.mutateAsync(data); }}
                 onSuccess={() => setIsCreateDialogOpen(false)}
                 onCancel={() => setIsCreateDialogOpen(false)}
               />
@@ -699,7 +699,7 @@ export default function Vendors() {
             </DialogHeader>
             <ComprehensiveVendorForm 
               vendor={editingVendor}
-              onSubmit={async (data) => await updateMutation.mutateAsync({ id: editingVendor!.id, data })}
+              onSubmit={async (data) => { await updateMutation.mutateAsync({ id: editingVendor!.id, data }); }}
               onSuccess={() => setEditingVendor(null)}
               onCancel={() => setEditingVendor(null)}
             />

@@ -377,6 +377,7 @@ export class MemStorage implements IStorage {
   private assetAuditItems: Map<string, AssetAuditItem>;
   private assetRelationships: Map<string, AssetRelationship>;
   private assetRequests: Map<string, AssetRequest>;
+  private dropdownOptions: Map<string, DropdownOption>;
   private tickets: Map<string, Ticket>;
   private ticketComments: Map<string, TicketComment>;
   
@@ -410,6 +411,7 @@ export class MemStorage implements IStorage {
     this.assetAuditItems = new Map();
     this.assetRelationships = new Map();
     this.assetRequests = new Map();
+    this.dropdownOptions = new Map();
     this.tickets = new Map();
     this.ticketComments = new Map();
     
@@ -552,7 +554,9 @@ export class MemStorage implements IStorage {
       const department = asset.departmentId ? this.departments.get(asset.departmentId) : undefined;
       
       if (currentAssignment) {
-        const employee = this.employees.get(currentAssignment.employeeId);
+        const employee = currentAssignment.employeeId
+          ? this.employees.get(currentAssignment.employeeId)
+          : undefined;
         result.push({
           ...asset,
           assignedTo: employee,
@@ -588,6 +592,11 @@ export class MemStorage implements IStorage {
       // Core fields
       status: insertAsset.status || "available",
       condition: insertAsset.condition || "good",
+      usedSeats: insertAsset.usedSeats ?? 0,
+      manufacturer: insertAsset.manufacturer ?? null,
+      processor: insertAsset.processor ?? null,
+      ram: insertAsset.ram ?? null,
+      storage: insertAsset.storage ?? null,
       
       // Core Asset Identification
       assetTag: normalizeField(insertAsset.assetTag),
@@ -668,9 +677,13 @@ export class MemStorage implements IStorage {
       currentBookValue: normalizeField(insertAsset.currentBookValue),
       currentValue: normalizeField(insertAsset.currentValue),
       depreciationRate: normalizeField(insertAsset.depreciationRate),
+      depreciationMethod: normalizeField(insertAsset.depreciationMethod),
       depreciationSchedule: normalizeField(insertAsset.depreciationSchedule),
+      usefulLifeYears: insertAsset.usefulLifeYears ?? null,
+      residualValue: insertAsset.residualValue ?? null,
       licenseType: normalizeField(insertAsset.licenseType),
       licenseQuantity: insertAsset.licenseQuantity ?? null,
+      licenseKey: insertAsset.licenseKey ?? null,
       licenseExpiryDate: normalizeField(insertAsset.licenseExpiryDate),
       maintenanceCosts: normalizeField(insertAsset.maintenanceCosts),
       budgetCode: normalizeField(insertAsset.budgetCode),
@@ -809,6 +822,8 @@ export class MemStorage implements IStorage {
     const employee: Employee = { 
       ...insertEmployee, 
       id,
+      department: insertEmployee.department ?? null,
+      mobile: insertEmployee.mobile ?? null,
       employeeId: insertEmployee.employeeId === "" ? null : (insertEmployee.employeeId ?? null),
       phone: insertEmployee.phone === "" ? null : (insertEmployee.phone ?? null),
       startDate: insertEmployee.startDate === "" ? null : (insertEmployee.startDate ?? null),
@@ -854,7 +869,7 @@ export class MemStorage implements IStorage {
     
     for (const assignment of assignments) {
       const asset = this.assets.get(assignment.assetId);
-      const employee = this.employees.get(assignment.employeeId);
+      const employee = assignment.employeeId ? this.employees.get(assignment.employeeId) : undefined;
       
       if (asset && employee) {
         result.push({
@@ -877,6 +892,7 @@ export class MemStorage implements IStorage {
     const assignment: Assignment = { 
       ...insertAssignment, 
       id,
+      employeeId: insertAssignment.employeeId ?? null,
       returnedDate: insertAssignment.returnedDate === "" ? null : (insertAssignment.returnedDate ?? null),
       notes: insertAssignment.notes === "" ? null : (insertAssignment.notes ?? null)
     };
@@ -1280,17 +1296,17 @@ export class MemStorage implements IStorage {
     const result: PurchaseOrderWithDetails[] = [];
     
     for (const po of purchaseOrders) {
-      const vendor = po.vendorId ? this.vendors.get(po.vendorId) : undefined;
       const department = po.departmentId ? this.departments.get(po.departmentId) : undefined;
       const items = Array.from(this.purchaseOrderItems.values()).filter(item => item.purchaseOrderId === po.id);
       
-      result.push({
+      const details: PurchaseOrderWithDetails = {
         ...po,
-        vendor,
+        vendor: po.vendorId ? this.vendors.get(po.vendorId) : undefined,
         department,
         items,
         itemCount: items.length
-      });
+      };
+      result.push(details);
     }
     
     return result;
@@ -1306,10 +1322,14 @@ export class MemStorage implements IStorage {
       ...insertPO, 
       id,
       status: insertPO.status || "pending",
+      vendor: insertPO.vendor ?? null,
+      vendorId: insertPO.vendorId ?? null,
+      reference: insertPO.reference ?? null,
       expectedDelivery: insertPO.expectedDelivery === "" ? null : (insertPO.expectedDelivery ?? null),
       actualDelivery: insertPO.actualDelivery === "" ? null : (insertPO.actualDelivery ?? null),
       departmentId: insertPO.departmentId === "" ? null : (insertPO.departmentId ?? null),
-      notes: insertPO.notes === "" ? null : (insertPO.notes ?? null)
+      notes: insertPO.notes === "" ? null : (insertPO.notes ?? null),
+      assetsCreated: insertPO.assetsCreated ?? false
     };
     this.purchaseOrders.set(id, purchaseOrder);
     return purchaseOrder;
@@ -1339,6 +1359,8 @@ export class MemStorage implements IStorage {
       ...item, 
       id,
       assetId: item.assetId ?? null,
+      assetType: item.assetType ?? null,
+      serialNumber: item.serialNumber ?? null,
       quantity: item.quantity ?? 1
     };
     this.purchaseOrderItems.set(id, purchaseOrderItem);
@@ -1535,7 +1557,15 @@ export class MemStorage implements IStorage {
     const newContract: Contract = {
       ...contract,
       id,
+      value: contract.value ?? null,
+      contractType: contract.contractType ?? "service",
+      contractNumber: contract.contractNumber ?? null,
+      vendorId: contract.vendorId ?? null,
       assetId: contract.assetId ?? null,
+      startDate: contract.startDate ?? null,
+      endDate: contract.endDate ?? null,
+      renewalDate: contract.renewalDate ?? null,
+      status: contract.status ?? "active",
       ownerId: contract.ownerId ?? null,
       notes: contract.notes ?? null,
       renewalTerms: contract.renewalTerms ?? null,
@@ -1574,6 +1604,9 @@ export class MemStorage implements IStorage {
     const newBooking: AssetBooking = {
       ...booking,
       id,
+      requestedBy: booking.requestedBy ?? null,
+      purpose: booking.purpose ?? null,
+      status: booking.status ?? "pending",
       approvedBy: booking.approvedBy ?? null,
       notes: booking.notes ?? null,
       createdAt: new Date()
@@ -1604,7 +1637,12 @@ export class MemStorage implements IStorage {
     const newRecord: AssetDisposalRecord = {
       ...record,
       id,
+      reason: record.reason ?? null,
       approvedBy: record.approvedBy ?? null,
+      dataDestructionConfirmed: record.dataDestructionConfirmed ?? false,
+      dataDestructionMethod: record.dataDestructionMethod ?? null,
+      certificateNumber: record.certificateNumber ?? null,
+      disposedBy: record.disposedBy ?? null,
       proceedsAmount: record.proceedsAmount ?? null,
       notes: record.notes ?? null,
       createdAt: new Date()
@@ -1635,6 +1673,8 @@ export class MemStorage implements IStorage {
     const newSession: AssetAuditSession = {
       ...session,
       id,
+      status: session.status ?? "draft",
+      conductedBy: session.conductedBy ?? null,
       endDate: session.endDate ?? null,
       locationId: session.locationId ?? null,
       departmentId: session.departmentId ?? null,
@@ -1696,6 +1736,7 @@ export class MemStorage implements IStorage {
     const newRelationship: AssetRelationship = {
       ...relationship,
       id,
+      relationshipType: relationship.relationshipType ?? "connected-to",
       notes: relationship.notes ?? null,
       createdAt: new Date()
     };
@@ -1721,6 +1762,7 @@ export class MemStorage implements IStorage {
     const newRequest: AssetRequest = {
       ...request,
       id,
+      requestedBy: request.requestedBy ?? null,
       assetCategory: request.assetCategory ?? null,
       priority: request.priority ?? "medium",
       status: request.status ?? "pending",
@@ -1811,6 +1853,8 @@ export class MemStorage implements IStorage {
       ...ticket,
       id,
       type: ticket.type ?? "incident",
+      title: ticket.title,
+      description: ticket.description,
       ticketNumber: `${prefix}-${String(seq).padStart(6, "0")}`,
       category: ticket.category ?? null,
       impact: ticket.impact ?? null,
@@ -1818,6 +1862,7 @@ export class MemStorage implements IStorage {
       priority,
       status: ticket.status ?? "open",
       assetId: ticket.assetId ?? null,
+      catalogItemId: ticket.catalogItemId ?? null,
       assignedToId: ticket.assignedToId ?? null,
       departmentId: ticket.departmentId ?? null,
       dueDate: ticket.dueDate ?? null,
@@ -1875,7 +1920,12 @@ export class MemStorage implements IStorage {
 
   async createTicketComment(comment: InsertTicketComment): Promise<TicketComment> {
     const id = randomUUID();
-    const newComment: TicketComment = { ...comment, id, createdAt: new Date() };
+    const newComment: TicketComment = {
+      ...comment,
+      id,
+      isInternal: comment.isInternal ?? false,
+      createdAt: new Date()
+    };
     this.ticketComments.set(id, newComment);
     return newComment;
   }
@@ -2082,7 +2132,7 @@ export class MemStorage implements IStorage {
     
     // Convert permission IDs to permission names
     const permissions: string[] = [];
-    for (const permId of permissionIds) {
+    for (const permId of Array.from(permissionIds)) {
       const permission = this.permissions.get(permId);
       if (permission) {
         permissions.push(permission.name);
@@ -2370,13 +2420,50 @@ export class MemStorage implements IStorage {
   async updateSlaPolicy(id: string, policy: Partial<InsertSlaPolicy>): Promise<SlaPolicy | undefined> { return undefined; }
   async deleteSlaPolicy(id: string): Promise<boolean> { return false; }
 
+  // Dropdown Options
+  async getDropdownOptions(): Promise<DropdownOption[]> {
+    return Array.from(this.dropdownOptions.values())
+      .filter((option) => option.isActive === true)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+  }
+
+  async getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
+    return (await this.getDropdownOptions()).filter((option) => option.category === category);
+  }
+
+  async createDropdownOption(option: InsertDropdownOption): Promise<DropdownOption> {
+    const now = new Date();
+    const newOption: DropdownOption = {
+      ...option,
+      id: randomUUID(),
+      isActive: option.isActive ?? true,
+      displayOrder: option.displayOrder ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.dropdownOptions.set(newOption.id, newOption);
+    return newOption;
+  }
+
+  async updateDropdownOption(id: string, option: Partial<InsertDropdownOption>): Promise<DropdownOption | undefined> {
+    const existing = this.dropdownOptions.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...option, updatedAt: new Date() };
+    this.dropdownOptions.set(id, updated);
+    return updated;
+  }
+
+  async deleteDropdownOption(id: string): Promise<boolean> {
+    return this.dropdownOptions.delete(id);
+  }
+
   // Knowledge Base (MemStorage stubs)
   async getKbArticles(_status?: string): Promise<KbArticle[]> { return []; }
   async getKbArticle(_id: string): Promise<KbArticle | undefined> { return undefined; }
   async searchKbArticles(_query: string): Promise<KbArticle[]> { return []; }
   async createKbArticle(article: InsertKbArticle): Promise<KbArticle> {
     const id = randomUUID(); const now = new Date();
-    return { id, ...article, views: 0, helpfulCount: 0, notHelpfulCount: 0, authorId: article.authorId ?? null, tags: article.tags ?? null, status: article.status ?? "draft", createdAt: now, updatedAt: now };
+    return { id, ...article, views: 0, helpfulCount: 0, notHelpfulCount: 0, authorId: article.authorId ?? null, reviewedById: null, reviewedAt: null, publishedAt: null, tags: article.tags ?? null, status: article.status ?? "draft", createdAt: now, updatedAt: now };
   }
   async updateKbArticle(_id: string, _a: Partial<InsertKbArticle>): Promise<KbArticle | undefined> { return undefined; }
   async deleteKbArticle(_id: string): Promise<boolean> { return false; }
@@ -2389,7 +2476,7 @@ export class MemStorage implements IStorage {
   async createProblem(problem: InsertProblem): Promise<Problem> {
     const id = randomUUID(); const now = new Date();
     const seq = 1;
-    return { id, problemNumber: `PRB-${String(seq).padStart(6,"0")}`, ...problem, rootCause: problem.rootCause ?? null, workaround: problem.workaround ?? null, resolution: problem.resolution ?? null, category: problem.category ?? null, assignedToId: problem.assignedToId ?? null, departmentId: problem.departmentId ?? null, createdById: problem.createdById ?? null, description: problem.description ?? null, resolvedAt: null, createdAt: now, updatedAt: now };
+    return { id, problemNumber: `PRB-${String(seq).padStart(6,"0")}`, ...problem, status: problem.status ?? "open", priority: problem.priority ?? "medium", knownError: problem.knownError ?? false, knownErrorDate: problem.knownErrorDate ?? null, rootCause: problem.rootCause ?? null, workaround: problem.workaround ?? null, resolution: problem.resolution ?? null, category: problem.category ?? null, assignedToId: problem.assignedToId ?? null, departmentId: problem.departmentId ?? null, createdById: problem.createdById ?? null, description: problem.description ?? null, resolvedAt: null, createdAt: now, updatedAt: now };
   }
   async updateProblem(_id: string, _p: Partial<InsertProblem>): Promise<Problem | undefined> { return undefined; }
   async deleteProblem(_id: string): Promise<boolean> { return false; }
@@ -2413,7 +2500,7 @@ export class MemStorage implements IStorage {
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
-    return { id, changeNumber: `CHG-000001`, ...change, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, actualStart: null, actualEnd: null, createdAt: now, updatedAt: now };
+    return { id, changeNumber: `CHG-000001`, ...change, type: change.type ?? "normal", status: change.status ?? "draft", priority: change.priority ?? "medium", risk: change.risk ?? "low", cabRequired: change.cabRequired ?? false, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, actualStart: null, actualEnd: null, assignedAt: change.assignedAt ?? null, submittedAt: change.submittedAt ?? null, approvedAt: change.approvedAt ?? null, cabScheduledFor: change.cabScheduledFor ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, createdAt: now, updatedAt: now };
   }
   async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
   async deleteChange(_id: string): Promise<boolean> { return false; }
@@ -2455,6 +2542,7 @@ export class MemStorage implements IStorage {
     this.assetAuditItems.clear();
     this.assetRelationships.clear();
     this.assetRequests.clear();
+    this.dropdownOptions.clear();
     // Note: Don't clear system settings as they may contain important configuration
     return true;
   }
@@ -2481,7 +2569,9 @@ export class DatabaseStorage implements IStorage {
       const department = asset.departmentId ? await db.select().from(departments).where(eq(departments.id, asset.departmentId)).then(r => r[0] || undefined) : undefined;
       
       if (currentAssignment) {
-        const employee = await db.select().from(employees).where(eq(employees.id, currentAssignment.employeeId)).then(r => r[0] || undefined);
+        const employee = currentAssignment.employeeId
+          ? await db.select().from(employees).where(eq(employees.id, currentAssignment.employeeId)).then(r => r[0] || undefined)
+          : undefined;
         result.push({
           ...asset,
           assignedTo: employee,
@@ -2579,7 +2669,9 @@ export class DatabaseStorage implements IStorage {
     
     for (const assignment of allAssignments) {
       const asset = await db.select().from(assets).where(eq(assets.id, assignment.assetId)).then(r => r[0]);
-      const employee = await db.select().from(employees).where(eq(employees.id, assignment.employeeId)).then(r => r[0]);
+      const employee = assignment.employeeId
+        ? await db.select().from(employees).where(eq(employees.id, assignment.employeeId)).then(r => r[0])
+        : undefined;
       
       if (asset && employee) {
         result.push({
@@ -2773,17 +2865,19 @@ export class DatabaseStorage implements IStorage {
     const result: PurchaseOrderWithDetails[] = [];
     
     for (const purchaseOrder of allPurchaseOrders) {
-      const vendor = purchaseOrder.vendorId ? await db.select().from(vendors).where(eq(vendors.id, purchaseOrder.vendorId)).then(r => r[0] || undefined) : undefined;
       const department = purchaseOrder.departmentId ? await db.select().from(departments).where(eq(departments.id, purchaseOrder.departmentId)).then(r => r[0] || undefined) : undefined;
       const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, purchaseOrder.id));
       
-      result.push({
+      const details: PurchaseOrderWithDetails = {
         ...purchaseOrder,
-        vendor,
+        vendor: purchaseOrder.vendorId
+          ? await db.select().from(vendors).where(eq(vendors.id, purchaseOrder.vendorId)).then(r => r[0] || undefined)
+          : undefined,
         department: department || undefined,
         items: items || [],
         itemCount: items.length
-      });
+      };
+      result.push(details);
     }
     
     return result;
@@ -3111,7 +3205,6 @@ export class DatabaseStorage implements IStorage {
       userId,
       roleId,
       assignedBy: assignedBy || null,
-      assignedAt: new Date(),
     };
     
     const result = await db.insert(userRoles).values(userRole).returning();

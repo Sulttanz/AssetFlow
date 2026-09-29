@@ -227,7 +227,7 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Employee</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <Select onValueChange={field.onChange} defaultValue={field.value ?? undefined}>
                   <FormControl>
                     <SelectTrigger data-testid="select-employee">
                       <SelectValue placeholder="Select an employee" />

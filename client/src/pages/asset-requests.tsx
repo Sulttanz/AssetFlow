@@ -133,27 +133,30 @@ export default function AssetRequests() {
 
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE);
 
-  const getPriorityBadge = (priority: string) => {
+  const getPriorityBadge = (priority: string | null) => {
     const colors = {
       critical: "bg-red-100 text-red-800",
       high: "bg-orange-100 text-orange-800",
       medium: "bg-yellow-100 text-yellow-800",
       low: "bg-gray-100 text-gray-800",
     };
-    return <Badge className={colors[priority as keyof typeof colors]}>{priority}</Badge>;
+    const label = priority ?? "Unknown";
+    return <Badge className={colors[label as keyof typeof colors]}>{label}</Badge>;
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
     const colors = {
       pending: "bg-yellow-100 text-yellow-800",
       approved: "bg-blue-100 text-blue-800",
       rejected: "bg-red-100 text-red-800",
       fulfilled: "bg-green-100 text-green-800",
     };
-    return <Badge className={colors[status as keyof typeof colors]}>{status}</Badge>;
+    const label = status ?? "Unknown";
+    return <Badge className={colors[label as keyof typeof colors]}>{label}</Badge>;
   };
 
-  const getEmployeeName = (id: string) => {
+  const getEmployeeName = (id: string | null) => {
+    if (!id) return "Unknown";
     const emp = employees?.find((e) => e.id === id);
     return emp ? `${emp.firstName} ${emp.lastName}` : "Unknown";
   };

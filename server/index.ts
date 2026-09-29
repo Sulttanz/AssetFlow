@@ -152,7 +152,7 @@ app.use((req, res, next) => {
     // Runs every 5 minutes. Finds open/in_progress tickets past their SLA
     // resolution deadline and escalates priority + adds a system comment.
     const SLA_JOB_INTERVAL_MS = 5 * 60 * 1000;
-    async function runSlaEnforcement() {
+    const runSlaEnforcement = async () => {
       try {
         const { db } = await import("./db");
         const { tickets, ticketComments, users, userRoles, roles } = await import("@shared/schema");
@@ -214,7 +214,7 @@ app.use((req, res, next) => {
       } catch (err) {
         console.error("SLA enforcement job error:", err);
       }
-    }
+    };
 
     // Run once after 30s startup delay, then every 5 minutes
     setTimeout(() => {

@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { insertAssetSchema, type Asset, type Location, type AssetRelationship } from "@shared/schema";
+import { insertAssetSchema, type Asset, type Location, type AssetRelationship, type DropdownOption } from "@shared/schema";
 import { z } from "zod";
 import { convertToISODate } from "@/lib/date-utils";
 
@@ -89,6 +89,11 @@ const formSchema = insertAssetSchema.extend({
 });
 
 type FormData = z.infer<typeof formSchema>;
+type AssetSubmitData = Omit<FormData, "licenseQuantity" | "usefulLifeYears" | "usedSeats"> & {
+  licenseQuantity?: number;
+  usefulLifeYears?: number;
+  usedSeats?: number;
+};
 
 function DepreciationPanel({ bookValue, price, accumulated, pctDep, yearsOwned, schedule, currentYear }: {
   bookValue: number; price: number; accumulated: number; pctDep: number; yearsOwned: number;
@@ -194,51 +199,51 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     queryKey: ["/api/locations"],
   });
 
-  const { data: assetTypes = [] } = useQuery({
+  const { data: assetTypes = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/assetType"],
   });
 
-  const { data: assetStatuses = [] } = useQuery({
+  const { data: assetStatuses = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/status"],
   });
 
-  const { data: complianceStatuses = [] } = useQuery({
+  const { data: complianceStatuses = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/complianceStatus"],
   });
 
-  const { data: riskScores = [] } = useQuery({
+  const { data: riskScores = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/riskAssessmentScore"],
   });
 
-  const { data: infoClassifications = [] } = useQuery({
+  const { data: infoClassifications = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/informationClassification"],
   });
 
-  const { data: sensitivityLevels = [] } = useQuery({
+  const { data: sensitivityLevels = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/dataSensitivityLevel"],
   });
 
-  const { data: securityLevels = [] } = useQuery({
+  const { data: securityLevels = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/securityLevel"],
   });
 
-  const { data: lifecycleStatuses = [] } = useQuery({
+  const { data: lifecycleStatuses = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/lifecycleStatus"],
   });
 
-  const { data: accessMethods = [] } = useQuery({
+  const { data: accessMethods = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/accessControlMethod"],
   });
 
-  const { data: physicalSecurityLevels = [] } = useQuery({
+  const { data: physicalSecurityLevels = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/physicalSecurityLevel"],
   });
 
-  const { data: criticalities = [] } = useQuery({
+  const { data: criticalities = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/criticality"],
   });
 
-  const { data: assetConditions = [] } = useQuery({
+  const { data: assetConditions = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/assetCondition"],
   });
 
@@ -437,7 +442,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   }, [isEdit, assetIdMode, assets, form]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (data: AssetSubmitData) => {
       const response = await apiRequest("POST", "/api/assets", data);
       return response.json();
     },
@@ -464,7 +469,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (data: AssetSubmitData) => {
       const response = await apiRequest("PUT", `/api/assets/${asset!.id}`, data);
       return response.json();
     },
@@ -535,7 +540,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       // Basic Information
       name: data.name,
       assetTag: data.assetTag || undefined,
-      type: data.type || undefined,
+      type: data.type,
       serialNumber: data.serialNumber || undefined,
       status: data.status || undefined,
       vendor: data.vendor || undefined,
@@ -593,7 +598,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       residualValue: processNumericField(data.residualValue),
       // License tracking
       licenseKey: data.licenseKey || undefined,
-      usedSeats: data.usedSeats ? Number(data.usedSeats) : undefined,
+      usedSeats: data.usedSeats !== "" && data.usedSeats !== undefined ? Number(data.usedSeats) : undefined,
       annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
       yearToDateSpend: processNumericField(data.yearToDateSpend),
       remainingBudget: processNumericField(data.remainingBudget),
@@ -1514,7 +1519,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         <FormItem>
                           <FormLabel>Total Seats</FormLabel>
                           <FormControl>
-                            <Input type="number" min="1" placeholder="Total licenses" {...field} />
+                            <Input type="number" min="1" placeholder="Total licenses" {...field} value={field.value ?? ""} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>

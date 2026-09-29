@@ -25,7 +25,7 @@ export default function Settings() {
   const [password, setPassword] = useState("");
   const [step, setStep] = useState(1);
 
-  const { data: setting, isLoading } = useQuery({
+  const { data: setting, isLoading } = useQuery<{ value: string }>({
     queryKey: ["/api/settings/asset_id_generation_mode"],
   });
   
