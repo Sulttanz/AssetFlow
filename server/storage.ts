@@ -3855,10 +3855,10 @@ export class DatabaseStorage implements IStorage {
       ch.requestedById ? db.select().from(users).where(eq(users.id, ch.requestedById)) : Promise.resolve([]),
       ch.assignedToId  ? db.select().from(users).where(eq(users.id, ch.assignedToId))  : Promise.resolve([]),
       ch.departmentId  ? db.select().from(departments).where(eq(departments.id, ch.departmentId)) : Promise.resolve([]),
-      db.select().from(changeApprovals).where(and(eq(changeApprovals.changeId, ch.id), isNull(changeApprovals.removedAt))),
+      db.select().from(changeApprovals).where(eq(changeApprovals.changeId, ch.id)),
       db.select().from(changeEnvironmentStages).where(eq(changeEnvironmentStages.changeId, ch.id)).orderBy(changeEnvironmentStages.order),
     ]);
-    const approvalsWithUsers = await Promise.all(approvalRows.map(async a => ({
+    const approvalsWithUsers = await Promise.all(approvalRows.filter(a => !a.removedAt).map(async a => ({
       ...a,
       approver: this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId)).then(r => r[0])),
     })));
@@ -3879,6 +3879,7 @@ export class DatabaseStorage implements IStorage {
       assignedTo:  assignRows[0] ? this.toUserSummary(assignRows[0]) : undefined,
       department:  deptRows[0],
       approvals:   approvalsWithUsers,
+      removedApproverIds: approvalRows.filter(a => a.removedAt).map(a => a.approverId),
       stages:      stagesWithUsers,
     };
   }

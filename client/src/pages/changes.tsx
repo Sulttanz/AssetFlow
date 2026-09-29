@@ -57,6 +57,7 @@ interface ChangeWithDetails {
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
   department?: { id: string; name: string };
   approvals?: ChangeApproval[];
+  removedApproverIds: string[];
   stages?: ChangeStage[];
   createdAt: string; updatedAt: string;
 }
@@ -709,7 +710,13 @@ export default function Changes() {
   }
 
   const currentChange = changes.find(c => c.id === selectedChange?.id) ?? selectedChange;
+  useEffect(() => { setAddApproverUserId(""); }, [currentChange?.id]);
   const myApproval = currentChange?.approvals?.find(a => a.approverId === (user as any)?.id);
+  const unavailableApproverIds = new Set([
+    ...(currentChange?.approvals?.map(a => a.approverId) ?? []),
+    ...(currentChange?.removedApproverIds ?? []),
+  ]);
+  const canAddSelectedApprover = !!addApproverUserId && !unavailableApproverIds.has(addApproverUserId);
   const myPendingChanges = changes.filter(c => c.approvals?.some(a =>
     a.approverId === user?.id && (a.decision === "pending" || a.decision === null) && !a.removedAt
   ));
@@ -1210,13 +1217,13 @@ export default function Changes() {
                     <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/20">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assign Approver</p>
                       <div className="flex gap-2 items-center">
-                        <Select value={addApproverUserId} onValueChange={setAddApproverUserId}>
+                        <Select value={canAddSelectedApprover ? addApproverUserId : ""} onValueChange={setAddApproverUserId}>
                           <SelectTrigger className="flex-1 h-8 text-sm">
                             <SelectValue placeholder="Select a user…" />
                           </SelectTrigger>
                           <SelectContent>
                             {allUsers
-                              .filter(u => !currentChange?.approvals?.some(a => a.approverId === u.id))
+                              .filter(u => !unavailableApproverIds.has(u.id))
                               .map(u => (
                                 <SelectItem key={u.id} value={u.id}>
                                   {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
@@ -1227,8 +1234,8 @@ export default function Changes() {
                         <Button
                           size="sm"
                           className="h-8 gap-1 shrink-0"
-                          disabled={!addApproverUserId || addApproverMutation.isPending}
-                          onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id, approverId: addApproverUserId })}
+                          disabled={!canAddSelectedApprover || addApproverMutation.isPending}
+                          onClick={() => currentChange && canAddSelectedApprover && addApproverMutation.mutate({ changeId: currentChange.id, approverId: addApproverUserId })}
                         >
                           {addApproverMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                           Add Approver
@@ -1237,7 +1244,7 @@ export default function Changes() {
                     </div>
                   )}
                   {/* Self-nomination */}
-                  {!myApproval && (
+                  {!myApproval && !currentChange?.removedApproverIds?.includes(user?.id ?? "") && (
                     <div>
                       <Button size="sm" variant="outline" className="gap-1" onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id })}><UserCheck className="h-4 w-4" />Add myself as approver</Button>
                     </div>

@@ -1229,6 +1229,7 @@ export type ChangeWithDetails = Change & {
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   department?: Department;
   approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+  removedApproverIds: string[];
   stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
 };
 

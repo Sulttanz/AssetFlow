@@ -6,10 +6,10 @@ import { format } from "date-fns";
 import Changes from "./changes";
 import { queryClient } from "@/lib/queryClient";
 
-const auth = vi.hoisted(() => ({ userId: "alice" as string | null }));
+const auth = vi.hoisted(() => ({ userId: "alice" as string | null, isAdmin: false }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: auth.userId ? { id: auth.userId } : null }),
-  useHasPermission: () => false,
+  useHasPermission: (permission: string) => permission === "system_admin" && auth.isAdmin,
 }));
 
 const assignedAt = "2026-06-01T10:15:00.000Z";
@@ -23,17 +23,19 @@ function approval(id: string, decision: string | null, approverId = id, comments
   };
 }
 
-function change(approvals: ReturnType<typeof approval>[]) {
+function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = []) {
   return {
     id: "change-1", changeNumber: "CHG-1", title: "CAB review fixture",
     type: "normal", status: "submitted", priority: "medium", risk: "low",
-    cabRequired: true, approvals, stages: [], createdAt: assignedAt, updatedAt: assignedAt,
+    cabRequired: true, approvals, removedApproverIds, stages: [], createdAt: assignedAt, updatedAt: assignedAt,
   };
 }
 
-async function openApprovals(approvals: ReturnType<typeof approval>[]) {
-  queryClient.setQueryData(["/api/changes"], [change(approvals)]);
-  queryClient.setQueryData(["/api/users"], []);
+async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = []) {
+  queryClient.setQueryData(["/api/changes"], [change(approvals, removedApproverIds)]);
+  queryClient.setQueryData(["/api/users"], ["alice", "bob", "carol", "dave"].map(id => ({
+    id, username: id, firstName: id, lastName: null,
+  })));
   queryClient.setQueryData(["/api/departments"], []);
   const user = userEvent.setup();
   render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
@@ -44,6 +46,11 @@ async function openApprovals(approvals: ReturnType<typeof approval>[]) {
 
 beforeEach(() => {
   auth.userId = "alice";
+  auth.isAdmin = false;
+  HTMLElement.prototype.hasPointerCapture = () => false;
+  HTMLElement.prototype.setPointerCapture = () => {};
+  HTMLElement.prototype.releasePointerCapture = () => {};
+  HTMLElement.prototype.scrollIntoView = () => {};
   // The page explicitly refetches changes on mount; keep that request local to this fixture.
   vi.stubGlobal("fetch", vi.fn(async (url: string, options?: RequestInit) => {
     if (options?.method === "PUT") return { ok: true, json: async () => ({}) };
@@ -59,6 +66,22 @@ afterEach(() => {
 });
 
 describe("change detail CAB approvals", () => {
+  it("does not offer removed or active CAB members for assignment", async () => {
+    auth.isAdmin = true;
+    const { user, panel } = await openApprovals([approval("Bob", "pending", "bob")], ["carol"]);
+    await user.click(within(panel).getByRole("combobox"));
+    expect(screen.queryByRole("option", { name: "bob" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "carol" })).toBeNull();
+    expect(screen.getByRole("option", { name: "alice" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "dave" })).toBeTruthy();
+  });
+
+  it("hides self-assignment for a previously removed member", async () => {
+    const { panel } = await openApprovals([], ["alice"]);
+    expect(within(panel).queryByRole("button", { name: "Add myself as approver" })).toBeNull();
+    expect(within(panel).getByText("No approvers added yet.")).toBeTruthy();
+  });
+
   it("renders approver, badge, comment and decision or assignment timestamp for every state", async () => {
     const { panel } = await openApprovals([
       approval("Pending", "pending", "bob"),
