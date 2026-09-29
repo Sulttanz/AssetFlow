@@ -2507,7 +2507,9 @@ export class MemStorage implements IStorage {
   async getChangeApprovals(_changeId: string): Promise<ChangeApproval[]> { return []; }
   async getAllChangeApprovalRecords(_changeId: string): Promise<ChangeApproval[]> { return []; }
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
-    return { id: randomUUID(), ...approval, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, createdAt: new Date() };
+    const approver = approval.approverId ? this.users.get(approval.approverId) : undefined;
+    if (!approver) throw new Error("CAB approver account not found");
+    return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, createdAt: new Date() };
   }
   async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
   async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
@@ -3860,7 +3862,9 @@ export class DatabaseStorage implements IStorage {
     ]);
     const approvalsWithUsers = await Promise.all(approvalRows.filter(a => !a.removedAt).map(async a => ({
       ...a,
-      approver: this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId)).then(r => r[0])),
+      approver: a.approverId
+        ? this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId!)).then(r => r[0]))
+        : undefined,
     })));
     const stagesWithUsers = await Promise.all(stageRows.map(async s => {
       const [deployedByRows, assignedToRows] = await Promise.all([
@@ -3879,7 +3883,7 @@ export class DatabaseStorage implements IStorage {
       assignedTo:  assignRows[0] ? this.toUserSummary(assignRows[0]) : undefined,
       department:  deptRows[0],
       approvals:   approvalsWithUsers,
-      removedApproverIds: approvalRows.filter(a => a.removedAt).map(a => a.approverId),
+      removedApproverIds: approvalRows.filter(a => a.removedAt).map(a => a.originalApproverId),
       stages:      stagesWithUsers,
     };
   }
@@ -3940,13 +3944,19 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
   }
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
-    const result = await db.insert(changeApprovals).values(approval).returning();
+    if (!approval.approverId) throw new Error("An active user is required for a CAB assignment");
+    const [approver] = await db.select().from(users).where(eq(users.id, approval.approverId));
+    if (!approver) throw new Error("CAB approver account not found");
+    const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
+    const result = await db.insert(changeApprovals).values({
+      ...approval, originalApproverId: approver.id, approverLabel,
+    }).returning();
     return result[0];
   }
   async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
     const result = await db.update(changeApprovals)
       .set({ decision, comments: comments ?? null, decidedAt: new Date() })
-      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+      .where(and(eq(changeApprovals.id, id), sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .returning();
     return result[0];
   }

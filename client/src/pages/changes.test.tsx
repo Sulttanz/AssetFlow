@@ -17,9 +17,9 @@ const decidedAt = "2026-06-02T14:30:00.000Z";
 
 function approval(id: string, decision: string | null, approverId = id, comments: string | null = null) {
   return {
-    id, changeId: "change-1", approverId, decision, comments,
+    id, changeId: "change-1", approverId: approverId as string | null, originalApproverId: approverId, approverLabel: `${id} Reviewer`, decision, comments,
     createdAt: assignedAt, decidedAt: decision === "approved" || decision === "rejected" ? decidedAt : null,
-    approver: { id: approverId, username: approverId, firstName: id, lastName: "Reviewer" },
+    approver: { id: approverId, username: approverId, firstName: id, lastName: "Reviewer" } as { id: string; username: string; firstName: string; lastName: string } | undefined,
   };
 }
 
@@ -100,6 +100,18 @@ describe("change detail CAB approvals", () => {
       expect(within(row as HTMLElement).getByText(comment)).toBeTruthy();
       expect(within(row as HTMLElement).getByText(timestamp)).toBeTruthy();
     }
+  });
+
+  it("shows deleted account decisions and explains how to resolve an orphaned pending vote", async () => {
+    auth.isAdmin = true;
+    const decided = { ...approval("Former", "approved", "former", "Signed off"), approverId: null, approver: undefined };
+    const pending = { ...approval("Departed", "pending", "departed"), approverId: null, approver: undefined };
+    const { panel } = await openApprovals([decided, pending]);
+    expect(within(panel).getByText("Former Reviewer (deleted account)")).toBeTruthy();
+    expect(within(panel).getByText("Signed off")).toBeTruthy();
+    expect(within(panel).getByText("Departed Reviewer (deleted account)")).toBeTruthy();
+    expect(within(panel).getByText(/change manager must remove this pending assignment/)).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: "Approve" })).toBeNull();
   });
 
   it.each([

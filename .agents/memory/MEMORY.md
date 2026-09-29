@@ -11,3 +11,4 @@
 - [CAB pending notification source](cab-pending-notifications.md) — derive pending vote alerts from active approval state rather than storing a separate notification lifecycle.
 - [Drizzle loader compatibility](drizzle-loader-compatibility.md) — stable kit retains the old loader; verify the resolved lock tree and isolated schema push when changing its tooling dependencies.
 - [CAB live update scope](cab-live-update-scope.md) — event signals are process-local; polling reconciles missed changes, but multiple server instances need shared fan-out.
+- [CAB historical uniqueness](cab-historical-uniqueness.md) — existing CAB rows include duplicate assignments, so preserve history rather than imposing a new unique constraint during migrations.

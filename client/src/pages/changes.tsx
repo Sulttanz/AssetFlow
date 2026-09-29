@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface ChangeApproval {
-  id: string; changeId: string; approverId: string; decision: string | null;
+  id: string; changeId: string; approverId: string | null; originalApproverId: string; approverLabel: string; decision: string | null;
   comments: string | null; decidedAt: string | null; removedAt?: string | null; createdAt: string;
   approver?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
@@ -713,7 +713,7 @@ export default function Changes() {
   useEffect(() => { setAddApproverUserId(""); }, [currentChange?.id]);
   const myApproval = currentChange?.approvals?.find(a => a.approverId === (user as any)?.id);
   const unavailableApproverIds = new Set([
-    ...(currentChange?.approvals?.map(a => a.approverId) ?? []),
+    ...(currentChange?.approvals?.map(a => a.originalApproverId) ?? []),
     ...(currentChange?.removedApproverIds ?? []),
   ]);
   const canAddSelectedApprover = !!addApproverUserId && !unavailableApproverIds.has(addApproverUserId);
@@ -1134,7 +1134,8 @@ export default function Changes() {
                 )}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{userLabel(a.approver)}</p>
+                      <p className="text-sm font-medium">{a.approver ? userLabel(a.approver) : `${a.approverLabel} (deleted account)`}</p>
+                      {!a.approverId && isPending && <p className="text-xs text-amber-800">This account no longer exists. A change manager must remove this pending assignment before CAB approval can proceed.</p>}
                       <p className="text-xs text-muted-foreground mt-1">
                         {a.decidedAt
                           ? `Decided ${format(new Date(a.decidedAt), "MMM d, yyyy h:mm a")}`
@@ -1159,7 +1160,7 @@ export default function Changes() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Remove CAB approver?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Remove {userLabel(a.approver)} from this change? They cannot be re-added later.
+                              Remove {a.approver ? userLabel(a.approver) : a.approverLabel} from this change? They cannot be re-added later.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

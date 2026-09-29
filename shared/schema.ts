@@ -1168,16 +1168,17 @@ export const changes = pgTable("changes", {
 export const changeApprovals = pgTable("change_approvals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
-  approverId: varchar("approver_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // Only live accounts own votes. Historical identity survives deletion separately.
+  approverId: varchar("approver_id").references(() => users.id, { onDelete: "set null" }),
+  originalApproverId: varchar("original_approver_id").notNull(),
+  approverLabel: text("approver_label").notNull(),
   decision: text("decision"),   // approved | rejected | pending
   comments: text("comments"),
   decidedAt: timestamp("decided_at"),
   removedAt: timestamp("removed_at"),
   removedById: varchar("removed_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
-}, (table) => ({
-  uniqueApproverPerChange: unique("change_approvals_change_id_approver_id_unique").on(table.changeId, table.approverId),
-}));
+});
 
 // Environment deployment pipeline stages per change
 export const changeEnvironmentStages = pgTable("change_environment_stages", {
@@ -1212,7 +1213,7 @@ export const changePIRs = pgTable("change_pirs", {
 });
 
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
-export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true });
+export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true, originalApproverId: true, approverLabel: true });
 export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: true, createdAt: true, updatedAt: true, completedById: true });
 export type Change = typeof changes.$inferSelect;

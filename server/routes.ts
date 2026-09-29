@@ -5471,7 +5471,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const approvalHistory = await storage.getAllChangeApprovalRecords(req.params.id);
-      const previous = approvalHistory.find(a => a.approverId === approverId);
+      const previous = approvalHistory.find(a => a.originalApproverId === approverId);
       if (previous?.removedAt) {
         return res.status(409).json({
           message: "This CAB member was removed from the change and cannot be re-added.",
@@ -5499,7 +5499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let removed = false;
         try {
           const history = await storage.getAllChangeApprovalRecords(req.params.id);
-          removed = history.some(a => a.approverId === approverId && a.removedAt);
+          removed = history.some(a => a.originalApproverId === approverId && a.removedAt);
         } catch (lookupError) {
           console.error("Failed to check approval history after conflict:", lookupError);
           return res.status(500).json({ message: "Failed to check approval history" });
@@ -5533,9 +5533,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const removed = await storage.removeChangeApproval(approval.id, user.id);
       if (!removed) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
       await logAudit(user.id, "DELETE", "change_approvals", removed.id,
-        `CAB approver ${removed.approverId} on change ${removed.changeId}`,
-        { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision, removedAt: approval.removedAt },
-        { changeId: removed.changeId, approverId: removed.approverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
+        `CAB approver ${removed.originalApproverId} on change ${removed.changeId}`,
+        { changeId: approval.changeId, approverId: approval.originalApproverId, decision: approval.decision, removedAt: approval.removedAt },
+        { changeId: removed.changeId, approverId: removed.originalApproverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
       publishCabChange();
       res.json({ success: true });
     } catch (error) {
