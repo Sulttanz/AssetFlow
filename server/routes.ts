@@ -20,6 +20,7 @@ import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { publishCabChange, subscribeToCabEvents } from "./cab-events";
+import { cabApprovalsGranted } from "./cab-gate";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -5438,7 +5439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (effectiveCabRequired) {
           const approvals = await storage.getChangeApprovals(req.params.id);
-          const allApproved = approvals.length > 0 && approvals.every((a: any) => a.decision === "approved");
+          const allApproved = cabApprovalsGranted(approvals);
           if (!allApproved) {
             await logAudit(
               (req.user as any)?.id,
@@ -5684,7 +5685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             code: "CAB_APPROVERS_REQUIRED",
           });
         }
-        const allApproved = approvals.every(a => a.decision === "approved");
+        const allApproved = cabApprovalsGranted(approvals);
         if (!allApproved) {
           return res.status(400).json({
             message: "CAB approvals are not all granted yet. All assigned CAB approvers must approve before implementation can start.",
