@@ -32,14 +32,14 @@ function change(approvals: ReturnType<typeof approval>[], removedApproverIds: st
 }
 
 async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = []) {
-  queryClient.setQueryData(["/api/changes"], [change(approvals, removedApproverIds, removedApprovals)]);
+  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals)], total: 1 });
   queryClient.setQueryData(["/api/users"], ["alice", "bob", "carol", "dave"].map(id => ({
     id, username: id, firstName: id, lastName: null,
   })));
   queryClient.setQueryData(["/api/departments"], []);
   const user = userEvent.setup();
   render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
-  await user.click(screen.getByText("CAB review fixture"));
+  await user.click(await screen.findByText("CAB review fixture"));
   await user.click(screen.getByRole("tab", { name: /Approvals \(/ }));
   return { user, panel: screen.getByRole("tabpanel", { name: /Approvals \(/ }) };
 }
@@ -54,7 +54,9 @@ beforeEach(() => {
   // The page explicitly refetches changes on mount; keep that request local to this fixture.
   vi.stubGlobal("fetch", vi.fn(async (url: string, options?: RequestInit) => {
     if (options?.method === "PUT") return { ok: true, json: async () => ({}) };
-    if (url === "/api/changes") return { ok: true, json: async () => queryClient.getQueryData(["/api/changes"]) };
+    if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+    if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+    if (url === "/api/changes/change-1") return { ok: true, json: async () => (queryClient.getQueryData<{ changes: ReturnType<typeof change>[] }>(["/api/changes", 1, "", "all", "all"]))?.changes[0] };
     return { ok: true, json: async () => [] };
   }));
 });
@@ -63,6 +65,46 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   vi.unstubAllGlobals();
+});
+
+describe("change list pages", () => {
+  it("navigates between pages and searches and filters the full history", async () => {
+    const history = Array.from({ length: 27 }, (_, index) => ({
+      ...change([]), id: `change-${index}`, changeNumber: `CHG-${index}`,
+      title: index === 26 ? "Older deployment" : `Change ${index}`,
+      type: index === 26 ? "emergency" : "normal",
+    }));
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url.startsWith("/api/changes?")) {
+        requests.push(url);
+        const params = new URL(url, "http://example.test").searchParams;
+        const filtered = history.filter(c =>
+          (!params.get("search") || `${c.title} ${c.changeNumber}`.toLowerCase().includes(params.get("search")!.toLowerCase())) &&
+          (!params.get("type") || c.type === params.get("type")) &&
+          (!params.get("status") || c.status === params.get("status")));
+        const offset = (Number(params.get("page")) - 1) * Number(params.get("pageSize"));
+        return { ok: true, json: async () => ({ changes: filtered.slice(offset, offset + 25), total: filtered.length }) };
+      }
+      return { ok: true, json: async () => [] };
+    }));
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
+    expect(await screen.findByText("Page 1 of 2 · 27 matching changes")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Older deployment")).toBeTruthy();
+    expect(screen.getByText("Page 2 of 2 · 27 matching changes")).toBeTruthy();
+    await user.type(screen.getByPlaceholderText("Search changes…"), "Older");
+    expect(await screen.findByText("Page 1 of 1 · 1 matching changes")).toBeTruthy();
+    expect(screen.getByText("Older deployment")).toBeTruthy();
+    expect(requests.some(url => url.includes("page=2"))).toBe(true);
+    expect(requests.some(url => url.includes("search=Older"))).toBe(true);
+    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(screen.getByRole("option", { name: "Normal" }));
+    expect(await screen.findByText("No changes found.")).toBeTruthy();
+    expect(requests.some(url => url.includes("type=normal") && url.includes("search=Older"))).toBe(true);
+  });
 });
 
 describe("change detail CAB approvals", () => {

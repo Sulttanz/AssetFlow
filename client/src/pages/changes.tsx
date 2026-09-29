@@ -65,6 +65,8 @@ interface ChangeWithDetails {
 }
 interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; }
 interface Department { id: string; name: string; }
+interface ChangePage { changes: ChangeWithDetails[]; total: number; }
+const PAGE_SIZE = 25;
 
 // ── Helpers ── (isPendingCAB must come before constants that use it) ───────────
 function isPendingCAB(c: ChangeWithDetails) {
@@ -526,6 +528,8 @@ export default function Changes() {
   const isAdmin = useHasPermission("system_admin");
   const isChangeManager = useHasPermission("change_manage");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -542,23 +546,57 @@ export default function Changes() {
   const [addApproverUserId, setAddApproverUserId] = useState<string>("");
   const [pendingVotesOpen, setPendingVotesOpen] = useState(false);
 
-  const { data: changes = [], isLoading, isFetching } = useQuery<ChangeWithDetails[]>({
-    queryKey: ["/api/changes"], refetchInterval: 60_000, refetchOnMount: "always",
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const nextSearch = search.trim();
+      if (nextSearch !== debouncedSearch) { setDebouncedSearch(nextSearch); setPage(1); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, debouncedSearch]);
+  const { data: changePage, isLoading, isFetching, isError } = useQuery<ChangePage>({
+    queryKey: ["/api/changes", page, debouncedSearch, filterType, filterStatus],
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (filterType !== "all") params.set("type", filterType);
+      if (filterStatus !== "all") params.set("status", filterStatus);
+      const response = await apiRequest("GET", `/api/changes?${params}`);
+      return response.json();
+    },
+    refetchInterval: 60_000, refetchOnMount: "always",
+  });
+  const changes = changePage?.changes ?? [];
+  const total = changePage?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => {
+    if (changePage && page > totalPages) setPage(totalPages);
+  }, [changePage, page, totalPages]);
+  const { data: myPendingChanges = [] } = useQuery<ChangeWithDetails[]>({
+    queryKey: ["/api/changes", "pending-votes"],
+    refetchInterval: 60_000, refetchOnMount: "always",
+  });
+  const approvalChangeId = new URLSearchParams(searchParams).get("approval");
+  const { data: linkedChange, isError: linkedChangeError } = useQuery<ChangeWithDetails>({
+    queryKey: ["/api/changes", approvalChangeId],
+    enabled: !!approvalChangeId,
+  });
+  const { data: detailChange } = useQuery<ChangeWithDetails>({
+    queryKey: ["/api/changes", selectedChange?.id],
+    enabled: !!selectedChange,
+    refetchInterval: 60_000,
   });
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
 
   useEffect(() => {
-    const approvalChangeId = new URLSearchParams(searchParams).get("approval");
-    if (!approvalChangeId || isFetching || isLoading) return;
-    const change = changes.find(c => c.id === approvalChangeId);
-    if (change) {
-      setSelectedChange(change);
+    if (!approvalChangeId || (!linkedChange && !linkedChangeError)) return;
+    if (linkedChange) {
+      setSelectedChange(linkedChange);
       setDetailTab("approvals");
     }
     // Consume the link so closing the dialog doesn't reopen it on the next list refresh.
     navigate("/changes", { replace: true });
-  }, [searchParams, isFetching, isLoading, changes, navigate]);
+  }, [approvalChangeId, linkedChange, linkedChangeError, navigate]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -667,13 +705,6 @@ export default function Changes() {
   });
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  const filtered = changes.filter(c => {
-    const matchSearch = !search || c.title.toLowerCase().includes(search.toLowerCase()) || c.changeNumber.toLowerCase().includes(search.toLowerCase());
-    const matchType = filterType === "all" || c.type === filterType;
-    const matchStatus = filterStatus === "all" || c.status === filterStatus;
-    return matchSearch && matchType && matchStatus;
-  });
-
   function openCreate() {
     setEditingChange(null);
     form.reset({ title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", cabRequired: true, cabScheduledFor: "" });
@@ -711,7 +742,7 @@ export default function Changes() {
     else createMutation.mutate(payload as any);
   }
 
-  const currentChange = changes.find(c => c.id === selectedChange?.id) ?? selectedChange;
+  const currentChange = detailChange?.id === selectedChange?.id ? detailChange : selectedChange;
   useEffect(() => { setAddApproverUserId(""); }, [currentChange?.id]);
   const myApproval = currentChange?.approvals?.find(a => a.approverId === (user as any)?.id);
   const unavailableApproverIds = new Set([
@@ -720,9 +751,6 @@ export default function Changes() {
     ...(currentChange?.removedApprovals?.map(a => a.originalApproverId) ?? []),
   ]);
   const canAddSelectedApprover = !!addApproverUserId && !unavailableApproverIds.has(addApproverUserId);
-  const myPendingChanges = changes.filter(c => c.approvals?.some(a =>
-    a.approverId === user?.id && (a.decision === "pending" || a.decision === null) && !a.removedAt
-  ));
   const isWorking = workflowMutation.isPending || assignMutation.isPending;
 
   // Workflow action buttons based on status
@@ -848,7 +876,7 @@ export default function Changes() {
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-4">
-        {/* Stats */}
+        {/* Stats for the loaded page only */}
         {(() => {
           const allStages = changes.flatMap(c => c.stages ?? []);
           const overdueStages  = allStages.filter(s => stageSla(s) === "overdue").length;
@@ -856,6 +884,7 @@ export default function Changes() {
           const doneOnTime     = allStages.filter(s => stageSla(s) === "done_on_time").length;
           return (
             <>
+              <p className="text-xs text-muted-foreground">Snapshot for this page ({changes.length} of {total} matching changes)</p>
               <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 {(["standard","normal","emergency"] as const).map(t => (
                   <Card key={t}><CardContent className="pt-4 pb-3">
@@ -905,7 +934,7 @@ export default function Changes() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search changes…" className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <Select value={filterType} onValueChange={setFilterType}>
+          <Select value={filterType} onValueChange={value => { setFilterType(value); setPage(1); }}>
             <SelectTrigger className="w-36"><SelectValue placeholder="Type" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
@@ -914,7 +943,7 @@ export default function Changes() {
               <SelectItem value="emergency">Emergency</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <Select value={filterStatus} onValueChange={value => { setFilterStatus(value); setPage(1); }}>
             <SelectTrigger className="w-44"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
@@ -926,8 +955,9 @@ export default function Changes() {
         {/* Table */}
         <Card>
           <CardContent className="pt-0">
-            {isLoading ? <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
-              : filtered.length === 0 ? (
+            {isLoading || isFetching ? <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+              : isError ? <p className="text-sm text-destructive py-8 text-center">Unable to load changes. Please try again.</p>
+              : changes.length === 0 ? (
                 <div className="text-center py-10 text-muted-foreground">
                   <GitMerge className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p className="text-sm">No changes found.</p>
@@ -948,7 +978,7 @@ export default function Changes() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map(c => (
+                    {changes.map(c => (
                       <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setDetailTab("details"); setSelectedChange(c); }}>
                         <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
                         <TableCell className="font-medium max-w-[200px] truncate">{c.title}</TableCell>
@@ -988,6 +1018,15 @@ export default function Changes() {
               )}
           </CardContent>
         </Card>
+        {!isError && total > 0 && (
+          <div className="flex items-center justify-between gap-3 text-sm" aria-label="Change list pagination">
+            <span>Page {page} of {totalPages} · {total} matching changes</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage(p => p - 1)}>Previous</Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages || isFetching} onClick={() => setPage(p => p + 1)}>Next</Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Detail Dialog ────────────────────────────────────────────────── */}

@@ -33,7 +33,7 @@ import {
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, isNull, and, or, inArray, sql, desc } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, sql, desc, ilike } from "drizzle-orm";
 import { EventEmitter } from "events";
 
 function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
@@ -338,6 +338,8 @@ export interface IStorage {
 
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
+  getChangesPage(options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
   createChange(change: InsertChange): Promise<Change>;
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
@@ -2499,6 +2501,8 @@ export class MemStorage implements IStorage {
 
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
+  async getChangesPage(_options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getPendingCabChanges(_userId: string): Promise<ChangeWithDetails[]> { return []; }
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
@@ -3929,6 +3933,31 @@ export class DatabaseStorage implements IStorage {
   async getChanges(): Promise<ChangeWithDetails[]> {
     const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
     return this.buildChangeDetails(rows);
+  }
+  async getChangesPage({ page, pageSize, search, type, status }: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
+    const term = search?.trim();
+    // Escape LIKE metacharacters so search remains a literal title/number search.
+    const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
+    const conditions = [
+      pattern ? or(ilike(changes.title, pattern), ilike(changes.changeNumber, pattern)) : undefined,
+      type ? eq(changes.type, type) : undefined,
+      status ? eq(changes.status, status) : undefined,
+    ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
+    const where = conditions.length ? and(...conditions) : undefined;
+    const [countRows, rows] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` }).from(changes).where(where),
+      db.select().from(changes).where(where)
+        .orderBy(desc(changes.createdAt), desc(changes.id)).limit(pageSize).offset((page - 1) * pageSize),
+    ]);
+    return { changes: await this.buildChangeDetails(rows), total: Number(countRows[0]?.count ?? 0) };
+  }
+  async getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]> {
+    const rows = await db.select({ change: changes }).from(changes)
+      .innerJoin(changeApprovals, eq(changeApprovals.changeId, changes.id))
+      .where(and(eq(changeApprovals.approverId, userId), isNull(changeApprovals.removedAt),
+        or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+      .orderBy(desc(changes.createdAt), desc(changes.id));
+    return this.buildChangeDetails(Array.from(new Map(rows.map(({ change }) => [change.id, change])).values()));
   }
   async getChange(id: string): Promise<ChangeWithDetails | undefined> {
     const rows = await db.select().from(changes).where(eq(changes.id, id));

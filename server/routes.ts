@@ -5368,8 +5368,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
-    try { res.json(await storage.getChanges()); }
+    try {
+      const page = Number(req.query.page);
+      const pageSize = Number(req.query.pageSize);
+      const search = req.query.search;
+      const type = req.query.type;
+      const status = req.query.status;
+      if (!Number.isSafeInteger(page) || page < 1 || page > 1000000 ||
+          !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100 ||
+          (search !== undefined && (typeof search !== "string" || search.length > 200)) ||
+          (type !== undefined && (typeof type !== "string" || !["standard", "normal", "emergency"].includes(type))) ||
+          (status !== undefined && (typeof status !== "string" || !["draft", "submitted", "approved", "rejected", "in_progress", "completed", "cancelled", "failed"].includes(status)))) {
+        return res.status(400).json({ message: "Invalid change list parameters" });
+      }
+      res.json(await storage.getChangesPage({ page, pageSize, search: search as string | undefined, type: type as string | undefined, status: status as string | undefined }));
+    }
     catch { res.status(500).json({ message: "Failed to fetch changes" }); }
+  });
+
+  app.get("/api/changes/pending-votes", requireAuth, requireModule("itsm"), async (req, res) => {
+    try { res.json(await storage.getPendingCabChanges((req.user as any).id)); }
+    catch { res.status(500).json({ message: "Failed to fetch pending CAB votes" }); }
   });
 
   app.get("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {

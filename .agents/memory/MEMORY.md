@@ -12,3 +12,4 @@
 - [Drizzle loader compatibility](drizzle-loader-compatibility.md) — stable kit retains the old loader; verify the resolved lock tree and isolated schema push when changing its tooling dependencies.
 - [CAB live update scope](cab-live-update-scope.md) — event signals are process-local; polling reconciles missed changes, but multiple server instances need shared fan-out.
 - [CAB historical uniqueness](cab-historical-uniqueness.md) — existing CAB rows include duplicate assignments, so preserve history rather than imposing a new unique constraint during migrations.
+- [Paged change summaries](paged-change-summaries.md) — distinguish per-page snapshots from whole-history metrics; keep user-specific CAB votes independent of list pages.

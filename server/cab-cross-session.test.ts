@@ -10,6 +10,7 @@ const store = vi.hoisted(() => ({
   getModuleSetting: vi.fn(),
   getUserPermissions: vi.fn(),
   getChanges: vi.fn(),
+  getChangesPage: vi.fn(),
   getChange: vi.fn(),
   getChangeApprovals: vi.fn(),
   getAllChangeApprovalRecords: vi.fn(),
@@ -104,6 +105,7 @@ describe("CAB route notifications across signed-in sessions", () => {
     }
     const active = () => approvals.filter(a => !a.removedAt);
     store.getChanges.mockImplementation(async () => [{ ...change, approvals: active().map(a => ({ ...a })) }]);
+    store.getChangesPage.mockImplementation(async () => ({ changes: [{ ...change, approvals: active().map(a => ({ ...a })) }], total: 1 }));
     store.getChange.mockImplementation(async () => ({ ...change, approvals: active().map(a => ({ ...a })) }));
     store.getChangeApprovals.mockImplementation(async () => active().map(a => ({ ...a })));
     store.getAllChangeApprovalRecords.mockImplementation(async () => approvals.map(a => ({ ...a })));
@@ -212,12 +214,12 @@ describe("CAB route notifications across signed-in sessions", () => {
 
   async function view(cookie: string) {
     const [alerts, changes] = await Promise.all([
-      request("/api/alerts", cookie), request("/api/changes", cookie),
+      request("/api/alerts", cookie), request("/api/changes?page=1&pageSize=25", cookie),
     ]);
     expect(alerts.status).toBe(200);
     expect(changes.status).toBe(200);
     return { alerts: (await alerts.json()) as Array<{ type: string; changeId: string; link: string }>,
-      changes: (await changes.json()) as Array<{ status: string; approvals: Approval[] }> };
+      changes: ((await changes.json()) as { changes: Array<{ status: string; approvals: Approval[] }> }).changes };
   }
 
   it("authenticates streams and refreshes authoritative alerts and changes after successful writes only", async () => {
