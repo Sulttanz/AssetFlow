@@ -21,6 +21,40 @@ import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { publishCabChange, subscribeToCabEvents } from "./cab-events";
 
+// Column order is part of the import format; both template and export use it.
+const assetSpreadsheetColumns = [
+  { header: 'Name*', key: 'name', width: 25 },
+  { header: 'Asset ID', key: 'assetTag', width: 15 },
+  { header: 'Type*', key: 'type', width: 15 },
+  { header: 'Serial Number', key: 'serialNumber', width: 20 },
+  { header: 'Model', key: 'model', width: 20 },
+  { header: 'Status', key: 'status', width: 15 },
+  { header: 'Specifications', key: 'specifications', width: 30 },
+  { header: 'Location Name', key: 'locationName', width: 20 },
+  { header: 'Department Name', key: 'departmentName', width: 20 },
+  { header: 'Information Classification', key: 'informationClassification', width: 25 },
+  { header: 'Criticality', key: 'dataSensitivityLevel', width: 15 },
+  { header: 'Data Types', key: 'dataTypes', width: 25 },
+  { header: 'Asset Owner', key: 'assetOwner', width: 20 },
+  { header: 'Asset Custodian', key: 'assetCustodian', width: 20 },
+  { header: 'Vendor Name', key: 'vendor', width: 20 },
+  { header: 'Invoice Number', key: 'invoiceNumber', width: 20 },
+  { header: 'Purchase Price', key: 'purchasePrice', width: 15 },
+  { header: 'Purchase Date', key: 'purchaseDate', width: 15 },
+  { header: 'Warranty Expiry', key: 'warrantyExpiry', width: 15 },
+  { header: 'Maintenance Costs', key: 'maintenanceCosts', width: 15 },
+  { header: 'Compliance Status', key: 'complianceStatus', width: 20 },
+  { header: 'Security Controls', key: 'securityControlsImplemented', width: 25 },
+  { header: 'Risk Assessment Score', key: 'riskAssessmentScore', width: 20 },
+  { header: 'Lifecycle Status', key: 'lifecycleStatus', width: 20 },
+  { header: 'Planned Disposal Date', key: 'plannedDisposalDate', width: 20 },
+  { header: 'Backup Required', key: 'backupStatus', width: 15 },
+  { header: 'Access Control Method', key: 'accessControlMethod', width: 25 },
+  { header: 'Physical Security Level', key: 'physicalSecurityLevel', width: 25 },
+  { header: 'Last Audit Date', key: 'lastAuditDate', width: 15 },
+  { header: 'Next Audit Date', key: 'nextAuditDate', width: 15 },
+];
+
 // Middleware factory to gate a route behind a module being enabled
 export function requireModule(moduleKey: string) {
   return async (req: any, res: any, next: any) => {
@@ -4280,6 +4314,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Export the same 30-column Assets sheet accepted by the importer.
+  app.get("/api/import/assets-export", requireAuth, requireModule('asset_management'), async (_req, res) => {
+    try {
+      const [assets, locations, departments] = await Promise.all([
+        storage.getAssets(), storage.getLocations(), storage.getDepartments(),
+      ]);
+      const locationNames = new Map(locations.map(location => [location.id, location.name]));
+      const departmentNames = new Map(departments.map(department => [department.id, department.name]));
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Assets');
+      sheet.columns = assetSpreadsheetColumns;
+      for (const asset of assets) {
+        sheet.addRow({
+          ...asset,
+          locationName: asset.locationId ? locationNames.get(asset.locationId) ?? '' : '',
+          departmentName: asset.departmentId ? departmentNames.get(asset.departmentId) ?? '' : '',
+          dataTypes: asset.dataClassificationHandled,
+        });
+      }
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=assets-export.xlsx');
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      if (!res.headersSent) res.status(500).json({ message: "Failed to export assets" });
+      else res.destroy(error instanceof Error ? error : undefined);
+    }
+  });
+
   // Generate Excel template for import
   app.get("/api/import/template", requireAuth, async (req, res) => {
     try {
@@ -4287,55 +4350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Assets Sheet with comprehensive fields
       const assetsSheet = workbook.addWorksheet('Assets');
-      assetsSheet.columns = [
-        // Basic Information
-        { header: 'Name*', key: 'name', width: 25 },
-        { header: 'Asset ID', key: 'assetTag', width: 15 },
-        { header: 'Type*', key: 'type', width: 15 },
-        { header: 'Serial Number', key: 'serialNumber', width: 20 },
-        { header: 'Model', key: 'model', width: 20 },
-        { header: 'Status', key: 'status', width: 15 },
-        { header: 'Specifications', key: 'specifications', width: 30 },
-        
-        // Location & Organization
-        { header: 'Location Name', key: 'locationName', width: 20 },
-        { header: 'Department Name', key: 'departmentName', width: 20 },
-        
-        // Security Classification
-        { header: 'Information Classification', key: 'informationClassification', width: 25 },
-        { header: 'Criticality', key: 'dataSensitivityLevel', width: 15 },
-        { header: 'Data Types', key: 'dataTypes', width: 25 },
-        
-        // Ownership & Management
-        { header: 'Asset Owner', key: 'assetOwner', width: 20 },
-        { header: 'Asset Custodian', key: 'assetCustodian', width: 20 },
-        
-        // Financial & Procurement
-        { header: 'Vendor Name', key: 'vendor', width: 20 },
-        { header: 'Invoice Number', key: 'invoiceNumber', width: 20 },
-        { header: 'Purchase Price', key: 'purchasePrice', width: 15 },
-        { header: 'Purchase Date', key: 'purchaseDate', width: 15 },
-        { header: 'Warranty Expiry', key: 'warrantyExpiry', width: 15 },
-        { header: 'Maintenance Costs', key: 'maintenanceCosts', width: 15 },
-        
-        // Compliance & Controls
-        { header: 'Compliance Status', key: 'complianceStatus', width: 20 },
-        { header: 'Security Controls', key: 'securityControlsImplemented', width: 25 },
-        { header: 'Risk Assessment Score', key: 'riskAssessmentScore', width: 20 },
-        
-        // Lifecycle Management
-        { header: 'Lifecycle Status', key: 'lifecycleStatus', width: 20 },
-        { header: 'Planned Disposal Date', key: 'plannedDisposalDate', width: 20 },
-        
-        // Access & Backup
-        { header: 'Backup Required', key: 'backupStatus', width: 15 },
-        { header: 'Access Control Method', key: 'accessControlMethod', width: 25 },
-        { header: 'Physical Security Level', key: 'physicalSecurityLevel', width: 25 },
-        
-        // Auditing
-        { header: 'Last Audit Date', key: 'lastAuditDate', width: 15 },
-        { header: 'Next Audit Date', key: 'nextAuditDate', width: 15 },
-      ];
+      assetsSheet.columns = assetSpreadsheetColumns;
       
       // Add example row
       assetsSheet.addRow({
@@ -4537,11 +4552,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const convertDate = (value: any) => {
               if (!value) return undefined;
               try {
-                return new Date(value as any).toISOString().split('T')[0];
+                // Excel serial dates count days from 1899-12-30; JS numeric dates count milliseconds.
+                const date = typeof value === 'number'
+                  ? new Date(Date.UTC(1899, 11, 30) + value * 86400000)
+                  : new Date(value as any);
+                return date.toISOString().split('T')[0];
               } catch {
                 return undefined;
               }
             };
+            const nextAuditDate = convertDate(assetData.nextAuditDate);
+            if (assetData.nextAuditDate != null && assetData.nextAuditDate !== '' && !nextAuditDate) {
+              throw new Error(`Invalid Next Audit Date for ${assetData.name || assetData.serialNumber}`);
+            }
             
             // Helper function to handle optional string fields
             const optionalString = (value: any) => {
@@ -4581,6 +4604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               maintenanceCosts: optionalString(assetData.maintenanceCosts),
               
               // Compliance & Controls
+              complianceStatus: optionalString(assetData.complianceStatus),
               securityControlsImplemented: optionalString(assetData.securityControlsImplemented),
               riskAssessmentScore: optionalString(assetData.riskAssessmentScore),
               
@@ -4595,6 +4619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Auditing
               lastAuditDate: convertDate(assetData.lastAuditDate),
+              nextAuditDate,
             });
             
             await logAudit(req.user?.id, 'CREATE', 'assets', asset.id, asset.name, null, asset, req);

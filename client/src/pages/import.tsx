@@ -73,6 +73,28 @@ export default function ImportPage() {
     }
   };
 
+  const handleExportAssets = async () => {
+    try {
+      const response = await fetch('/api/import/assets-export', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to export assets');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'assets-export.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: error instanceof Error ? error.message : 'Failed to export assets',
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleImport = async () => {
     if (!file) {
       toast({
@@ -138,14 +160,20 @@ export default function ImportPage() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Excel File Upload</span>
-              <Button
-                variant="outline"
-                onClick={handleDownloadTemplate}
-                data-testid="button-download-template"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Download Template
-              </Button>
+              <span className="flex gap-2">
+                <Button variant="outline" onClick={handleExportAssets}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Assets
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadTemplate}
+                  data-testid="button-download-template"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Template
+                </Button>
+              </span>
             </CardTitle>
             <CardDescription>
               Download the template, fill in your data, and upload it to import assets and employees

@@ -661,6 +661,7 @@ export class MemStorage implements IStorage {
       dataDestructionRequirements: normalizeField(insertAsset.dataDestructionRequirements),
       
       // Compliance & Security Controls
+      complianceStatus: normalizeField(insertAsset.complianceStatus),
       applicableRegulations: normalizeField(insertAsset.applicableRegulations),
       securityControlsImplemented: normalizeField(insertAsset.securityControlsImplemented),
       encryptionStatus: normalizeField(insertAsset.encryptionStatus),
@@ -734,6 +735,7 @@ export class MemStorage implements IStorage {
       incidentHistory: normalizeField(insertAsset.incidentHistory),
       lastSecurityAssessmentDate: normalizeField(insertAsset.lastSecurityAssessmentDate),
       lastAuditDate: normalizeField(insertAsset.lastAuditDate),
+      nextAuditDate: normalizeField(insertAsset.nextAuditDate),
       auditFindings: normalizeField(insertAsset.auditFindings),
       remediationStatus: normalizeField(insertAsset.remediationStatus),
       assetRegistryEntryDate: normalizeField(insertAsset.assetRegistryEntryDate),

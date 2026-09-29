@@ -115,6 +115,7 @@ export const assets = pgTable("assets", {
   dataDestructionRequirements: text("data_destruction_requirements"), // Secure disposal
   
   // Compliance & Security Controls
+  complianceStatus: text("compliance_status"), // Asset compliance, independent of vendor compliance
   applicableRegulations: text("applicable_regulations"), // GDPR, HIPAA, SOX, PCI DSS
   securityControlsImplemented: text("security_controls_implemented"),
   encryptionStatus: text("encryption_status"), // Data at rest/in transit
@@ -184,6 +185,7 @@ export const assets = pgTable("assets", {
   incidentHistory: text("incident_history"), // Security events
   lastSecurityAssessmentDate: date("last_security_assessment_date"),
   lastAuditDate: date("last_audit_date"), // Compliance verification
+  nextAuditDate: date("next_audit_date"), // Next scheduled asset audit
   auditFindings: text("audit_findings"), // Issues identified
   remediationStatus: text("remediation_status"), // Action plan progress
   assetRegistryEntryDate: date("asset_registry_entry_date"), // When first recorded
