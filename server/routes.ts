@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission, hashPassword } from "./auth";
+import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
@@ -5341,11 +5341,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
     const unsubscribe = subscribeToCabEvents(res);
-    const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 25_000);
-    req.on("close", () => {
-      clearInterval(heartbeat);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    const cleanup = () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
       unsubscribe();
-    });
+    };
+    res.on("close", cleanup);
+    const userId = req.user!.id;
+    const heartbeat = async () => {
+      try {
+        if (!await cabStreamHasAccess(req, userId)) {
+          if (!closed) res.end();
+          return;
+        }
+        if (closed) return;
+        res.write(": heartbeat\n\n");
+        timer = setTimeout(heartbeat, 25_000);
+      } catch (error) {
+        console.error("Failed to verify CAB stream access:", error);
+        if (!closed) res.end();
+      }
+    };
+    timer = setTimeout(heartbeat, 25_000);
   });
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {

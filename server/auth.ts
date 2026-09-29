@@ -1,6 +1,6 @@
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
-import { Express } from "express";
+import { Express, type Request } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import rateLimit from "express-rate-limit";
@@ -176,6 +176,25 @@ export function setupAuth(app: Express) {
 export function requireAuth(req: any, res: any, next: any) {
   if (req.isAuthenticated()) return next();
   res.status(401).json({ error: "Authentication required" });
+}
+
+// A streaming request keeps its original req.session and req.user in memory.
+// Re-read the backing store so logout, expiration, and account revocation take effect.
+export async function cabStreamHasAccess(req: Request, userId: string): Promise<boolean> {
+  const savedSession = await new Promise<session.SessionData | null>((resolve, reject) => {
+    req.sessionStore.get(req.sessionID, (error, value) => {
+      if (error) reject(error);
+      else resolve(value ?? null);
+    });
+  });
+  const passportUser = (savedSession as (session.SessionData & { passport?: { user?: string } }) | null)?.passport?.user;
+  if (!savedSession || passportUser !== userId) return false;
+  const expires = savedSession.cookie?.expires;
+  if (expires && new Date(expires).getTime() <= Date.now()) return false;
+  const user = await storage.getUser(userId);
+  if (!user?.isActive) return false;
+  const module = await storage.getModuleSetting("itsm");
+  return module ? module.enabled : true;
 }
 
 export function requirePermission(permission: string) {

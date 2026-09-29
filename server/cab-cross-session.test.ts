@@ -24,6 +24,7 @@ const store = vi.hoisted(() => ({
   getTickets: vi.fn(),
 }));
 const notify = vi.hoisted(() => vi.fn());
+const streamAccess = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 
 vi.mock("./storage", () => ({ storage: store }));
 vi.mock("./db", () => ({ db: {}, pool: { query: notify } }));
@@ -46,6 +47,7 @@ vi.mock("./auth", () => ({
     req.isAuthenticated() ? next() : res.sendStatus(401),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
+  cabStreamHasAccess: streamAccess,
 }));
 
 import { registerRoutes } from "./routes";
@@ -307,5 +309,32 @@ describe("CAB route notifications across signed-in sessions", () => {
     expect((await request(votePath, bob, "PUT", { decision: "rejected" })).status).toBe(409);
     expect(bobStream.count).toBe(4);
     expect(notify).toHaveBeenCalledTimes(4);
+  });
+
+  it("closes a revoked stream at the next heartbeat and keeps an authorized one open", async () => {
+    const realSetTimeout = setTimeout;
+    const timeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(
+      ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) =>
+        realSetTimeout(callback, delay === 25_000 ? 10 : delay, ...args)) as typeof setTimeout,
+    );
+    try {
+      const alice = await login("alice");
+      const bob = await login("bob");
+      const aliceStream = await openStream(alice);
+      const bobStream = await openStream(bob);
+      await vi.waitFor(() => expect(streamAccess.mock.calls.filter(call => call[1] === "alice").length).toBeGreaterThan(0));
+      let bobClosed = false;
+      void bobStream.closed.then(() => { bobClosed = true; });
+      expect(bobClosed).toBe(false);
+      streamAccess.mockImplementation(async (_req: express.Request, id: string) => id !== "alice");
+      await Promise.race([
+        aliceStream.closed,
+        new Promise((_, reject) => realSetTimeout(() => reject(new Error("Revoked CAB stream stayed open")), 1000)),
+      ]);
+      expect(bobClosed).toBe(false);
+    } finally {
+      timeoutSpy.mockRestore();
+      streamAccess.mockResolvedValue(true);
+    }
   });
 });
