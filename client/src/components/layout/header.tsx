@@ -20,6 +20,7 @@ interface Alert {
   budgetId?: number;
   ticketId?: string;
   changeId?: string;
+  link?: string;
 }
 
 interface HeaderProps {
@@ -150,7 +151,7 @@ export default function Header({
                             key={idx}
                             className="w-full text-left px-4 py-3 hover:bg-accent transition-colors"
                             onClick={() => {
-                              navigate(alertNav[alert.type] ?? "/");
+                              navigate(alert.link ?? alertNav[alert.type] ?? "/");
                               setOpen(false);
                             }}
                           >

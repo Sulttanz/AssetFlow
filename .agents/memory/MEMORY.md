@@ -8,3 +8,4 @@
 - [SLA job system author](sla-job-system-author.md) — SLA enforcement job must join users→userRoles→roles to find the system_admin authorId; users table has no role column.
 - [Asset vendor FK pattern](asset-vendor-fk.md) — assets has both primaryVendorId (FK→vendors) and legacy text vendor field; asset form populates both; vendor list from /api/vendors.
 - [CAB approver removal audit](cab-approver-removal.md) — removed approvers remain as inactive audit records and may not be re-added to the same change.
+- [CAB pending notification source](cab-pending-notifications.md) — derive pending vote alerts from active approval state rather than storing a separate notification lifecycle.

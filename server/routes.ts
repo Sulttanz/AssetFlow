@@ -2177,7 +2177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentUserId = (req.user as any)?.id;
       for (const change of changes) {
         const pendingVote = change.approvals?.find(
-          approval => approval.approverId === currentUserId && approval.decision === "pending"
+          approval => approval.approverId === currentUserId && (approval.decision === "pending" || approval.decision === null) && !approval.removedAt
         );
         if (!pendingVote) continue;
         alerts.push({
@@ -2186,7 +2186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title: `CAB Vote Pending: ${change.changeNumber}`,
           message: `${change.title} is waiting for your CAB decision`,
           changeId: change.id,
-          link: "/changes",
+          link: `/changes?approval=${encodeURIComponent(change.id)}`,
         });
       }
 

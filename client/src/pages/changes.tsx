@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,13 +17,14 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   GitMerge, Plus, Search, Pencil, Trash2, UserCheck, CheckCircle2, XCircle, Clock,
   Play, Square, Ban, Send, UserCog, ChevronRight, Server, TestTube, Package,
   Rocket, AlertTriangle, CheckCheck, SkipForward, Timer, Calendar, User,
-  Building2, ArrowRight, Info, Loader2
+  Building2, ArrowRight, Info, Loader2, Bell
 } from "lucide-react";
 import { format, formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
 import { useAuth, useHasPermission } from "@/hooks/use-auth";
@@ -516,6 +518,8 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
 export default function Changes() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const searchParams = useSearch();
   const isAdmin = useHasPermission("system_admin");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -532,10 +536,25 @@ export default function Changes() {
   const [pirData, setPirData] = useState<any>(null);
   const [pirLoading, setPirLoading] = useState(false);
   const [addApproverUserId, setAddApproverUserId] = useState<string>("");
+  const [pendingVotesOpen, setPendingVotesOpen] = useState(false);
 
-  const { data: changes = [], isLoading } = useQuery<ChangeWithDetails[]>({ queryKey: ["/api/changes"] });
+  const { data: changes = [], isLoading, isFetching } = useQuery<ChangeWithDetails[]>({
+    queryKey: ["/api/changes"], refetchInterval: 60_000, refetchOnMount: "always",
+  });
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
+
+  useEffect(() => {
+    const approvalChangeId = new URLSearchParams(searchParams).get("approval");
+    if (!approvalChangeId || isFetching || isLoading) return;
+    const change = changes.find(c => c.id === approvalChangeId);
+    if (change) {
+      setSelectedChange(change);
+      setDetailTab("approvals");
+    }
+    // Consume the link so closing the dialog doesn't reopen it on the next list refresh.
+    navigate("/changes", { replace: true });
+  }, [searchParams, isFetching, isLoading, changes, navigate]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -589,6 +608,7 @@ export default function Changes() {
       (await apiRequest("POST", `/api/changes/${changeId}/approvals`, approverId ? { approverId } : {})).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       setAddApproverUserId("");
       toast({ title: "Approver added" });
     },
@@ -600,6 +620,7 @@ export default function Changes() {
       (await apiRequest("DELETE", `/api/changes/${changeId}/approvals/${approvalId}`)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       toast({ title: "CAB approver removed" });
     },
     onError: (error: any) => toast({ title: "Unable to remove approver", description: error?.message ?? "Failed to remove approver", variant: "destructive" }),
@@ -634,6 +655,7 @@ export default function Changes() {
       (await apiRequest("PUT", `/api/changes/${changeId}/approvals/${approvalId}`, { decision, comments: approvalComment })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       setApprovalComment("");
       toast({ title: "Decision recorded" });
     },
@@ -687,6 +709,9 @@ export default function Changes() {
 
   const currentChange = changes.find(c => c.id === selectedChange?.id) ?? selectedChange;
   const myApproval = currentChange?.approvals?.find(a => a.approverId === (user as any)?.id);
+  const myPendingChanges = changes.filter(c => c.approvals?.some(a =>
+    a.approverId === user?.id && (a.decision === "pending" || a.decision === null) && !a.removedAt
+  ));
   const isWorking = workflowMutation.isPending || assignMutation.isPending;
 
   // Workflow action buttons based on status
@@ -780,7 +805,35 @@ export default function Changes() {
             <p className="text-sm text-muted-foreground">Full lifecycle — from request to production deployment</p>
           </div>
         </div>
-        <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />New Change</Button>
+        <div className="flex items-center gap-3">
+          <Popover open={pendingVotesOpen} onOpenChange={setPendingVotesOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative" aria-label={`Pending CAB votes: ${myPendingChanges.length}`}>
+                <Bell className="h-5 w-5" />
+                {myPendingChanges.length > 0 && (
+                  <Badge className="absolute -top-1 -right-1 h-5 min-w-5 justify-center px-1 text-[10px]">
+                    {myPendingChanges.length}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 p-2">
+              <p className="px-2 py-1 text-sm font-semibold">My pending CAB votes</p>
+              {myPendingChanges.length === 0 ? (
+                <p className="px-2 py-3 text-sm text-muted-foreground">No votes pending</p>
+              ) : myPendingChanges.map(c => (
+                <button key={c.id} className="w-full rounded px-2 py-2 text-left text-sm hover:bg-accent" onClick={() => {
+                  setPendingVotesOpen(false);
+                  setSelectedChange(c);
+                  setDetailTab("approvals");
+                }}>
+                  <span className="font-medium">{c.changeNumber}</span> — {c.title}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+          <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />New Change</Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-4">
