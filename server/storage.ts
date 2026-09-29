@@ -3854,49 +3854,81 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ── Change Management ───────────────────────────────────────────────────────
-  private async buildChangeDetails(ch: Change): Promise<ChangeWithDetails> {
-    const [reqRows, assignRows, deptRows, approvalRows, stageRows] = await Promise.all([
-      ch.requestedById ? db.select().from(users).where(eq(users.id, ch.requestedById)) : Promise.resolve([]),
-      ch.assignedToId  ? db.select().from(users).where(eq(users.id, ch.assignedToId))  : Promise.resolve([]),
-      ch.departmentId  ? db.select().from(departments).where(eq(departments.id, ch.departmentId)) : Promise.resolve([]),
-      db.select().from(changeApprovals).where(eq(changeApprovals.changeId, ch.id)),
-      db.select().from(changeEnvironmentStages).where(eq(changeEnvironmentStages.changeId, ch.id)).orderBy(changeEnvironmentStages.order),
-    ]);
-    const approvalsWithUsers = await Promise.all(approvalRows.filter(a => !a.removedAt).map(async a => ({
-      ...a,
-      approver: a.approverId
-        ? this.toUserSummary(await db.select().from(users).where(eq(users.id, a.approverId!)).then(r => r[0]))
-        : undefined,
-    })));
-    const stagesWithUsers = await Promise.all(stageRows.map(async s => {
-      const [deployedByRows, assignedToRows] = await Promise.all([
-        s.deployedById ? db.select().from(users).where(eq(users.id, s.deployedById)) : Promise.resolve([]),
-        s.assignedToId ? db.select().from(users).where(eq(users.id, s.assignedToId)) : Promise.resolve([]),
-      ]);
-      return {
-        ...s,
-        deployedBy: deployedByRows[0] ? this.toUserSummary(deployedByRows[0]) : undefined,
-        assignedTo: assignedToRows[0] ? this.toUserSummary(assignedToRows[0]) : undefined,
-      };
-    }));
-    return {
-      ...ch,
-      requestedBy: reqRows[0] ? this.toUserSummary(reqRows[0]) : undefined,
-      assignedTo:  assignRows[0] ? this.toUserSummary(assignRows[0]) : undefined,
-      department:  deptRows[0],
-      approvals:   approvalsWithUsers,
-      removedApproverIds: approvalRows.filter(a => a.removedAt).map(a => a.originalApproverId),
-      stages:      stagesWithUsers,
+  private async buildChangeDetails(rows: Change[]): Promise<ChangeWithDetails[]> {
+    if (!rows.length) return [];
+
+    // Bound IN lists for large histories, without reverting to one query per change.
+    const loadBatches = async <T>(ids: string[], load: (batch: string[]) => Promise<T[]>): Promise<T[]> => {
+      const batches: string[][] = [];
+      for (let i = 0; i < ids.length; i += 500) batches.push(ids.slice(i, i + 500));
+      return (await Promise.all(batches.map(load))).flat();
     };
+    const ids = rows.map(ch => ch.id);
+    const [approvalRows, stageRows] = await Promise.all([
+      loadBatches(ids, batch => db.select().from(changeApprovals).where(inArray(changeApprovals.changeId, batch))),
+      loadBatches(ids, batch => db.select().from(changeEnvironmentStages)
+        .where(inArray(changeEnvironmentStages.changeId, batch)).orderBy(changeEnvironmentStages.order)),
+    ]);
+
+    const userIds = new Set<string>();
+    const departmentIds = new Set<string>();
+    const addUser = (id: string | null) => { if (id) userIds.add(id); };
+    for (const ch of rows) {
+      addUser(ch.requestedById);
+      addUser(ch.assignedToId);
+      if (ch.departmentId) departmentIds.add(ch.departmentId);
+    }
+    for (const approval of approvalRows) {
+      if (!approval.removedAt) addUser(approval.approverId);
+    }
+    for (const stage of stageRows) {
+      addUser(stage.deployedById);
+      addUser(stage.assignedToId);
+    }
+    const [userRows, departmentRows] = await Promise.all([
+      loadBatches(Array.from(userIds), batch => db.select().from(users).where(inArray(users.id, batch))),
+      loadBatches(Array.from(departmentIds), batch => db.select().from(departments).where(inArray(departments.id, batch))),
+    ]);
+    const userById = new Map(userRows.map(user => [user.id, this.toUserSummary(user)]));
+    const departmentById = new Map(departmentRows.map(dept => [dept.id, dept]));
+    const approvalsByChange = new Map<string, ChangeApproval[]>();
+    const stagesByChange = new Map<string, ChangeEnvironmentStage[]>();
+    for (const approval of approvalRows) {
+      if (!approvalsByChange.has(approval.changeId)) approvalsByChange.set(approval.changeId, []);
+      approvalsByChange.get(approval.changeId)!.push(approval);
+    }
+    for (const stage of stageRows) {
+      if (!stagesByChange.has(stage.changeId)) stagesByChange.set(stage.changeId, []);
+      stagesByChange.get(stage.changeId)!.push(stage);
+    }
+    return rows.map(ch => {
+      const approvals = approvalsByChange.get(ch.id) ?? [];
+      return {
+        ...ch,
+        requestedBy: ch.requestedById ? userById.get(ch.requestedById) : undefined,
+        assignedTo: ch.assignedToId ? userById.get(ch.assignedToId) : undefined,
+        department: ch.departmentId ? departmentById.get(ch.departmentId) : undefined,
+        approvals: approvals.filter(a => !a.removedAt).map(a => ({
+          ...a,
+          approver: a.approverId ? userById.get(a.approverId) : undefined,
+        })),
+        removedApproverIds: approvals.filter(a => a.removedAt).map(a => a.originalApproverId),
+        stages: (stagesByChange.get(ch.id) ?? []).map(s => ({
+          ...s,
+          deployedBy: s.deployedById ? userById.get(s.deployedById) : undefined,
+          assignedTo: s.assignedToId ? userById.get(s.assignedToId) : undefined,
+        })),
+      };
+    });
   }
   async getChanges(): Promise<ChangeWithDetails[]> {
     const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
-    return Promise.all(rows.map(c => this.buildChangeDetails(c)));
+    return this.buildChangeDetails(rows);
   }
   async getChange(id: string): Promise<ChangeWithDetails | undefined> {
     const rows = await db.select().from(changes).where(eq(changes.id, id));
     if (!rows[0]) return undefined;
-    return this.buildChangeDetails(rows[0]);
+    return (await this.buildChangeDetails(rows))[0];
   }
   async createChange(change: InsertChange): Promise<Change> {
     const countResult = await db.select({ count: sql<number>`count(*)` }).from(changes);
