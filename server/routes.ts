@@ -5474,12 +5474,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId, decision: "pending" });
+      await logAudit(user.id, "CREATE", "change_approvals", approval.id,
+        `CAB approver ${approverId} on change ${req.params.id}`,
+        null, { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision }, req);
       res.status(201).json(approval);
     } catch (error: any) {
       if (error?.code === "23505") {
+        // The unique constraint also covers removed approvals. A concurrent add
+        // must not report an inactive historical assignment as an active one.
+        const approverId = req.body.approverId || (req.user as any).id;
+        let removed = false;
+        try {
+          const history = await storage.getAllChangeApprovalRecords(req.params.id);
+          removed = history.some(a => a.approverId === approverId && a.removedAt);
+        } catch (lookupError) {
+          console.error("Failed to check approval history after conflict:", lookupError);
+          return res.status(500).json({ message: "Failed to check approval history" });
+        }
         return res.status(409).json({
-          message: "This CAB member is already assigned to the change.",
-          code: "CAB_APPROVER_DUPLICATE",
+          message: removed
+            ? "This CAB member was removed from the change and cannot be re-added."
+            : "This CAB member is already assigned to the change.",
+          code: removed ? "CAB_APPROVER_REMOVED" : "CAB_APPROVER_DUPLICATE",
         });
       }
       console.error("Failed to add approval:", error);
@@ -5503,6 +5519,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const removed = await storage.removeChangeApproval(approval.id, user.id);
       if (!removed) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
+      await logAudit(user.id, "DELETE", "change_approvals", removed.id,
+        `CAB approver ${removed.approverId} on change ${removed.changeId}`,
+        { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision, removedAt: approval.removedAt },
+        { changeId: removed.changeId, approverId: removed.approverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to remove approval:", error);
