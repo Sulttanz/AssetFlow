@@ -12,7 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["client/src/**/*.test.tsx"],
+    include: ["client/src/**/*.test.tsx", "server/**/*.test.ts"],
     restoreMocks: true,
   },
 });
