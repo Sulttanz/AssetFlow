@@ -176,6 +176,118 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     15_000,
   );
 
+  it.each(["vote", "removal"] as const)(
+    "keeps only the %s when a vote races an assignment removal",
+    async first => {
+      const voterId = randomUUID();
+      const managerId = randomUUID();
+      const changeId = randomUUID();
+      const approvalId = randomUUID();
+      await db.insert(users).values([
+        { id: voterId, username: `voter-${voterId}`, email: `${voterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" },
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Vote versus removal",
+        status: "submitted",
+      });
+      await db.insert(changeApprovals).values({
+        id: approvalId, changeId, approverId: voterId, originalApproverId: voterId,
+        approverLabel: "CAB Voter", decision: "pending",
+      });
+
+      // Both HTTP handlers must read the same pending row before either writes.
+      const originalRead = storage.getChangeApprovals.bind(storage);
+      let arrived = 0;
+      let releaseReads!: () => void;
+      const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+        const rows = await originalRead(id);
+        if (id === changeId && arrived < 2) {
+          expect(rows.find(row => row.id === approvalId)).toMatchObject({
+            decision: "pending", removedAt: null,
+          });
+          if (++arrived === 2) releaseReads();
+          await bothRead;
+        }
+        return rows;
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      // Release the second storage call only after the first real DB update
+      // commits. This covers both possible outcomes without replacing either UPDATE.
+      let releaseSecond!: () => void;
+      const firstFinished = new Promise<void>(resolve => { releaseSecond = resolve; });
+      const originalVote = storage.updateChangeApproval.bind(storage);
+      const originalRemove = storage.removeChangeApproval.bind(storage);
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
+        if (first === "removal") await firstFinished;
+        try {
+          return await originalVote(...args);
+        } finally {
+          if (first === "vote") releaseSecond();
+        }
+      });
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+        if (first === "vote") await firstFinished;
+        try {
+          return await originalRemove(...args);
+        } finally {
+          if (first === "removal") releaseSecond();
+        }
+      });
+
+      try {
+        const path = `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`;
+        const [vote, removal] = await Promise.all([
+          fetch(path, {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": voterId },
+            body: JSON.stringify({ decision: "approved", comments: "Approved in race" }),
+          }),
+          fetch(path, { method: "DELETE", headers: { "x-test-user": managerId } }),
+        ]);
+        expect(arrived).toBe(2);
+        expect([vote.status, removal.status].sort()).toEqual([200, 409]);
+        expect([vote.status, removal.status]).toEqual(first === "vote" ? [200, 409] : [409, 200]);
+        const loser = first === "vote" ? removal : vote;
+        expect((await loser.json()).message).toBe("This CAB approval was already voted on or removed");
+        if (first === "vote") {
+          expect(await vote.json()).toMatchObject({ id: approvalId, decision: "approved" });
+        } else {
+          expect(await removal.json()).toEqual({ success: true });
+        }
+
+        const [saved] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
+        expect(saved).toMatchObject({
+          decision: first === "vote" ? "approved" : "pending",
+          comments: first === "vote" ? "Approved in race" : null,
+          removedById: first === "removal" ? managerId : null,
+          removedByLabel: first === "removal" ? "CAB Manager" : null,
+        });
+        expect(saved.decidedAt instanceof Date).toBe(first === "vote");
+        expect(saved.removedAt instanceof Date).toBe(first === "removal");
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe(first === "vote" ? "approved" : "submitted");
+        const history = await storage.getAllChangeApprovalRecords(changeId);
+        expect(history).toHaveLength(1);
+        expect(history[0].id).toBe(approvalId);
+        expect((await storage.getChangeApprovals(changeId)).map(row => row.id))
+          .toEqual(first === "vote" ? [approvalId] : []);
+      } finally {
+        readSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+        voteSpy.mockRestore();
+        removeSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it.each(["approved", "rejected"] as const)(
     "keeps the change rejected when the %s vote commits first on a separate approval",
     async firstDecision => {
