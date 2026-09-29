@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext } from "react";
+import { createContext, ReactNode, useContext, useEffect } from "react";
 import {
   useQuery,
   useMutation,
@@ -33,6 +33,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 10, // 10 minutes (previously cacheTime)
   });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const events = new EventSource("/api/changes/events");
+    const refreshCab = () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+    };
+    // A reconnect can miss events; reconcile with the server each time it opens.
+    events.addEventListener("open", refreshCab);
+    events.addEventListener("cab-change", refreshCab);
+    return () => {
+      events.removeEventListener("open", refreshCab);
+      events.removeEventListener("cab-change", refreshCab);
+      events.close();
+    };
+  }, [user?.id]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {

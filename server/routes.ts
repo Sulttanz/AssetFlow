@@ -19,6 +19,7 @@ import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { publishCabChange, subscribeToCabEvents } from "./cab-events";
 
 // Middleware factory to gate a route behind a module being enabled
 export function requireModule(moduleKey: string) {
@@ -5308,6 +5309,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Change Management ────────────────────────────────────────────────────
+  app.get("/api/changes/events", requireAuth, requireModule("itsm"), (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    const unsubscribe = subscribeToCabEvents(res);
+    const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 25_000);
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  });
+
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try { res.json(await storage.getChanges()); }
     catch { res.status(500).json({ message: "Failed to fetch changes" }); }
@@ -5475,6 +5489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, "CREATE", "change_approvals", approval.id,
         `CAB approver ${approverId} on change ${req.params.id}`,
         null, { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision }, req);
+      publishCabChange();
       res.status(201).json(approval);
     } catch (error: any) {
       if (error?.code === "23505") {
@@ -5521,6 +5536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `CAB approver ${removed.approverId} on change ${removed.changeId}`,
         { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision, removedAt: approval.removedAt },
         { changeId: removed.changeId, approverId: removed.approverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
+      publishCabChange();
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to remove approval:", error);
@@ -5560,6 +5576,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allApproved = updated.every(a => a.decision === "approved");
       if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" } as any);
       else if (allApproved && updated.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
+      publishCabChange();
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
   });
