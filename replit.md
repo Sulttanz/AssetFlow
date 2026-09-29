@@ -20,7 +20,7 @@ Preferred communication style: Simple, everyday language.
 
 The frontend is built with React 18 and TypeScript, utilizing Wouter for routing and TanStack Query for server state management. UI components are crafted with shadcn/ui (based on Radix UI) and styled using Tailwind CSS. Forms are managed with React Hook Form and Zod validation. Vite handles fast development and optimized production builds.
 
-Before release, run the registered `security-audit` validation step (`npm run audit:security`). It audits all locked dependencies, including development dependencies, and fails on high or critical vulnerabilities. Low and moderate findings are reported but do not block release; there are no package-specific exceptions. Resolve high/critical findings in the lockfile rather than suppressing the audit.
+The deployment runs `npm run build`, whose `prebuild` hook automatically runs `npm run audit:security` first, blocking publication if the audit fails. The registered `security-audit` validation step is also available for local checks. It audits all locked dependencies, including development dependencies, and fails on high or critical vulnerabilities. Low and moderate findings are reported but do not block release; there are no package-specific exceptions. Resolve high/critical findings in the lockfile rather than suppressing the audit.
 
 -   **UI/UX**: Professional interface with shadcn/ui components, component-based architecture, and a persistent sidebar navigation.
 -   **Pagination**: Client-side pagination (10 items per page) is consistently implemented across all major list pages (e.g., Assets, Employees, Purchase Orders) to optimize performance and user experience, featuring navigation controls, item counts, and automatic state adjustments.
