@@ -855,8 +855,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isOwner && !(await canManageAllTickets(user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
+      const canViewInternal = await canManageAllTickets(user.id) || ticket.assignedToId === user.id;
       const comments = await storage.getTicketComments(req.params.id);
-      res.json(comments);
+      res.json(canViewInternal ? comments : comments.filter(comment => !comment.isInternal));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch comments" });
     }
@@ -871,9 +872,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isOwner && !(await canManageAllTickets(user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const canManage = await canManageAllTickets(user.id);
-      // Only agents/admins can post internal notes
-      const isInternal = canManage ? (req.body.isInternal === true) : false;
+      const canPostInternal = await canManageTicket(user.id) || ticket.assignedToId === user.id;
+      // Assigned technicians and managers may write internal notes; requesters cannot.
+      const isInternal = canPostInternal && req.body.isInternal === true;
       const validatedData = insertTicketCommentSchema.parse({ ticketId: req.params.id, authorId: user.id, message: req.body.message, isInternal });
       const comment = await storage.createTicketComment(validatedData);
       await logAudit(user.id, 'CREATE', 'ticket_comments', comment.id, `Comment on ${ticket.ticketNumber}`, null, comment, req);
@@ -1401,7 +1402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Log the data clearing action for audit trail
-      console.log(`System data cleared by user ${user.username} (${userId}) at ${new Date().toISOString()}`);
+      console.log(`System data cleared at ${new Date().toISOString()}`);
 
       res.json({ 
         message: "All system data has been successfully cleared",
@@ -1609,7 +1610,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/assets/:id/attachments", requireAuth, diskUpload.single('file'), async (req, res) => {
+  app.post("/api/assets/:id/attachments", requireAuth, requireModule('asset_management'), requirePermission('asset_update'), async (req, res, next) => {
+    try {
+      if (!(await storage.getAsset(req.params.id))) {
+        return res.status(404).json({ message: "Asset not found" });
+      }
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to verify asset" });
+    }
+  }, diskUpload.single('file'), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const { description } = req.body;
@@ -1630,7 +1640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/assets/:id/attachments/:attachId", requireAuth, async (req, res) => {
+  app.delete("/api/assets/:id/attachments/:attachId", requireAuth, requireModule('asset_management'), requirePermission('asset_update'), async (req, res) => {
     try {
       const [deleted] = await db.delete(assetAttachments)
         .where(and(eq(assetAttachments.id, req.params.attachId), eq(assetAttachments.assetId, req.params.id)))
@@ -1664,7 +1674,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tickets/:id/attachments", requireAuth, requireModule('itsm'), diskUpload.single('file'), async (req, res) => {
+  app.post("/api/tickets/:id/attachments", requireAuth, requireModule('itsm'), async (req, res, next) => {
+    try {
+      const user = req.user as any;
+      const ticket = await storage.getTicket(req.params.id);
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      if (ticket.requesterId !== user.id && ticket.assignedToId !== user.id && !(await canManageAllTickets(user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      next();
+    } catch (error) {
+      res.status(500).json({ message: "Failed to authorize upload" });
+    }
+  }, diskUpload.single('file'), async (req, res) => {
     try {
       const user = req.user as any;
       const ticket = await storage.getTicket(req.params.id);
@@ -1727,6 +1749,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!filename || filename !== req.params.filename || filename.startsWith('.')) {
         return res.status(400).json({ message: "Invalid filename" });
       }
+      const [ticketFile] = await db.select().from(ticketAttachments).where(eq(ticketAttachments.fileName, filename)).limit(1);
+      const [assetFile] = ticketFile
+        ? [undefined]
+        : await db.select().from(assetAttachments).where(eq(assetAttachments.fileName, filename)).limit(1);
+      if (ticketFile) {
+        const user = req.user as any;
+        const ticket = await storage.getTicket(ticketFile.ticketId);
+        if (!ticket || (ticket.requesterId !== user.id && ticket.assignedToId !== user.id && !(await canManageAllTickets(user.id)))) {
+          return res.status(404).json({ message: "File not found" });
+        }
+      } else if (!assetFile) {
+        return res.status(404).json({ message: "File not found" });
+      }
       const uploadsDir = path.join(process.cwd(), 'server/uploads');
       const filePath = path.join(uploadsDir, filename);
       // Double-check resolved path is still inside the uploads directory
@@ -1736,7 +1771,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ message: "File not found" });
       }
-      res.sendFile(filePath);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.download(filePath, ticketFile?.originalName || assetFile?.originalName || filename);
     } catch (error) {
       res.status(404).json({ message: "File not found" });
     }
