@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { startCabEventListener } from "./cab-events";
 
 // Production startup logging
 console.log("🚀 Starting IT Asset Management System...");
@@ -88,6 +89,7 @@ app.use((req, res, next) => {
     console.log("🛣️  Registering routes...");
     const server = await registerRoutes(app);
     console.log("✅ Routes registered successfully");
+    startCabEventListener();
     
     // Test database connectivity - non-blocking, server will start regardless
     // Database will be retried on first request if initial connection fails

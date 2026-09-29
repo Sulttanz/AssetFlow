@@ -5514,7 +5514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, "CREATE", "change_approvals", approval.id,
         `CAB approver ${approverId} on change ${req.params.id}`,
         null, { changeId: approval.changeId, approverId: approval.approverId, decision: approval.decision }, req);
-      publishCabChange();
+      await publishCabChange();
       res.status(201).json(approval);
     } catch (error: any) {
       if (error?.code === "23505") {
@@ -5561,7 +5561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         `CAB approver ${removed.originalApproverId} on change ${removed.changeId}`,
         { changeId: approval.changeId, approverId: approval.originalApproverId, decision: approval.decision, removedAt: approval.removedAt },
         { changeId: removed.changeId, approverId: removed.originalApproverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
-      publishCabChange();
+      await publishCabChange();
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to remove approval:", error);
@@ -5601,7 +5601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allApproved = updated.every(a => a.decision === "approved");
       if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" } as any);
       else if (allApproved && updated.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
-      publishCabChange();
+      await publishCabChange();
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }
   });
