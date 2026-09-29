@@ -108,6 +108,29 @@ describe("change list pages", () => {
 });
 
 describe("change detail CAB approvals", () => {
+  it("orders active and removed CAB assignment events with milestones using saved labels, without voting controls", async () => {
+    const removed = {
+      ...approval("Former", "pending", "carol"),
+      approverId: null, approver: undefined,
+      removedAt: decidedAt, removedById: null, removedByLabel: "Morgan Manager",
+    };
+    const active = { ...approval("Current", "pending", "bob"), createdAt: "2026-06-03T09:00:00.000Z" };
+    const { user } = await openApprovals([active], ["carol"], [removed]);
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    const panel = screen.getByRole("tabpanel", { name: "Timeline" });
+    const labels = within(panel).getAllByText(/^(Created|CAB approver assigned:|CAB approver removed:)/).map(el => el.textContent);
+    expect(labels).toEqual([
+      "Created",
+      "CAB approver assigned: Former Reviewer",
+      "CAB approver removed: Former Reviewer by Morgan Manager",
+      "CAB approver assigned: Current Reviewer",
+    ]);
+    const removal = within(panel).getByText("CAB approver removed: Former Reviewer by Morgan Manager").parentElement!;
+    expect(within(removal).getByText(new RegExp(format(new Date(decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+    expect(within(panel).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Approvals (1)" })).toBeTruthy();
+  });
+
   it("shows removed assignments as read-only history after both accounts are deleted, without affecting active counts or CAB gates", async () => {
     auth.isAdmin = true;
     const removed = {

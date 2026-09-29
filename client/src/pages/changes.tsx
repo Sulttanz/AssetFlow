@@ -445,6 +445,13 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
     { label: "Submitted for approval", ts: change.submittedAt, color: "bg-blue-400", icon: Send },
     { label: "Approved", ts: change.approvedAt, color: "bg-green-500", icon: CheckCircle2 },
     { label: "Assigned", ts: change.assignedAt, color: "bg-teal-500", icon: UserCog },
+    ...[...(change.approvals ?? []), ...(change.removedApprovals ?? [])].flatMap(a => [
+      { label: `CAB approver assigned: ${a.approverLabel}`, ts: a.createdAt, color: "bg-teal-500", icon: UserCheck },
+      ...(a.removedAt ? [{
+        label: `CAB approver removed: ${a.approverLabel} by ${a.removedByLabel || (a.removedBy ? userLabel(a.removedBy) : "Deleted account")}`,
+        ts: a.removedAt, color: "bg-gray-400", icon: UserCog,
+      }] : []),
+    ]),
     { label: "Work started", ts: change.actualStart, color: "bg-orange-500", icon: Play },
     ...( change.stages?.filter(s => s.completedAt || s.startedAt).map(s => ({
       label: `${STAGE_META[s.environment]?.label ?? s.environment} ${s.status === "completed" ? "completed" : s.status === "failed" ? "failed" : "started"}`,
