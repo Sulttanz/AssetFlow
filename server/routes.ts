@@ -5631,15 +5631,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You can only vote on your own CAB approval" });
       }
 
-      const approval = await storage.updateChangeApproval(req.params.approvalId, req.body.decision, req.body.comments);
+      const approval = await storage.updateChangeApproval(req.params.changeId, req.params.approvalId, req.body.decision, req.body.comments);
       if (!approval) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
 
-      // Auto-update change status based on all decisions
-      const updated = await storage.getChangeApprovals(req.params.changeId);
-      const hasRejected = updated.some(a => a.decision === "rejected");
-      const allApproved = updated.every(a => a.decision === "approved");
-      if (hasRejected) await storage.updateChange(req.params.changeId, { status: "rejected" } as any);
-      else if (allApproved && updated.length > 0) await storage.updateChange(req.params.changeId, { status: "approved", approvedAt: new Date() } as any);
       await publishCabChange();
       res.json(approval);
     } catch { res.status(500).json({ message: "Failed to update approval" }); }

@@ -28,7 +28,7 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
 
       const pending = await storage.createChangeApproval({ changeId, approverId, decision: "pending" });
       const undecided = await storage.createChangeApproval({ changeId, approverId, decision: "pending" });
-      const decided = await storage.updateChangeApproval(undecided.id, "approved", "Approved before account deletion");
+      const decided = await storage.updateChangeApproval(changeId, undecided.id, "approved", "Approved before account deletion");
       expect(decided).toBeDefined();
       expect(pending.createdAt).toBeInstanceOf(Date);
       expect(decided!.createdAt).toBeInstanceOf(Date);
@@ -55,7 +55,7 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
       const active = await storage.getChangeApprovals(changeId);
       expect(active).toHaveLength(2);
       expect(cabApprovalsGranted(active)).toBe(false);
-      expect(await storage.updateChangeApproval(pending.id, "approved")).toBeUndefined();
+      expect(await storage.updateChangeApproval(changeId, pending.id, "approved")).toBeUndefined();
 
       const removed = await storage.removeChangeApproval(pending.id, removerId);
       expect(removed?.removedAt).toBeInstanceOf(Date);

@@ -347,7 +347,7 @@ export interface IStorage {
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
   getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]>;
   createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
-  updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
+  updateChangeApproval(changeId: string, id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
   removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined>;
   getChangePIR(changeId: string): Promise<ChangePIR | undefined>;
   createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR>;
@@ -2517,7 +2517,7 @@ export class MemStorage implements IStorage {
     if (!approver) throw new Error("CAB approver account not found");
     return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
   }
-  async updateChangeApproval(_id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
+  async updateChangeApproval(_changeId: string, _id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
   async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
   async getChangePIR(_changeId: string): Promise<ChangePIR | undefined> { return undefined; }
   async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
@@ -4021,12 +4021,34 @@ export class DatabaseStorage implements IStorage {
     }).returning();
     return result[0];
   }
-  async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
-    const result = await db.update(changeApprovals)
-      .set({ decision, comments: comments ?? null, decidedAt: new Date() })
-      .where(and(eq(changeApprovals.id, id), sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
-      .returning();
-    return result[0];
+  async updateChangeApproval(changeId: string, id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
+    return db.transaction(async tx => {
+      // Lock the parent before updating any vote. Votes on separate approvals
+      // then serialize, so each status calculation sees the preceding vote.
+      const [change] = await tx.select({ id: changes.id }).from(changes)
+        .where(eq(changes.id, changeId)).for("update");
+      if (!change) return undefined;
+
+      const [approval] = await tx.update(changeApprovals)
+        .set({ decision, comments: comments ?? null, decidedAt: new Date() })
+        .where(and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, changeId),
+          sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt),
+          or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+        .returning();
+      if (!approval) return undefined;
+
+      const active = await tx.select({ decision: changeApprovals.decision })
+        .from(changeApprovals)
+        .where(and(eq(changeApprovals.changeId, changeId), isNull(changeApprovals.removedAt)));
+      if (active.some(a => a.decision === "rejected")) {
+        await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
+          .where(eq(changes.id, changeId));
+      } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
+        await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+          .where(eq(changes.id, changeId));
+      }
+      return approval;
+    });
   }
   async removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined> {
     const [remover] = await db.select().from(users).where(eq(users.id, removedById));

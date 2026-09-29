@@ -175,4 +175,76 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     },
     15_000,
   );
+
+  it.each(["approved", "rejected"] as const)(
+    "keeps the change rejected when the %s vote commits first on a separate approval",
+    async firstDecision => {
+      const changeId = randomUUID();
+      const voters = [
+        { id: randomUUID(), decision: "approved" },
+        { id: randomUUID(), decision: "rejected" },
+      ] as const;
+      const approvalIds = [randomUUID(), randomUUID()];
+      for (const voter of voters) {
+        await db.insert(users).values({
+          id: voter.id, username: `voter-${voter.id}`, email: `${voter.id}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter",
+        });
+      }
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Competing CAB decisions",
+        status: "submitted",
+      });
+      for (const [index, voter] of voters.entries()) {
+        await db.insert(changeApprovals).values({
+          id: approvalIds[index], changeId, approverId: voter.id,
+          originalApproverId: voter.id, approverLabel: "CAB Voter", decision: "pending",
+        });
+      }
+
+      // Both requests pass the route's initial approval read before either vote
+      // starts. Control the commit order while still using real database writes.
+      const originalRead = storage.getChangeApprovals.bind(storage);
+      let arrived = 0;
+      let releaseReads!: () => void;
+      const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+        const rows = await originalRead(id);
+        if (id === changeId && arrived < 2) {
+          if (++arrived === 2) releaseReads();
+          await bothRead;
+        }
+        return rows;
+      });
+      const originalVote = storage.updateChangeApproval.bind(storage);
+      let releaseSecond!: () => void;
+      const firstSaved = new Promise<void>(resolve => { releaseSecond = resolve; });
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (id, approvalId, decision, comments) => {
+        if (decision !== firstDecision) await firstSaved;
+        const result = await originalVote(id, approvalId, decision, comments);
+        if (decision === firstDecision) releaseSecond();
+        return result;
+      });
+
+      try {
+        const responses = await Promise.all(voters.map((voter, index) =>
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalIds[index]}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": voter.id },
+            body: JSON.stringify({ decision: voter.decision }),
+          })));
+        expect(arrived).toBe(2);
+        expect(responses.map(response => response.status)).toEqual([200, 200]);
+        const savedApprovals = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+        expect(savedApprovals.map(a => a.decision).sort()).toEqual(["approved", "rejected"]);
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe("rejected");
+        expect(savedChange.approvedAt).toBeNull();
+      } finally {
+        readSpy.mockRestore();
+        voteSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
 });
