@@ -5357,7 +5357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
         if (closed) return;
-        res.write(": heartbeat\n\n");
+        unsubscribe.sendHeartbeat();
         timer = setTimeout(heartbeat, 25_000);
       } catch (error) {
         console.error("Failed to verify CAB stream access:", error);

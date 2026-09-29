@@ -6,20 +6,57 @@ import { pool } from "./db";
 // Notifications contain no CAB data. The API remains the source of truth.
 const channel = "cab_changes";
 const instanceId = randomUUID();
-const subscribers = new Set<Response>();
+const drainTimeoutMs = 10_000;
+const changeEvent = "event: cab-change\ndata: {}\n\n";
+type Subscriber = {
+  res: Response;
+  blocked: boolean;
+  pendingChange: boolean;
+  drainTimer?: ReturnType<typeof setTimeout>;
+  onDrain: () => void;
+};
+const subscribers = new Set<Subscriber>();
 let listener: Client | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let retryDelay = 1000;
 let started = false;
 
-function broadcast(): void {
-  subscribers.forEach(res => {
-    if (res.destroyed || res.writableEnded) {
-      subscribers.delete(res);
-      return;
+function removeSubscriber(subscriber: Subscriber): void {
+  subscribers.delete(subscriber);
+  subscriber.res.off("drain", subscriber.onDrain);
+  if (subscriber.drainTimer) clearTimeout(subscriber.drainTimer);
+  subscriber.drainTimer = undefined;
+}
+
+function disconnect(subscriber: Subscriber): void {
+  removeSubscriber(subscriber);
+  subscriber.res.destroy();
+}
+
+function send(subscriber: Subscriber, message: string): void {
+  if (!subscribers.has(subscriber)) return;
+  const { res } = subscriber;
+  if (res.destroyed || res.writableEnded) {
+    removeSubscriber(subscriber);
+    return;
+  }
+  if (subscriber.blocked) {
+    if (message === changeEvent) subscriber.pendingChange = true;
+    return;
+  }
+  try {
+    if (!res.write(message)) {
+      subscriber.blocked = true;
+      subscriber.drainTimer = setTimeout(() => disconnect(subscriber), drainTimeoutMs);
+      subscriber.drainTimer.unref();
     }
-    res.write("event: cab-change\ndata: {}\n\n");
-  });
+  } catch {
+    disconnect(subscriber);
+  }
+}
+
+function broadcast(): void {
+  subscribers.forEach(subscriber => send(subscriber, changeEvent));
 }
 
 // Neon transaction-pooler endpoints cannot hold a LISTEN subscription. Use
@@ -79,9 +116,27 @@ export function startCabEventListener(): void {
   void connectListener();
 }
 
-export function subscribeToCabEvents(res: Response): () => void {
-  subscribers.add(res);
-  return () => { subscribers.delete(res); };
+export function subscribeToCabEvents(res: Response): (() => void) & { sendHeartbeat: () => void } {
+  const subscriber: Subscriber = {
+    res,
+    blocked: false,
+    pendingChange: false,
+    onDrain: () => {
+      if (!subscribers.has(subscriber)) return;
+      subscriber.blocked = false;
+      if (subscriber.drainTimer) clearTimeout(subscriber.drainTimer);
+      subscriber.drainTimer = undefined;
+      if (subscriber.pendingChange) {
+        subscriber.pendingChange = false;
+        send(subscriber, changeEvent);
+      }
+    },
+  };
+  subscribers.add(subscriber);
+  res.on("drain", subscriber.onDrain);
+  return Object.assign(() => removeSubscriber(subscriber), {
+    sendHeartbeat: () => send(subscriber, ": heartbeat\n\n"),
+  });
 }
 
 export async function publishCabChange(): Promise<void> {

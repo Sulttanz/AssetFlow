@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Response } from "express";
 import { publishCabChange, startCabEventListener, subscribeToCabEvents } from "../../../server/cab-events";
@@ -30,9 +31,17 @@ beforeEach(() => {
   process.env.DATABASE_URL ||= "postgres://test@localhost/test";
 });
 
+function streamResponse(): Response {
+  return Object.assign(new EventEmitter(), {
+    write: vi.fn().mockReturnValue(true),
+    destroyed: false,
+    writableEnded: false,
+  }) as unknown as Response;
+}
+
 it("broadcasts a data-free refresh signal to open sessions only", async () => {
-  const first = { write: vi.fn(), destroyed: false } as unknown as Response;
-  const second = { write: vi.fn(), destroyed: false } as unknown as Response;
+  const first = streamResponse();
+  const second = streamResponse();
   const unsubscribeFirst = subscribeToCabEvents(first);
   const unsubscribeSecond = subscribeToCabEvents(second);
   try {
@@ -54,7 +63,7 @@ it("fans out notifications from another server without echoing its own publish",
   startCabEventListener();
   const client = clients[0];
   await vi.waitFor(() => expect(client.query).toHaveBeenCalledWith("LISTEN cab_changes"));
-  const stream = { write: vi.fn(), destroyed: false } as unknown as Response;
+  const stream = streamResponse();
   const unsubscribe = subscribeToCabEvents(stream);
   try {
     client.emit("notification", { channel: "cab_changes", payload: "another-server" });
