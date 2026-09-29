@@ -5497,12 +5497,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const approvals = await storage.getChangeApprovals(req.params.changeId);
       const approval = approvals.find(a => a.id === req.params.approvalId);
       if (!approval) return res.status(404).json({ message: "Approval not found for this change" });
-      if (approval.decision !== "pending") {
+      if (approval.decision !== "pending" && approval.decision !== null) {
         return res.status(409).json({ message: "A CAB vote that has already been cast cannot be removed" });
       }
 
       const removed = await storage.removeChangeApproval(approval.id, user.id);
-      if (!removed) return res.status(404).json({ message: "Approval not found" });
+      if (!removed) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to remove approval:", error);
@@ -5534,7 +5534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const approval = await storage.updateChangeApproval(req.params.approvalId, req.body.decision, req.body.comments);
-      if (!approval) return res.status(404).json({ message: "Approval not found" });
+      if (!approval) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
 
       // Auto-update change status based on all decisions
       const updated = await storage.getChangeApprovals(req.params.changeId);

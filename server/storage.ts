@@ -33,7 +33,7 @@ import {
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, isNull, and, inArray, sql, desc } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, sql, desc } from "drizzle-orm";
 import { EventEmitter } from "events";
 
 function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
@@ -3852,14 +3852,14 @@ export class DatabaseStorage implements IStorage {
   async updateChangeApproval(id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
     const result = await db.update(changeApprovals)
       .set({ decision, comments: comments ?? null, decidedAt: new Date() })
-      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt)))
+      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .returning();
     return result[0];
   }
   async removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined> {
     const result = await db.update(changeApprovals)
       .set({ removedAt: new Date(), removedById })
-      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt)))
+      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .returning();
     return result[0];
   }

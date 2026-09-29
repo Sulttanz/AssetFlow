@@ -521,6 +521,7 @@ export default function Changes() {
   const [, navigate] = useLocation();
   const searchParams = useSearch();
   const isAdmin = useHasPermission("system_admin");
+  const isChangeManager = useHasPermission("change_manage");
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -1140,10 +1141,10 @@ export default function Changes() {
                       {a.decision === "approved" ? <Badge className="bg-green-100 text-green-800 gap-1"><CheckCircle2 className="h-3 w-3" />Approved</Badge>
                        : a.decision === "rejected" ? <Badge className="bg-red-100 text-red-800 gap-1"><XCircle className="h-3 w-3" />Rejected</Badge>
                        : <Badge className="bg-amber-100 text-amber-800 gap-1 border border-amber-300"><Clock className="h-3 w-3" />Pending</Badge>}
-                    {isAdmin && isPending && (
+                    {(isAdmin || isChangeManager) && isPending && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost" className="h-7 text-red-700" disabled={removeApproverMutation.isPending}>
+                          <Button size="sm" variant="ghost" className="h-7 text-red-700" aria-label={`Remove ${userLabel(a.approver)} as CAB approver`} disabled={removeApproverMutation.isPending}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </AlertDialogTrigger>
