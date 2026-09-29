@@ -5620,14 +5620,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const approvals = await storage.getChangeApprovals(req.params.id);
         if (approvals.length === 0) {
           return res.status(400).json({
-            message: "At least one CAB approver must be assigned before implementation can start.",
+            message: "No CAB approvers have been added yet. Add at least one CAB approver and obtain their approval before implementation can start.",
             code: "CAB_APPROVERS_REQUIRED",
           });
         }
-        const allApproved = approvals.length > 0 && approvals.every(a => a.decision === "approved");
+        const allApproved = approvals.every(a => a.decision === "approved");
         if (!allApproved) {
           return res.status(400).json({
-            message: "CAB approval is required before implementation can start. All CAB approvals must be granted.",
+            message: "CAB approvals are not all granted yet. All assigned CAB approvers must approve before implementation can start.",
             code: "CAB_PENDING",
           });
         }

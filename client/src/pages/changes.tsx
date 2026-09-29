@@ -522,6 +522,7 @@ export default function Changes() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedChange, setSelectedChange] = useState<ChangeWithDetails | null>(null);
+  const [detailTab, setDetailTab] = useState("details");
   const [editingChange, setEditingChange] = useState<ChangeWithDetails | null>(null);
   const [approvalComment, setApprovalComment] = useState("");
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -691,6 +692,7 @@ export default function Changes() {
   // Workflow action buttons based on status
   function WorkflowActions({ change }: { change: ChangeWithDetails }) {
     const id = change.id;
+    const noCabApprovers = !!change.cabRequired && (change.approvals?.length ?? 0) === 0;
     // CAB gate: cabRequired=true and not all approvals granted
     const cabBlocking = !!change.cabRequired && (() => {
       const approvals = change.approvals ?? [];
@@ -722,7 +724,9 @@ export default function Changes() {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs text-center">
-                  CAB approval required — all CAB approvers must approve before implementation can start.
+                  {noCabApprovers
+                    ? "No CAB approvers have been added yet. Add an approver in the Approvals tab before implementation can start."
+                    : "CAB approval required — all CAB approvers must approve before implementation can start."}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -881,7 +885,7 @@ export default function Changes() {
                   </TableHeader>
                   <TableBody>
                     {filtered.map(c => (
-                      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedChange(c)}>
+                      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setDetailTab("details"); setSelectedChange(c); }}>
                         <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
                         <TableCell className="font-medium max-w-[200px] truncate">{c.title}</TableCell>
                         <TableCell><Badge className={TYPE_COLORS[c.type] ?? ""}>{c.type}</Badge></TableCell>
@@ -938,7 +942,7 @@ export default function Changes() {
           {/* Workflow action bar */}
           {currentChange && <div className="rounded-lg border bg-muted/30 p-3">{<WorkflowActions change={currentChange} />}</div>}
 
-          <Tabs defaultValue="details">
+          <Tabs value={detailTab} onValueChange={setDetailTab}>
             <TabsList className="mb-2">
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="plans">Plans</TabsTrigger>
@@ -1003,8 +1007,13 @@ export default function Changes() {
                   </div>
                   <p className="text-xs text-muted-foreground">CAB members vote via the Approvals tab. All votes must be approved before the change can proceed.</p>
                   {(currentChange.approvals?.length ?? 0) === 0 ? (
-                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                      No CAB approvers have been assigned. Implementation cannot start until at least one approver is added and approves.
+                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-2">
+                      <p>No CAB approvers have been added yet. Implementation cannot start until at least one approver is added and approves.</p>
+                      {!["completed", "cancelled"].includes(currentChange.status) && (
+                        <Button size="sm" variant="outline" className="h-7 border-amber-400 text-amber-900" onClick={() => setDetailTab("approvals")}>
+                          Go to Approvals to add an approver
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-1.5 pt-1">
