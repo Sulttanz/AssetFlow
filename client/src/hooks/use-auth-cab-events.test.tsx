@@ -15,6 +15,23 @@ class FakeEventSource extends EventTarget {
   }
 }
 
+function response(status: number, body?: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: "",
+    json: async () => body,
+    text: async () => "",
+  } as Response;
+}
+
+function renderAuthWithStream() {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  render(<QueryClientProvider client={queryClient}><AuthProvider><div /></AuthProvider></QueryClientProvider>);
+  return FakeEventSource.instances[0];
+}
+
 afterEach(() => {
   cleanup();
   queryClient.clear();
@@ -24,10 +41,8 @@ afterEach(() => {
 });
 
 it("refreshes both CAB views on events and reconnects, and closes on sign-out", async () => {
-  vi.stubGlobal("EventSource", FakeEventSource);
-  queryClient.setQueryData(["/api/user"], { id: "alice" });
   const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
-  render(<QueryClientProvider client={queryClient}><AuthProvider><div /></AuthProvider></QueryClientProvider>);
+  renderAuthWithStream();
   await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
   const stream = FakeEventSource.instances[0];
   expect(stream.url).toBe("/api/changes/events");
@@ -43,4 +58,57 @@ it("refreshes both CAB views on events and reconnects, and closes on sign-out", 
   await waitFor(() => expect(stream.close).toHaveBeenCalledOnce());
   stream.dispatchEvent(new Event("cab-change"));
   expect(invalidate).toHaveBeenCalledTimes(4);
+});
+
+it("refreshes the cached user on stream failure and stops retrying after sign-out", async () => {
+  const fetchUser = vi.fn().mockResolvedValue(response(401));
+  vi.stubGlobal("fetch", fetchUser);
+  const stream = renderAuthWithStream();
+  stream.dispatchEvent(new Event("error"));
+
+  await waitFor(() => expect(stream.close).toHaveBeenCalled());
+  expect(fetchUser).toHaveBeenCalledWith("/api/user", { credentials: "include" });
+  expect(queryClient.getQueryData(["/api/user"])).toBeNull();
+  expect(FakeEventSource.instances).toHaveLength(1);
+});
+
+it.each([
+  { name: "the account is inactive", user: { id: "alice", isActive: false }, modules: null },
+  { name: "ITSM is disabled", user: { id: "alice", isActive: true }, modules: [{ key: "itsm", enabled: false }] },
+])("stops retrying when $name", async ({ user, modules }) => {
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, user))
+    .mockResolvedValueOnce(response(200, modules));
+  vi.stubGlobal("fetch", fetchAccess);
+  const stream = renderAuthWithStream();
+  stream.dispatchEvent(new Event("error"));
+
+  await waitFor(() => expect(stream.close).toHaveBeenCalled());
+  expect(fetchAccess.mock.calls.map(([url]) => url)).toEqual(
+    modules ? ["/api/user", "/api/module-settings"] : ["/api/user"],
+  );
+  expect(FakeEventSource.instances).toHaveLength(1);
+});
+
+it("keeps the stream alive after a temporary check failure and reconciles on reconnect", async () => {
+  const fetchAccess = vi.fn()
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: true }]));
+  vi.stubGlobal("fetch", fetchAccess);
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+  const stream = renderAuthWithStream();
+  stream.dispatchEvent(new Event("error"));
+  await waitFor(() => expect(fetchAccess).toHaveBeenCalledTimes(1));
+  expect(stream.close).not.toHaveBeenCalled();
+
+  // EventSource retries on its own; the next failure checks access again.
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+  stream.dispatchEvent(new Event("error"));
+  await waitFor(() => expect(fetchAccess).toHaveBeenCalledTimes(3));
+  expect(stream.close).not.toHaveBeenCalled();
+  stream.dispatchEvent(new Event("open"));
+  expect(invalidate.mock.calls.map(([options]) => options?.queryKey)).toEqual([
+    ["/api/changes"], ["/api/alerts"],
+  ]);
 });

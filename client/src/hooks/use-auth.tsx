@@ -7,6 +7,7 @@ import {
 import { insertUserSchema, User as SelectUser, InsertUser, UserWithDetails } from "@shared/schema";
 import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { ModuleSettingView } from "@/hooks/use-modules";
 
 type AuthContextType = {
   user: UserWithDetails | null;
@@ -37,16 +38,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user?.id) return;
     const events = new EventSource("/api/changes/events");
+    let disposed = false;
+    let checkingAccess = false;
     const refreshCab = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
     };
+    const reconcileAccess = async () => {
+      if (checkingAccess || disposed) return;
+      checkingAccess = true;
+      try {
+        // The normal auth query is cached for five minutes; a failed stream needs
+        // a fresh server answer before EventSource is allowed to keep retrying.
+        const currentUser = await queryClient.fetchQuery<UserWithDetails | null>({
+          queryKey: ["/api/user"],
+          queryFn: getQueryFn({ on401: "returnNull" }),
+          staleTime: 0,
+        });
+        if (disposed) return;
+        if (!currentUser || !currentUser.isActive || currentUser.id !== user.id) {
+          events.close();
+          return;
+        }
+        const modules = await queryClient.fetchQuery<ModuleSettingView[]>({
+          queryKey: ["/api/module-settings"],
+          staleTime: 0,
+        });
+        if (!disposed && modules.some((module) => module.key === "itsm" && !module.enabled)) {
+          events.close();
+        }
+      } catch {
+        // A failed access check can be a network outage; keep EventSource's
+        // automatic reconnect so an authorized user recovers when it clears.
+      } finally {
+        checkingAccess = false;
+      }
+    };
     // A reconnect can miss events; reconcile with the server each time it opens.
     events.addEventListener("open", refreshCab);
     events.addEventListener("cab-change", refreshCab);
+    events.addEventListener("error", reconcileAccess);
     return () => {
+      disposed = true;
       events.removeEventListener("open", refreshCab);
       events.removeEventListener("cab-change", refreshCab);
+      events.removeEventListener("error", reconcileAccess);
       events.close();
     };
   }, [user?.id]);
