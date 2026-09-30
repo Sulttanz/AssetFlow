@@ -108,6 +108,46 @@ describe("batched change list details", () => {
     expect(reads.find(read => read.table === "users")?.ids).not.toContain("deleted-account");
   });
 
+  it("keeps deleted and removed CAB member history when loading one change", async () => {
+    changeRows = [change("detail-change")];
+    approvalRows = [
+      approval("active-vote", "detail-change", "active-member", {
+        originalApproverId: "active-member", approverLabel: "Active Member", decision: "approved",
+      }),
+      approval("deleted-vote", "detail-change", null, {
+        originalApproverId: "deleted-account", approverLabel: "Former CAB Member", decision: "rejected",
+      }),
+      approval("removed-vote", "detail-change", null, {
+        originalApproverId: "removed-account", approverLabel: "Removed CAB Member",
+        removedAt: new Date("2026-01-01"), removedById: "remover", removedByLabel: "CAB Lead",
+      }),
+    ];
+    userRows = ["active-member", "remover"].map(user);
+
+    const result = await new DatabaseStorage().getChange("detail-change");
+
+    expect(result?.approvals).toMatchObject([
+      { id: "active-vote", approverId: "active-member", approverLabel: "Active Member", approver: { id: "active-member" } },
+      { id: "deleted-vote", approverId: null, originalApproverId: "deleted-account", approverLabel: "Former CAB Member", decision: "rejected" },
+    ]);
+    expect(result?.removedApprovals).toMatchObject([
+      {
+        id: "removed-vote", approverId: null, originalApproverId: "removed-account",
+        approverLabel: "Removed CAB Member", removedByLabel: "CAB Lead", removedBy: { id: "remover" },
+      },
+    ]);
+    expect(result?.removedApproverIds).toEqual(["removed-account"]);
+    expect(reads.find(read => read.table === "users")?.ids).not.toContain("deleted-account");
+    expect(reads.find(read => read.table === "users")?.ids).not.toContain("removed-account");
+  });
+
+  it("returns undefined for a missing change without reading related records", async () => {
+    const result = await new DatabaseStorage().getChange("missing");
+
+    expect(result).toBeUndefined();
+    expect(reads).toEqual([{ table: "changes", ids: ["missing"] }]);
+  });
+
   it("uses bounded batch reads rather than one read per change or CAB member", async () => {
     changeRows = Array.from({ length: 501 }, (_, i) => change(`change-${i}`));
     approvalRows = changeRows.map((row, i) => approval(`vote-${i}`, row.id, `member-${i}`));
