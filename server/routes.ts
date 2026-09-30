@@ -5336,11 +5336,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Change Management ────────────────────────────────────────────────────
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), (req, res) => {
+    const unsubscribe = subscribeToCabEvents(res, req.user!.id, req.sessionID);
+    if (!unsubscribe) {
+      res.setHeader("Retry-After", "5");
+      return res.status(429).json({ message: "Too many CAB alert connections for this account" });
+    }
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
-    const unsubscribe = subscribeToCabEvents(res);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
     const cleanup = () => {

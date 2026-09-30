@@ -42,8 +42,8 @@ function streamResponse(): Response {
 it("broadcasts a data-free refresh signal to open sessions only", async () => {
   const first = streamResponse();
   const second = streamResponse();
-  const unsubscribeFirst = subscribeToCabEvents(first);
-  const unsubscribeSecond = subscribeToCabEvents(second);
+  const unsubscribeFirst = subscribeToCabEvents(first, "first", "session-1")!;
+  const unsubscribeSecond = subscribeToCabEvents(second, "second", "session-2")!;
   try {
     await publishCabChange();
     expect(first.write).toHaveBeenCalledWith("event: cab-change\ndata: {}\n\n");
@@ -64,7 +64,7 @@ it("fans out notifications from another server without echoing its own publish",
   const client = clients[0];
   await vi.waitFor(() => expect(client.query).toHaveBeenCalledWith("LISTEN cab_changes"));
   const stream = streamResponse();
-  const unsubscribe = subscribeToCabEvents(stream);
+  const unsubscribe = subscribeToCabEvents(stream, "first", "session-1")!;
   try {
     client.emit("notification", { channel: "cab_changes", payload: "another-server" });
     expect(stream.write).toHaveBeenCalledOnce();

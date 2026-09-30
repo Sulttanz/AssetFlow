@@ -8,14 +8,19 @@ const channel = "cab_changes";
 const instanceId = randomUUID();
 const drainTimeoutMs = 10_000;
 const changeEvent = "event: cab-change\ndata: {}\n\n";
+const maxStreamsPerUser = 6;
+const maxStreamsPerSession = 3;
 type Subscriber = {
   res: Response;
+  userId: string;
+  sessionId: string;
   blocked: boolean;
   pendingChange: boolean;
   drainTimer?: ReturnType<typeof setTimeout>;
   onDrain: () => void;
 };
 const subscribers = new Set<Subscriber>();
+const streamsByUser = new Map<string, Set<Subscriber>>();
 let listener: Client | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let retryDelay = 1000;
@@ -23,6 +28,9 @@ let started = false;
 
 function removeSubscriber(subscriber: Subscriber): void {
   subscribers.delete(subscriber);
+  const userStreams = streamsByUser.get(subscriber.userId);
+  userStreams?.delete(subscriber);
+  if (userStreams?.size === 0) streamsByUser.delete(subscriber.userId);
   subscriber.res.off("drain", subscriber.onDrain);
   if (subscriber.drainTimer) clearTimeout(subscriber.drainTimer);
   subscriber.drainTimer = undefined;
@@ -116,9 +124,20 @@ export function startCabEventListener(): void {
   void connectListener();
 }
 
-export function subscribeToCabEvents(res: Response): (() => void) & { sendHeartbeat: () => void } {
+// Browser tabs share a session cookie: leave existing streams active and reserve
+// room for a reconnect that arrives before the old socket closes.
+export function subscribeToCabEvents(
+  res: Response, userId: string, sessionId: string,
+): ((() => void) & { sendHeartbeat: () => void }) | null {
+  const userStreams = streamsByUser.get(userId);
+  if ((userStreams?.size ?? 0) >= maxStreamsPerUser ||
+      Array.from(userStreams ?? []).filter(stream => stream.sessionId === sessionId).length >= maxStreamsPerSession) {
+    return null;
+  }
   const subscriber: Subscriber = {
     res,
+    userId,
+    sessionId,
     blocked: false,
     pendingChange: false,
     onDrain: () => {
@@ -133,6 +152,9 @@ export function subscribeToCabEvents(res: Response): (() => void) & { sendHeartb
     },
   };
   subscribers.add(subscriber);
+  const active = streamsByUser.get(userId) ?? new Set<Subscriber>();
+  active.add(subscriber);
+  streamsByUser.set(userId, active);
   res.on("drain", subscriber.onDrain);
   return Object.assign(() => removeSubscriber(subscriber), {
     sendHeartbeat: () => send(subscriber, ": heartbeat\n\n"),

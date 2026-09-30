@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import express from "express";
 import session from "express-session";
 import type { Server } from "node:http";
+import { publishCabChange } from "./cab-events";
 
 const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
@@ -125,11 +126,12 @@ describe("CAB route notifications across signed-in sessions", () => {
       record.approverId = null;
       return { ...record };
     });
-    store.updateChangeApproval.mockImplementation(async (id: string, decision: string) => {
+    store.updateChangeApproval.mockImplementation(async (_changeId: string, id: string, decision: string) => {
       const record = active().find(a => a.id === id && a.decision === "pending");
       if (!record) return undefined;
       record.decision = decision;
       record.decidedAt = new Date();
+      if (active().every(a => a.decision === "approved")) change.status = "approved";
       return { ...record };
     });
     store.updateChange.mockImplementation(async (_id: string, patch: { status: string }) => {
@@ -338,5 +340,27 @@ describe("CAB route notifications across signed-in sessions", () => {
       timeoutSpy.mockRestore();
       streamAccess.mockResolvedValue(true);
     }
+  });
+
+  it("keeps two tabs on the same cookie live while refusing excess account connections", async () => {
+    const cookies = await Promise.all(Array.from({ length: 6 }, () => login("manager")));
+    const [firstTab, secondTab, ...others] = await Promise.all([
+      openStream(cookies[0]), openStream(cookies[0]),
+      ...cookies.slice(1, 5).map(openStream),
+    ]);
+    const denied = await request("/api/changes/events", cookies[5]);
+    expect(denied.status).toBe(429);
+    expect(denied.headers.get("retry-after")).toBe("5");
+    expect(denied.headers.get("content-type")).not.toContain("text/event-stream");
+    await denied.body?.cancel();
+
+    const bob = await login("bob");
+    const bobStream = await openStream(bob);
+    await publishCabChange();
+    await Promise.all([firstTab.next(), secondTab.next(), ...others.map(stream => stream.next()), bobStream.next()]);
+    firstTab.abort();
+    secondTab.abort();
+    others.forEach(stream => stream.abort());
+    bobStream.abort();
   });
 });
