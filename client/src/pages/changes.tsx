@@ -460,12 +460,23 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
       }] : []),
     ]),
     { label: "Work started", ts: change.actualStart, color: "bg-orange-500", icon: Play },
-    ...( change.stages?.filter(s => s.completedAt || s.startedAt).map(s => ({
-      label: `${STAGE_META[s.environment]?.label ?? s.environment} ${s.status === "completed" ? "completed" : s.status === "failed" ? "failed" : "started"}`,
-      ts: s.completedAt ?? s.startedAt,
-      color: s.status === "completed" ? "bg-green-500" : s.status === "failed" ? "bg-red-500" : "bg-blue-400",
-      icon: s.status === "completed" ? CheckCheck : s.status === "failed" ? XCircle : Play,
-    })) ?? []),
+    ...(change.stages?.flatMap(s => {
+      const stageLabel = STAGE_META[s.environment]?.label ?? s.environment;
+      return [
+        ...(s.startedAt ? [{
+          label: `${stageLabel} started`,
+          ts: s.startedAt,
+          color: "bg-blue-400",
+          icon: Play,
+        }] : []),
+        ...(s.completedAt ? [{
+          label: `${stageLabel} ${s.status === "failed" ? "failed" : "completed"}`,
+          ts: s.completedAt,
+          color: s.status === "failed" ? "bg-red-500" : "bg-green-500",
+          icon: s.status === "failed" ? XCircle : CheckCheck,
+        }] : []),
+      ];
+    }) ?? []),
     { label: "Completed", ts: change.actualEnd, color: "bg-emerald-500", icon: CheckCheck },
   ].filter(e => !!e.ts).sort((a, b) => new Date(a.ts!).getTime() - new Date(b.ts!).getTime());
 

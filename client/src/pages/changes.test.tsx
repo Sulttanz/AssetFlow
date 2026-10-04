@@ -14,6 +14,13 @@ vi.mock("@/hooks/use-auth", () => ({
 
 const assignedAt = "2026-06-01T10:15:00.000Z";
 const decidedAt = "2026-06-02T14:30:00.000Z";
+type StageTimelineFixture = {
+  id: string;
+  environment: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+};
 
 function approval(id: string, decision: string | null, approverId = id, comments: string | null = null) {
   return {
@@ -23,16 +30,16 @@ function approval(id: string, decision: string | null, approverId = id, comments
   };
 }
 
-function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = []) {
+function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = [], stages: StageTimelineFixture[] = []) {
   return {
     id: "change-1", changeNumber: "CHG-1", title: "CAB review fixture",
     type: "normal", status: "submitted", priority: "medium", risk: "low",
-    cabRequired: true, approvals, removedApproverIds, removedApprovals, stages: [], createdAt: assignedAt, updatedAt: assignedAt,
+    cabRequired: true, approvals, removedApproverIds, removedApprovals, stages, createdAt: assignedAt, updatedAt: assignedAt,
   };
 }
 
-async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = []) {
-  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals)], total: 1 });
+async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = [], stages: StageTimelineFixture[] = []) {
+  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals, stages)], total: 1 });
   queryClient.setQueryData(["/api/users"], ["alice", "bob", "carol", "dave"].map(id => ({
     id, username: id, firstName: id, lastName: null,
   })));
@@ -108,6 +115,41 @@ describe("change list pages", () => {
 });
 
 describe("change detail CAB approvals", () => {
+  it("shows deployment stage starts and completions or failures in chronological order as read-only events", async () => {
+    const stages = [
+      {
+        id: "stage-1", environment: "development", status: "completed",
+        startedAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-02T10:30:00.000Z",
+      },
+      {
+        id: "stage-2", environment: "testing", status: "failed",
+        startedAt: "2026-06-02T10:20:00.000Z", completedAt: "2026-06-02T10:45:00.000Z",
+      },
+      {
+        id: "stage-3", environment: "staging", status: "completed",
+        startedAt: null, completedAt: "2026-06-02T10:55:00.000Z",
+      },
+      {
+        id: "stage-4", environment: "production", status: "in_progress",
+        startedAt: "2026-06-02T11:00:00.000Z", completedAt: null,
+      },
+    ];
+    const { user } = await openApprovals([], [], [], stages);
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    const panel = screen.getByRole("tabpanel", { name: "Timeline" });
+    const labels = within(panel).getAllByText(/^(Development|Testing|Staging|Production) (started|completed|failed)$/).map(el => el.textContent);
+    expect(labels).toEqual([
+      "Development started",
+      "Testing started",
+      "Development completed",
+      "Testing failed",
+      "Staging completed",
+      "Production started",
+    ]);
+    expect(within(panel).queryByRole("button")).toBeNull();
+  });
+
   it("orders active and removed CAB assignment events with milestones using saved labels, without voting controls", async () => {
     const removed = {
       ...approval("Former", "pending", "carol"),
