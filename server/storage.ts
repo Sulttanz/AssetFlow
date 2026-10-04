@@ -4095,13 +4095,27 @@ export class DatabaseStorage implements IStorage {
   }
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
     if (!approval.approverId) throw new Error("An active user is required for a CAB assignment");
-    const [approver] = await db.select().from(users).where(eq(users.id, approval.approverId));
-    if (!approver) throw new Error("CAB approver account not found");
-    const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
-    const result = await db.insert(changeApprovals).values({
-      ...approval, originalApproverId: approver.id, approverLabel,
-    }).returning();
-    return result[0];
+    return db.transaction(async tx => {
+      // Serialize membership changes with votes on the parent. A vote that
+      // approves first makes this assignment fail; an assignment that wins
+      // first is visible to the vote's active-approval status calculation.
+      const [change] = await tx.select({ status: changes.status }).from(changes)
+        .where(eq(changes.id, approval.changeId)).for("update");
+      if (!change) throw new Error("Change not found");
+      if (change.status === "approved") {
+        throw Object.assign(new Error("CAB approvers cannot be added after a change is approved"), {
+          code: "CAB_CHANGE_ALREADY_APPROVED",
+        });
+      }
+
+      const [approver] = await tx.select().from(users).where(eq(users.id, approval.approverId!));
+      if (!approver) throw new Error("CAB approver account not found");
+      const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
+      const result = await tx.insert(changeApprovals).values({
+        ...approval, originalApproverId: approver.id, approverLabel,
+      }).returning();
+      return result[0];
+    });
   }
   async updateChangeApproval(changeId: string, id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
     return db.transaction(async tx => {

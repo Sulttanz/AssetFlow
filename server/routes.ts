@@ -5556,6 +5556,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await publishCabChange();
       res.status(201).json(approval);
     } catch (error: any) {
+      if (error?.code === "CAB_CHANGE_ALREADY_APPROVED") {
+        return res.status(409).json({
+          message: "CAB approvers cannot be added after a change is approved. Reopen the change before assigning another approver.",
+          code: "CAB_CHANGE_ALREADY_APPROVED",
+        });
+      }
       if (error?.code === "23505") {
         // The unique constraint also covers removed approvals. A concurrent add
         // must not report an inactive historical assignment as an active one.

@@ -59,7 +59,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         created_at timestamp DEFAULT now(), updated_at timestamp DEFAULT now()
       );
       CREATE TABLE "${schema}".change_approvals (
-        id varchar PRIMARY KEY, change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
         approver_id varchar REFERENCES "${schema}".users(id),
         original_approver_id varchar NOT NULL, approver_label text NOT NULL,
         decision text, comments text, decided_at timestamp, removed_at timestamp,
@@ -354,6 +354,170 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         expect(savedChange.approvedAt).toBeNull();
       } finally {
         readSpy.mockRestore();
+        voteSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
+  it("rejects a new CAB assignment when the change is already approved", async () => {
+    const managerId = randomUUID();
+    const existingApproverId = randomUUID();
+    const newApproverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    const approvedAt = new Date("2026-01-02T03:04:05.000Z");
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: existingApproverId, username: `approver-${existingApproverId}`, email: `${existingApproverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+      { id: newApproverId, username: `approver-${newApproverId}`, email: `${newApproverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Approved change",
+      status: "approved", approvedAt,
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId: existingApproverId, originalApproverId: existingApproverId,
+      approverLabel: "CAB Approver", decision: "approved",
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ approverId: newApproverId }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "CAB_CHANGE_ALREADY_APPROVED",
+        message: expect.stringMatching(/cannot be added after a change is approved/i),
+      });
+      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(history).toHaveLength(1);
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange.status).toBe("approved");
+      expect(savedChange.approvedAt?.getTime()).toBe(approvedAt.getTime());
+    } finally {
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  });
+
+  it.each(["vote", "assignment"] as const)(
+    "serializes a new CAB assignment against a vote when the %s commits first",
+    async first => {
+      const voterId = randomUUID();
+      const managerId = randomUUID();
+      const newApproverId = randomUUID();
+      const changeId = randomUUID();
+      const approvalId = randomUUID();
+      await db.insert(users).values([
+        { id: voterId, username: `voter-${voterId}`, email: `${voterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" },
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: newApproverId, username: `approver-${newApproverId}`, email: `${newApproverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Assignment and vote race",
+        status: "submitted",
+      });
+      await db.insert(changeApprovals).values({
+        id: approvalId, changeId, approverId: voterId, originalApproverId: voterId,
+        approverLabel: "CAB Voter", decision: "pending",
+      });
+
+      // Make both handlers finish their initial membership reads before
+      // controlling which real transaction reaches the parent lock first.
+      let readCount = 0;
+      let releaseReads!: () => void;
+      const bothReads = new Promise<void>(resolve => { releaseReads = resolve; });
+      const waitForBothReads = async () => {
+        if (++readCount === 2) releaseReads();
+        await bothReads;
+      };
+      const originalActiveRead = storage.getChangeApprovals.bind(storage);
+      const activeReadSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+        const rows = await originalActiveRead(id);
+        if (id === changeId && readCount < 2) await waitForBothReads();
+        return rows;
+      });
+      const originalHistoryRead = storage.getAllChangeApprovalRecords.bind(storage);
+      const historyReadSpy = vi.spyOn(storage, "getAllChangeApprovalRecords").mockImplementation(async id => {
+        const rows = await originalHistoryRead(id);
+        if (id === changeId && readCount < 2) await waitForBothReads();
+        return rows;
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      let releaseFirst!: () => void;
+      const firstCommitted = new Promise<void>(resolve => { releaseFirst = resolve; });
+      const originalAssignment = storage.createChangeApproval.bind(storage);
+      const originalVote = storage.updateChangeApproval.bind(storage);
+      const assignmentSpy = vi.spyOn(storage, "createChangeApproval").mockImplementation(async (...args) => {
+        if (first === "vote") await firstCommitted;
+        try {
+          return await originalAssignment(...args);
+        } finally {
+          if (first === "assignment") releaseFirst();
+        }
+      });
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
+        if (first === "assignment") await firstCommitted;
+        try {
+          return await originalVote(...args);
+        } finally {
+          if (first === "vote") releaseFirst();
+        }
+      });
+
+      try {
+        const [vote, assignment] = await Promise.all([
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": voterId },
+            body: JSON.stringify({ decision: "approved" }),
+          }),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-test-user": managerId },
+            body: JSON.stringify({ approverId: newApproverId }),
+          }),
+        ]);
+
+        expect(readCount).toBe(2);
+        expect(vote.status).toBe(200);
+        if (first === "vote") {
+          expect(assignment.status).toBe(409);
+          expect(await assignment.json()).toMatchObject({ code: "CAB_CHANGE_ALREADY_APPROVED" });
+        } else {
+          expect(assignment.status).toBe(201);
+          expect((await assignment.json()).decision).toBe("pending");
+        }
+
+        const savedApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(savedApprovals).toHaveLength(first === "vote" ? 1 : 2);
+        expect(savedApprovals.find(row => row.id === approvalId)?.decision).toBe("approved");
+        if (first === "assignment") {
+          expect(savedApprovals.find(row => row.approverId === newApproverId)?.decision).toBe("pending");
+        }
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe(first === "vote" ? "approved" : "submitted");
+        expect(savedChange.approvedAt instanceof Date).toBe(first === "vote");
+      } finally {
+        activeReadSpy.mockRestore();
+        historyReadSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+        assignmentSpy.mockRestore();
         voteSpy.mockRestore();
       }
     },
