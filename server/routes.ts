@@ -5807,7 +5807,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/reports/changes", requireAuth, requireModule("itsm"), async (req, res) => {
-    try { res.json(await storage.getChanges()); }
+    try {
+      const page = Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1);
+      const requestedPageSize = Number.parseInt(String(req.query.pageSize ?? "50"), 10) || 50;
+      const pageSize = Math.min(100, Math.max(1, requestedPageSize));
+      const search = typeof req.query.search === "string" ? req.query.search.trim() : undefined;
+      const type = typeof req.query.type === "string" && req.query.type !== "all" ? req.query.type : undefined;
+      const status = typeof req.query.status === "string" && req.query.status !== "all" ? req.query.status : undefined;
+      const risk = typeof req.query.risk === "string" && req.query.risk !== "all" ? req.query.risk : undefined;
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const [result, summary] = await Promise.all([
+        storage.getChangesPage({ page, pageSize, search, searchType: true, type, status, risk }),
+        storage.getChangeReportSummary(startOfMonth),
+      ]);
+      res.json({ ...result, page, pageSize, summary });
+    }
     catch { res.status(500).json({ message: "Failed to fetch change report" }); }
   });
 
@@ -6104,15 +6120,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── KPI Dashboard ────────────────────────────────────────────────────────
   app.get("/api/kpis", requireAuth, async (req, res) => {
     try {
-      const [tickets, assets, problems, changes] = await Promise.all([
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const [tickets, assets, problems, changeSummary] = await Promise.all([
         storage.getTickets(),
         storage.getAssets(),
         storage.getProblems(),
-        storage.getChanges(),
+        storage.getChangeReportSummary(startOfMonth),
       ]);
 
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const in30 = new Date(now.getTime() + 30 * 86400000);
       const in60 = new Date(now.getTime() + 60 * 86400000);
       const in90 = new Date(now.getTime() + 90 * 86400000);
@@ -6170,19 +6186,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const resolvedProbThisMonth = problems.filter(p => p.resolvedAt && new Date(p.resolvedAt) >= startOfMonth).length;
 
       // ── Changes ──────────────────────────────────────────────────
-      const closedCh = changes.filter(c => ["completed","failed","cancelled"].includes(c.status));
-      const completedCh = changes.filter(c => c.status === "completed");
-      const successRate = closedCh.length > 0
-        ? Math.round((completedCh.length / closedCh.length) * 100)
+      const closedChanges = changeSummary.completed + changeSummary.failed + changeSummary.cancelled;
+      const successRate = closedChanges > 0
+        ? Math.round((changeSummary.completed / closedChanges) * 100)
         : null;
-      const emergencyPct = changes.length > 0
-        ? Math.round((changes.filter(c => c.type === "emergency").length / changes.length) * 100)
+      const emergencyPct = changeSummary.total > 0
+        ? Math.round((changeSummary.emergency / changeSummary.total) * 100)
         : null;
-      const pendingApprovals = changes.reduce((s, c) => {
-        return s + ((c as any).approvals ?? []).filter((a: any) => a.decision === "pending").length;
-      }, 0);
-      const changesThisMonth = changes.filter(c => new Date(c.createdAt as any) >= startOfMonth).length;
-      const failedCh = changes.filter(c => c.status === "failed").length;
 
       res.json({
         tickets: {
@@ -6227,19 +6237,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           total: problems.length,
         },
         changes: {
-          total: changes.length,
+          total: changeSummary.total,
           successRate,
           emergencyPct,
-          pendingApprovals,
-          thisMonth: changesThisMonth,
-          failed: failedCh,
+          pendingApprovals: changeSummary.pendingApprovals,
+          thisMonth: changeSummary.thisMonth,
+          failed: changeSummary.failed,
           byStatus: {
-            requested: changes.filter(c => c.status === "requested").length,
-            approved: changes.filter(c => c.status === "approved").length,
-            in_progress: changes.filter(c => c.status === "in_progress").length,
-            completed: completedCh.length,
-            failed: failedCh,
-            cancelled: changes.filter(c => c.status === "cancelled").length,
+            requested: changeSummary.requested,
+            approved: changeSummary.approved,
+            in_progress: changeSummary.inProgress,
+            completed: changeSummary.completed,
+            failed: changeSummary.failed,
+            cancelled: changeSummary.cancelled,
           },
         },
         generatedAt: new Date().toISOString(),

@@ -359,7 +359,7 @@ export default function AssetBookingsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <div className="col-span-1 border rounded-lg p-4 bg-card shadow-sm">
+                <div className="col-span-1 border rounded-lg p-4 bg-card shadow-xs">
                   <DayPicker
                     mode="single"
                     selected={selectedDate}

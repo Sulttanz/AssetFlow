@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,28 @@ import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import Header from "@/components/layout/header";
 import type { ChangeWithDetails } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
+
+const PAGE_SIZE = 50;
+
+interface ChangeReportSummary {
+  total: number;
+  draft: number;
+  submitted: number;
+  approved: number;
+  rejected: number;
+  inProgress: number;
+  completed: number;
+  emergency: number;
+}
+
+interface ChangeReportPage {
+  changes: ChangeWithDetails[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: ChangeReportSummary;
+}
 
 const statusColors: Record<string, string> = {
   draft: "bg-gray-100 text-gray-800",
@@ -39,50 +61,92 @@ const riskColors: Record<string, string> = {
 
 export default function ChangesReport() {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [printChanges, setPrintChanges] = useState<ChangeWithDetails[] | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  const { data: changes, isLoading } = useQuery<ChangeWithDetails[]>({
-    queryKey: ["/api/reports/changes"],
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const nextSearch = search.trim();
+      if (nextSearch !== debouncedSearch) {
+        setDebouncedSearch(nextSearch);
+        setPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, debouncedSearch]);
+
+  const { data: report, isLoading, isFetching, isError } = useQuery<ChangeReportPage>({
+    queryKey: ["/api/reports/changes", page, debouncedSearch, statusFilter, typeFilter, riskFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (typeFilter !== "all") params.set("type", typeFilter);
+      if (riskFilter !== "all") params.set("risk", riskFilter);
+      const response = await apiRequest("GET", `/api/reports/changes?${params}`);
+      return response.json();
+    },
   });
 
-  const handlePrint = useReactToPrint({ contentRef: printRef });
-  const records = changes || [];
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    onAfterPrint: () => setPrintChanges(null),
+  });
+  const records = report?.changes ?? [];
+  const filtered = records;
+  const total = report?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const summary = report?.summary ?? {
+    total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0,
+    inProgress: 0, completed: 0, emergency: 0,
+  };
 
-  const filtered = useMemo(() => {
-    return records.filter((c) => {
-      if (statusFilter !== "all" && c.status !== statusFilter) return false;
-      if (typeFilter !== "all" && c.type !== typeFilter) return false;
-      if (riskFilter !== "all" && c.risk !== riskFilter) return false;
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        return (
-          c.changeNumber.toLowerCase().includes(q) ||
-          c.title.toLowerCase().includes(q) ||
-          (c.type || "").toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [records, statusFilter, typeFilter, riskFilter, search]);
+  useEffect(() => {
+    if (report && page > totalPages) setPage(totalPages);
+  }, [report, page, totalPages]);
+  useEffect(() => {
+    if (printChanges) handlePrint();
+  }, [printChanges, handlePrint]);
+  const displayedChanges = printChanges ?? filtered;
 
-  const summary = useMemo(() => {
-    const draft = records.filter((c) => c.status === "draft").length;
-    const submitted = records.filter((c) => c.status === "submitted").length;
-    const approved = records.filter((c) => c.status === "approved").length;
-    const inProgress = records.filter((c) => c.status === "in_progress").length;
-    const completed = records.filter((c) => c.status === "completed").length;
-    const rejected = records.filter((c) => c.status === "rejected").length;
-    const emergency = records.filter((c) => c.type === "emergency").length;
-    return { total: records.length, draft, submitted, approved, inProgress, completed, rejected, emergency };
-  }, [records]);
+  const loadAllMatchingChanges = async () => {
+    const exportPageSize = 100;
+    const params = new URLSearchParams({ pageSize: String(exportPageSize) });
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (typeFilter !== "all") params.set("type", typeFilter);
+    if (riskFilter !== "all") params.set("risk", riskFilter);
+
+    const allChanges: ChangeWithDetails[] = [];
+    let exportPage = 1;
+    let matchingTotal = 0;
+    do {
+      params.set("page", String(exportPage));
+      const response = await apiRequest("GET", `/api/reports/changes?${params}`);
+      const result = await response.json() as ChangeReportPage;
+      matchingTotal = result.total;
+      if (result.changes.length === 0) break;
+      allChanges.push(...result.changes);
+      exportPage += 1;
+    } while (allChanges.length < matchingTotal);
+    return allChanges;
+  };
+
+  const handlePrintAll = async () => {
+    if (!total) return;
+    setPrintChanges(await loadAllMatchingChanges());
+  };
 
   const handleExportExcel = async () => {
-    if (!filtered.length) return;
+    if (!total) return;
+    const exportChanges = await loadAllMatchingChanges();
     await exportToExcel(
-      filtered.map((c) => ({
+      exportChanges.map((c) => ({
         changeNumber: c.changeNumber,
         title: c.title,
         type: c.type,
@@ -112,10 +176,11 @@ export default function ChangesReport() {
     );
   };
 
-  const handleExportPDF = () => {
-    if (!filtered.length) return;
+  const handleExportPDF = async () => {
+    if (!total) return;
+    const exportChanges = await loadAllMatchingChanges();
     exportToPDF(
-      filtered.map((c) => [
+      exportChanges.map((c) => [
         c.changeNumber,
         c.title,
         c.type,
@@ -146,13 +211,13 @@ export default function ChangesReport() {
               </div>
             </div>
             <div className="flex gap-2 print:hidden">
-              <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!filtered.length}>
+              <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!total}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
               </Button>
-              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!filtered.length}>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!total}>
                 <Download className="mr-2 h-4 w-4" />PDF
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Button variant="outline" size="sm" onClick={handlePrintAll} disabled={!total}>
                 <Printer className="mr-2 h-4 w-4" />Print
               </Button>
             </div>
@@ -194,7 +259,7 @@ export default function ChangesReport() {
                 className="pl-9"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(value) => { setStatusFilter(value); setPage(1); }}>
               <SelectTrigger className="w-[150px]"><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
@@ -207,7 +272,7 @@ export default function ChangesReport() {
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={(value) => { setTypeFilter(value); setPage(1); }}>
               <SelectTrigger className="w-[140px]"><SelectValue placeholder="Type" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
@@ -216,7 +281,7 @@ export default function ChangesReport() {
                 <SelectItem value="emergency">Emergency</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={riskFilter} onValueChange={setRiskFilter}>
+            <Select value={riskFilter} onValueChange={(value) => { setRiskFilter(value); setPage(1); }}>
               <SelectTrigger className="w-[130px]"><SelectValue placeholder="Risk" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Risks</SelectItem>
@@ -227,21 +292,25 @@ export default function ChangesReport() {
               </SelectContent>
             </Select>
             {(search || statusFilter !== "all" || typeFilter !== "all" || riskFilter !== "all") && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); setRiskFilter("all"); }}>
+              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setDebouncedSearch(""); setStatusFilter("all"); setTypeFilter("all"); setRiskFilter("all"); setPage(1); }}>
                 Clear filters
               </Button>
             )}
           </div>
 
           <p className="text-sm text-muted-foreground mb-3">
-            Showing <span className="font-medium">{filtered.length}</span> of{" "}
-            <span className="font-medium">{records.length}</span> changes
+            Showing <span className="font-medium">{printChanges
+              ? `${printChanges.length}`
+              : total === 0 ? "0" : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)}`}</span> of{" "}
+            <span className="font-medium">{total}</span> matching changes
           </p>
 
           <Card>
             <CardContent className="p-0">
-              {isLoading ? (
+              {isLoading || isFetching ? (
                 <div className="flex items-center justify-center h-48 text-muted-foreground">Loading change report...</div>
+              ) : isError ? (
+                <div className="flex items-center justify-center h-48 text-destructive">Unable to load change report. Please try again.</div>
               ) : filtered.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-2">
                   <GitMerge className="h-10 w-10 opacity-30" />
@@ -264,7 +333,7 @@ export default function ChangesReport() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filtered.map((c) => {
+                    {displayedChanges.map((c) => {
                       const approvedCount = c.approvals?.filter((a) => a.decision === "approved").length || 0;
                       const pendingCount = c.approvals?.filter((a) => !a.decision || a.decision === "pending").length || 0;
                       return (
@@ -302,6 +371,13 @@ export default function ChangesReport() {
               )}
             </CardContent>
           </Card>
+          <div className="flex items-center justify-between pt-3 print:hidden">
+            <p className="text-sm text-muted-foreground">Page {page} of {totalPages}</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1 || isFetching} onClick={() => setPage(value => value - 1)}>Previous</Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages || isFetching} onClick={() => setPage(value => value + 1)}>Next</Button>
+            </div>
+          </div>
         </div>
       </main>
     </div>

@@ -38,7 +38,8 @@ describe("paged changes", () => {
     });
 
     const result = await new DatabaseStorage().getChangesPage({
-      page: 3, pageSize: 25, search: "a_%", type: "emergency", status: "submitted",
+      page: 3, pageSize: 25, search: "a_%", searchType: true,
+      type: "emergency", status: "submitted", risk: "high",
     });
     expect(result).toEqual({ changes: [], total: 51 });
     expect(queries).toHaveLength(2);
@@ -48,7 +49,9 @@ describe("paged changes", () => {
       expect(query.sql).toContain("change_number");
       expect(query.sql).toContain("type");
       expect(query.sql).toContain("status");
-      expect(query.params).toEqual(expect.arrayContaining(["%a\\_\\%%", "emergency", "submitted"]));
+      expect(query.sql).toContain("risk");
+      expect(query.params).toEqual(expect.arrayContaining(["%a\\_\\%%", "emergency", "submitted", "high"]));
+      expect(query.params?.filter(value => value === "%a\\_\\%%")).toHaveLength(3);
     }
   });
 });

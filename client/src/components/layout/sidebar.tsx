@@ -337,7 +337,7 @@ export default function Sidebar() {
   return (
     <>
       {/* ── Mobile top header ── */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-40 h-14 bg-card border-b border-border flex items-center px-4 gap-3 shadow-sm">
+      <div className="md:hidden fixed top-0 inset-x-0 z-40 h-14 bg-card border-b border-border flex items-center px-4 gap-3 shadow-xs">
         <button
           onClick={() => setMobileOpen(true)}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"

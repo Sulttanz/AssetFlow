@@ -338,7 +338,8 @@ export interface IStorage {
 
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
-  getChangesPage(options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
@@ -359,6 +360,22 @@ export interface IStorage {
 
   // Session Store (for authentication)
   sessionStore: any; // session.SessionStore;
+}
+
+export interface ChangeReportSummary {
+  total: number;
+  draft: number;
+  submitted: number;
+  approved: number;
+  rejected: number;
+  requested: number;
+  inProgress: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  emergency: number;
+  thisMonth: number;
+  pendingApprovals: number;
 }
 
 export class MemStorage implements IStorage {
@@ -2502,7 +2519,14 @@ export class MemStorage implements IStorage {
 
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
-  async getChangesPage(_options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
+    return {
+      total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0, requested: 0,
+      inProgress: 0, completed: 0, failed: 0, cancelled: 0, emergency: 0,
+      thisMonth: 0, pendingApprovals: 0,
+    };
+  }
   async getPendingCabChanges(_userId: string): Promise<ChangeWithDetails[]> { return []; }
   async getPendingCabAlertChanges(_userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]> { return []; }
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
@@ -3936,14 +3960,19 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
     return this.buildChangeDetails(rows);
   }
-  async getChangesPage({ page, pageSize, search, type, status }: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
+  async getChangesPage({ page, pageSize, search, searchType, type, status, risk }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
     const term = search?.trim();
     // Escape LIKE metacharacters so search remains a literal title/number search.
     const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
     const conditions = [
-      pattern ? or(ilike(changes.title, pattern), ilike(changes.changeNumber, pattern)) : undefined,
+      pattern ? or(
+        ilike(changes.title, pattern),
+        ilike(changes.changeNumber, pattern),
+        ...(searchType ? [ilike(changes.type, pattern)] : []),
+      ) : undefined,
       type ? eq(changes.type, type) : undefined,
       status ? eq(changes.status, status) : undefined,
+      risk ? eq(changes.risk, risk) : undefined,
     ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
     const where = conditions.length ? and(...conditions) : undefined;
     const [countRows, rows] = await Promise.all([
@@ -3952,6 +3981,43 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(changes.createdAt), desc(changes.id)).limit(pageSize).offset((page - 1) * pageSize),
     ]);
     return { changes: await this.buildChangeDetails(rows), total: Number(countRows[0]?.count ?? 0) };
+  }
+  async getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary> {
+    const [changeRows, approvalRows] = await Promise.all([
+      db.select({
+        total: sql<number>`count(*)`,
+        draft: sql<number>`count(*) filter (where ${changes.status} = 'draft')`,
+        submitted: sql<number>`count(*) filter (where ${changes.status} = 'submitted')`,
+        approved: sql<number>`count(*) filter (where ${changes.status} = 'approved')`,
+        rejected: sql<number>`count(*) filter (where ${changes.status} = 'rejected')`,
+        requested: sql<number>`count(*) filter (where ${changes.status} = 'requested')`,
+        inProgress: sql<number>`count(*) filter (where ${changes.status} = 'in_progress')`,
+        completed: sql<number>`count(*) filter (where ${changes.status} = 'completed')`,
+        failed: sql<number>`count(*) filter (where ${changes.status} = 'failed')`,
+        cancelled: sql<number>`count(*) filter (where ${changes.status} = 'cancelled')`,
+        emergency: sql<number>`count(*) filter (where ${changes.type} = 'emergency')`,
+        thisMonth: sql<number>`count(*) filter (where ${changes.createdAt} >= ${startOfMonth})`,
+      }).from(changes),
+      db.select({ count: sql<number>`count(*)` }).from(changeApprovals)
+        .where(and(isNull(changeApprovals.removedAt), eq(changeApprovals.decision, "pending"))),
+    ]);
+    const totals = changeRows[0];
+    const count = (value: unknown) => Number(value ?? 0);
+    return {
+      total: count(totals?.total),
+      draft: count(totals?.draft),
+      submitted: count(totals?.submitted),
+      approved: count(totals?.approved),
+      rejected: count(totals?.rejected),
+      requested: count(totals?.requested),
+      inProgress: count(totals?.inProgress),
+      completed: count(totals?.completed),
+      failed: count(totals?.failed),
+      cancelled: count(totals?.cancelled),
+      emergency: count(totals?.emergency),
+      thisMonth: count(totals?.thisMonth),
+      pendingApprovals: count(approvalRows[0]?.count),
+    };
   }
   async getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]> {
     const rows = await db.select({ change: changes }).from(changes)
