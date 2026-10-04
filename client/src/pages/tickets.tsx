@@ -72,15 +72,18 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
   const [commentText, setCommentText] = useState("");
   const [commentIsInternal, setCommentIsInternal] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
   const [isReopenOpen, setIsReopenOpen] = useState(false);
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
 
   const canManage = !!user?.permissions?.includes("ticket_manage");
   const canViewAll = canManage || !!user?.permissions?.includes("ticket_view_all");
   const isAssignedView = viewMode === "assigned";
   const isRequestsView = viewMode === "requests";
-  const canWorkTicket = canManage || isAssignedView;
+  const canEditTicket = canManage && !isRequestsView;
+  const canWorkTicket = !isRequestsView && (canManage || isAssignedView);
 
-  const { data: tickets, isLoading } = useQuery<TicketWithDetails[]>({
+  const { data: tickets, isLoading, refetch: refetchTickets } = useQuery<TicketWithDetails[]>({
     queryKey: [
       isAssignedView
         ? "/api/tickets/my-assigned"
@@ -252,20 +255,31 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
   });
 
   const requesterStatusMutation = useMutation({
-    mutationFn: async ({ id, action, reason }: { id: string; action: "close" | "reopen"; reason?: string }) => {
-      const endpoint = action === "close" ? "close-request" : "reopen-request";
+    mutationFn: async ({ id, action, reason }: { id: string; action: "close" | "reopen" | "cancel"; reason?: string }) => {
+      const endpoint = action === "close" ? "close-request" : action === "cancel" ? "cancel-request" : "reopen-request";
       const res = await apiRequest("POST", `/api/tickets/${id}/${endpoint}`, reason ? { reason } : {});
       return res.json();
     },
     onSuccess: (updated: TicketWithDetails) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tickets/my-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickets/my-assigned"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports/tickets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tickets", updated.id, "comments"] });
       setSelectedTicket((current) => current?.id === updated.id ? { ...current, ...updated } : updated);
       setIsReopenOpen(false);
+      setIsCancelOpen(false);
       setReopenReason("");
-      toast({ title: "Success", description: updated.status === "closed" ? "Ticket closed" : "Ticket reopened" });
+      setCancelReason("");
+      toast({
+        title: "Success",
+        description: updated.status === "closed" ? "Ticket closed" : updated.status === "cancelled" ? "Request cancelled" : "Ticket reopened",
+      });
     },
-    onError: (error: any) => {
+    onError: async (error: any, variables) => {
+      const refreshed = await refetchTickets();
+      const latest = refreshed.data?.find((ticket) => ticket.id === variables.id);
+      if (latest) setSelectedTicket(latest);
       toast({ title: "Error", description: error?.message || "Failed to update ticket", variant: "destructive" });
     },
   });
@@ -337,7 +351,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
           isAssignedView
             ? "Work on tickets assigned to you and close them when finished"
             : isRequestsView
-              ? "Create support requests and follow their progress"
+              ? "Check request status, reopen unresolved issues, or cancel requests you no longer need"
               : "Manage, assign, and track all incidents and service requests"
         }
         onAddClick={isAssignedView ? undefined : () => setIsFormOpen(true)}
@@ -380,7 +394,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
-              {canViewAll && !isAssignedView && (
+              {canViewAll && !isAssignedView && !isRequestsView && (
                 <Select
                   value={scopeFilter}
                   onValueChange={(v) => {
@@ -397,7 +411,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                   </SelectContent>
                 </Select>
               )}
-              {canManage && !isAssignedView && (
+              {canManage && !isAssignedView && !isRequestsView && (
                 <Select
                   value={assigneeFilter}
                   onValueChange={(v) => {
@@ -430,7 +444,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
             ) : (
               <div className="space-y-4">
                 <div className="w-full overflow-x-auto rounded-md">
-                  <Table className="min-w-[980px]">
+                  <Table className={isRequestsView ? "min-w-[720px]" : "min-w-[980px]"}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Ticket #</TableHead>
@@ -438,8 +452,8 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                       <TableHead>Type</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Requester</TableHead>
-                      <TableHead>Assigned To</TableHead>
+                      {!isRequestsView && <TableHead>Requester</TableHead>}
+                      {!isRequestsView && <TableHead>Assigned To</TableHead>}
                       <TableHead>Created</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -457,15 +471,15 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Badge className={statusColors[ticket.status]}>{ticket.status.replace("_", " ")}</Badge>
                             {ticket.slaResolutionDueAt &&
-                              !["resolved","closed"].includes(ticket.status) &&
+                              !["resolved","closed","cancelled"].includes(ticket.status) &&
                               new Date(ticket.slaResolutionDueAt) < new Date() && (
                               <Badge className="bg-red-100 text-red-700 text-[10px] px-1.5 py-0 h-4">SLA Breached</Badge>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{userLabel(ticket.requester)}</TableCell>
-                        <TableCell>
-                          {canManage && !isAssignedView ? (
+                        {!isRequestsView && <TableCell>{userLabel(ticket.requester)}</TableCell>}
+                        {!isRequestsView && <TableCell>
+                            {canEditTicket && !isAssignedView ? (
                             <Select
                               value={ticket.assignedToId || "unassigned"}
                               onValueChange={(v) =>
@@ -487,7 +501,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                           ) : (
                             userLabel(ticket.assignedTo)
                           )}
-                        </TableCell>
+                        </TableCell>}
                         <TableCell>{ticket.createdAt ? format(new Date(ticket.createdAt), "MMM d, yyyy") : "-"}</TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => setSelectedTicket(ticket)}>
@@ -498,7 +512,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     ))}
                     {paginatedTickets.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={isRequestsView ? 7 : 9} className="text-center py-8 text-muted-foreground">
                           No tickets found
                         </TableCell>
                       </TableRow>
@@ -764,17 +778,17 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     <span className="text-muted-foreground">Category: </span>
                     {ticketCategories?.find((c) => c.value === selectedTicket.category)?.label || selectedTicket.category || "-"}
                   </div>
-                  <div>
+                  {!isRequestsView && <div>
                     <span className="text-muted-foreground">Requester: </span>
                     {userLabel(selectedTicket.requester)}
-                  </div>
+                  </div>}
                   <div>
                     <span className="text-muted-foreground">Asset: </span>
                     {selectedTicket.asset ? `${selectedTicket.asset.name} (${selectedTicket.asset.assetTag})` : "-"}
                   </div>
                 </div>
 
-                <div className="border rounded-lg p-3">
+                {!isRequestsView && <div className="border rounded-lg p-3">
                   <h4 className="text-sm font-medium mb-2">Requester Information</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                     <div>
@@ -798,7 +812,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                       <span>{selectedTicket.requester?.location || "-"}</span>
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 <div>
                   <span className="text-muted-foreground text-sm">Description</span>
@@ -808,7 +822,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Priority</label>
-                    {canManage ? (
+                    {canEditTicket ? (
                       <Select
                         value={selectedTicket.priority}
                         onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { priority: v } })}
@@ -870,9 +884,9 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                       </div>
                     )}
                   </div>
-                  <div>
+                  {!isRequestsView && <div>
                     <label className="text-sm text-muted-foreground">Assigned To</label>
-                    {canManage ? (
+                    {canEditTicket ? (
                       <Select
                         value={selectedTicket.assignedToId || "unassigned"}
                         onValueChange={(v) =>
@@ -894,10 +908,10 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     ) : (
                       <div className="mt-1 text-sm">{userLabel(selectedTicket.assignedTo)}</div>
                     )}
-                  </div>
+                  </div>}
                   <div>
                     <label className="text-sm text-muted-foreground">Due Date</label>
-                    {canManage ? (
+                    {canEditTicket ? (
                       <Input
                         type="date"
                         className="mt-1"
@@ -922,7 +936,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">Impact</label>
-                    {canManage ? (
+                    {canEditTicket ? (
                       <Select
                         value={selectedTicket.impact || undefined}
                         onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { impact: v } })}
@@ -942,7 +956,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Urgency</label>
-                    {canManage ? (
+                    {canEditTicket ? (
                       <Select
                         value={selectedTicket.urgency || undefined}
                         onValueChange={(v) => updateMutation.mutate({ id: selectedTicket.id, data: { urgency: v } })}
@@ -1070,7 +1084,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                                 <Download className="h-4 w-4" />
                               </a>
                             </Button>
-                            {canManage && (
+                            {canEditTicket && (
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -1113,7 +1127,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     )}
                   </div>
                   <div className="space-y-2">
-                    {canManage && (
+                    {canEditTicket && (
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -1147,6 +1161,9 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
 
                 {isRequestsView && selectedTicket.status === "resolved" && (
                   <div className="border-t pt-4 flex flex-col sm:flex-row gap-2 sm:justify-end">
+                    <Button variant="destructive" onClick={() => setIsCancelOpen(true)}>
+                      Cancel Request
+                    </Button>
                     <Button
                       variant="outline"
                       onClick={() => setIsReopenOpen(true)}
@@ -1162,6 +1179,14 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                       disabled={requesterStatusMutation.isPending}
                     >
                       Confirm Resolution & Close
+                    </Button>
+                  </div>
+                )}
+
+                {isRequestsView && ["open", "in_progress"].includes(selectedTicket.status) && (
+                  <div className="border-t pt-4 flex justify-end">
+                    <Button variant="destructive" onClick={() => setIsCancelOpen(true)}>
+                      Cancel Request
                     </Button>
                   </div>
                 )}
@@ -1209,6 +1234,48 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
               })}
             >
               Reopen Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCancelOpen} onOpenChange={(open) => {
+        setIsCancelOpen(open);
+        if (!open) setCancelReason("");
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="cancel-reason" className="text-sm font-medium leading-none">
+              Reason (optional)
+            </label>
+            <Textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              placeholder="For example, I fixed the issue myself..."
+              rows={4}
+              maxLength={2000}
+            />
+            <p className="text-xs text-muted-foreground">
+              The cancellation and reason will be saved in this ticket's activity.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsCancelOpen(false)}>Keep Request</Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={requesterStatusMutation.isPending}
+              onClick={() => selectedTicket && requesterStatusMutation.mutate({
+                id: selectedTicket.id,
+                action: "cancel",
+                reason: cancelReason.trim() || undefined,
+              })}
+            >
+              Confirm Cancellation
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -6,6 +6,12 @@ description: Decisions and gotchas from building the Incident & Service Request 
 ## Requester scope
 Any authenticated user can file a ticket — not limited to a special "Employee" role. Keep this consistent for future ticket-related features.
 
+Requesters can cancel their own open, in-progress, or resolved requests; cancellation is distinct from confirming a resolved ticket as closed. Preserve an optional cancellation reason as a public activity comment, and keep closed/cancelled requests ineligible for cancellation.
+
+**Why:** users need to stop requests they no longer need or have fixed themselves without gaining staff assignment or workflow controls.
+
+**How to apply:** keep requester-facing controls limited to status visibility, cancellation, and existing close/reopen actions; enforce ownership and eligible states on the server.
+
 ## RBAC model
 Two permissions gate the whole module: view-all-tickets vs. manage-tickets (assign/status/edit/delete any ticket, set due date). Non-managers can only edit their own ticket's basic fields. The real gate is server-side; any client-side "my tickets" toggle or inline-editable field is just UX on top of that.
 

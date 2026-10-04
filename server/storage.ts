@@ -290,6 +290,7 @@ export interface IStorage {
   getTicket(id: string): Promise<TicketWithDetails | undefined>;
   createTicket(ticket: InsertTicket): Promise<Ticket>;
   updateTicket(id: string, ticket: Partial<InsertTicket>): Promise<Ticket | undefined>;
+  cancelTicketForRequester(id: string, comment: InsertTicketComment): Promise<Ticket | undefined>;
   deleteTicket(id: string): Promise<boolean>;
   getTicketComments(ticketId: string): Promise<TicketCommentWithAuthor[]>;
   createTicketComment(comment: InsertTicketComment): Promise<TicketComment>;
@@ -1929,6 +1930,15 @@ export class MemStorage implements IStorage {
     };
     this.tickets.set(id, updatedTicket);
     return updatedTicket;
+  }
+
+  async cancelTicketForRequester(id: string, comment: InsertTicketComment): Promise<Ticket | undefined> {
+    const ticket = this.tickets.get(id);
+    if (!ticket || !["open", "in_progress", "resolved"].includes(ticket.status)) return undefined;
+    const cancelled: Ticket = { ...ticket, status: "cancelled", resolvedAt: null, updatedAt: new Date() };
+    this.tickets.set(id, cancelled);
+    await this.createTicketComment(comment);
+    return cancelled;
   }
 
   async deleteTicket(id: string): Promise<boolean> {
@@ -3688,6 +3698,23 @@ export class DatabaseStorage implements IStorage {
       updatedAt: new Date(),
     }).where(eq(tickets.id, id)).returning();
     return result[0] || undefined;
+  }
+
+  async cancelTicketForRequester(id: string, comment: InsertTicketComment): Promise<Ticket | undefined> {
+    return db.transaction(async tx => {
+      const result = await tx.update(tickets).set({
+        status: "cancelled",
+        resolvedAt: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(tickets.id, id),
+        inArray(tickets.status, ["open", "in_progress", "resolved"]),
+      )).returning();
+      const cancelled = result[0];
+      if (!cancelled) return undefined;
+      await tx.insert(ticketComments).values(comment);
+      return cancelled;
+    });
   }
 
   async deleteTicket(id: string): Promise<boolean> {

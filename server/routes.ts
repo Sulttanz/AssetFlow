@@ -841,6 +841,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/tickets/:id/cancel-request", requireAuth, requireModule('itsm'), async (req, res) => {
+    try {
+      const user = req.user as any;
+      const existing = await storage.getTicket(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Ticket not found" });
+      if (existing.requesterId !== user.id) {
+        return res.status(403).json({ message: "Only the requester can cancel this ticket" });
+      }
+      if (!["open", "in_progress", "resolved"].includes(existing.status)) {
+        return res.status(400).json({ message: "Only an active request can be cancelled" });
+      }
+      const { reason } = z.object({ reason: z.string().trim().max(2000).optional() }).parse(req.body ?? {});
+      const ticket = await storage.cancelTicketForRequester(existing.id, {
+        ticketId: existing.id,
+        authorId: user.id,
+        message: reason ? `Request cancelled by requester: ${reason}` : "Request cancelled by requester.",
+        isInternal: false,
+      });
+      if (!ticket) return res.status(409).json({ message: "The request status changed. Refresh and try again." });
+      await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
+      res.json(ticket);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Cancellation reason cannot exceed 2000 characters", errors: error.errors });
+      res.status(500).json({ message: "Failed to cancel request" });
+    }
+  });
+
   app.post("/api/tickets/:id/reopen-request", requireAuth, requireModule('itsm'), async (req, res) => {
     try {
       const user = req.user as any;
