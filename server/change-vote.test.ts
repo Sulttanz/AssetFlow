@@ -8,6 +8,7 @@ const store = vi.hoisted(() => ({
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
   getChangeApprovals: vi.fn(),
+  getChange: vi.fn(),
   updateChangeApproval: vi.fn(),
   updateChange: vi.fn(),
 }));
@@ -44,7 +45,7 @@ type Vote = {
   decidedAt: Date | null;
 };
 
-describe("PUT /api/changes/:changeId/approvals/:approvalId", () => {
+describe("CAB change routes", () => {
   let server: Server;
   let baseUrl: string;
   let votes: Vote[];
@@ -92,6 +93,73 @@ describe("PUT /api/changes/:changeId/approvals/:approvalId", () => {
     });
     return { status: response.status, body: await response.json() };
   }
+
+  it("returns active, deleted-account, and removed CAB history from GET /api/changes/:id", async () => {
+    const details = {
+      id: "change-1",
+      approvals: [
+        {
+          id: "active-vote",
+          changeId: "change-1",
+          approverId: "active-user",
+          originalApproverId: "active-user",
+          approverLabel: "Alex Active",
+          decision: "pending",
+          comments: null,
+          createdAt: "2026-06-01T10:15:00.000Z",
+          removedAt: null,
+          approver: { id: "active-user", username: "active", firstName: "Alex", lastName: "Active" },
+        },
+        {
+          id: "deleted-account-vote",
+          changeId: "change-1",
+          approverId: null,
+          originalApproverId: "deleted-user",
+          approverLabel: "Casey Deleted",
+          decision: "approved",
+          comments: "Approved before account deletion",
+          createdAt: "2026-06-01T11:15:00.000Z",
+          decidedAt: "2026-06-02T11:15:00.000Z",
+          removedAt: null,
+          approver: undefined,
+        },
+      ],
+      removedApproverIds: ["removed-user"],
+      removedApprovals: [
+        {
+          id: "removed-assignment",
+          changeId: "change-1",
+          approverId: null,
+          originalApproverId: "removed-user",
+          approverLabel: "Morgan Former",
+          decision: "pending",
+          comments: null,
+          createdAt: "2026-06-01T12:15:00.000Z",
+          removedAt: "2026-06-03T12:15:00.000Z",
+          removedById: null,
+          removedByLabel: "Taylor Manager",
+          approver: undefined,
+        },
+      ],
+    };
+    store.getChange.mockResolvedValue(details);
+
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+      headers: { "x-test-user": "alice" },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(store.getChange).toHaveBeenCalledWith("change-1");
+    expect(body.approvals).toMatchObject([
+      { id: "active-vote", approverId: "active-user", originalApproverId: "active-user", approverLabel: "Alex Active" },
+      { id: "deleted-account-vote", approverId: null, originalApproverId: "deleted-user", approverLabel: "Casey Deleted", decision: "approved" },
+    ]);
+    expect(body.removedApproverIds).toEqual(["removed-user"]);
+    expect(body.removedApprovals).toMatchObject([
+      { id: "removed-assignment", approverId: null, originalApproverId: "removed-user", approverLabel: "Morgan Former", removedByLabel: "Taylor Manager" },
+    ]);
+  });
 
   it("rejects a different authenticated approver without altering the vote", async () => {
     const result = await cast("approved", "bob");

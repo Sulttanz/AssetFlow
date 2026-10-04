@@ -115,6 +115,82 @@ describe("change list pages", () => {
 });
 
 describe("change detail CAB approvals", () => {
+  it("renders CAB history from the independent detail response, not the list snapshot", async () => {
+    auth.isAdmin = true;
+    const listChange = change([]);
+    const active = {
+      ...approval("Active", "pending", "active-account"),
+      approverLabel: "Alex Active",
+      approver: { id: "active-account", username: "active", firstName: "Alex", lastName: "Active" },
+    };
+    const deletedVote = {
+      ...approval("Deleted", "approved", "deleted-account", "Approved before account deletion"),
+      approverId: null,
+      approver: undefined,
+      approverLabel: "Casey Deleted",
+      originalApproverId: "deleted-account",
+    };
+    const removed = {
+      ...approval("Former", "pending", "removed-account"),
+      approverId: null,
+      approver: undefined,
+      approverLabel: "Morgan Former",
+      originalApproverId: "removed-account",
+      removedAt: "2026-06-03T12:15:00.000Z",
+      removedById: null,
+      removedByLabel: "Taylor Manager",
+    };
+    const detailResponse = {
+      ...change([active, deletedVote], ["removed-account"], [removed]),
+      title: "Detail-only CAB history",
+    };
+    queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [listChange], total: 1 });
+    const users = [
+      { id: "active-account", username: "active", firstName: "Alex", lastName: "Active" },
+      { id: "deleted-account", username: "deleted", firstName: "Casey", lastName: "Deleted" },
+      { id: "removed-account", username: "former", firstName: "Morgan", lastName: "Former" },
+      { id: "available-account", username: "available", firstName: "Available", lastName: "User" },
+    ];
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/changes?")) {
+        return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+      }
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === "/api/changes/change-1") return { ok: true, json: async () => detailResponse };
+      if (url === "/api/users") return { ok: true, json: async () => users };
+      if (url === "/api/departments") return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => [] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
+    await user.click(await screen.findByText("CAB review fixture"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/changes/change-1", { credentials: "include" }));
+    expect(await screen.findByText("Detail-only CAB history")).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Approvals (2)" }));
+    const panel = screen.getByRole("tabpanel", { name: "Approvals (2)" });
+    expect(within(panel).getByText("Alex Active")).toBeTruthy();
+    expect(within(panel).getByText("Casey Deleted (deleted account)")).toBeTruthy();
+    expect(within(panel).getByText("Approved before account deletion")).toBeTruthy();
+    const removedHistory = within(panel).getByRole("region", { name: "Removed CAB assignments" });
+    expect(within(removedHistory).getByText("Morgan Former")).toBeTruthy();
+    expect(within(removedHistory).getByText(/Removed .* by Taylor Manager/)).toBeTruthy();
+
+    await user.click(within(panel).getByRole("combobox"));
+    expect(screen.queryByRole("option", { name: "Alex Active" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Casey Deleted" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Morgan Former" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Available User" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    const timeline = screen.getByRole("tabpanel", { name: "Timeline" });
+    expect(within(timeline).getByText("CAB approved: Casey Deleted")).toBeTruthy();
+    expect(within(timeline).getByText("CAB approver removed: Morgan Former by Taylor Manager")).toBeTruthy();
+  });
+
   it("shows deployment stage starts and completions or failures in chronological order as read-only events", async () => {
     const stages = [
       {
