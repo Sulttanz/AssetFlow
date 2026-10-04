@@ -340,6 +340,7 @@ export interface IStorage {
   getChanges(): Promise<ChangeWithDetails[]>;
   getChangesPage(options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
+  getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
   createChange(change: InsertChange): Promise<Change>;
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
@@ -2503,6 +2504,7 @@ export class MemStorage implements IStorage {
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
   async getChangesPage(_options: { page: number; pageSize: number; search?: string; type?: string; status?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
   async getPendingCabChanges(_userId: string): Promise<ChangeWithDetails[]> { return []; }
+  async getPendingCabAlertChanges(_userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]> { return []; }
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
@@ -3958,6 +3960,20 @@ export class DatabaseStorage implements IStorage {
         or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .orderBy(desc(changes.createdAt), desc(changes.id));
     return this.buildChangeDetails(Array.from(new Map(rows.map(({ change }) => [change.id, change])).values()));
+  }
+  async getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]> {
+    const rows = await db.selectDistinct({
+      id: changes.id,
+      changeNumber: changes.changeNumber,
+      title: changes.title,
+      type: changes.type,
+      createdAt: changes.createdAt,
+    }).from(changes)
+      .innerJoin(changeApprovals, eq(changeApprovals.changeId, changes.id))
+      .where(and(eq(changeApprovals.approverId, userId), isNull(changeApprovals.removedAt),
+        or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+      .orderBy(desc(changes.createdAt), desc(changes.id));
+    return rows.map(({ id, changeNumber, title, type }) => ({ id, changeNumber, title, type }));
   }
   async getChange(id: string): Promise<ChangeWithDetails | undefined> {
     const rows = await db.select().from(changes).where(eq(changes.id, id));

@@ -12,6 +12,7 @@ const store = vi.hoisted(() => ({
   getUserPermissions: vi.fn(),
   getChanges: vi.fn(),
   getChangesPage: vi.fn(),
+  getPendingCabAlertChanges: vi.fn(),
   getChange: vi.fn(),
   getChangeApprovals: vi.fn(),
   getAllChangeApprovalRecords: vi.fn(),
@@ -107,6 +108,10 @@ describe("CAB route notifications across signed-in sessions", () => {
     const active = () => approvals.filter(a => !a.removedAt);
     store.getChanges.mockImplementation(async () => [{ ...change, approvals: active().map(a => ({ ...a })) }]);
     store.getChangesPage.mockImplementation(async () => ({ changes: [{ ...change, approvals: active().map(a => ({ ...a })) }], total: 1 }));
+    store.getPendingCabAlertChanges.mockImplementation(async (userId: string) =>
+      approvals.some(a => a.approverId === userId && !a.removedAt && (a.decision === "pending" || a.decision === null))
+        ? [{ id: change.id, changeNumber: change.changeNumber, title: change.title, type: change.type }]
+        : []);
     store.getChange.mockImplementation(async () => ({ ...change, approvals: active().map(a => ({ ...a })) }));
     store.getChangeApprovals.mockImplementation(async () => active().map(a => ({ ...a })));
     store.getAllChangeApprovalRecords.mockImplementation(async () => approvals.map(a => ({ ...a })));
@@ -156,6 +161,30 @@ describe("CAB route notifications across signed-in sessions", () => {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
   }
+
+  it("builds CAB alerts from the signed-in user's pending-change projection, not the full change history", async () => {
+    const alice = await login("alice");
+    change.type = "emergency";
+    store.getPendingCabAlertChanges.mockResolvedValueOnce([
+      { id: change.id, changeNumber: change.changeNumber, title: change.title, type: change.type },
+    ]);
+
+    const response = await request("/api/alerts", alice);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).filter((alert: { type: string }) => alert.type === "cab")).toEqual([
+      {
+        type: "cab",
+        severity: "high",
+        title: "CAB Vote Pending: CHG-000001",
+        message: "Upgrade network is waiting for your CAB decision",
+        changeId: "change-1",
+        link: "/changes?approval=change-1",
+      },
+    ]);
+    expect(store.getPendingCabAlertChanges).toHaveBeenCalledWith("alice");
+    expect(store.getChanges).not.toHaveBeenCalled();
+  });
 
   async function openStream(cookie: string) {
     const controller = new AbortController();

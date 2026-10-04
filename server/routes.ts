@@ -2060,13 +2060,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const today = new Date();
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
+      const currentUserId = (req.user as any).id;
 
-      const [assets, maintenanceSchedules, budgets, tickets, changes] = await Promise.all([
+      const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges] = await Promise.all([
         storage.getAssets(),
         storage.getMaintenanceSchedules(),
         storage.getBudgets(),
         storage.getTickets(),
-        storage.getChanges(),
+        storage.getPendingCabAlertChanges(currentUserId),
       ]);
 
       const alerts: any[] = [];
@@ -2210,12 +2211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Pending CAB votes assigned to the signed-in user
-      const currentUserId = (req.user as any)?.id;
-      for (const change of changes) {
-        const pendingVote = change.approvals?.find(
-          approval => approval.approverId === currentUserId && (approval.decision === "pending" || approval.decision === null) && !approval.removedAt
-        );
-        if (!pendingVote) continue;
+      for (const change of pendingCabChanges) {
         alerts.push({
           type: "cab",
           severity: change.type === "emergency" ? "high" : "medium",
