@@ -295,6 +295,172 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     15_000,
   );
 
+  it("approves a change when removing the last pending member leaves only approved votes", async () => {
+    const managerId = randomUUID();
+    const approvedVoterId = randomUUID();
+    const pendingVoterId = randomUUID();
+    const changeId = randomUUID();
+    const approvedId = randomUUID();
+    const pendingId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Voter" },
+      { id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Voter" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Remove final pending CAB member",
+      status: "submitted",
+    });
+    await db.insert(changeApprovals).values([
+      { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+        approverLabel: "CAB Voter", decision: "approved", decidedAt: new Date() },
+      { id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
+        approverLabel: "CAB Voter", decision: "pending" },
+    ]);
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, {
+        method: "DELETE",
+        headers: { "x-test-user": managerId },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ success: true });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange.status).toBe("approved");
+      expect(savedChange.approvedAt).toBeInstanceOf(Date);
+      const active = await storage.getChangeApprovals(changeId);
+      expect(active).toHaveLength(1);
+      expect(active[0]).toMatchObject({ id: approvedId, decision: "approved" });
+      const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId));
+      expect(removed.removedAt).toBeInstanceOf(Date);
+      expect(removed.removedById).toBe(managerId);
+    } finally {
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    { first: "vote", decision: "approved" },
+    { first: "removal", decision: "approved" },
+    { first: "vote", decision: "rejected" },
+    { first: "removal", decision: "rejected" },
+  ] as const)(
+    "serializes a $decision vote on another assignment against removal when the $first commits first",
+    async ({ first, decision }) => {
+      const managerId = randomUUID();
+      const alreadyApprovedId = randomUUID();
+      const removedVoterId = randomUUID();
+      const votingVoterId = randomUUID();
+      const changeId = randomUUID();
+      const alreadyApprovedApprovalId = randomUUID();
+      const removedApprovalId = randomUUID();
+      const votingApprovalId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: alreadyApprovedId, username: `voter-${alreadyApprovedId}`, email: `${alreadyApprovedId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" },
+        { id: removedVoterId, username: `voter-${removedVoterId}`, email: `${removedVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" },
+        { id: votingVoterId, username: `voter-${votingVoterId}`, email: `${votingVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Vote and removal on separate CAB assignments",
+        status: "submitted",
+      });
+      await db.insert(changeApprovals).values([
+        { id: alreadyApprovedApprovalId, changeId, approverId: alreadyApprovedId,
+          originalApproverId: alreadyApprovedId, approverLabel: "CAB Voter",
+          decision: "approved", decidedAt: new Date() },
+        { id: removedApprovalId, changeId, approverId: removedVoterId,
+          originalApproverId: removedVoterId, approverLabel: "CAB Voter", decision: "pending" },
+        { id: votingApprovalId, changeId, approverId: votingVoterId,
+          originalApproverId: votingVoterId, approverLabel: "CAB Voter", decision: "pending" },
+      ]);
+
+      // Both routes inspect the initial membership before either storage write.
+      const originalRead = storage.getChangeApprovals.bind(storage);
+      let arrived = 0;
+      let releaseReads!: () => void;
+      const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+        const rows = await originalRead(id);
+        if (id === changeId && arrived < 2) {
+          if (++arrived === 2) releaseReads();
+          await bothRead;
+        }
+        return rows;
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      let releaseSecond!: () => void;
+      const firstCommitted = new Promise<void>(resolve => { releaseSecond = resolve; });
+      const originalVote = storage.updateChangeApproval.bind(storage);
+      const originalRemove = storage.removeChangeApproval.bind(storage);
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
+        if (first === "removal") await firstCommitted;
+        try {
+          return await originalVote(...args);
+        } finally {
+          if (first === "vote") releaseSecond();
+        }
+      });
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+        if (first === "vote") await firstCommitted;
+        try {
+          return await originalRemove(...args);
+        } finally {
+          if (first === "removal") releaseSecond();
+        }
+      });
+
+      try {
+        const [vote, removal] = await Promise.all([
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${votingApprovalId}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": votingVoterId },
+            body: JSON.stringify({ decision, comments: "Voted during removal" }),
+          }),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${removedApprovalId}`, {
+            method: "DELETE",
+            headers: { "x-test-user": managerId },
+          }),
+        ]);
+        expect(arrived).toBe(2);
+        expect(vote.status).toBe(200);
+        expect(removal.status).toBe(200);
+
+        const savedApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(savedApprovals.find(row => row.id === alreadyApprovedApprovalId)?.decision).toBe("approved");
+        expect(savedApprovals.find(row => row.id === votingApprovalId))
+          .toMatchObject({ decision, comments: "Voted during removal" });
+        expect(savedApprovals.find(row => row.id === removedApprovalId)?.removedAt).toBeInstanceOf(Date);
+        const active = await storage.getChangeApprovals(changeId);
+        expect(active.map(row => row.id).sort()).toEqual([alreadyApprovedApprovalId, votingApprovalId].sort());
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe(decision);
+        expect(savedChange.approvedAt instanceof Date).toBe(decision === "approved");
+      } finally {
+        readSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+        voteSpy.mockRestore();
+        removeSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it.each(["approved", "rejected"] as const)(
     "keeps the change rejected when the %s vote commits first on a separate approval",
     async firstDecision => {

@@ -75,8 +75,8 @@ describe("PUT /api/changes/:changeId/approvals/:approvalId", () => {
     votes = [{ id: "vote-1", changeId: "change-1", approverId: "alice", decision: "pending", comments: null, decidedAt: null }];
     store.getModuleSetting.mockResolvedValue(undefined);
     store.getChangeApprovals.mockImplementation(async (changeId: string) => votes.filter(v => v.changeId === changeId));
-    store.updateChangeApproval.mockImplementation(async (id: string, decision: string, comments?: string) => {
-      const vote = votes.find(v => v.id === id && v.approverId !== null && (v.decision === "pending" || v.decision === null));
+    store.updateChangeApproval.mockImplementation(async (changeId: string, id: string, decision: string, comments?: string) => {
+      const vote = votes.find(v => v.changeId === changeId && v.id === id && v.approverId !== null && (v.decision === "pending" || v.decision === null));
       if (!vote) return undefined;
       Object.assign(vote, { decision, comments: comments ?? null, decidedAt: new Date() });
       return { ...vote };

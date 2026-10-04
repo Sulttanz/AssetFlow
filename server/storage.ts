@@ -4206,11 +4206,38 @@ export class DatabaseStorage implements IStorage {
     const [remover] = await db.select().from(users).where(eq(users.id, removedById));
     if (!remover) throw new Error("CAB remover account not found");
     const removedByLabel = [remover.firstName, remover.lastName].filter(Boolean).join(" ") || remover.username;
-    const result = await db.update(changeApprovals)
-      .set({ removedAt: new Date(), removedById, removedByLabel })
-      .where(and(eq(changeApprovals.id, id), isNull(changeApprovals.removedAt), or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
-      .returning();
-    return result[0];
+    const [target] = await db.select({ changeId: changeApprovals.changeId })
+      .from(changeApprovals)
+      .where(eq(changeApprovals.id, id));
+    if (!target) return undefined;
+
+    return db.transaction(async tx => {
+      // Use the same parent-row lock as voting so membership changes and vote
+      // status calculations see a single serialized set of active approvals.
+      const [change] = await tx.select({ id: changes.id }).from(changes)
+        .where(eq(changes.id, target.changeId)).for("update");
+      if (!change) return undefined;
+
+      const [removed] = await tx.update(changeApprovals)
+        .set({ removedAt: new Date(), removedById, removedByLabel })
+        .where(and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, target.changeId),
+          isNull(changeApprovals.removedAt),
+          or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+        .returning();
+      if (!removed) return undefined;
+
+      const active = await tx.select({ decision: changeApprovals.decision })
+        .from(changeApprovals)
+        .where(and(eq(changeApprovals.changeId, target.changeId), isNull(changeApprovals.removedAt)));
+      if (active.some(a => a.decision === "rejected")) {
+        await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
+          .where(eq(changes.id, target.changeId));
+      } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
+        await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+          .where(eq(changes.id, target.changeId));
+      }
+      return removed;
+    });
   }
 
   async getChangePIR(changeId: string): Promise<ChangePIR | undefined> {
