@@ -3,24 +3,40 @@
 BEGIN;
 
 ALTER TABLE change_approvals
-  ADD COLUMN original_approver_id varchar,
-  ADD COLUMN approver_label text;
+  ADD COLUMN IF NOT EXISTS original_approver_id varchar,
+  ADD COLUMN IF NOT EXISTS approver_label text;
 
 UPDATE change_approvals AS a
-SET original_approver_id = a.approver_id,
+SET original_approver_id = COALESCE(a.original_approver_id, a.approver_id),
     approver_label = COALESCE(
+      NULLIF(trim(a.approver_label), ''),
       NULLIF(trim(concat_ws(' ', u.first_name, u.last_name)), ''),
       u.username,
-      a.approver_id
+      a.approver_id,
+      a.original_approver_id
     )
 FROM users AS u
-WHERE u.id = a.approver_id;
+WHERE u.id = a.approver_id
+  AND (
+    a.original_approver_id IS NULL
+    OR a.approver_label IS NULL
+    OR trim(a.approver_label) = ''
+  );
+
+-- Deleted-account rows may already have a retained original ID but no display label.
+UPDATE change_approvals AS a
+SET approver_label = COALESCE(
+  NULLIF(trim(a.approver_label), ''),
+  a.original_approver_id
+)
+WHERE a.original_approver_id IS NOT NULL
+  AND (a.approver_label IS NULL OR trim(a.approver_label) = '');
 
 ALTER TABLE change_approvals
   ALTER COLUMN original_approver_id SET NOT NULL,
   ALTER COLUMN approver_label SET NOT NULL,
   ALTER COLUMN approver_id DROP NOT NULL,
-  DROP CONSTRAINT change_approvals_approver_id_users_id_fk,
+  DROP CONSTRAINT IF EXISTS change_approvals_approver_id_users_id_fk,
   DROP CONSTRAINT IF EXISTS change_approvals_change_id_approver_id_unique;
 
 ALTER TABLE change_approvals
