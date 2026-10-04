@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -476,6 +476,16 @@ export const sessions = pgTable("sessions", {
   sess: text("sess").notNull(),
   expire: timestamp("expire").notNull(),
 });
+
+export const cabStreamLeases = pgTable("cab_stream_leases", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, table => [
+  index("cab_stream_leases_user_expiry_idx").on(table.userId, table.expiresAt),
+  index("cab_stream_leases_expiry_idx").on(table.expiresAt),
+]);
 
 export const systemSettings = pgTable("system_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -1,11 +1,15 @@
 // @vitest-environment node
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Response } from "express";
 
-const query = vi.hoisted(() => vi.fn().mockResolvedValue({}));
-vi.mock("./db", () => ({ pool: { query } }));
+const mockDatabase = vi.hoisted(() => ({
+  query: vi.fn(),
+  connect: vi.fn(),
+  leases: [] as Array<{ id: string; userId: string; sessionId: string; expiresAt: Date }>,
+}));
+vi.mock("./db", () => ({ pool: { query: mockDatabase.query, connect: mockDatabase.connect } }));
 
 import { publishCabChange, subscribeToCabEvents } from "./cab-events";
 
@@ -28,11 +32,71 @@ class TestResponse extends EventEmitter {
 
 const event = "event: cab-change\ndata: {}\n\n";
 const response = () => new TestResponse();
-const subscribe = (res: TestResponse, userId = "test-user", sessionId = randomUUID()) => {
-  const stream = subscribeToCabEvents(res as unknown as Response, userId, sessionId);
+const subscribe = async (res: TestResponse, userId = "test-user", sessionId = randomUUID()) => {
+  const stream = await subscribeToCabEvents(res as unknown as Response, userId, sessionId);
   if (!stream) throw new Error("Unexpected CAB stream limit");
   return stream;
 };
+
+async function fakeDatabaseQuery(sql: string, parameters: any[] = []) {
+  const statement = sql.replace(/\s+/g, " ").trim();
+  if (["BEGIN", "COMMIT", "ROLLBACK"].includes(statement) ||
+      statement.startsWith("SELECT pg_advisory_xact_lock")) {
+    return { rows: [], rowCount: 0 };
+  }
+  if (statement.startsWith("DELETE FROM cab_stream_leases WHERE user_id =")) {
+    const [userId, now] = parameters as [string, Date];
+    const before = mockDatabase.leases.length;
+    mockDatabase.leases = mockDatabase.leases.filter(lease =>
+      lease.userId !== userId || lease.expiresAt > now);
+    return { rows: [], rowCount: before - mockDatabase.leases.length };
+  }
+  if (statement.startsWith("DELETE FROM cab_stream_leases WHERE expires_at <=")) {
+    const [now] = parameters as [Date];
+    const before = mockDatabase.leases.length;
+    mockDatabase.leases = mockDatabase.leases.filter(lease => lease.expiresAt > now);
+    return { rows: [], rowCount: before - mockDatabase.leases.length };
+  }
+  if (statement.startsWith("SELECT COUNT(*)::int AS user_count")) {
+    const [userId, sessionId, now] = parameters as [string, string, Date];
+    const active = mockDatabase.leases.filter(lease => lease.userId === userId && lease.expiresAt > now);
+    return {
+      rows: [{
+        user_count: active.length,
+        session_count: active.filter(lease => lease.sessionId === sessionId).length,
+      }],
+      rowCount: 1,
+    };
+  }
+  if (statement.startsWith("INSERT INTO cab_stream_leases")) {
+    const [id, userId, sessionId, expiresAt] = parameters as [string, string, string, Date];
+    mockDatabase.leases.push({ id, userId, sessionId, expiresAt });
+    return { rows: [], rowCount: 1 };
+  }
+  if (statement.startsWith("UPDATE cab_stream_leases SET expires_at")) {
+    const [id, expiresAt, now] = parameters as [string, Date, Date];
+    const lease = mockDatabase.leases.find(item => item.id === id && item.expiresAt > now);
+    if (lease) lease.expiresAt = expiresAt;
+    return { rows: lease ? [{ id }] : [], rowCount: lease ? 1 : 0 };
+  }
+  if (statement.startsWith("DELETE FROM cab_stream_leases WHERE id =")) {
+    const [id] = parameters as [string];
+    const before = mockDatabase.leases.length;
+    mockDatabase.leases = mockDatabase.leases.filter(lease => lease.id !== id);
+    return { rows: [], rowCount: before - mockDatabase.leases.length };
+  }
+  if (statement.startsWith("SELECT pg_notify")) return { rows: [], rowCount: 1 };
+  throw new Error(`Unexpected mocked database query: ${statement}`);
+}
+
+beforeEach(() => {
+  mockDatabase.leases.length = 0;
+  mockDatabase.query.mockImplementation(fakeDatabaseQuery);
+  mockDatabase.connect.mockImplementation(async () => ({
+    query: fakeDatabaseQuery,
+    release: vi.fn(),
+  }));
+});
 
 describe("CAB stream backpressure", () => {
   afterEach(() => {
@@ -44,8 +108,8 @@ describe("CAB stream backpressure", () => {
     const slow = response();
     const fast = response();
     slow.write.mockReturnValueOnce(false);
-    const slowStream = subscribe(slow);
-    const fastStream = subscribe(fast);
+    const slowStream = await subscribe(slow);
+    const fastStream = await subscribe(fast);
     try {
       await publishCabChange();
       await publishCabChange();
@@ -59,8 +123,8 @@ describe("CAB stream backpressure", () => {
       await vi.advanceTimersByTimeAsync(10_000);
       expect(slow.destroy).not.toHaveBeenCalled();
     } finally {
-      slowStream();
-      fastStream();
+      await slowStream();
+      await fastStream();
     }
   });
 
@@ -69,8 +133,8 @@ describe("CAB stream backpressure", () => {
     const slow = response();
     const fast = response();
     slow.write.mockReturnValue(false);
-    const slowStream = subscribe(slow);
-    const fastStream = subscribe(fast);
+    const slowStream = await subscribe(slow);
+    const fastStream = await subscribe(fast);
     try {
       slowStream.sendHeartbeat();
       await vi.advanceTimersByTimeAsync(10_000);
@@ -79,8 +143,8 @@ describe("CAB stream backpressure", () => {
       expect(slow.write).toHaveBeenCalledTimes(1);
       expect(fast.write).toHaveBeenCalledWith(event);
     } finally {
-      slowStream();
-      fastStream();
+      await slowStream();
+      await fastStream();
     }
   });
 
@@ -88,9 +152,9 @@ describe("CAB stream backpressure", () => {
     vi.useFakeTimers();
     const slow = response();
     slow.write.mockReturnValue(false);
-    const stream = subscribe(slow);
+    const stream = await subscribe(slow);
     stream.sendHeartbeat();
-    stream();
+    await stream();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(slow.destroy).not.toHaveBeenCalled();
     expect(slow.listenerCount("drain")).toBe(0);
@@ -104,52 +168,117 @@ describe("CAB stream connection limits", () => {
     const reconnecting = response();
     const excess = response();
     const other = response();
-    const releaseFirst = subscribe(first, "alice", "session-a");
-    const releaseSecond = subscribe(second, "alice", "session-a");
-    const releaseReconnect = subscribe(reconnecting, "alice", "session-a");
-    const releaseOther = subscribe(other, "bob", "session-b");
+    const releaseFirst = await subscribe(first, "alice", "session-a");
+    const releaseSecond = await subscribe(second, "alice", "session-a");
+    const releaseReconnect = await subscribe(reconnecting, "alice", "session-a");
+    const releaseOther = await subscribe(other, "bob", "session-b");
     try {
-      expect(subscribeToCabEvents(excess as unknown as Response, "alice", "session-a")).toBeNull();
+      expect(await subscribeToCabEvents(excess as unknown as Response, "alice", "session-a")).toBeNull();
       expect(excess.listenerCount("drain")).toBe(0);
       await publishCabChange();
       expect(first.write).toHaveBeenCalledWith(event);
       expect(second.write).toHaveBeenCalledWith(event);
       expect(reconnecting.write).toHaveBeenCalledWith(event);
       expect(other.write).toHaveBeenCalledWith(event);
-      releaseFirst();
-      const releaseNew = subscribe(excess, "alice", "session-a");
+      await releaseFirst();
+      const releaseNew = await subscribe(excess, "alice", "session-a");
       try {
         await publishCabChange();
         expect(first.write).toHaveBeenCalledTimes(1);
         expect(excess.write).toHaveBeenCalledWith(event);
       } finally {
-        releaseNew();
+        await releaseNew();
       }
     } finally {
-      releaseFirst();
-      releaseSecond();
-      releaseReconnect();
-      releaseOther();
+      await releaseFirst();
+      await releaseSecond();
+      await releaseReconnect();
+      await releaseOther();
     }
   });
 
   it("refuses a seventh stream for one user, then admits it after a stream closes", async () => {
     const active = Array.from({ length: 6 }, () => response());
     const denied = response();
-    const releases = active.map((res, index) => subscribe(res, "limited", String(index)));
-    let releaseFourth: (() => void) | null = null;
+    const releases = await Promise.all(active.map((res, index) => subscribe(res, "limited", String(index))));
+    let releaseFourth: Awaited<ReturnType<typeof subscribe>> | null = null;
     try {
-      expect(subscribeToCabEvents(denied as unknown as Response, "limited", "6")).toBeNull();
+      expect(await subscribeToCabEvents(denied as unknown as Response, "limited", "6")).toBeNull();
       expect(denied.listenerCount("drain")).toBe(0);
-      releases[0]();
-      releaseFourth = subscribe(denied, "limited", "6");
+      await releases[0]();
+      releaseFourth = await subscribe(denied, "limited", "6");
       await publishCabChange();
       expect(active[0].write).not.toHaveBeenCalled();
       expect(denied.write).toHaveBeenCalledWith(event);
       active.slice(1).forEach(res => expect(res.write).toHaveBeenCalledWith(event));
     } finally {
-      releases.forEach(release => release());
-      releaseFourth?.();
+      await Promise.all(releases.map(release => release()));
+      if (releaseFourth) await releaseFourth();
+    }
+  });
+
+  it("enforces user and session limits across independent app instances", async () => {
+    const replicaOne = [
+      await subscribe(response(), "shared-user", "session-a"),
+      await subscribe(response(), "shared-user", "session-a"),
+      await subscribe(response(), "shared-user", "session-b"),
+      await subscribe(response(), "shared-user", "session-b"),
+    ];
+    vi.resetModules();
+    const { subscribeToCabEvents: subscribeOnReplicaTwo } = await import("./cab-events");
+    const replicaTwo = [
+      await subscribe(response(), "shared-user", "session-a"),
+      await subscribe(response(), "shared-user", "session-c"),
+    ];
+    try {
+      expect(await subscribeOnReplicaTwo(response() as unknown as Response, "shared-user", "session-a")).toBeNull();
+      expect(await subscribeOnReplicaTwo(response() as unknown as Response, "shared-user", "session-d")).toBeNull();
+      await replicaOne[0]();
+      const reconnect = await subscribeOnReplicaTwo(response() as unknown as Response, "shared-user", "session-a");
+      expect(reconnect).not.toBeNull();
+      const otherAccount = await subscribeOnReplicaTwo(response() as unknown as Response, "other-user", "session-a");
+      expect(otherAccount).not.toBeNull();
+      if (reconnect) await reconnect();
+      if (otherAccount) await otherAccount();
+    } finally {
+      await Promise.all([...replicaOne, ...replicaTwo].map(release => release()));
+    }
+  });
+
+  it("removes expired abandoned leases before admitting a replacement stream", async () => {
+    vi.useFakeTimers();
+    const originalTime = Date.now();
+    const active = await Promise.all(
+      Array.from({ length: 6 }, (_, index) => subscribe(response(), "expired-user", `session-${index}`)),
+    );
+    vi.setSystemTime(originalTime + 90_001);
+    vi.resetModules();
+    const { subscribeToCabEvents: subscribeOnReplicaTwo } = await import("./cab-events");
+    try {
+      const replacement = await subscribeOnReplicaTwo(response() as unknown as Response, "expired-user", "replacement");
+      expect(replacement).not.toBeNull();
+      expect(mockDatabase.leases).toHaveLength(1);
+      if (replacement) await replacement();
+    } finally {
+      await Promise.all(active.map(release => release()));
+      vi.useRealTimers();
+    }
+  });
+
+  it("renews live leases and rejects a lease that already expired", async () => {
+    vi.useFakeTimers();
+    const stream = await subscribe(response(), "renewing-user", "session-a");
+    try {
+      const lease = mockDatabase.leases[0];
+      const initialExpiry = lease.expiresAt.getTime();
+      vi.setSystemTime(Date.now() + 60_000);
+      expect(await stream.renewLease()).toBe(true);
+      expect(lease.expiresAt.getTime()).toBeGreaterThan(initialExpiry);
+      vi.setSystemTime(lease.expiresAt.getTime() + 1);
+      expect(await stream.renewLease()).toBe(false);
+    } finally {
+      await stream();
+      vi.useRealTimers();
     }
   });
 });

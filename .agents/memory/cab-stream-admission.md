@@ -3,8 +3,8 @@ name: CAB stream admission policy
 description: Why same-session tabs get bounded slots rather than replacing each other.
 ---
 
-Allow a small number of CAB streams per session and a larger per-user cap within each server process. Refuse extra connections before sending SSE headers, without evicting existing streams.
+Enforce CAB per-session and per-user stream caps across replicas with expiring PostgreSQL leases. Keep existing tabs active and refuse excess connections before sending SSE headers.
 
-**Why:** Browser tabs share an Express session cookie. Replacing the older stream for a "duplicate" session silently disables live updates in another tab. A small surplus slot lets a tab reconnect before its old socket closes; rejecting over-limit requests keeps active tabs live and bounds sockets.
+**Why:** Browser tabs share an Express session cookie. Replacing the older stream for a "duplicate" session silently disables live updates in another tab. Transaction-scoped advisory locks serialize admission across replicas, while expiring leases reclaim abandoned sockets after process or network failure.
 
-**How to apply:** Preserve multi-tab delivery and bounded reconnect headroom when changing CAB event transport or authentication. The local cap is not a global quota across server replicas.
+**How to apply:** Preserve bounded reconnect headroom, database lease renewal during stream heartbeats, close-time release, and periodic expiry cleanup. Apply the `cab_stream_leases` schema migration before serving CAB streams.

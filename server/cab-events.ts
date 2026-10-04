@@ -10,34 +10,116 @@ const drainTimeoutMs = 10_000;
 const changeEvent = "event: cab-change\ndata: {}\n\n";
 const maxStreamsPerUser = 6;
 const maxStreamsPerSession = 3;
+const streamLeaseDurationMs = 90_000;
+const streamLeaseCleanupIntervalMs = 60_000;
 type Subscriber = {
   res: Response;
   userId: string;
   sessionId: string;
+  leaseId: string;
   blocked: boolean;
   pendingChange: boolean;
   drainTimer?: ReturnType<typeof setTimeout>;
   onDrain: () => void;
+  onClose: () => void;
 };
 const subscribers = new Set<Subscriber>();
 const streamsByUser = new Map<string, Set<Subscriber>>();
 let listener: Client | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let leaseCleanupTimer: ReturnType<typeof setInterval> | undefined;
 let retryDelay = 1000;
 let started = false;
 
-function removeSubscriber(subscriber: Subscriber): void {
-  subscribers.delete(subscriber);
+async function acquireStreamLease(leaseId: string, userId: string, sessionId: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Every replica serializes admission for one account through the same
+    // transaction-scoped lock. Separate statements ensure the count query sees
+    // leases committed by a replica while this request was waiting for the lock.
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`cab-stream:${userId}`]);
+    const now = new Date();
+    await client.query(
+      "DELETE FROM cab_stream_leases WHERE user_id = $1 AND expires_at <= $2",
+      [userId, now],
+    );
+    const { rows } = await client.query<{ user_count: number; session_count: number }>(
+      `SELECT
+         COUNT(*)::int AS user_count,
+         COUNT(*) FILTER (WHERE session_id = $2)::int AS session_count
+       FROM cab_stream_leases
+       WHERE user_id = $1 AND expires_at > $3`,
+      [userId, sessionId, now],
+    );
+    if (Number(rows[0]?.user_count ?? 0) >= maxStreamsPerUser ||
+        Number(rows[0]?.session_count ?? 0) >= maxStreamsPerSession) {
+      await client.query("COMMIT");
+      return false;
+    }
+    await client.query(
+      "INSERT INTO cab_stream_leases (id, user_id, session_id, expires_at) VALUES ($1, $2, $3, $4)",
+      [leaseId, userId, sessionId, new Date(Date.now() + streamLeaseDurationMs)],
+    );
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function renewStreamLease(leaseId: string): Promise<boolean> {
+  const now = new Date();
+  const result = await pool.query(
+    `UPDATE cab_stream_leases
+     SET expires_at = $2
+     WHERE id = $1 AND expires_at > $3
+     RETURNING id`,
+    [leaseId, new Date(Date.now() + streamLeaseDurationMs), now],
+  );
+  return (result.rowCount ?? result.rows.length) > 0;
+}
+
+async function releaseStreamLease(leaseId: string): Promise<void> {
+  await pool.query("DELETE FROM cab_stream_leases WHERE id = $1", [leaseId]);
+}
+
+async function cleanupExpiredStreamLeases(): Promise<void> {
+  await pool.query("DELETE FROM cab_stream_leases WHERE expires_at <= $1", [new Date()]);
+}
+
+function startStreamLeaseCleanup(): void {
+  if (leaseCleanupTimer) return;
+  void cleanupExpiredStreamLeases().catch(error => {
+    console.error("Failed to clean expired CAB stream leases:", error);
+  });
+  leaseCleanupTimer = setInterval(() => {
+    void cleanupExpiredStreamLeases().catch(error => {
+      console.error("Failed to clean expired CAB stream leases:", error);
+    });
+  }, streamLeaseCleanupIntervalMs);
+  leaseCleanupTimer.unref();
+}
+
+function removeSubscriber(subscriber: Subscriber): Promise<void> {
+  if (!subscribers.delete(subscriber)) return Promise.resolve();
   const userStreams = streamsByUser.get(subscriber.userId);
   userStreams?.delete(subscriber);
   if (userStreams?.size === 0) streamsByUser.delete(subscriber.userId);
   subscriber.res.off("drain", subscriber.onDrain);
+  subscriber.res.off("close", subscriber.onClose);
   if (subscriber.drainTimer) clearTimeout(subscriber.drainTimer);
   subscriber.drainTimer = undefined;
+  return releaseStreamLease(subscriber.leaseId).catch(error => {
+    console.error("Failed to release CAB stream lease:", error);
+  });
 }
 
 function disconnect(subscriber: Subscriber): void {
-  removeSubscriber(subscriber);
+  void removeSubscriber(subscriber);
   subscriber.res.destroy();
 }
 
@@ -121,25 +203,38 @@ async function connectListener(): Promise<void> {
 export function startCabEventListener(): void {
   if (started) return;
   started = true;
+  startStreamLeaseCleanup();
   void connectListener();
 }
 
 // Browser tabs share a session cookie: leave existing streams active and reserve
-// room for a reconnect that arrives before the old socket closes.
-export function subscribeToCabEvents(
+// room for a reconnect that arrives before the old socket closes. The database
+// lease makes both limits account-wide across app replicas.
+export async function subscribeToCabEvents(
   res: Response, userId: string, sessionId: string,
-): ((() => void) & { sendHeartbeat: () => void }) | null {
+): Promise<((() => Promise<void>) & { sendHeartbeat: () => void; renewLease: () => Promise<boolean> }) | null> {
   const userStreams = streamsByUser.get(userId);
-  if ((userStreams?.size ?? 0) >= maxStreamsPerUser ||
+  if (res.destroyed || res.writableEnded ||
+      (userStreams?.size ?? 0) >= maxStreamsPerUser ||
       Array.from(userStreams ?? []).filter(stream => stream.sessionId === sessionId).length >= maxStreamsPerSession) {
+    return null;
+  }
+  const leaseId = randomUUID();
+  if (!await acquireStreamLease(leaseId, userId, sessionId)) return null;
+  if (res.destroyed || res.writableEnded) {
+    await releaseStreamLease(leaseId);
     return null;
   }
   const subscriber: Subscriber = {
     res,
     userId,
     sessionId,
+    leaseId,
     blocked: false,
     pendingChange: false,
+    onClose: () => {
+      void removeSubscriber(subscriber);
+    },
     onDrain: () => {
       if (!subscribers.has(subscriber)) return;
       subscriber.blocked = false;
@@ -156,8 +251,10 @@ export function subscribeToCabEvents(
   active.add(subscriber);
   streamsByUser.set(userId, active);
   res.on("drain", subscriber.onDrain);
+  res.once("close", subscriber.onClose);
   return Object.assign(() => removeSubscriber(subscriber), {
     sendHeartbeat: () => send(subscriber, ": heartbeat\n\n"),
+    renewLease: () => renewStreamLease(leaseId),
   });
 }
 

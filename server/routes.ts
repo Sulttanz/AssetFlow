@@ -5358,8 +5358,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Change Management ────────────────────────────────────────────────────
-  app.get("/api/changes/events", requireAuth, requireModule("itsm"), (req, res) => {
-    const unsubscribe = subscribeToCabEvents(res, req.user!.id, req.sessionID);
+  app.get("/api/changes/events", requireAuth, requireModule("itsm"), async (req, res) => {
+    let unsubscribe: Awaited<ReturnType<typeof subscribeToCabEvents>>;
+    try {
+      unsubscribe = await subscribeToCabEvents(res, req.user!.id, req.sessionID);
+    } catch (error) {
+      console.error("Failed to reserve CAB alert connection:", error);
+      return res.status(503).json({ message: "CAB alert connections are temporarily unavailable" });
+    }
     if (!unsubscribe) {
       res.setHeader("Retry-After", "5");
       return res.status(429).json({ message: "Too many CAB alert connections for this account" });
@@ -5380,6 +5386,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const heartbeat = async () => {
       try {
         if (!await cabStreamHasAccess(req, userId)) {
+          if (!closed) res.end();
+          return;
+        }
+        if (closed) return;
+        if (!await unsubscribe.renewLease()) {
           if (!closed) res.end();
           return;
         }

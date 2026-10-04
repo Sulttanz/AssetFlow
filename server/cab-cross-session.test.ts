@@ -28,9 +28,22 @@ const store = vi.hoisted(() => ({
 }));
 const notify = vi.hoisted(() => vi.fn());
 const streamAccess = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+const cabLeases = vi.hoisted(() => [] as Array<{
+  id: string;
+  userId: string;
+  sessionId: string;
+  expiresAt: Date;
+}>);
+const leaseQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("./storage", () => ({ storage: store }));
-vi.mock("./db", () => ({ db: {}, pool: { query: notify } }));
+vi.mock("./db", () => ({
+  db: {},
+  pool: {
+    query: notify,
+    connect: async () => ({ query: leaseQuery, release: vi.fn() }),
+  },
+}));
 vi.mock("./auth", () => ({
   setupAuth: (app: express.Express) => {
     app.use(session({ secret: "integration-test-only", resave: false, saveUninitialized: false }));
@@ -96,12 +109,57 @@ describe("CAB route notifications across signed-in sessions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    cabLeases.length = 0;
+    leaseQuery.mockImplementation(async (sql: string, parameters: any[] = []) => {
+      const statement = sql.replace(/\s+/g, " ").trim();
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(statement) ||
+          statement.startsWith("SELECT pg_advisory_xact_lock")) return { rows: [], rowCount: 0 };
+      if (statement.startsWith("DELETE FROM cab_stream_leases WHERE user_id =")) {
+        const [userId, now] = parameters as [string, Date];
+        const before = cabLeases.length;
+        cabLeases.splice(0, cabLeases.length, ...cabLeases.filter(lease =>
+          lease.userId !== userId || lease.expiresAt > now));
+        return { rows: [], rowCount: before - cabLeases.length };
+      }
+      if (statement.startsWith("SELECT COUNT(*)::int AS user_count")) {
+        const [userId, sessionId, now] = parameters as [string, string, Date];
+        const active = cabLeases.filter(lease => lease.userId === userId && lease.expiresAt > now);
+        return {
+          rows: [{
+            user_count: active.length,
+            session_count: active.filter(lease => lease.sessionId === sessionId).length,
+          }],
+          rowCount: 1,
+        };
+      }
+      if (statement.startsWith("INSERT INTO cab_stream_leases")) {
+        const [id, userId, sessionId, expiresAt] = parameters as [string, string, string, Date];
+        cabLeases.push({ id, userId, sessionId, expiresAt });
+        return { rows: [], rowCount: 1 };
+      }
+      throw new Error(`Unexpected CAB lease query: ${statement}`);
+    });
     approvals = [];
     change = { id: "change-1", changeNumber: "CHG-000001", title: "Upgrade network", type: "normal", status: "draft" };
     store.getModuleSetting.mockResolvedValue(undefined);
     store.getUserPermissions.mockImplementation(async (id: string) => id === "manager" ? ["change_manage"] : []);
     store.createAuditLog.mockResolvedValue({});
-    notify.mockResolvedValue({});
+    notify.mockImplementation(async (sql: string, parameters: any[] = []) => {
+      const statement = sql.replace(/\s+/g, " ").trim();
+      if (statement.startsWith("UPDATE cab_stream_leases SET expires_at")) {
+        const [id, expiresAt, now] = parameters as [string, Date, Date];
+        const lease = cabLeases.find(item => item.id === id && item.expiresAt > now);
+        if (lease) lease.expiresAt = expiresAt;
+        return { rows: lease ? [{ id }] : [], rowCount: lease ? 1 : 0 };
+      }
+      if (statement.startsWith("DELETE FROM cab_stream_leases WHERE id =")) {
+        const [id] = parameters as [string];
+        const before = cabLeases.length;
+        cabLeases.splice(0, cabLeases.length, ...cabLeases.filter(lease => lease.id !== id));
+        return { rows: [], rowCount: before - cabLeases.length };
+      }
+      return { rows: [], rowCount: 0 };
+    });
     for (const method of ["getAssets", "getMaintenanceSchedules", "getBudgets", "getTickets"]) {
       store[method as "getAssets"].mockResolvedValue([]);
     }
