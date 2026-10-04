@@ -440,13 +440,20 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
 
 // ── Timeline ───────────────────────────────────────────────────────────────────
 function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
-  const events: { label: string; ts: string | null; color: string; icon: React.ElementType }[] = [
+  const events: { label: string; ts: string | null; color: string; icon: React.ElementType; comment?: string | null }[] = [
     { label: "Created", ts: change.createdAt, color: "bg-gray-400", icon: Plus },
     { label: "Submitted for approval", ts: change.submittedAt, color: "bg-blue-400", icon: Send },
     { label: "Approved", ts: change.approvedAt, color: "bg-green-500", icon: CheckCircle2 },
     { label: "Assigned", ts: change.assignedAt, color: "bg-teal-500", icon: UserCog },
     ...[...(change.approvals ?? []), ...(change.removedApprovals ?? [])].flatMap(a => [
       { label: `CAB approver assigned: ${a.approverLabel}`, ts: a.createdAt, color: "bg-teal-500", icon: UserCheck },
+      ...(a.decision === "approved" || a.decision === "rejected" ? [{
+        label: `CAB ${a.decision}: ${a.approverLabel}`,
+        ts: a.decidedAt,
+        color: a.decision === "approved" ? "bg-green-500" : "bg-red-500",
+        icon: a.decision === "approved" ? CheckCircle2 : XCircle,
+        comment: a.comments,
+      }] : []),
       ...(a.removedAt ? [{
         label: `CAB approver removed: ${a.approverLabel} by ${a.removedByLabel || (a.removedBy ? userLabel(a.removedBy) : "Deleted account")}`,
         ts: a.removedAt, color: "bg-gray-400", icon: UserCog,
@@ -514,6 +521,7 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(ev.ts!), "MMM d, yyyy h:mm a")} · {formatDistanceToNow(new Date(ev.ts!), { addSuffix: true })}
                       </p>
+                      {ev.comment && <p className="mt-1 text-xs text-muted-foreground whitespace-pre-wrap">{ev.comment}</p>}
                     </div>
                   </div>
                 );

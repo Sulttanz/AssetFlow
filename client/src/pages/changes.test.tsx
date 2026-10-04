@@ -131,6 +131,43 @@ describe("change detail CAB approvals", () => {
     expect(screen.getByRole("tab", { name: "Approvals (1)" })).toBeTruthy();
   });
 
+  it("shows CAB approval and rejection decisions in chronological order with saved labels, times, and comments", async () => {
+    const approved = {
+      ...approval("Current", "approved", "dave", "Reviewed and approved"),
+      decidedAt: "2026-06-02T14:30:00.000Z",
+    };
+    const rejected = {
+      ...approval("Former", "rejected", "former", "Needs rollback"),
+      approverId: null,
+      approver: undefined,
+      decidedAt: "2026-06-03T14:30:00.000Z",
+      removedAt: "2026-06-04T14:30:00.000Z",
+      removedByLabel: "Morgan Manager",
+    };
+    const pending = {
+      ...approval("Pending", "pending", "bob"),
+      createdAt: "2026-06-05T09:00:00.000Z",
+    };
+    const { user } = await openApprovals([approved, pending], ["former"], [rejected]);
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    const panel = screen.getByRole("tabpanel", { name: "Timeline" });
+    const labels = within(panel).getAllByText(/^CAB (approved|rejected):/).map(el => el.textContent);
+    expect(labels).toEqual([
+      "CAB approved: Current Reviewer",
+      "CAB rejected: Former Reviewer",
+    ]);
+
+    const approvalEvent = within(panel).getByText("CAB approved: Current Reviewer").parentElement!;
+    expect(within(approvalEvent).getByText("Reviewed and approved")).toBeTruthy();
+    expect(within(approvalEvent).getByText(new RegExp(format(new Date(approved.decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+
+    const rejectionEvent = within(panel).getByText("CAB rejected: Former Reviewer").parentElement!;
+    expect(within(rejectionEvent).getByText("Needs rollback")).toBeTruthy();
+    expect(within(rejectionEvent).getByText(new RegExp(format(new Date(rejected.decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+    expect(within(panel).queryByRole("button")).toBeNull();
+  });
+
   it("shows removed assignments as read-only history after both accounts are deleted, without affecting active counts or CAB gates", async () => {
     auth.isAdmin = true;
     const removed = {
