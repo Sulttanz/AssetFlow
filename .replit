@@ -40,6 +40,10 @@ args = "typecheck"
 task = "workflow.run"
 args = "security-audit"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "build-audit-gate"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -67,6 +71,18 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run audit:security"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+
+[[workflows.workflow]]
+name = "build-audit-gate"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:build-audit-gate"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "test": "vitest run --config vitest.config.ts",
+    "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "audit:security": "npm audit --audit-level=high",
     "prebuild": "npm run audit:security",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
