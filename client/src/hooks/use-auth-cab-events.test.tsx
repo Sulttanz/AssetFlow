@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "./use-auth";
 import { queryClient } from "@/lib/queryClient";
@@ -32,12 +32,19 @@ function renderAuthWithStream() {
   return FakeEventSource.instances[0];
 }
 
+async function flushAsyncWork() {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  });
+}
+
 afterEach(() => {
   cleanup();
   queryClient.clear();
   FakeEventSource.instances = [];
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it("refreshes both CAB views on events and reconnects, and closes on sign-out", async () => {
@@ -88,6 +95,40 @@ it.each([
     modules ? ["/api/user", "/api/module-settings"] : ["/api/user"],
   );
   expect(FakeEventSource.instances).toHaveLength(1);
+});
+
+it("reopens the CAB stream after ITSM is restored without retrying while disabled", async () => {
+  vi.useFakeTimers();
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: true }]))
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }));
+  vi.stubGlobal("fetch", fetchAccess);
+  const firstStream = renderAuthWithStream();
+
+  firstStream.dispatchEvent(new Event("error"));
+  await flushAsyncWork();
+  expect(firstStream.close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(fetchAccess).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  await flushAsyncWork();
+  expect(fetchAccess).toHaveBeenCalledTimes(3);
+  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(firstStream.close).toHaveBeenCalledOnce();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  await flushAsyncWork();
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(fetchAccess).toHaveBeenCalledTimes(5);
+  expect(FakeEventSource.instances[1].url).toBe("/api/changes/events");
 });
 
 it("keeps the stream alive after a temporary check failure and reconciles on reconnect", async () => {

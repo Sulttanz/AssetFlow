@@ -20,6 +20,8 @@ type AuthContextType = {
 
 type LoginData = Pick<InsertUser, "username" | "password">;
 
+const ITSM_ACCESS_RECHECK_INTERVAL_MS = 30_000;
+
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -37,15 +39,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user?.id) return;
-    const events = new EventSource("/api/changes/events");
     let disposed = false;
     let checkingAccess = false;
+    let itsmDisabled = false;
+    let events: EventSource | null = null;
+    let accessRecheckTimer: ReturnType<typeof setTimeout> | undefined;
     const refreshCab = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
     };
-    const reconcileAccess = async () => {
-      if (checkingAccess || disposed) return;
+
+    const closeEvents = () => {
+      if (!events) return;
+      events.removeEventListener("open", refreshCab);
+      events.removeEventListener("cab-change", refreshCab);
+      events.removeEventListener("error", handleError);
+      events.close();
+      events = null;
+    };
+
+    const scheduleAccessRecheck = () => {
+      if (disposed || !itsmDisabled || accessRecheckTimer) return;
+      accessRecheckTimer = setTimeout(() => {
+        accessRecheckTimer = undefined;
+        void checkForRestoredAccess();
+      }, ITSM_ACCESS_RECHECK_INTERVAL_MS);
+    };
+
+    const checkForRestoredAccess = async () => {
+      if (disposed || !itsmDisabled || checkingAccess) return;
+      checkingAccess = true;
+      try {
+        const modules = await queryClient.fetchQuery<ModuleSettingView[]>({
+          queryKey: ["/api/module-settings"],
+          staleTime: 0,
+        });
+        if (disposed || !itsmDisabled) return;
+        if (modules.some((module) => module.key === "itsm" && !module.enabled)) {
+          scheduleAccessRecheck();
+          return;
+        }
+
+        // Access may have changed while the CAB stream was paused. Confirm the
+        // same active user is still signed in before starting another stream.
+        const currentUser = await queryClient.fetchQuery<UserWithDetails | null>({
+          queryKey: ["/api/user"],
+          queryFn: getQueryFn({ on401: "returnNull" }),
+          staleTime: 0,
+        });
+        if (disposed || !itsmDisabled) return;
+        if (!currentUser || !currentUser.isActive || currentUser.id !== user.id) {
+          itsmDisabled = false;
+          return;
+        }
+
+        itsmDisabled = false;
+        startEvents();
+      } catch {
+        // Keep checking at a low frequency if the access endpoint is temporarily
+        // unavailable; do not leave EventSource reconnecting while ITSM is off.
+        scheduleAccessRecheck();
+      } finally {
+        checkingAccess = false;
+      }
+    };
+
+    const reconcileAccess = async (source: EventSource) => {
+      if (checkingAccess || disposed || source !== events) return;
       checkingAccess = true;
       try {
         // The normal auth query is cached for five minutes; a failed stream needs
@@ -55,17 +115,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           queryFn: getQueryFn({ on401: "returnNull" }),
           staleTime: 0,
         });
-        if (disposed) return;
+        if (disposed || source !== events) return;
         if (!currentUser || !currentUser.isActive || currentUser.id !== user.id) {
-          events.close();
+          closeEvents();
           return;
         }
         const modules = await queryClient.fetchQuery<ModuleSettingView[]>({
           queryKey: ["/api/module-settings"],
           staleTime: 0,
         });
-        if (!disposed && modules.some((module) => module.key === "itsm" && !module.enabled)) {
-          events.close();
+        if (
+          !disposed &&
+          source === events &&
+          modules.some((module) => module.key === "itsm" && !module.enabled)
+        ) {
+          itsmDisabled = true;
+          closeEvents();
+          scheduleAccessRecheck();
         }
       } catch {
         // A failed access check can be a network outage; keep EventSource's
@@ -74,16 +140,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         checkingAccess = false;
       }
     };
+
+    function handleError() {
+      if (events) void reconcileAccess(events);
+    }
+
+    function startEvents() {
+      if (disposed || events || itsmDisabled) return;
+      const source = new EventSource("/api/changes/events");
+      events = source;
+      source.addEventListener("open", refreshCab);
+      source.addEventListener("cab-change", refreshCab);
+      source.addEventListener("error", handleError);
+    }
+
     // A reconnect can miss events; reconcile with the server each time it opens.
-    events.addEventListener("open", refreshCab);
-    events.addEventListener("cab-change", refreshCab);
-    events.addEventListener("error", reconcileAccess);
+    startEvents();
     return () => {
       disposed = true;
-      events.removeEventListener("open", refreshCab);
-      events.removeEventListener("cab-change", refreshCab);
-      events.removeEventListener("error", reconcileAccess);
-      events.close();
+      if (accessRecheckTimer) clearTimeout(accessRecheckTimer);
+      closeEvents();
     };
   }, [user?.id]);
 
