@@ -5459,45 +5459,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // ── CAB gate: block status transitions when approvals are pending ────────
-      // Applies to any move into in_progress or approved via this update endpoint.
-      // No admin bypass — the gate is hard for all roles; admins who must override
-      // should use the dedicated /approve flow or add approvals first.
-      if (
-        oldChange &&
-        body.status &&
-        body.status !== oldChange.status &&
-        (body.status === "in_progress" || body.status === "approved")
-      ) {
-        // Use the authoritative value computed above (resultant type/risk enforced)
-        const effectiveCabRequired =
-          body.cabRequired !== undefined
-            ? !!body.cabRequired
-            : !!(oldChange as any).cabRequired;
-
-        if (effectiveCabRequired) {
-          const approvals = await storage.getChangeApprovals(req.params.id);
-          const allApproved = cabApprovalsGranted(approvals);
-          if (!allApproved) {
-            await logAudit(
-              (req.user as any)?.id,
-              "UPDATE",
-              "changes",
-              req.params.id,
-              oldChange.title,
-              { status: oldChange.status },
-              { status: body.status, blocked: true, note: "Status transition blocked: pending CAB approvals" },
-              req
-            );
-            return res.status(403).json({
-              message: "CAB approval is required. All CAB approvers must approve before this status change is permitted.",
-              code: "CAB_PENDING",
-            });
-          }
-        }
+      // The storage transaction locks the change row shared with CAB votes,
+      // then validates approvals and writes status from that same vote state.
+      const result = await storage.updateChangeWithCabStatusGuard(req.params.id, body);
+      if (result.cabPending) {
+        await logAudit(
+          (req.user as any)?.id,
+          "UPDATE",
+          "changes",
+          req.params.id,
+          oldChange?.title ?? req.params.id,
+          { status: oldChange?.status },
+          { status: body.status, blocked: true, note: "Status transition blocked: pending CAB approvals" },
+          req
+        );
+        return res.status(403).json({
+          message: "CAB approval is required. All CAB approvers must approve before this status change is permitted.",
+          code: "CAB_PENDING",
+        });
       }
-
-      const change = await storage.updateChange(req.params.id, body);
+      const change = result.change;
       if (!change) return res.status(404).json({ message: "Change not found" });
       res.json(change);
     } catch (err) {

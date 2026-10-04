@@ -7,4 +7,4 @@ When multiple CAB members vote on different assignments for one change, serializ
 
 **Why:** Locking an individual approval only coordinates requests for the same approver. Separate votes can otherwise derive and write the parent status from different snapshots.
 
-**How to apply:** Keep parent-row locking ahead of the approval write, then calculate status from active decisions inside the same transaction. Other operations that change approval membership or override the status need their own coordination if they must share this invariant.
+**How to apply:** Keep parent-row locking ahead of the approval write, then calculate status from active decisions inside the same transaction. Manual status overrides must use the same lock and vote snapshot; when a request clears CAB, preserve the requirement if active approvals appeared since its preflight read.

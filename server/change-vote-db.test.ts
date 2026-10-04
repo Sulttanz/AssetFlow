@@ -58,6 +58,13 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         requested_by_id varchar, assigned_to_id varchar, department_id varchar,
         created_at timestamp DEFAULT now(), updated_at timestamp DEFAULT now()
       );
+      CREATE TABLE "${schema}".change_environment_stages (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
+        environment text NOT NULL, "order" integer NOT NULL, status text NOT NULL DEFAULT 'pending',
+        assigned_to_id varchar, due_date timestamp, started_at timestamp, completed_at timestamp,
+        notes text, evidence text, deployed_by_id varchar, created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      );
       CREATE TABLE "${schema}".change_approvals (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
         approver_id varchar REFERENCES "${schema}".users(id),
@@ -519,6 +526,106 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         auditSpy.mockRestore();
         assignmentSpy.mockRestore();
         voteSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
+  it.each([
+    { targetStatus: "approved", clearCabOptIn: false },
+    { targetStatus: "in_progress", clearCabOptIn: false },
+    { targetStatus: "approved", clearCabOptIn: true },
+    { targetStatus: "in_progress", clearCabOptIn: true },
+  ] as const)(
+    "does not allow a manual $targetStatus transition to overwrite a concurrent CAB rejection (opt-out: $clearCabOptIn)",
+    async ({ targetStatus, clearCabOptIn }) => {
+      const managerId = randomUUID();
+      const originalApproverId = randomUUID();
+      const concurrentApproverId = randomUUID();
+      const changeId = randomUUID();
+      const originalApprovalId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: originalApproverId, username: `approver-${originalApproverId}`, email: `${originalApproverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+        { id: concurrentApproverId, username: `approver-${concurrentApproverId}`, email: `${concurrentApproverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual status versus CAB rejection",
+        status: "submitted", type: clearCabOptIn ? "standard" : "normal", cabRequired: true,
+      });
+      if (!clearCabOptIn) {
+        await db.insert(changeApprovals).values({
+          id: originalApprovalId, changeId, approverId: originalApproverId,
+          originalApproverId, approverLabel: "CAB Approver", decision: "approved",
+        });
+      }
+
+      // Hold the manual endpoint immediately before its guarded transaction.
+      // While held, add and reject a new active approver over HTTP/database.
+      const originalGuard = storage.updateChangeWithCabStatusGuard.bind(storage);
+      let releaseManualGuard!: () => void;
+      let reportManualGuard!: () => void;
+      const manualGuardReached = new Promise<void>(resolve => { reportManualGuard = resolve; });
+      const continueManual = new Promise<void>(resolve => { releaseManualGuard = resolve; });
+      let heldManualGuard = false;
+      const guardSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (id, update) => {
+        if (id === changeId && !heldManualGuard) {
+          heldManualGuard = true;
+          reportManualGuard();
+          await continueManual;
+        }
+        return originalGuard(id, update);
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      try {
+        const manualUpdate = fetch(`${baseUrl}/api/changes/${changeId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify({ status: targetStatus, ...(clearCabOptIn ? { cabRequired: false } : {}) }),
+        });
+        await manualGuardReached;
+
+        const assignmentResponse = await fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify({ approverId: concurrentApproverId }),
+        });
+        expect(assignmentResponse.status).toBe(201);
+        const assignment = await assignmentResponse.json() as { id: string };
+
+        const rejectionResponse = await fetch(
+          `${baseUrl}/api/changes/${changeId}/approvals/${assignment.id}`,
+          {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": concurrentApproverId },
+            body: JSON.stringify({ decision: "rejected" }),
+          },
+        );
+        expect(rejectionResponse.status).toBe(200);
+
+        releaseManualGuard();
+        const manualResponse = await manualUpdate;
+        expect(manualResponse.status).toBe(403);
+        expect(await manualResponse.json()).toMatchObject({ code: "CAB_PENDING" });
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe("rejected");
+        expect(savedChange.approvedAt).toBeNull();
+        expect(savedChange.cabRequired).toBe(true);
+        const savedApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(savedApprovals.map(approval => approval.decision).sort())
+          .toEqual(clearCabOptIn ? ["rejected"] : ["approved", "rejected"]);
+      } finally {
+        releaseManualGuard();
+        guardSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
       }
     },
     15_000,

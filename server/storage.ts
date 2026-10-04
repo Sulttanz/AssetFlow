@@ -33,6 +33,7 @@ import {
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
+import { cabApprovalsGranted } from "./cab-gate";
 import { eq, isNull, and, or, inArray, sql, desc, ilike } from "drizzle-orm";
 import { EventEmitter } from "events";
 
@@ -345,6 +346,10 @@ export interface IStorage {
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
   createChange(change: InsertChange): Promise<Change>;
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
+  updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>): Promise<{
+    change: Change | undefined;
+    cabPending: boolean;
+  }>;
   deleteChange(id: string): Promise<boolean>;
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
   getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]>;
@@ -2535,6 +2540,9 @@ export class MemStorage implements IStorage {
     return { id, changeNumber: `CHG-000001`, ...change, type: change.type ?? "normal", status: change.status ?? "draft", priority: change.priority ?? "medium", risk: change.risk ?? "low", cabRequired: change.cabRequired ?? false, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, actualStart: null, actualEnd: null, assignedAt: change.assignedAt ?? null, submittedAt: change.submittedAt ?? null, approvedAt: change.approvedAt ?? null, cabScheduledFor: change.cabScheduledFor ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, createdAt: now, updatedAt: now };
   }
   async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
+  async updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>) {
+    return { change: await this.updateChange(id, change), cabPending: false };
+  }
   async deleteChange(_id: string): Promise<boolean> { return false; }
   async getChangeApprovals(_changeId: string): Promise<ChangeApproval[]> { return []; }
   async getAllChangeApprovalRecords(_changeId: string): Promise<ChangeApproval[]> { return []; }
@@ -4055,6 +4063,54 @@ export class DatabaseStorage implements IStorage {
   async updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined> {
     const result = await db.update(changes).set({ ...change, updatedAt: new Date() }).where(eq(changes.id, id)).returning();
     return result[0];
+  }
+  async updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>) {
+    return db.transaction(async tx => {
+      // CAB votes lock this same parent row before changing a decision. Locking
+      // it here makes the status check and write observe one authoritative vote
+      // state, rather than the route's potentially stale preflight read.
+      const [current] = await tx.select({
+        status: changes.status,
+        cabRequired: changes.cabRequired,
+      }).from(changes).where(eq(changes.id, id)).for("update");
+      if (!current) return { change: undefined, cabPending: false };
+
+      const isApprovalTransition =
+        change.status !== undefined &&
+        change.status !== current.status &&
+        (change.status === "approved" || change.status === "in_progress");
+      let guardedChange = change;
+      let effectiveCabRequired = change.cabRequired ?? current.cabRequired;
+      let approvals: { decision: string | null }[] | undefined;
+
+      // If the request is clearing an existing opt-in, inspect active
+      // approvals under the lock: a CAB assignment may have committed after
+      // the route's earlier "no approvals" check.
+      if (current.cabRequired && change.cabRequired === false) {
+        approvals = await tx.select({ decision: changeApprovals.decision })
+          .from(changeApprovals)
+          .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
+        if (approvals.length > 0) {
+          guardedChange = { ...change, cabRequired: true };
+          effectiveCabRequired = true;
+        }
+      }
+
+      if (isApprovalTransition && effectiveCabRequired) {
+        approvals ??= await tx.select({ decision: changeApprovals.decision })
+          .from(changeApprovals)
+          .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
+        if (!cabApprovalsGranted(approvals)) {
+          return { change: undefined, cabPending: true };
+        }
+      }
+
+      const [updated] = await tx.update(changes)
+        .set({ ...guardedChange, updatedAt: new Date() })
+        .where(eq(changes.id, id))
+        .returning();
+      return { change: updated, cabPending: false };
+    });
   }
   async deleteChange(id: string): Promise<boolean> {
     const result = await db.delete(changes).where(eq(changes.id, id));
