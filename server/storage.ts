@@ -34,6 +34,7 @@ import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { cabApprovalsGranted } from "./cab-gate";
+import { withStageRetryHistory } from "./change-stage-history";
 import { eq, isNull, and, or, inArray, sql, desc, ilike } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { EventEmitter } from "events";
@@ -4233,11 +4234,19 @@ export class DatabaseStorage implements IStorage {
     return rows;
   }
   async updateChangeStage(id: string, data: Partial<InsertChangeEnvironmentStage> & { deployedById?: string | null }): Promise<ChangeEnvironmentStage | undefined> {
-    const result = await db.update(changeEnvironmentStages)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(changeEnvironmentStages.id, id))
-      .returning();
-    return result[0];
+    return db.transaction(async tx => {
+      const [current] = await tx.select().from(changeEnvironmentStages)
+        .where(eq(changeEnvironmentStages.id, id))
+        .for("update");
+      if (!current) return undefined;
+
+      const update = withStageRetryHistory(current, data);
+      const [updated] = await tx.update(changeEnvironmentStages)
+        .set({ ...update, updatedAt: new Date() })
+        .where(eq(changeEnvironmentStages.id, id))
+        .returning();
+      return updated;
+    });
   }
 
   async getChangeApprovals(changeId: string): Promise<ChangeApproval[]> {

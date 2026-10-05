@@ -5817,6 +5817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (assignedToId !== undefined) updates.assignedToId = assignedToId || null;
       if (dueDate !== undefined)      updates.dueDate = dueDate ? new Date(dueDate) : null;
       if (status === "in_progress" && !req.body.startedAt) updates.startedAt = new Date();
+      if (status === "in_progress") updates.completedAt = null;
       if ((status === "completed" || status === "failed") && !req.body.completedAt) updates.completedAt = new Date();
       if (status === "in_progress" || status === "completed" || status === "failed") updates.deployedById = user.id;
       const stage = await storage.updateChangeStage(req.params.stageId, updates);

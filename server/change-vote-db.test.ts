@@ -62,6 +62,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
         environment text NOT NULL, "order" integer NOT NULL, status text NOT NULL DEFAULT 'pending',
         assigned_to_id varchar, due_date timestamp, started_at timestamp, completed_at timestamp,
+        attempts jsonb NOT NULL DEFAULT '[]'::jsonb,
         notes text, evidence text, deployed_by_id varchar, created_at timestamp DEFAULT now(),
         updated_at timestamp DEFAULT now()
       );

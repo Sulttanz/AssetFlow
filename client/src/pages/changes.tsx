@@ -41,6 +41,7 @@ interface ChangeStage {
   id: string; changeId: string; environment: string; order: number; status: string;
   assignedToId: string | null; dueDate: string | null;
   startedAt: string | null; completedAt: string | null; notes: string | null;
+  attempts?: { status: "completed" | "failed"; startedAt: string | null; completedAt: string | null }[];
   evidence: string | null; deployedById: string | null; createdAt: string; updatedAt: string;
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
   deployedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
@@ -123,6 +124,12 @@ function durationLabel(ms: number) {
   if (hrs < 24) return `${hrs}h ${mins % 60}m`;
   return `${Math.floor(hrs / 24)}d ${hrs % 24}h`;
 }
+function stageCompletionDate(stage: Pick<ChangeStage, "startedAt" | "completedAt">): Date | null {
+  if (!stage.completedAt) return null;
+  const completedAt = new Date(stage.completedAt);
+  const startedAt = stage.startedAt ? new Date(stage.startedAt) : null;
+  return startedAt && completedAt < startedAt ? null : completedAt;
+}
 
 // ── Form Schema ────────────────────────────────────────────────────────────────
 const STATUSES = ["draft","submitted","approved","rejected","in_progress","completed","cancelled"] as const;
@@ -151,7 +158,7 @@ type FormData = z.infer<typeof formSchema>;
 function stageSla(stage: ChangeStage): "overdue" | "at_risk" | "on_time" | "done_late" | "done_on_time" | "no_due" {
   const now = new Date();
   const due = stage.dueDate ? new Date(stage.dueDate) : null;
-  const done = stage.completedAt ? new Date(stage.completedAt) : null;
+  const done = stageCompletionDate(stage);
   if (!due) return "no_due";
   if (done) return done <= due ? "done_on_time" : "done_late";
   const msLeft = due.getTime() - now.getTime();
@@ -276,12 +283,14 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
           const slaBadge = SLA_BADGE[sla];
           const now      = new Date();
           const due      = stage.dueDate ? new Date(stage.dueDate) : null;
+          const completedAt = stageCompletionDate(stage);
           const isOverdue = sla === "overdue";
-          const duration = stage.startedAt && stage.completedAt
-            ? durationLabel(new Date(stage.completedAt).getTime() - new Date(stage.startedAt).getTime())
+          const duration = stage.startedAt && completedAt
+            ? durationLabel(completedAt.getTime() - new Date(stage.startedAt).getTime())
             : stage.startedAt ? `In progress ${formatDistanceToNow(new Date(stage.startedAt))}` : null;
           const canStart    = stage.status === "pending" && changeStatus === "in_progress";
           const canProgress = stage.status === "in_progress";
+          const canRetry    = (stage.status === "completed" || stage.status === "failed") && changeStatus === "in_progress";
 
           return (
             <div key={stage.id} className={cn(
@@ -322,7 +331,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                 {due ? (
                   <span className={cn(isOverdue ? "text-red-700 font-semibold" : "text-muted-foreground")}>
                     Due {format(due, "MMM d, yyyy")}
-                    {!stage.completedAt && (isOverdue
+                    {!completedAt && (isOverdue
                       ? ` · ${formatDistanceToNow(due)} overdue`
                       : ` · ${formatDistanceToNow(due, { addSuffix: true })}`)}
                   </span>
@@ -340,6 +349,12 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                   <Button size="sm" variant="outline" className="h-7 gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
                     onClick={() => updateStageMutation.mutate({ stageId: stage.id, status: "in_progress" })}>
                     <Play className="h-3 w-3" />Start
+                  </Button>
+                )}
+                {canRetry && (
+                  <Button size="sm" variant="outline" className="h-7 gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
+                    onClick={() => updateStageMutation.mutate({ stageId: stage.id, status: "in_progress" })}>
+                    <Play className="h-3 w-3" />Retry
                   </Button>
                 )}
                 {canProgress && (
@@ -462,16 +477,38 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
     { label: "Work started", ts: change.actualStart, color: "bg-orange-500", icon: Play },
     ...(change.stages?.flatMap(s => {
       const stageLabel = STAGE_META[s.environment]?.label ?? s.environment;
+      const attempts = s.attempts ?? [];
+      const hasRetryHistory = attempts.length > 0;
+      const attemptEvents = attempts.flatMap((attempt, index) => {
+        const label = `${stageLabel}${hasRetryHistory ? ` attempt ${index + 1}` : ""}`;
+        return [
+          ...(attempt.startedAt ? [{
+            label: `${label} started`,
+            ts: attempt.startedAt,
+            color: "bg-blue-400",
+            icon: Play,
+          }] : []),
+          ...(attempt.completedAt ? [{
+            label: `${label} ${attempt.status}`,
+            ts: attempt.completedAt,
+            color: attempt.status === "failed" ? "bg-red-500" : "bg-green-500",
+            icon: attempt.status === "failed" ? XCircle : CheckCheck,
+          }] : []),
+        ];
+      });
+      const currentAttemptLabel = `${stageLabel}${hasRetryHistory ? ` attempt ${attempts.length + 1}` : ""}`;
+      const currentCompletedAt = stageCompletionDate(s);
       return [
+        ...attemptEvents,
         ...(s.startedAt ? [{
-          label: `${stageLabel} started`,
+          label: `${currentAttemptLabel} started`,
           ts: s.startedAt,
           color: "bg-blue-400",
           icon: Play,
         }] : []),
-        ...(s.completedAt ? [{
-          label: `${stageLabel} ${s.status === "failed" ? "failed" : "completed"}`,
-          ts: s.completedAt,
+        ...(currentCompletedAt ? [{
+          label: `${currentAttemptLabel} ${s.status === "failed" ? "failed" : "completed"}`,
+          ts: currentCompletedAt.toISOString(),
           color: s.status === "failed" ? "bg-red-500" : "bg-green-500",
           icon: s.status === "failed" ? XCircle : CheckCheck,
         }] : []),

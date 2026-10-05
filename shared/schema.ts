@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1198,6 +1198,12 @@ export const changeApprovals = pgTable("change_approvals", {
 ]);
 
 // Environment deployment pipeline stages per change
+export type ChangeEnvironmentStageAttempt = {
+  status: "completed" | "failed";
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
 export const changeEnvironmentStages = pgTable("change_environment_stages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
@@ -1208,6 +1214,7 @@ export const changeEnvironmentStages = pgTable("change_environment_stages", {
   dueDate: timestamp("due_date"),                    // when this stage must be completed (SLA)
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
+  attempts: jsonb("attempts").$type<ChangeEnvironmentStageAttempt[]>().notNull().default(sql`'[]'::jsonb`),
   notes: text("notes"),
   evidence: text("evidence"),
   deployedById: varchar("deployed_by_id").references(() => users.id, { onDelete: "set null" }),
@@ -1231,7 +1238,13 @@ export const changePIRs = pgTable("change_pirs", {
 
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true, originalApproverId: true, approverLabel: true });
-export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages, {
+  attempts: z.array(z.object({
+    status: z.enum(["completed", "failed"]),
+    startedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+  })).optional(),
+}).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: true, createdAt: true, updatedAt: true, completedById: true });
 export type Change = typeof changes.$inferSelect;
 export type InsertChange = z.infer<typeof insertChangeSchema>;

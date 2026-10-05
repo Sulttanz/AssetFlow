@@ -165,6 +165,22 @@ describe("development SQL migration sync against PostgreSQL", () => {
           );
           CREATE TABLE changes (id varchar PRIMARY KEY);
           CREATE TABLE assets (id varchar PRIMARY KEY);
+          CREATE TABLE change_environment_stages (
+            id varchar PRIMARY KEY,
+            change_id varchar NOT NULL,
+            environment text NOT NULL,
+            "order" integer NOT NULL,
+            status text NOT NULL DEFAULT 'pending',
+            assigned_to_id varchar,
+            due_date timestamptz,
+            started_at timestamptz,
+            completed_at timestamptz,
+            notes text,
+            evidence text,
+            deployed_by_id varchar,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+          );
           CREATE TABLE change_approvals (
             id varchar PRIMARY KEY,
             change_id varchar NOT NULL,
@@ -221,6 +237,7 @@ describe("development SQL migration sync against PostgreSQL", () => {
         expect(firstRun.deferred).toBeNull();
         expect(firstRun.applied).toContain("20260929_preserve_cab_approval_history.sql");
         expect(firstRun.applied).toContain("20260929_cab_remover_label.sql");
+        expect(firstRun.applied).toContain("20261005_change_stage_attempt_history.sql");
 
         const upgradedRows = await client.query(`
           SELECT id, change_id, approver_id, original_approver_id, approver_label,

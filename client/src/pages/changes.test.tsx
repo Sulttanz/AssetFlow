@@ -20,6 +20,7 @@ type StageTimelineFixture = {
   status: string;
   startedAt: string | null;
   completedAt: string | null;
+  attempts?: { status: "completed" | "failed"; startedAt: string | null; completedAt: string | null }[];
 };
 
 function approval(id: string, decision: string | null, approverId = id, comments: string | null = null) {
@@ -224,6 +225,42 @@ describe("change detail CAB approvals", () => {
       "Production started",
     ]);
     expect(within(panel).queryByRole("button")).toBeNull();
+  });
+
+  it("keeps completed and failed prior attempts separate from the current retry", async () => {
+    const stages = [
+      {
+        id: "stage-1", environment: "development", status: "in_progress",
+        startedAt: "2026-06-02T11:00:00.000Z", completedAt: null,
+        attempts: [{
+          status: "completed" as const,
+          startedAt: "2026-06-02T09:00:00.000Z",
+          completedAt: "2026-06-02T09:30:00.000Z",
+        }],
+      },
+      {
+        id: "stage-2", environment: "testing", status: "in_progress",
+        startedAt: "2026-06-02T12:00:00.000Z", completedAt: null,
+        attempts: [{
+          status: "failed" as const,
+          startedAt: "2026-06-02T10:00:00.000Z",
+          completedAt: "2026-06-02T10:30:00.000Z",
+        }],
+      },
+    ];
+    const { user } = await openApprovals([], [], [], stages);
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    const panel = screen.getByRole("tabpanel", { name: "Timeline" });
+    const labels = within(panel).getAllByText(/^(Development|Testing) attempt \d+ (started|completed|failed)$/).map(el => el.textContent);
+    expect(labels).toEqual([
+      "Development attempt 1 started",
+      "Development attempt 1 completed",
+      "Testing attempt 1 started",
+      "Testing attempt 1 failed",
+      "Development attempt 2 started",
+      "Testing attempt 2 started",
+    ]);
   });
 
   it("orders active and removed CAB assignment events with milestones using saved labels, without voting controls", async () => {
