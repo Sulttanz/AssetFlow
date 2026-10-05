@@ -69,7 +69,13 @@ const cabSchemaStatusQuery = `
       WHERE table_schema = current_schema()
         AND table_name = 'change_approvals'
         AND column_name = 'removed_by_label'
-    ) AS has_removed_by_label
+    ) AS has_removed_by_label,
+    EXISTS (
+      SELECT 1 FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND tablename = 'change_approvals'
+        AND indexname = 'change_approvals_pending_approver_change_idx'
+    ) AS has_pending_approver_lookup_index
 `;
 
 async function readMigration(name) {
@@ -85,7 +91,11 @@ export async function syncCabMigrations(client) {
   const { rows: [status] } = await client.query(cabSchemaStatusQuery);
 
   if (!status?.has_table) {
-    return { history: "deferred-no-table", removerLabel: "deferred-no-table" };
+    return {
+      history: "deferred-no-table",
+      removerLabel: "deferred-no-table",
+      pendingApproverIndex: "deferred-no-table",
+    };
   }
 
   const historyReady =
@@ -102,7 +112,11 @@ export async function syncCabMigrations(client) {
   }
 
   if (!status.has_removed_by_id || !status.has_removed_at) {
-    return { history, removerLabel: "deferred-missing-columns" };
+    return {
+      history,
+      removerLabel: "deferred-missing-columns",
+      pendingApproverIndex: "deferred-missing-columns",
+    };
   }
 
   let needsRemoverLabelMigration = !status.has_removed_by_label;
@@ -120,11 +134,19 @@ export async function syncCabMigrations(client) {
   }
 
   if (!needsRemoverLabelMigration) {
-    return { history, removerLabel: "already-applied" };
+    const pendingApproverIndex = await syncPendingApproverIndex(client, status);
+    return { history, removerLabel: "already-applied", pendingApproverIndex };
   }
 
   await client.query(await readMigration("20260929_cab_remover_label.sql"));
-  return { history, removerLabel: "applied" };
+  const pendingApproverIndex = await syncPendingApproverIndex(client, status);
+  return { history, removerLabel: "applied", pendingApproverIndex };
+}
+
+async function syncPendingApproverIndex(client, status) {
+  if (status.has_pending_approver_lookup_index) return "already-applied";
+  await client.query(await readMigration("20261004_cab_pending_approver_lookup_idx.sql"));
+  return "applied";
 }
 
 async function main() {
@@ -147,6 +169,7 @@ async function main() {
     const result = await syncCabMigrations(client);
     console.log(`CAB approval history migration: ${result.history}`);
     console.log(`CAB remover label migration: ${result.removerLabel}`);
+    console.log(`CAB pending approver index: ${result.pendingApproverIndex}`);
   } finally {
     client?.release();
     await pool.end();

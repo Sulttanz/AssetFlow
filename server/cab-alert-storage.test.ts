@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PgDialect } from "drizzle-orm/pg-core";
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { changeApprovals, changes } from "@shared/schema";
 
 const database = vi.hoisted(() => ({
@@ -66,6 +66,20 @@ describe("CAB alert storage query", () => {
       };
       return builder;
     });
+  });
+
+  it("declares a partial index for active pending votes by approver and change", () => {
+    const index = getTableConfig(changeApprovals).indexes.find(
+      candidate => candidate.config.name === "change_approvals_pending_approver_change_idx",
+    );
+
+    expect(index).toBeDefined();
+    expect(index!.config.columns.map(column => column.name)).toEqual(["approver_id", "change_id"]);
+    const predicate = dialect.sqlToQuery(index!.config.where!);
+    expect(predicate.sql).toContain('"removed_at" IS NULL');
+    expect(predicate.sql).toContain('"decision" = \'pending\'');
+    expect(predicate.sql).toContain('"decision" IS NULL');
+    expect(predicate.params).toEqual([]);
   });
 
   it("filters to the user's active pending or undecided assignments and returns one lightweight alert per change", async () => {

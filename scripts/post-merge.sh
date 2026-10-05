@@ -14,7 +14,7 @@ export NODE_ENV=development
 echo "==> Installing dependencies..."
 npm install --legacy-peer-deps
 
-echo "==> Applying pending CAB history migrations to the development database..."
+echo "==> Applying pending CAB database migrations to the development database..."
 npm run db:sync:dev
 
 echo "==> Pushing DB schema changes..."

@@ -11,6 +11,7 @@ const migratedSchema = {
   has_removed_by_id: true,
   has_removed_at: true,
   has_removed_by_label: true,
+  has_pending_approver_lookup_index: true,
 };
 
 function fakeClient(status: Record<string, boolean>, missingRemoverLabels = false) {
@@ -33,6 +34,7 @@ describe("development CAB schema sync", () => {
     await expect(syncCabMigrations(client)).resolves.toEqual({
       history: "deferred-no-table",
       removerLabel: "deferred-no-table",
+      pendingApproverIndex: "deferred-no-table",
     });
     expect(client.query).toHaveBeenCalledTimes(1);
   });
@@ -46,12 +48,14 @@ describe("development CAB schema sync", () => {
       approver_fk_sets_null: false,
       legacy_assignment_unique_removed: false,
       has_removed_by_label: false,
+      has_pending_approver_lookup_index: false,
     };
     const client = fakeClient(legacySchema);
 
     await expect(syncCabMigrations(client)).resolves.toEqual({
       history: "applied",
       removerLabel: "applied",
+      pendingApproverIndex: "applied",
     });
 
     const appliedSql = client.query.mock.calls
@@ -62,6 +66,9 @@ describe("development CAB schema sync", () => {
     expect(appliedSql[0]).toContain("COALESCE(a.original_approver_id, a.approver_id)");
     expect(appliedSql[0]).toContain("DROP CONSTRAINT IF EXISTS");
     expect(appliedSql[1]).toContain("ADD COLUMN IF NOT EXISTS removed_by_label");
+    expect(client.query.mock.calls.some(([sql]) =>
+      sql.includes("CREATE INDEX IF NOT EXISTS change_approvals_pending_approver_change_idx"),
+    )).toBe(true);
   });
 
   it("does not rerun migrations when the schema is already current", async () => {
@@ -70,6 +77,7 @@ describe("development CAB schema sync", () => {
     await expect(syncCabMigrations(client)).resolves.toEqual({
       history: "already-applied",
       removerLabel: "already-applied",
+      pendingApproverIndex: "already-applied",
     });
     expect(client.query).toHaveBeenCalledTimes(2);
     expect(client.query.mock.calls.some(([sql]) => sql.includes("ALTER TABLE change_approvals"))).toBe(false);
@@ -81,7 +89,24 @@ describe("development CAB schema sync", () => {
     await expect(syncCabMigrations(client)).resolves.toEqual({
       history: "already-applied",
       removerLabel: "applied",
+      pendingApproverIndex: "already-applied",
     });
     expect(client.query.mock.calls.some(([sql]) => sql.includes("UPDATE change_approvals AS a"))).toBe(true);
+  });
+
+  it("adds the pending approver index to an otherwise current CAB schema", async () => {
+    const client = fakeClient({
+      ...migratedSchema,
+      has_pending_approver_lookup_index: false,
+    });
+
+    await expect(syncCabMigrations(client)).resolves.toEqual({
+      history: "already-applied",
+      removerLabel: "already-applied",
+      pendingApproverIndex: "applied",
+    });
+    expect(client.query.mock.calls.some(([sql]) =>
+      sql.includes("CREATE INDEX IF NOT EXISTS change_approvals_pending_approver_change_idx"),
+    )).toBe(true);
   });
 });
