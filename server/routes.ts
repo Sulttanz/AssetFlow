@@ -5844,7 +5844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
       const [result, summary] = await Promise.all([
-        storage.getChangesPage({ page, pageSize, search, searchType: true, type, status, risk }),
+        storage.getChangeReportPage({ page, pageSize, search, searchType: true, type, status, risk }),
         storage.getChangeReportSummary(startOfMonth),
       ]);
       res.json({ ...result, page, pageSize, summary });

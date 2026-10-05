@@ -76,7 +76,21 @@ describe("change report page", () => {
       return {
         ok: true,
         json: async () => ({
-          changes: matching.slice(offset, offset + pageSize),
+          changes: matching.slice(offset, offset + pageSize).map(({ approvals, removedApprovals, ...change }) => {
+            const activeApprovals = approvals.filter(approval => !approval.removedAt);
+            return {
+              ...change,
+              scheduledStart: null,
+              scheduledEnd: null,
+              requestedByLabel: null,
+              assignedToLabel: null,
+              activeApprovalCount: activeApprovals.length,
+              approvedCount: activeApprovals.filter(approval => approval.decision === "approved").length,
+              pendingCount: activeApprovals.filter(approval =>
+                !approval.decision || approval.decision === "pending",
+              ).length,
+            };
+          }),
           total: matching.length,
           page,
           pageSize,

@@ -10,7 +10,7 @@ const store = vi.hoisted(() => ({
   getTickets: vi.fn(),
   getAssets: vi.fn(),
   getProblems: vi.fn(),
-  getChangesPage: vi.fn(),
+  getChangeReportPage: vi.fn(),
   getChangeReportSummary: vi.fn(),
 }));
 
@@ -28,13 +28,6 @@ vi.mock("./auth", () => ({
 }));
 
 import { registerRoutes } from "./routes";
-
-type ReportApproval = {
-  id: string;
-  changeId: string;
-  decision: string | null;
-  removedAt: Date | null;
-};
 
 type ReportChange = {
   id: string;
@@ -136,7 +129,7 @@ describe("change report and KPI endpoints", () => {
           ).length, 0),
       };
     });
-    store.getChangesPage.mockImplementation(async (options: {
+    store.getChangeReportPage.mockImplementation(async (options: {
       page: number;
       pageSize: number;
       search?: string;
@@ -153,10 +146,28 @@ describe("change report and KPI endpoints", () => {
       const offset = (options.page - 1) * options.pageSize;
       return {
         total: matching.length,
-        changes: matching.slice(offset, offset + options.pageSize).map(change => ({
-          ...change,
-          approvals: change.approvals.filter(approval => !approval.removedAt),
-        })),
+        changes: matching.slice(offset, offset + options.pageSize).map(change => {
+          const activeApprovals = change.approvals.filter(approval => !approval.removedAt);
+          return {
+            id: change.id,
+            changeNumber: change.changeNumber,
+            title: change.title,
+            type: change.type,
+            status: change.status,
+            risk: change.risk,
+            priority: change.priority,
+            scheduledStart: null,
+            scheduledEnd: null,
+            createdAt: change.createdAt,
+            requestedByLabel: null,
+            assignedToLabel: null,
+            activeApprovalCount: activeApprovals.length,
+            approvedCount: activeApprovals.filter(approval => approval.decision === "approved").length,
+            pendingCount: activeApprovals.filter(approval =>
+              !approval.decision || approval.decision === "pending",
+            ).length,
+          };
+        }),
       };
     });
   });
@@ -189,7 +200,7 @@ describe("change report and KPI endpoints", () => {
     expect(store.getChangeReportSummary).toHaveBeenCalledOnce();
   });
 
-  it("keeps global report summary cards steady across filters and pages while returning active row approvals", async () => {
+  it("keeps global report summary cards steady and returns report-only vote counts across filters and pages", async () => {
     const firstPage = await getJson("/api/reports/changes?page=1&pageSize=2");
     const filteredPage = await getJson("/api/reports/changes?page=1&pageSize=1&status=completed");
     const laterPage = await getJson("/api/reports/changes?page=2&pageSize=2&type=normal");
@@ -214,17 +225,22 @@ describe("change report and KPI endpoints", () => {
       thisMonth: 4,
       pendingApprovals: 2,
     });
-    expect(firstPage.changes[0].approvals.map((approval: ReportApproval) => approval.id)).toEqual([
-      "draft-approved", "draft-pending", "draft-null",
-    ]);
-    expect(firstPage.changes[1].approvals.map((approval: ReportApproval) => approval.id)).toEqual([
-      "submitted-null",
-    ]);
-    expect(store.getChangesPage).toHaveBeenNthCalledWith(1, expect.objectContaining({ page: 1, pageSize: 2 }));
-    expect(store.getChangesPage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    expect(firstPage.changes[0]).toMatchObject({
+      activeApprovalCount: 3,
+      approvedCount: 1,
+      pendingCount: 2,
+    });
+    expect(firstPage.changes[0]).not.toHaveProperty("approvals");
+    expect(firstPage.changes[1]).toMatchObject({
+      activeApprovalCount: 1,
+      approvedCount: 0,
+      pendingCount: 1,
+    });
+    expect(store.getChangeReportPage).toHaveBeenNthCalledWith(1, expect.objectContaining({ page: 1, pageSize: 2 }));
+    expect(store.getChangeReportPage).toHaveBeenNthCalledWith(2, expect.objectContaining({
       page: 1, pageSize: 1, status: "completed",
     }));
-    expect(store.getChangesPage).toHaveBeenNthCalledWith(3, expect.objectContaining({
+    expect(store.getChangeReportPage).toHaveBeenNthCalledWith(3, expect.objectContaining({
       page: 2, pageSize: 2, type: "normal",
     }));
   });

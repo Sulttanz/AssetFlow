@@ -12,7 +12,7 @@ import {
 import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import Header from "@/components/layout/header";
-import type { ChangeWithDetails } from "@shared/schema";
+import type { ChangeReportRow } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 const PAGE_SIZE = 50;
@@ -29,7 +29,7 @@ interface ChangeReportSummary {
 }
 
 interface ChangeReportPage {
-  changes: ChangeWithDetails[];
+  changes: ChangeReportRow[];
   total: number;
   page: number;
   pageSize: number;
@@ -66,7 +66,7 @@ export default function ChangesReport() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [printChanges, setPrintChanges] = useState<ChangeWithDetails[] | null>(null);
+  const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export default function ChangesReport() {
     if (typeFilter !== "all") params.set("type", typeFilter);
     if (riskFilter !== "all") params.set("risk", riskFilter);
 
-    const allChanges: ChangeWithDetails[] = [];
+    const allChanges: ChangeReportRow[] = [];
     let exportPage = 1;
     let matchingTotal = 0;
     do {
@@ -153,8 +153,8 @@ export default function ChangesReport() {
         status: c.status.replace("_", " "),
         priority: c.priority,
         risk: c.risk || "low",
-        requestedBy: c.requestedBy ? `${c.requestedBy.firstName} ${c.requestedBy.lastName}` : "N/A",
-        assignedTo: c.assignedTo ? `${c.assignedTo.firstName} ${c.assignedTo.lastName}` : "Unassigned",
+        requestedBy: c.requestedByLabel ?? "N/A",
+        assignedTo: c.assignedToLabel ?? "Unassigned",
         scheduledStart: c.scheduledStart ? formatDate(c.scheduledStart as any) : "N/A",
         scheduledEnd: c.scheduledEnd ? formatDate(c.scheduledEnd as any) : "N/A",
         createdAt: c.createdAt ? formatDate(c.createdAt as any) : "N/A",
@@ -186,7 +186,7 @@ export default function ChangesReport() {
         c.type,
         c.status.replace("_", " "),
         c.risk || "low",
-        c.requestedBy ? `${c.requestedBy.firstName} ${c.requestedBy.lastName}` : "N/A",
+        c.requestedByLabel ?? "N/A",
         c.createdAt ? formatDate(c.createdAt as any) : "N/A",
       ]),
       ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Created"],
@@ -334,8 +334,6 @@ export default function ChangesReport() {
                   </TableHeader>
                   <TableBody>
                     {displayedChanges.map((c) => {
-                      const approvedCount = c.approvals?.filter((a) => a.decision === "approved").length || 0;
-                      const pendingCount = c.approvals?.filter((a) => !a.decision || a.decision === "pending").length || 0;
                       return (
                         <TableRow key={c.id}>
                           <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
@@ -351,16 +349,16 @@ export default function ChangesReport() {
                             <Badge className={riskColors[c.risk || "low"]}>{c.risk || "low"}</Badge>
                           </TableCell>
                           <TableCell>
-                            {(c.approvals?.length || 0) > 0 ? (
+                            {c.activeApprovalCount > 0 ? (
                               <span className="text-sm">
-                                <span className="text-green-600 font-medium">{approvedCount}✓</span>
-                                {pendingCount > 0 && <span className="text-amber-600 font-medium ml-1">{pendingCount} pending</span>}
+                                <span className="text-green-600 font-medium">{c.approvedCount}✓</span>
+                                {c.pendingCount > 0 && <span className="text-amber-600 font-medium ml-1">{c.pendingCount} pending</span>}
                               </span>
                             ) : (
                               <span className="text-muted-foreground text-sm">—</span>
                             )}
                           </TableCell>
-                          <TableCell>{c.requestedBy ? `${c.requestedBy.firstName} ${c.requestedBy.lastName}` : <span className="text-muted-foreground">—</span>}</TableCell>
+                          <TableCell>{c.requestedByLabel ?? <span className="text-muted-foreground">—</span>}</TableCell>
                           <TableCell className="text-sm">{c.scheduledStart ? formatDate(c.scheduledStart as any) : <span className="text-muted-foreground">—</span>}</TableCell>
                           <TableCell className="text-sm">{c.createdAt ? formatDate(c.createdAt as any) : "—"}</TableCell>
                         </TableRow>

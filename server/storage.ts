@@ -9,7 +9,7 @@ import {
   type KbArticle, type InsertKbArticle,
   type Problem, type InsertProblem, type ProblemIncident, type ProblemWithDetails,
   type CatalogItem, type InsertCatalogItem,
-  type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails,
+  type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails, type ChangeReportRow,
   type ChangeEnvironmentStage, type InsertChangeEnvironmentStage,
   type ChangePIR, type InsertChangePIR,
   changeEnvironmentStages, changePIRs,
@@ -35,6 +35,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { cabApprovalsGranted } from "./cab-gate";
 import { eq, isNull, and, or, inArray, sql, desc, ilike } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { EventEmitter } from "events";
 
 function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
@@ -341,6 +342,7 @@ export interface IStorage {
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
   getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeReportRow[]; total: number }>;
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
@@ -2535,6 +2537,7 @@ export class MemStorage implements IStorage {
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
   async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
     return {
       total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0, requested: 0,
@@ -4016,6 +4019,73 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(changes.createdAt), desc(changes.id)).limit(pageSize).offset((page - 1) * pageSize),
     ]);
     return { changes: await this.buildChangeDetails(rows), total: Number(countRows[0]?.count ?? 0) };
+  }
+  async getChangeReportPage({ page, pageSize, search, searchType, type, status, risk }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> {
+    const term = search?.trim();
+    const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
+    const conditions = [
+      pattern ? or(
+        ilike(changes.title, pattern),
+        ilike(changes.changeNumber, pattern),
+        ...(searchType ? [ilike(changes.type, pattern)] : []),
+      ) : undefined,
+      type ? eq(changes.type, type) : undefined,
+      status ? eq(changes.status, status) : undefined,
+      risk ? eq(changes.risk, risk) : undefined,
+    ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
+    const where = conditions.length ? and(...conditions) : undefined;
+    const requester = alias(users, "report_requester");
+    const assignee = alias(users, "report_assignee");
+    const [countRows, rows] = await Promise.all([
+      db.select({ count: sql<number>`count(*)` }).from(changes).where(where),
+      db.select({
+        id: changes.id,
+        changeNumber: changes.changeNumber,
+        title: changes.title,
+        type: changes.type,
+        status: changes.status,
+        priority: changes.priority,
+        risk: changes.risk,
+        scheduledStart: changes.scheduledStart,
+        scheduledEnd: changes.scheduledEnd,
+        createdAt: changes.createdAt,
+        requestedByLabel: sql<string | null>`case when ${requester.id} is null then null else concat_ws(' ', ${requester.firstName}, ${requester.lastName}) end`,
+        assignedToLabel: sql<string | null>`case when ${assignee.id} is null then null else concat_ws(' ', ${assignee.firstName}, ${assignee.lastName}) end`,
+      }).from(changes)
+        .leftJoin(requester, eq(changes.requestedById, requester.id))
+        .leftJoin(assignee, eq(changes.assignedToId, assignee.id))
+        .where(where)
+        .orderBy(desc(changes.createdAt), desc(changes.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+    ]);
+
+    if (rows.length === 0) return { changes: [], total: Number(countRows[0]?.count ?? 0) };
+
+    const approvalRows = await db.select({
+      changeId: changeApprovals.changeId,
+      activeApprovalCount: sql<number>`count(*)`,
+      approvedCount: sql<number>`count(*) filter (where ${changeApprovals.decision} = 'approved')`,
+      pendingCount: sql<number>`count(*) filter (where ${changeApprovals.decision} = 'pending' or ${changeApprovals.decision} is null)`,
+    }).from(changeApprovals)
+      .where(and(
+        inArray(changeApprovals.changeId, rows.map(row => row.id)),
+        isNull(changeApprovals.removedAt),
+      ))
+      .groupBy(changeApprovals.changeId);
+    const approvalsByChange = new Map(approvalRows.map(row => [row.changeId, row]));
+    return {
+      changes: rows.map(row => {
+        const counts = approvalsByChange.get(row.id);
+        return {
+          ...row,
+          activeApprovalCount: Number(counts?.activeApprovalCount ?? 0),
+          approvedCount: Number(counts?.approvedCount ?? 0),
+          pendingCount: Number(counts?.pendingCount ?? 0),
+        };
+      }),
+      total: Number(countRows[0]?.count ?? 0),
+    };
   }
   async getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary> {
     const [changeRows, approvalRows] = await Promise.all([

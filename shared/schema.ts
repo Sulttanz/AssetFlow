@@ -1252,6 +1252,18 @@ export type ChangeWithDetails = Change & {
   stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
 };
 
+export type ChangeReportRow = Pick<
+  Change,
+  "id" | "changeNumber" | "title" | "type" | "status" | "priority" | "risk" |
+  "scheduledStart" | "scheduledEnd" | "createdAt"
+> & {
+  requestedByLabel: string | null;
+  assignedToLabel: string | null;
+  activeApprovalCount: number;
+  approvedCount: number;
+  pendingCount: number;
+};
+
 export type ProblemWithDetails = Problem & {
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   createdBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;
