@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { neonConfig, Pool } from "@neondatabase/serverless";
@@ -6,158 +7,123 @@ import ws from "ws";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationDirectory = path.join(projectRoot, "migrations");
+const migrationLedger = "replit_workspace_setup.sql_migrations";
+const migrationLockId = 24761005;
+const missingSchemaErrorCodes = new Set(["42P01", "42703"]);
 
-const cabSchemaStatusQuery = `
-  SELECT
-    to_regclass('change_approvals') IS NOT NULL AS has_table,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'original_approver_id'
-        AND is_nullable = 'NO'
-    ) AS original_approver_id_required,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'approver_label'
-        AND is_nullable = 'NO'
-    ) AS approver_label_required,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'approver_id'
-        AND is_nullable = 'YES'
-    ) AS approver_id_nullable,
-    EXISTS (
-      SELECT 1
-      FROM pg_constraint AS c
-      JOIN pg_class AS t ON t.oid = c.conrelid
-      JOIN pg_namespace AS n ON n.oid = t.relnamespace
-      WHERE n.nspname = current_schema()
-        AND t.relname = 'change_approvals'
-        AND c.conname = 'change_approvals_approver_id_users_id_fk'
-        AND c.contype = 'f'
-        AND c.confdeltype = 'n'
-    ) AS approver_fk_sets_null,
-    NOT EXISTS (
-      SELECT 1
-      FROM pg_constraint AS c
-      JOIN pg_class AS t ON t.oid = c.conrelid
-      JOIN pg_namespace AS n ON n.oid = t.relnamespace
-      WHERE n.nspname = current_schema()
-        AND t.relname = 'change_approvals'
-        AND c.conname = 'change_approvals_change_id_approver_id_unique'
-        AND c.contype = 'u'
-    ) AS legacy_assignment_unique_removed,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'removed_by_id'
-    ) AS has_removed_by_id,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'removed_at'
-    ) AS has_removed_at,
-    EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'change_approvals'
-        AND column_name = 'removed_by_label'
-    ) AS has_removed_by_label,
-    EXISTS (
-      SELECT 1 FROM pg_indexes
-      WHERE schemaname = current_schema()
-        AND tablename = 'change_approvals'
-        AND indexname = 'change_approvals_pending_approver_change_idx'
-    ) AS has_pending_approver_lookup_index
-`;
+async function discoverMigrations(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
+    .map((entry) => entry.name)
+    .sort();
+}
 
-async function readMigration(name) {
-  return readFile(path.join(migrationDirectory, name), "utf8");
+function migrationChecksum(sql) {
+  return createHash("sha256").update(sql).digest("hex");
+}
+
+function assertMigrationHasNoTransactionWrapper(sql, name) {
+  const executableLines = sql
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("--"));
+  const firstLine = executableLines[0] ?? "";
+  const lastLine = executableLines.at(-1) ?? "";
+
+  if (/^(BEGIN|START TRANSACTION)\s*;?$/i.test(firstLine) ||
+      /^(COMMIT|END|ROLLBACK)\s*;?$/i.test(lastLine)) {
+    throw new Error(
+      `Migration ${name} must not include BEGIN/COMMIT; each migration is run in its own transaction.`,
+    );
+  }
 }
 
 /**
- * Apply the CAB data migrations only when the connected development database
- * needs them. The caller owns the connection, which also makes this logic
- * testable without a live database.
+ * Apply every discovered SQL migration in filename order. The caller owns the
+ * connection so this runner can be tested without a live database.
  */
-export async function syncCabMigrations(client) {
-  const { rows: [status] } = await client.query(cabSchemaStatusQuery);
+export async function applyDevSqlMigrations(
+  client,
+  { directory = migrationDirectory, deferMissingSchema = false } = {},
+) {
+  const migrations = await discoverMigrations(directory);
+  const result = { applied: [], alreadyApplied: [], deferred: null };
 
-  if (!status?.has_table) {
-    return {
-      history: "deferred-no-table",
-      removerLabel: "deferred-no-table",
-      pendingApproverIndex: "deferred-no-table",
-    };
-  }
-
-  const historyReady =
-    status.original_approver_id_required &&
-    status.approver_label_required &&
-    status.approver_id_nullable &&
-    status.approver_fk_sets_null &&
-    status.legacy_assignment_unique_removed;
-
-  let history = "already-applied";
-  if (!historyReady) {
-    await client.query(await readMigration("20260929_preserve_cab_approval_history.sql"));
-    history = "applied";
-  }
-
-  if (!status.has_removed_by_id || !status.has_removed_at) {
-    return {
-      history,
-      removerLabel: "deferred-missing-columns",
-      pendingApproverIndex: "deferred-missing-columns",
-    };
-  }
-
-  let needsRemoverLabelMigration = !status.has_removed_by_label;
-  if (!needsRemoverLabelMigration) {
-    const { rows: [backfill] } = await client.query(`
-      SELECT EXISTS (
-        SELECT 1
-        FROM change_approvals AS a
-        JOIN users AS u ON u.id = a.removed_by_id
-        WHERE a.removed_at IS NOT NULL
-          AND a.removed_by_label IS NULL
-      ) AS needed
+  await client.query(`SELECT pg_advisory_lock(${migrationLockId})`);
+  try {
+    // Keep setup bookkeeping outside the app schema so Drizzle's schema push
+    // does not interpret it as an application table to remove.
+    await client.query("CREATE SCHEMA IF NOT EXISTS replit_workspace_setup");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${migrationLedger} (
+        migration_name text PRIMARY KEY,
+        checksum text NOT NULL,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )
     `);
-    needsRemoverLabelMigration = Boolean(backfill?.needed);
+
+    for (const name of migrations) {
+      const sql = await readFile(path.join(directory, name), "utf8");
+      assertMigrationHasNoTransactionWrapper(sql, name);
+      const checksum = migrationChecksum(sql);
+
+      await client.query("BEGIN");
+      try {
+        const { rows: [existing] } = await client.query(
+          `SELECT checksum FROM ${migrationLedger} WHERE migration_name = $1`,
+          [name],
+        );
+
+        if (existing) {
+          if (existing.checksum !== checksum) {
+            throw new Error(
+              `Migration ${name} changed after it was recorded; add a new migration instead of editing an applied file.`,
+            );
+          }
+          await client.query("COMMIT");
+          result.alreadyApplied.push(name);
+          continue;
+        }
+
+        await client.query(sql);
+        await client.query(
+          `INSERT INTO ${migrationLedger} (migration_name, checksum) VALUES ($1, $2)`,
+          [name, checksum],
+        );
+        await client.query("COMMIT");
+        result.applied.push(name);
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        if (deferMissingSchema && missingSchemaErrorCodes.has(error?.code)) {
+          result.deferred = name;
+          break;
+        }
+        throw new Error(`Failed to apply SQL migration ${name}: ${error.message}`, {
+          cause: error,
+        });
+      }
+    }
+  } finally {
+    await client.query(`SELECT pg_advisory_unlock(${migrationLockId})`);
   }
 
-  if (!needsRemoverLabelMigration) {
-    const pendingApproverIndex = await syncPendingApproverIndex(client, status);
-    return { history, removerLabel: "already-applied", pendingApproverIndex };
-  }
-
-  await client.query(await readMigration("20260929_cab_remover_label.sql"));
-  const pendingApproverIndex = await syncPendingApproverIndex(client, status);
-  return { history, removerLabel: "applied", pendingApproverIndex };
-}
-
-async function syncPendingApproverIndex(client, status) {
-  if (status.has_pending_approver_lookup_index) return "already-applied";
-  await client.query(await readMigration("20261004_cab_pending_approver_lookup_idx.sql"));
-  return "applied";
+  return result;
 }
 
 async function main() {
   if (process.env.NODE_ENV !== "development") {
-    throw new Error("CAB schema sync is limited to NODE_ENV=development.");
+    throw new Error("Development SQL migrations are limited to NODE_ENV=development.");
   }
   if (!process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DEPLOYMENT) {
-    throw new Error("CAB schema sync is limited to a Replit development workspace.");
+    throw new Error("Development SQL migrations are limited to a Replit development workspace.");
+  }
+  const args = process.argv.slice(2);
+  if (args.some((arg) => arg !== "--defer-missing-schema")) {
+    throw new Error("Usage: node scripts/sync-dev-cab-schema.mjs [--defer-missing-schema]");
   }
   if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required for development CAB schema sync.");
+    throw new Error("DATABASE_URL is required for development SQL migrations.");
   }
 
   neonConfig.webSocketConstructor = ws;
@@ -166,10 +132,14 @@ async function main() {
 
   try {
     client = await pool.connect();
-    const result = await syncCabMigrations(client);
-    console.log(`CAB approval history migration: ${result.history}`);
-    console.log(`CAB remover label migration: ${result.removerLabel}`);
-    console.log(`CAB pending approver index: ${result.pendingApproverIndex}`);
+    const result = await applyDevSqlMigrations(client, {
+      deferMissingSchema: args.includes("--defer-missing-schema"),
+    });
+    console.log(`Development SQL migrations applied: ${result.applied.length}`);
+    console.log(`Development SQL migrations already applied: ${result.alreadyApplied.length}`);
+    if (result.deferred) {
+      console.log(`Deferred ${result.deferred} and later migrations until the schema is available.`);
+    }
   } finally {
     client?.release();
     await pool.end();
@@ -178,7 +148,7 @@ async function main() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    console.error("Development CAB schema sync failed:", error.message);
+    console.error("Development SQL migration sync failed:", error.message);
     process.exitCode = 1;
   });
 }

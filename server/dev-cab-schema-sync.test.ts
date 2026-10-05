@@ -1,112 +1,135 @@
-import { describe, expect, it, vi } from "vitest";
-import { syncCabMigrations } from "../scripts/sync-dev-cab-schema.mjs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { applyDevSqlMigrations } from "../scripts/sync-dev-cab-schema.mjs";
 
-const migratedSchema = {
-  has_table: true,
-  original_approver_id_required: true,
-  approver_label_required: true,
-  approver_id_nullable: true,
-  approver_fk_sets_null: true,
-  legacy_assignment_unique_removed: true,
-  has_removed_by_id: true,
-  has_removed_at: true,
-  has_removed_by_label: true,
-  has_pending_approver_lookup_index: true,
-};
+const tempDirectories: string[] = [];
 
-function fakeClient(status: Record<string, boolean>, missingRemoverLabels = false) {
-  const query = vi.fn(async (sql: string) => {
-    if (sql.includes("to_regclass('change_approvals')")) {
-      return { rows: [status] };
+async function createMigrationDirectory(files: Record<string, string>) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "dev-sql-migrations-"));
+  tempDirectories.push(directory);
+  await Promise.all(
+    Object.entries(files).map(([name, sql]) => writeFile(path.join(directory, name), sql)),
+  );
+  return directory;
+}
+
+function fakeClient({ missingSql }: { missingSql?: string } = {}) {
+  const ledger = new Map<string, string>();
+  const executedMigrations: string[] = [];
+  const query = vi.fn(async (sql: string, values?: unknown[]) => {
+    if (sql.startsWith("SELECT checksum FROM")) {
+      const [name] = values as [string];
+      const checksum = ledger.get(name);
+      return { rows: checksum ? [{ checksum }] : [] };
     }
-    if (sql.includes("AS needed")) {
-      return { rows: [{ needed: missingRemoverLabels }] };
+    if (sql.startsWith("INSERT INTO replit_workspace_setup.sql_migrations")) {
+      const [name, checksum] = values as [string, string];
+      ledger.set(name, checksum);
+      return { rows: [] };
+    }
+    if (missingSql && sql.includes(missingSql)) {
+      const error = new Error("missing database object") as Error & { code: string };
+      error.code = "42P01";
+      throw error;
+    }
+    if (sql.trim().startsWith("SELECT 'migration:")) {
+      executedMigrations.push(sql.trim());
     }
     return { rows: [] };
   });
-  return { query };
+  return { query, ledger, executedMigrations };
 }
 
-describe("development CAB schema sync", () => {
-  it("defers clean databases with no CAB table to Drizzle's current schema", async () => {
-    const client = fakeClient({ has_table: false });
+afterEach(async () => {
+  await Promise.all(tempDirectories.splice(0).map((directory) =>
+    rm(directory, { recursive: true, force: true }),
+  ));
+});
 
-    await expect(syncCabMigrations(client)).resolves.toEqual({
-      history: "deferred-no-table",
-      removerLabel: "deferred-no-table",
-      pendingApproverIndex: "deferred-no-table",
+describe("development SQL migration sync", () => {
+  it("discovers SQL files in sorted order, records them, and skips them on later runs", async () => {
+    const directory = await createMigrationDirectory({
+      "002_second.sql": "SELECT 'migration:second';",
+      "001_first.sql": "SELECT 'migration:first';",
+      "notes.txt": "not a migration",
     });
-    expect(client.query).toHaveBeenCalledTimes(1);
+    const client = fakeClient();
+
+    const firstRun = await applyDevSqlMigrations(client, { directory });
+    expect(firstRun).toEqual({
+      applied: ["001_first.sql", "002_second.sql"],
+      alreadyApplied: [],
+      deferred: null,
+    });
+    expect(client.executedMigrations).toEqual([
+      "SELECT 'migration:first';",
+      "SELECT 'migration:second';",
+    ]);
+
+    const secondRun = await applyDevSqlMigrations(client, { directory });
+    expect(secondRun).toEqual({
+      applied: [],
+      alreadyApplied: ["001_first.sql", "002_second.sql"],
+      deferred: null,
+    });
+    expect(client.executedMigrations).toHaveLength(2);
   });
 
-  it("applies both migrations to a legacy database with existing CAB assignments", async () => {
-    const legacySchema = {
-      ...migratedSchema,
-      original_approver_id_required: false,
-      approver_label_required: false,
-      approver_id_nullable: false,
-      approver_fk_sets_null: false,
-      legacy_assignment_unique_removed: false,
-      has_removed_by_label: false,
-      has_pending_approver_lookup_index: false,
-    };
-    const client = fakeClient(legacySchema);
+  it("discovers every SQL migration currently in the repository", async () => {
+    const directory = path.resolve("migrations");
+    const migrationFiles = (await readdir(directory))
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    const client = fakeClient();
 
-    await expect(syncCabMigrations(client)).resolves.toEqual({
-      history: "applied",
-      removerLabel: "applied",
-      pendingApproverIndex: "applied",
-    });
+    const result = await applyDevSqlMigrations(client, { directory });
 
-    const appliedSql = client.query.mock.calls
-      .map(([sql]) => sql)
-      .filter((sql) => sql.includes("ALTER TABLE change_approvals"));
-    expect(appliedSql).toHaveLength(2);
-    expect(appliedSql[0]).toContain("ADD COLUMN IF NOT EXISTS original_approver_id");
-    expect(appliedSql[0]).toContain("COALESCE(a.original_approver_id, a.approver_id)");
-    expect(appliedSql[0]).toContain("DROP CONSTRAINT IF EXISTS");
-    expect(appliedSql[1]).toContain("ADD COLUMN IF NOT EXISTS removed_by_label");
-    expect(client.query.mock.calls.some(([sql]) =>
-      sql.includes("CREATE INDEX IF NOT EXISTS change_approvals_pending_approver_change_idx"),
-    )).toBe(true);
+    expect(result.applied).toEqual(migrationFiles);
   });
 
-  it("does not rerun migrations when the schema is already current", async () => {
-    const client = fakeClient(migratedSchema);
-
-    await expect(syncCabMigrations(client)).resolves.toEqual({
-      history: "already-applied",
-      removerLabel: "already-applied",
-      pendingApproverIndex: "already-applied",
+  it("defers the first migration whose required schema is missing, without recording it", async () => {
+    const directory = await createMigrationDirectory({
+      "001_needs_table.sql": "SELECT missing_table;",
+      "002_later.sql": "SELECT 'migration:later';",
     });
-    expect(client.query).toHaveBeenCalledTimes(2);
-    expect(client.query.mock.calls.some(([sql]) => sql.includes("ALTER TABLE change_approvals"))).toBe(false);
+    const client = fakeClient({ missingSql: "missing_table" });
+
+    await expect(
+      applyDevSqlMigrations(client, { directory, deferMissingSchema: true }),
+    ).resolves.toEqual({
+      applied: [],
+      alreadyApplied: [],
+      deferred: "001_needs_table.sql",
+    });
+    expect(client.ledger.size).toBe(0);
+    expect(client.executedMigrations).toHaveLength(0);
+    expect(client.query.mock.calls.some(([sql]) => sql === "ROLLBACK")).toBe(true);
   });
 
-  it("backfills missing remover labels even when the column already exists", async () => {
-    const client = fakeClient(migratedSchema, true);
-
-    await expect(syncCabMigrations(client)).resolves.toEqual({
-      history: "already-applied",
-      removerLabel: "applied",
-      pendingApproverIndex: "already-applied",
+  it("fails instead of silently deferring missing schema in the final setup pass", async () => {
+    const directory = await createMigrationDirectory({
+      "001_needs_table.sql": "SELECT missing_table;",
     });
-    expect(client.query.mock.calls.some(([sql]) => sql.includes("UPDATE change_approvals AS a"))).toBe(true);
+    const client = fakeClient({ missingSql: "missing_table" });
+
+    await expect(applyDevSqlMigrations(client, { directory })).rejects.toThrow(
+      "Failed to apply SQL migration 001_needs_table.sql",
+    );
+    expect(client.ledger.size).toBe(0);
   });
 
-  it("adds the pending approver index to an otherwise current CAB schema", async () => {
-    const client = fakeClient({
-      ...migratedSchema,
-      has_pending_approver_lookup_index: false,
+  it("rejects edits to an already-recorded migration", async () => {
+    const directory = await createMigrationDirectory({
+      "001_first.sql": "SELECT 'migration:first';",
     });
+    const client = fakeClient();
+    await applyDevSqlMigrations(client, { directory });
+    await writeFile(path.join(directory, "001_first.sql"), "SELECT 'migration:changed';");
 
-    await expect(syncCabMigrations(client)).resolves.toEqual({
-      history: "already-applied",
-      removerLabel: "already-applied",
-      pendingApproverIndex: "applied",
-    });
-    expect(client.query.mock.calls.some(([sql]) =>
-      sql.includes("CREATE INDEX IF NOT EXISTS change_approvals_pending_approver_change_idx"),
-    )).toBe(true);
+    await expect(applyDevSqlMigrations(client, { directory })).rejects.toThrow(
+      "changed after it was recorded",
+    );
   });
 });

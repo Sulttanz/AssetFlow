@@ -1,5 +1,5 @@
 -- Retain the remover's display name if their account is later deleted.
-BEGIN;
+-- The development migration runner applies each file in its own transaction.
 
 ALTER TABLE change_approvals ADD COLUMN IF NOT EXISTS removed_by_label text;
 
@@ -10,5 +10,3 @@ SET removed_by_label = COALESCE(
 )
 FROM users AS u
 WHERE a.removed_by_id = u.id AND a.removed_at IS NOT NULL AND a.removed_by_label IS NULL;
-
-COMMIT;

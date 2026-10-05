@@ -1,6 +1,6 @@
 -- Apply to the application's database before running code that reads the new columns.
 -- Backfill before switching the foreign key: existing decisions and assignment IDs remain intact.
-BEGIN;
+-- The development migration runner applies each file in its own transaction.
 
 ALTER TABLE change_approvals
   ADD COLUMN IF NOT EXISTS original_approver_id varchar,
@@ -45,5 +45,3 @@ ALTER TABLE change_approvals
 
 -- Do not add a uniqueness constraint to the historical identity: some existing
 -- changes contain duplicate assignments, which must not be discarded here.
-
-COMMIT;

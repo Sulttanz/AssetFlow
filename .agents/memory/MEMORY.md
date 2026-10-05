@@ -17,3 +17,4 @@
 - [Paged change summaries](paged-change-summaries.md) — distinguish per-page snapshots from whole-history metrics; keep user-specific CAB votes independent of list pages.
 - [CAB vote serialization](cab-vote-serialization.md) — use the parent change as the serialization point when deriving status from separate CAB votes.
 - [Deployment config edit guard](deployment-config-edit-guard.md) — direct .replit patches can be blocked; when deployment configuration is unavailable, use an existing build lifecycle hook if appropriate.
+- [Workspace SQL migration ledger](workspace-sql-migration-ledger.md) — keep setup migration tracking outside Drizzle-managed schemas so schema pushes do not treat it as app data.
