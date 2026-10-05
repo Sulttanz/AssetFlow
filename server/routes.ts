@@ -5572,6 +5572,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           code: "CAB_APPROVER_REMOVED",
         });
       }
+      if (error?.code === "CAB_APPROVER_INACTIVE") {
+        return res.status(409).json({
+          message: "This account is inactive and cannot be assigned as a CAB approver.",
+          code: "CAB_APPROVER_INACTIVE",
+        });
+      }
       if (error?.code === "CAB_APPROVER_DUPLICATE") {
         return res.status(409).json({
           message: "This CAB member is already assigned to the change.",

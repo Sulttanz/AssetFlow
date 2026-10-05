@@ -582,6 +582,51 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     }
   });
 
+  it.each([
+    { isActive: true, expectedStatus: 201 },
+    { isActive: false, expectedStatus: 409 },
+  ])("assigns CAB approvers only when their account is active (isActive=$isActive)", async ({ isActive, expectedStatus }) => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver", isActive },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "CAB assignment account status",
+      status: "submitted",
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ approverId }),
+      });
+      expect(response.status).toBe(expectedStatus);
+
+      if (isActive) {
+        expect(await response.json()).toMatchObject({ approverId, decision: "pending" });
+      } else {
+        expect(await response.json()).toEqual({
+          code: "CAB_APPROVER_INACTIVE",
+          message: "This account is inactive and cannot be assigned as a CAB approver.",
+        });
+      }
+
+      const assignments = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(assignments).toHaveLength(isActive ? 1 : 0);
+    } finally {
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  });
+
   it("allows only one of two concurrent requests to assign the same CAB member", async () => {
     const managerIds = [randomUUID(), randomUUID()];
     const approverId = randomUUID();

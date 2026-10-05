@@ -2563,6 +2563,11 @@ export class MemStorage implements IStorage {
   async createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval> {
     const approver = approval.approverId ? this.users.get(approval.approverId) : undefined;
     if (!approver) throw new Error("CAB approver account not found");
+    if (!approver.isActive) {
+      throw Object.assign(new Error("Inactive accounts cannot be assigned as CAB approvers"), {
+        code: "CAB_APPROVER_INACTIVE",
+      });
+    }
     return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
   }
   async updateChangeApproval(_changeId: string, _id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
@@ -4270,8 +4275,15 @@ export class DatabaseStorage implements IStorage {
         });
       }
 
-      const [approver] = await tx.select().from(users).where(eq(users.id, approval.approverId!));
+      const [approver] = await tx.select().from(users)
+        .where(eq(users.id, approval.approverId!))
+        .for("update");
       if (!approver) throw new Error("CAB approver account not found");
+      if (!approver.isActive) {
+        throw Object.assign(new Error("Inactive accounts cannot be assigned as CAB approvers"), {
+          code: "CAB_APPROVER_INACTIVE",
+        });
+      }
       const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
       const history = await tx.select({ removedAt: changeApprovals.removedAt })
         .from(changeApprovals)
