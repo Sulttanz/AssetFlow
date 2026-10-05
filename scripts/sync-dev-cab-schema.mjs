@@ -7,9 +7,15 @@ import ws from "ws";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationDirectory = path.join(projectRoot, "migrations");
-const migrationLedger = "replit_workspace_setup.sql_migrations";
 const migrationLockId = 24761005;
 const missingSchemaErrorCodes = new Set(["42P01", "42703"]);
+
+function quoteSchemaIdentifier(identifier) {
+  if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(identifier)) {
+    throw new Error(`Invalid migration ledger schema name: ${identifier}`);
+  }
+  return `"${identifier}"`;
+}
 
 async function discoverMigrations(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -45,8 +51,14 @@ function assertMigrationHasNoTransactionWrapper(sql, name) {
  */
 export async function applyDevSqlMigrations(
   client,
-  { directory = migrationDirectory, deferMissingSchema = false } = {},
+  {
+    directory = migrationDirectory,
+    deferMissingSchema = false,
+    ledgerSchema = "replit_workspace_setup",
+  } = {},
 ) {
+  const quotedLedgerSchema = quoteSchemaIdentifier(ledgerSchema);
+  const migrationLedger = `${quotedLedgerSchema}.sql_migrations`;
   const migrations = await discoverMigrations(directory);
   const result = { applied: [], alreadyApplied: [], deferred: null };
 
@@ -54,7 +66,7 @@ export async function applyDevSqlMigrations(
   try {
     // Keep setup bookkeeping outside the app schema so Drizzle's schema push
     // does not interpret it as an application table to remove.
-    await client.query("CREATE SCHEMA IF NOT EXISTS replit_workspace_setup");
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${quotedLedgerSchema}`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${migrationLedger} (
         migration_name text PRIMARY KEY,
