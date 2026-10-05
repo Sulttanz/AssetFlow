@@ -582,6 +582,100 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     }
   });
 
+  it("allows only one of two concurrent requests to assign the same CAB member", async () => {
+    const managerIds = [randomUUID(), randomUUID()];
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values([
+      ...managerIds.map(id => ({
+        id, username: `manager-${id}`, email: `${id}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager",
+      })),
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent CAB assignment",
+      status: "submitted",
+    });
+
+    let arrivals = 0;
+    let releaseAssignments!: () => void;
+    const bothArrived = new Promise<void>(resolve => { releaseAssignments = resolve; });
+    const originalCreate = storage.createChangeApproval.bind(storage);
+    const assignmentSpy = vi.spyOn(storage, "createChangeApproval").mockImplementation(async approval => {
+      if (++arrivals === 2) releaseAssignments();
+      await bothArrived;
+      return originalCreate(approval);
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const responses = await Promise.all(managerIds.map(managerId =>
+        fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify({ approverId }),
+        }),
+      ));
+      expect(arrivals).toBe(2);
+      expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+
+      const outcomes = await Promise.all(responses.map(response => response.json()));
+      expect(outcomes.find(body => body.code === "CAB_APPROVER_DUPLICATE")).toMatchObject({
+        message: "This CAB member is already assigned to the change.",
+      });
+      const saved = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(saved).toHaveLength(1);
+      expect(saved[0].originalApproverId).toBe(approverId);
+    } finally {
+      assignmentSpy.mockRestore();
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it("does not allow a removed CAB member to be assigned again", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Removed CAB assignment",
+      status: "submitted",
+    });
+    await db.insert(changeApprovals).values({
+      changeId, approverId, originalApproverId: approverId, approverLabel: "CAB Approver",
+      decision: "pending", removedAt: new Date(), removedByLabel: "CAB Manager",
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ approverId }),
+      });
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        code: "CAB_APPROVER_REMOVED",
+        message: "This CAB member was removed from the change and cannot be re-added.",
+      });
+      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(history).toHaveLength(1);
+    } finally {
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  });
+
   it.each(["vote", "assignment"] as const)(
     "serializes a new CAB assignment against a vote when the %s commits first",
     async first => {
@@ -607,27 +701,15 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         approverLabel: "CAB Voter", decision: "pending",
       });
 
-      // Make both handlers finish their initial membership reads before
-      // controlling which real transaction reaches the parent lock first.
-      let readCount = 0;
-      let releaseReads!: () => void;
-      const bothReads = new Promise<void>(resolve => { releaseReads = resolve; });
-      const waitForBothReads = async () => {
-        if (++readCount === 2) releaseReads();
-        await bothReads;
+      // Make both requests reach storage before controlling which transaction
+      // reaches the shared parent-row lock first.
+      let operationCount = 0;
+      let releaseOperations!: () => void;
+      const bothOperationsStarted = new Promise<void>(resolve => { releaseOperations = resolve; });
+      const waitForBothOperations = async () => {
+        if (++operationCount === 2) releaseOperations();
+        await bothOperationsStarted;
       };
-      const originalActiveRead = storage.getChangeApprovals.bind(storage);
-      const activeReadSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
-        const rows = await originalActiveRead(id);
-        if (id === changeId && readCount < 2) await waitForBothReads();
-        return rows;
-      });
-      const originalHistoryRead = storage.getAllChangeApprovalRecords.bind(storage);
-      const historyReadSpy = vi.spyOn(storage, "getAllChangeApprovalRecords").mockImplementation(async id => {
-        const rows = await originalHistoryRead(id);
-        if (id === changeId && readCount < 2) await waitForBothReads();
-        return rows;
-      });
       const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
       const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
 
@@ -636,6 +718,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
       const originalAssignment = storage.createChangeApproval.bind(storage);
       const originalVote = storage.updateChangeApproval.bind(storage);
       const assignmentSpy = vi.spyOn(storage, "createChangeApproval").mockImplementation(async (...args) => {
+        await waitForBothOperations();
         if (first === "vote") await firstCommitted;
         try {
           return await originalAssignment(...args);
@@ -644,6 +727,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         }
       });
       const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
+        await waitForBothOperations();
         if (first === "assignment") await firstCommitted;
         try {
           return await originalVote(...args);
@@ -666,7 +750,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
           }),
         ]);
 
-        expect(readCount).toBe(2);
+        expect(operationCount).toBe(2);
         expect(vote.status).toBe(200);
         if (first === "vote") {
           expect(assignment.status).toBe(409);
@@ -687,8 +771,6 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
         expect(savedChange.status).toBe(first === "vote" ? "approved" : "submitted");
         expect(savedChange.approvedAt instanceof Date).toBe(first === "vote");
       } finally {
-        activeReadSpy.mockRestore();
-        historyReadSpy.mockRestore();
         permissionSpy.mockRestore();
         auditSpy.mockRestore();
         assignmentSpy.mockRestore();

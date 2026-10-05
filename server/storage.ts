@@ -4273,6 +4273,22 @@ export class DatabaseStorage implements IStorage {
       const [approver] = await tx.select().from(users).where(eq(users.id, approval.approverId!));
       if (!approver) throw new Error("CAB approver account not found");
       const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
+      const history = await tx.select({ removedAt: changeApprovals.removedAt })
+        .from(changeApprovals)
+        .where(and(
+          eq(changeApprovals.changeId, approval.changeId),
+          eq(changeApprovals.originalApproverId, approver.id),
+        ));
+      if (history.some(record => record.removedAt)) {
+        throw Object.assign(new Error("This CAB member was removed from the change and cannot be re-added"), {
+          code: "CAB_APPROVER_REMOVED",
+        });
+      }
+      if (history.length > 0) {
+        throw Object.assign(new Error("This CAB member is already assigned to the change"), {
+          code: "CAB_APPROVER_DUPLICATE",
+        });
+      }
       const result = await tx.insert(changeApprovals).values({
         ...approval, originalApproverId: approver.id, approverLabel,
       }).returning();

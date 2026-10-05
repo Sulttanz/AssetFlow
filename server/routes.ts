@@ -5553,21 +5553,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         approverId = req.body.approverId;
       }
 
-      const approvalHistory = await storage.getAllChangeApprovalRecords(req.params.id);
-      const previous = approvalHistory.find(a => a.originalApproverId === approverId);
-      if (previous?.removedAt) {
-        return res.status(409).json({
-          message: "This CAB member was removed from the change and cannot be re-added.",
-          code: "CAB_APPROVER_REMOVED",
-        });
-      }
-      if (previous) {
-        return res.status(409).json({
-          message: "This CAB member is already assigned to the change.",
-          code: "CAB_APPROVER_DUPLICATE",
-        });
-      }
-
       const approval = await storage.createChangeApproval({ changeId: req.params.id, approverId, decision: "pending" });
       await logAudit(user.id, "CREATE", "change_approvals", approval.id,
         `CAB approver ${approverId} on change ${req.params.id}`,
@@ -5579,6 +5564,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({
           message: "CAB approvers cannot be added after a change is approved. Reopen the change before assigning another approver.",
           code: "CAB_CHANGE_ALREADY_APPROVED",
+        });
+      }
+      if (error?.code === "CAB_APPROVER_REMOVED") {
+        return res.status(409).json({
+          message: "This CAB member was removed from the change and cannot be re-added.",
+          code: "CAB_APPROVER_REMOVED",
+        });
+      }
+      if (error?.code === "CAB_APPROVER_DUPLICATE") {
+        return res.status(409).json({
+          message: "This CAB member is already assigned to the change.",
+          code: "CAB_APPROVER_DUPLICATE",
         });
       }
       if (error?.code === "23505") {
