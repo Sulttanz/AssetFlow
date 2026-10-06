@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8"));
+const replitConfig = await readFile(path.join(projectRoot, ".replit"), "utf8");
 const npmExecutable = execFileSync("which", ["npm"], { encoding: "utf8" }).trim();
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), "build-audit-gate-"));
 const fixtureDir = path.join(tempRoot, "fixture");
@@ -14,6 +15,34 @@ const shimDir = path.join(tempRoot, "bin");
 const npmShim = path.join(shimDir, "npm");
 const auditLog = path.join(tempRoot, "audit-calls.jsonl");
 const buildMarker = path.join(fixtureDir, "build-ran");
+
+function getDeploymentBuildCommand(configText) {
+  const lines = configText.split(/\r?\n/);
+  const deploymentStart = lines.findIndex(line => line.trim() === "[deployment]");
+  assert.notEqual(deploymentStart, -1, ".replit must define a [deployment] section");
+
+  const nextSection = lines.findIndex((line, index) =>
+    index > deploymentStart && /^\s*\[[^\]]+\]\s*$/.test(line));
+  const deploymentLines = lines.slice(deploymentStart + 1, nextSection === -1 ? undefined : nextSection);
+  const buildSetting = deploymentLines.find(line => /^\s*build\s*=/.test(line));
+  assert.ok(buildSetting, ".replit [deployment] section must define a build command");
+
+  const buildMatch = buildSetting.match(/^\s*build\s*=\s*(\[[^\r\n]*\])\s*(?:#.*)?$/);
+  assert.ok(buildMatch, ".replit deployment build command must be a string array");
+
+  let buildCommand;
+  assert.doesNotThrow(() => {
+    buildCommand = JSON.parse(buildMatch[1]);
+  }, ".replit deployment build command must contain valid JSON-compatible strings");
+  assert.ok(Array.isArray(buildCommand), ".replit deployment build command must be an array");
+  return buildCommand;
+}
+
+assert.deepEqual(
+  getDeploymentBuildCommand(replitConfig).slice(0, 3),
+  ["npm", "run", "build"],
+  ".replit deployment build command must invoke npm run build so its prebuild audit gate runs",
+);
 
 try {
   assert.ok(packageJson.scripts.prebuild, "package.json must define the prebuild audit gate");
