@@ -899,6 +899,45 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     15_000,
   );
 
+  it.each(["approved", "in_progress"] as const)(
+    "allows a non-CAB change with no approvals to move to %s through the general update route",
+    async targetStatus => {
+      const managerId = randomUUID();
+      const changeId = randomUUID();
+      await db.insert(users).values({
+        id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager",
+      });
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Optional CAB change",
+        type: "standard", risk: "low", status: "submitted", cabRequired: false,
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+
+      try {
+        const response = await fetch(`${baseUrl}/api/changes/${changeId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify({ status: targetStatus }),
+        });
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          id: changeId, type: "standard", risk: "low", status: targetStatus, cabRequired: false,
+        });
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange).toMatchObject({
+          type: "standard", risk: "low", status: targetStatus, cabRequired: false,
+        });
+        expect(await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId)))
+          .toHaveLength(0);
+      } finally {
+        permissionSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it.each([
     { targetStatus: "approved", clearCabOptIn: false },
     { targetStatus: "in_progress", clearCabOptIn: false },
