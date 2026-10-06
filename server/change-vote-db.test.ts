@@ -826,6 +826,80 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
   );
 
   it.each([
+    { escalation: "type", updates: { type: "emergency" }, targetStatus: "approved" },
+    { escalation: "type", updates: { type: "normal" }, targetStatus: "in_progress" },
+    { escalation: "risk", updates: { risk: "high" }, targetStatus: "approved" },
+    { escalation: "risk", updates: { risk: "critical" }, targetStatus: "in_progress" },
+  ] as const)(
+    "requires all active CAB approvals when a $escalation escalation and $targetStatus status are requested together",
+    async ({ updates, targetStatus }) => {
+      const managerId = randomUUID();
+      const approvedApproverId = randomUUID();
+      const pendingApproverId = randomUUID();
+      const changeId = randomUUID();
+      const approvedId = randomUUID();
+      const pendingId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approvedApproverId, username: `approver-${approvedApproverId}`, email: `${approvedApproverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+        { id: pendingApproverId, username: `approver-${pendingApproverId}`, email: `${pendingApproverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Escalate change while requesting approval",
+        type: "standard", risk: "low", status: "submitted", cabRequired: false,
+      });
+      await db.insert(changeApprovals).values([
+        { id: approvedId, changeId, approverId: approvedApproverId, originalApproverId: approvedApproverId,
+          approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() },
+        { id: pendingId, changeId, approverId: pendingApproverId, originalApproverId: pendingApproverId,
+          approverLabel: "CAB Approver", decision: "pending" },
+      ]);
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      const update = { ...updates, status: targetStatus, cabRequired: false };
+      const request = () => fetch(`${baseUrl}/api/changes/${changeId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify(update),
+      });
+
+      try {
+        const blockedResponse = await request();
+        expect(blockedResponse.status).toBe(403);
+        expect(await blockedResponse.json()).toMatchObject({ code: "CAB_PENDING" });
+
+        const [unchangedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(unchangedChange).toMatchObject({
+          type: "standard", risk: "low", status: "submitted", cabRequired: false,
+        });
+
+        await db.update(changeApprovals)
+          .set({ decision: "approved", decidedAt: new Date() })
+          .where(eq(changeApprovals.id, pendingId));
+
+        const allowedResponse = await request();
+        expect(allowedResponse.status).toBe(200);
+        expect(await allowedResponse.json()).toMatchObject({
+          ...updates, status: targetStatus, cabRequired: true,
+        });
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange).toMatchObject({ ...updates, status: targetStatus, cabRequired: true });
+        const activeApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(activeApprovals.map(approval => approval.decision)).toEqual(["approved", "approved"]);
+      } finally {
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
+  it.each([
     { targetStatus: "approved", clearCabOptIn: false },
     { targetStatus: "in_progress", clearCabOptIn: false },
     { targetStatus: "approved", clearCabOptIn: true },
