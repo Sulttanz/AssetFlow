@@ -1,10 +1,19 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { Route } from "wouter";
 import { AuthProvider } from "./use-auth";
-import { queryClient } from "@/lib/queryClient";
+import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
+import { ProtectedRoute } from "@/lib/protected-route";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/hooks/use-modules", () => ({
+  useModules: () => ({
+    isModuleEnabled: () => true,
+    isLoading: false,
+    modules: [],
+  }),
+}));
 
 class FakeEventSource extends EventTarget {
   static instances: FakeEventSource[] = [];
@@ -30,6 +39,11 @@ function renderAuthWithStream() {
   queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
   render(<QueryClientProvider client={queryClient}><AuthProvider><div /></AuthProvider></QueryClientProvider>);
   return FakeEventSource.instances[0];
+}
+
+function PrivatePage() {
+  const { data } = useQuery<{ secret: string }>({ queryKey: ["/api/private"] });
+  return <div>{data?.secret}</div>;
 }
 
 async function flushAsyncWork() {
@@ -77,6 +91,73 @@ it("refreshes the cached user on stream failure and stops retrying after sign-ou
   expect(fetchUser).toHaveBeenCalledWith("/api/user", { credentials: "include" });
   expect(queryClient.getQueryData(["/api/user"])).toBeNull();
   expect(FakeEventSource.instances).toHaveLength(1);
+});
+
+it("signs out and hides an open protected page when its API request is unauthorized", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(401)));
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "private page data" });
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ProtectedRoute path="/" component={PrivatePage} />
+        <Route path="/auth"><div>Sign-in page</div></Route>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+  expect(screen.getByText("private page data")).toBeTruthy();
+
+  await act(async () => {
+    await expect(
+      queryClient.fetchQuery({
+        queryKey: ["/api/private"],
+        queryFn: getQueryFn({ on401: "throw" }),
+        staleTime: 0,
+      }),
+    ).rejects.toThrow("CancelledError");
+  });
+
+  await waitFor(() => expect(queryClient.getQueryData(["/api/user"])).toBeNull());
+  expect(queryClient.getQueryData(["/api/private"])).toBeUndefined();
+  expect(screen.queryByText("private page data")).toBeNull();
+  expect(screen.getByText("Sign-in page")).toBeTruthy();
+});
+
+it.each(["/api/login", "/api/auth/verify-password"])(
+  "keeps the session when %s returns 401 for invalid credentials",
+  async (url) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(401)));
+    queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+    queryClient.setQueryData(["/api/private"], { secret: "still private" });
+
+    await expect(apiRequest("POST", url, {})).rejects.toThrow("401:");
+
+    expect(queryClient.getQueryData(["/api/user"])).toEqual({
+      id: "alice",
+      isActive: true,
+    });
+    expect(queryClient.getQueryData(["/api/private"])).toEqual({
+      secret: "still private",
+    });
+  },
+);
+
+it("keeps the session when a protected endpoint denies permission", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(403)));
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "still private" });
+
+  await expect(apiRequest("GET", "/api/private")).rejects.toThrow("403:");
+
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+  });
+  expect(queryClient.getQueryData(["/api/private"])).toEqual({
+    secret: "still private",
+  });
 });
 
 it.each([

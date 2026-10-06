@@ -1,5 +1,24 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const nonSessionUnauthorizedPaths = new Set([
+  "/api/login",
+  "/api/auth/verify-password",
+]);
+
+function clearPrivateDataForRevokedSession(url: string, status: number) {
+  const path = url.split(/[?#]/, 1)[0];
+  if (status !== 401 || nonSessionUnauthorizedPaths.has(path)) return;
+  if (!queryClient.getQueryData(["/api/user"])) return;
+
+  // Update auth state first so protected routes unmount immediately, then
+  // discard every other cached response from the revoked session.
+  queryClient.setQueryData(["/api/user"], null);
+  queryClient.removeQueries({
+    predicate: (query) => query.queryKey[0] !== "/api/user",
+  });
+  queryClient.getMutationCache().clear();
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -19,6 +38,7 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  clearPrivateDataForRevokedSession(url, res.status);
   await throwIfResNotOk(res);
   return res;
 }
@@ -33,6 +53,7 @@ export const getQueryFn: <T>(options: {
       credentials: "include",
     });
 
+    clearPrivateDataForRevokedSession(queryKey.join("/") as string, res.status);
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
     }
