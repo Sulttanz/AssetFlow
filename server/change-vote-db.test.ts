@@ -347,6 +347,105 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     }
   });
 
+  it("recalculates status after concurrent removals leave only approved CAB members", async () => {
+    const managerAId = randomUUID();
+    const managerBId = randomUUID();
+    const approvedVoterId = randomUUID();
+    const pendingVoterAId = randomUUID();
+    const pendingVoterBId = randomUUID();
+    const changeId = randomUUID();
+    const approvedId = randomUUID();
+    const pendingAId = randomUUID();
+    const pendingBId = randomUUID();
+    await db.insert(users).values([
+      { id: managerAId, username: `manager-${managerAId}`, email: `${managerAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager A" },
+      { id: managerBId, username: `manager-${managerBId}`, email: `${managerBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager B" },
+      { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+      { id: pendingVoterAId, username: `voter-${pendingVoterAId}`, email: `${pendingVoterAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+      { id: pendingVoterBId, username: `voter-${pendingVoterBId}`, email: `${pendingVoterBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent CAB member removals",
+      status: "submitted",
+    });
+    await db.insert(changeApprovals).values([
+      { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+        approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() },
+      { id: pendingAId, changeId, approverId: pendingVoterAId, originalApproverId: pendingVoterAId,
+        approverLabel: "CAB Approver", decision: "pending" },
+      { id: pendingBId, changeId, approverId: pendingVoterBId, originalApproverId: pendingVoterBId,
+        approverLabel: "CAB Approver", decision: "pending" },
+    ]);
+
+    // Both requests must pass their route-level membership read before either
+    // removal reaches storage, then enter the real database operation together.
+    const originalRead = storage.getChangeApprovals.bind(storage);
+    let readCount = 0;
+    let releaseReads!: () => void;
+    const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
+    const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+      const rows = await originalRead(id);
+      if (id === changeId && readCount < 2) {
+        if (++readCount === 2) releaseReads();
+        await bothRead;
+      }
+      return rows;
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+    const originalRemove = storage.removeChangeApproval.bind(storage);
+    let removalCount = 0;
+    let releaseRemovals!: () => void;
+    const bothRemovals = new Promise<void>(resolve => { releaseRemovals = resolve; });
+    const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+      if (++removalCount === 2) releaseRemovals();
+      await bothRemovals;
+      return originalRemove(...args);
+    });
+
+    try {
+      const remove = (approvalId: string, managerId: string) => fetch(
+        `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`,
+        { method: "DELETE", headers: { "x-test-user": managerId } },
+      );
+      const responses = await Promise.all([
+        remove(pendingAId, managerAId),
+        remove(pendingBId, managerBId),
+      ]);
+      expect(readCount).toBe(2);
+      expect(removalCount).toBe(2);
+      expect(responses.map(response => response.status)).toEqual([200, 200]);
+      expect(await Promise.all(responses.map(response => response.json())))
+        .toEqual([{ success: true }, { success: true }]);
+
+      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(history).toHaveLength(3);
+      expect(history.find(row => row.id === pendingAId))
+        .toMatchObject({ decision: "pending", removedById: managerAId });
+      expect(history.find(row => row.id === pendingBId))
+        .toMatchObject({ decision: "pending", removedById: managerBId });
+      expect(history.find(row => row.id === pendingAId)?.removedAt).toBeInstanceOf(Date);
+      expect(history.find(row => row.id === pendingBId)?.removedAt).toBeInstanceOf(Date);
+      const active = await storage.getChangeApprovals(changeId);
+      expect(active.map(row => row.id)).toEqual([approvedId]);
+      expect(active[0].decision).toBe("approved");
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange.status).toBe("approved");
+      expect(savedChange.approvedAt).toBeInstanceOf(Date);
+    } finally {
+      readSpy.mockRestore();
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+      removeSpy.mockRestore();
+    }
+  }, 15_000);
+
   it("keeps an opted-in change unapproved when removing its final pending assignment leaves no active voters", async () => {
     const managerId = randomUUID();
     const pendingVoterId = randomUUID();
