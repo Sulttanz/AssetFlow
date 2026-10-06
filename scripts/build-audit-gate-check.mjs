@@ -41,12 +41,16 @@ function getDeploymentBuildCommand(configText) {
 assert.deepEqual(
   getDeploymentBuildCommand(replitConfig).slice(0, 3),
   ["npm", "run", "build"],
-  ".replit deployment build command must invoke npm run build so its prebuild audit gate runs",
+  ".replit deployment build command must invoke the audited npm run build script",
 );
 
 try {
-  assert.ok(packageJson.scripts.prebuild, "package.json must define the prebuild audit gate");
   assert.ok(packageJson.scripts["audit:security"], "package.json must define the security audit");
+  assert.match(
+    packageJson.scripts.build,
+    /^npm run audit:security && /,
+    "package.json build script must invoke the security audit directly instead of relying on lifecycle hooks",
+  );
   await Promise.all([
     mkdir(fixtureDir, { recursive: true }),
     mkdir(shimDir, { recursive: true }),
@@ -57,15 +61,19 @@ try {
     private: true,
     type: "module",
     scripts: {
-      prebuild: packageJson.scripts.prebuild,
       "audit:security": packageJson.scripts["audit:security"],
-      build: "node build-marker.mjs",
+      build: packageJson.scripts.build,
     },
   }, null, 2));
-  await writeFile(path.join(fixtureDir, "build-marker.mjs"), `
+  const buildMarkerShim = `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
-writeFileSync("build-ran", "build script ran");
-`);
+writeFileSync(process.env.BUILD_AUDIT_GATE_BUILD_MARKER, "build script ran");
+`;
+  for (const buildTool of ["vite", "esbuild"]) {
+    const shimPath = path.join(shimDir, buildTool);
+    await writeFile(shimPath, buildMarkerShim);
+    await chmod(shimPath, 0o755);
+  }
   await writeFile(npmShim, `#!/usr/bin/env node
 const { appendFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
@@ -98,9 +106,10 @@ process.exit(result.status ?? 1);
       BUILD_AUDIT_GATE_LOG: auditLog,
       BUILD_AUDIT_GATE_REAL_NPM: npmExecutable,
       BUILD_AUDIT_GATE_STATUS: String(auditStatus),
+      BUILD_AUDIT_GATE_BUILD_MARKER: buildMarker,
+      npm_config_ignore_scripts: "true",
+      NPM_CONFIG_IGNORE_SCRIPTS: "true",
     };
-    delete env.npm_config_ignore_scripts;
-    delete env.NPM_CONFIG_IGNORE_SCRIPTS;
 
     const result = spawnSync(npmExecutable, ["run", "build"], {
       cwd: fixtureDir,

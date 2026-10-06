@@ -7,4 +7,4 @@ Direct edits to .replit are rejected by the workspace's schema-validation guard.
 
 **Why:** Validating the complete TOML before replacement prevents malformed deployment or workflow configuration from being applied.
 
-**How to apply:** Use the verified replacement callback for .replit changes. If that route is unavailable, check whether the desired behavior belongs in an existing command's lifecycle hook; npm prebuild only protects builds invoked through npm run build.
+**How to apply:** Use the verified replacement callback for .replit changes. For release checks that must run despite npm's `ignore-scripts` setting, invoke the check explicitly in the main build script rather than relying on a `prebuild` or `postbuild` lifecycle hook.
