@@ -4363,6 +4363,8 @@ export class DatabaseStorage implements IStorage {
       const active = await tx.select({ decision: changeApprovals.decision })
         .from(changeApprovals)
         .where(and(eq(changeApprovals.changeId, target.changeId), isNull(changeApprovals.removedAt)));
+      // An empty active roster is not unanimous approval. Keep the change
+      // unapproved until at least one active CAB voter remains.
       if (active.some(a => a.decision === "rejected")) {
         await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
           .where(eq(changes.id, target.changeId));
