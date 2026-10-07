@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess } from "./auth";
+import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, invalidateUserSessions } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
@@ -208,6 +208,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get old user for audit log
       const oldUser = await storage.getUser(req.params.id);
+
+      // Revoke persisted sessions before deactivating so a failure cannot leave
+      // old sessions available to be restored by a later reactivation.
+      if (oldUser?.isActive && validatedData.isActive === false) {
+        await invalidateUserSessions(req.params.id);
+      }
       
       // Hash password if it's being updated
       let updateData = validatedData;

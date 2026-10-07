@@ -172,6 +172,13 @@ export function setupAuth(app: Express) {
   });
 }
 
+export async function invalidateUserSessions(userId: string): Promise<void> {
+  await pool.query(
+    `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
+    [userId],
+  );
+}
+
 // Authentication middleware
 export function requireAuth(req: any, res: any, next: any) {
   if (req.isAuthenticated()) return next();
