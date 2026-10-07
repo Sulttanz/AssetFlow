@@ -1,6 +1,11 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import ws from "ws";
 import { changeApprovals, changes } from "@shared/schema";
 
 const database = vi.hoisted(() => ({
@@ -22,9 +27,15 @@ describe("CAB alert storage query", () => {
   let query: {
     selection?: Record<string, unknown>;
     source?: unknown;
-    joins?: { table: unknown; sql: string }[];
+    joins?: {
+      table: unknown;
+      condition: Parameters<typeof dialect.sqlToQuery>[0];
+      sql: string;
+    }[];
+    whereCondition?: Parameters<typeof dialect.sqlToQuery>[0];
     whereSql?: string;
     whereParams?: unknown[];
+    orderByConditions?: Parameters<typeof dialect.sqlToQuery>[0][];
     orderBySql?: string[];
   };
 
@@ -40,16 +51,18 @@ describe("CAB alert storage query", () => {
         },
         innerJoin(table: unknown, condition: Parameters<typeof dialect.sqlToQuery>[0]) {
           query.joins ??= [];
-          query.joins.push({ table, sql: dialect.sqlToQuery(condition).sql });
+          query.joins.push({ table, condition, sql: dialect.sqlToQuery(condition).sql });
           return builder;
         },
         where(condition: Parameters<typeof dialect.sqlToQuery>[0]) {
+          query.whereCondition = condition;
           const compiled = dialect.sqlToQuery(condition);
           query.whereSql = compiled.sql;
           query.whereParams = compiled.params;
           return builder;
         },
         orderBy(...ordering: Parameters<typeof dialect.sqlToQuery>[0][]) {
+          query.orderByConditions = ordering;
           query.orderBySql = ordering.map(item => dialect.sqlToQuery(item).sql);
           return builder;
         },
@@ -110,4 +123,143 @@ describe("CAB alert storage query", () => {
     expect(query.orderBySql?.join(" ")).toContain('"changes"."created_at"');
     expect(query.orderBySql?.join(" ")).toContain('"changes"."id"');
   });
+
+  describe("PostgreSQL query plan", () => {
+    const schema = `cab_alert_plan_${randomUUID().replace(/-/g, "")}`;
+    const databaseUrl = process.env.DATABASE_URL;
+    let setupPool: Pool | undefined;
+    let plannerPool: Pool | undefined;
+
+    beforeAll(async () => {
+      if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB alert planner test");
+      neonConfig.webSocketConstructor = ws;
+      setupPool = new Pool({ connectionString: databaseUrl });
+      await setupPool.query(`CREATE SCHEMA "${schema}"`);
+
+      const isolatedUrl = new URL(databaseUrl);
+      isolatedUrl.searchParams.set("options", `-c search_path=${schema}`);
+      plannerPool = new Pool({ connectionString: isolatedUrl.toString() });
+
+      await plannerPool.query(`
+        CREATE TABLE changes (
+          id varchar PRIMARY KEY,
+          change_number text NOT NULL,
+          title text NOT NULL,
+          type text NOT NULL,
+          created_at timestamp NOT NULL
+        );
+        CREATE TABLE change_approvals (
+          id varchar PRIMARY KEY,
+          change_id varchar NOT NULL,
+          approver_id varchar,
+          decision text,
+          removed_at timestamp
+        )
+      `);
+
+      const indexMigration = await readFile(
+        new URL("../migrations/20261004_cab_pending_approver_lookup_idx.sql", import.meta.url),
+        "utf8",
+      );
+      await plannerPool.query(indexMigration);
+
+      // Model a large approval history: multiple votes per change, many
+      // approvers, completed and removed assignments, plus legacy NULL votes.
+      await plannerPool.query(`
+        INSERT INTO changes (id, change_number, title, type, created_at)
+        SELECT
+          'change-' || change_id,
+          'CHG-' || lpad(change_id::text, 6, '0'),
+          'Historical CAB change ' || change_id,
+          CASE WHEN change_id % 7 = 0 THEN 'emergency' ELSE 'normal' END,
+          now() - (change_id || ' minutes')::interval
+        FROM generate_series(1, 15000) AS change_rows(change_id);
+
+        INSERT INTO change_approvals (id, change_id, approver_id, decision, removed_at)
+        SELECT
+          'approval-' || approval_no,
+          'change-' || (((approval_no - 1) / 4) + 1),
+          CASE
+            WHEN approval_no <= 3 THEN 'selective-target'
+            ELSE 'reviewer-' || (approval_no % 256)
+          END,
+          CASE
+            WHEN approval_no = 2 THEN NULL
+            WHEN approval_no <= 3 THEN 'pending'
+            WHEN approval_no % 5 = 0 THEN 'pending'
+            WHEN approval_no % 5 = 1 THEN NULL
+            WHEN approval_no % 2 = 0 THEN 'approved'
+            ELSE 'rejected'
+          END,
+          CASE WHEN approval_no % 19 = 0 THEN now() ELSE NULL END
+        FROM generate_series(1, 60000) AS approval_rows(approval_no);
+
+        ANALYZE changes;
+        ANALYZE change_approvals
+      `);
+    });
+
+    afterAll(async () => {
+      try {
+        await plannerPool?.end();
+      } finally {
+        if (setupPool) {
+          try {
+            await setupPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+          } finally {
+            await setupPool.end();
+          }
+        }
+      }
+    });
+
+    it("uses the pending-approver index for a selective lookup over approval history", async () => {
+      if (!plannerPool) throw new Error("CAB alert planner database was not initialized");
+
+      // Capture the selection, joins, filters, and sort expressions used by
+      // the storage method, then compile that query with a real Drizzle client.
+      await new DatabaseStorage().getPendingCabAlertChanges("selective-target");
+      expect(query.joins).toHaveLength(1);
+      expect(query.whereParams?.[0]).toBe("selective-target");
+      expect(query.selection).toBeDefined();
+      expect(query.source).toBe(changes);
+      expect(query.whereCondition).toBeDefined();
+      expect(query.orderByConditions).toHaveLength(2);
+
+      const queryDatabase = drizzle({ client: plannerPool, schema: { changes, changeApprovals } });
+      const join = query.joins![0]!;
+      const alertQuery = queryDatabase
+        .selectDistinct(query.selection as never)
+        .from(query.source as typeof changes)
+        .innerJoin(join.table as typeof changeApprovals, join.condition as never)
+        .where(query.whereCondition as never)
+        .orderBy(...(query.orderByConditions as never[]));
+      const compiled = alertQuery.toSQL();
+      const result = await plannerPool.query(
+        `EXPLAIN (FORMAT JSON) ${compiled.sql}`,
+        compiled.params,
+      );
+      const explainJson = result.rows[0]?.["QUERY PLAN"] as unknown;
+      const [explain] = typeof explainJson === "string"
+        ? JSON.parse(explainJson) as { Plan: PlanNode }[]
+        : explainJson as { Plan: PlanNode }[];
+      const nodes = flattenPlan(explain.Plan);
+
+      expect(nodes.some(node => node["Index Name"] === "change_approvals_pending_approver_change_idx")).toBe(true);
+      expect(nodes.some(
+        node => node["Node Type"] === "Seq Scan" && node["Relation Name"] === "change_approvals",
+      )).toBe(false);
+    });
+  });
 });
+
+type PlanNode = {
+  "Node Type": string;
+  "Relation Name"?: string;
+  "Index Name"?: string;
+  Plans?: PlanNode[];
+};
+
+function flattenPlan(node: PlanNode): PlanNode[] {
+  return [node, ...(node.Plans ?? []).flatMap(flattenPlan)];
+}
