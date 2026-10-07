@@ -7,7 +7,7 @@ const store = vi.hoisted(() => ({ getUser: vi.fn(), getModuleSetting: vi.fn() })
 vi.mock("./storage", () => ({ storage: store }));
 vi.mock("./db", () => ({ pool: {} }));
 
-import { cabStreamHasAccess } from "./auth";
+import { cabStreamHasAccess, cabStreamHasActiveAccount } from "./auth";
 
 describe("CAB stream access", () => {
   let saved: SessionData | null;
@@ -43,6 +43,12 @@ describe("CAB stream access", () => {
     expect(await cabStreamHasAccess(req, "alice")).toBe(false);
     store.getModuleSetting.mockResolvedValueOnce({ enabled: false });
     expect(await cabStreamHasAccess(req, "alice")).toBe(false);
+  });
+
+  it("keeps a signed-in active account eligible for access-restoration signals while ITSM is disabled", async () => {
+    store.getModuleSetting.mockResolvedValueOnce({ enabled: false });
+    expect(await cabStreamHasActiveAccount(req, "alice")).toBe(true);
+    expect(store.getModuleSetting).not.toHaveBeenCalled();
   });
 
   it("fails closed when session storage is unavailable", async () => {

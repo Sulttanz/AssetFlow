@@ -187,7 +187,7 @@ export function requireAuth(req: any, res: any, next: any) {
 
 // A streaming request keeps its original req.session and req.user in memory.
 // Re-read the backing store so logout, expiration, and account revocation take effect.
-export async function cabStreamHasAccess(req: Request, userId: string): Promise<boolean> {
+export async function cabStreamHasActiveAccount(req: Request, userId: string): Promise<boolean> {
   const savedSession = await new Promise<session.SessionData | null>((resolve, reject) => {
     req.sessionStore.get(req.sessionID, (error, value) => {
       if (error) reject(error);
@@ -199,7 +199,11 @@ export async function cabStreamHasAccess(req: Request, userId: string): Promise<
   const expires = savedSession.cookie?.expires;
   if (expires && new Date(expires).getTime() <= Date.now()) return false;
   const user = await storage.getUser(userId);
-  if (!user?.isActive) return false;
+  return Boolean(user?.isActive);
+}
+
+export async function cabStreamHasAccess(req: Request, userId: string): Promise<boolean> {
+  if (!await cabStreamHasActiveAccount(req, userId)) return false;
   const module = await storage.getModuleSetting("itsm");
   return module ? module.enabled : true;
 }

@@ -175,7 +175,7 @@ it.each([
   expect(fetchAccess.mock.calls.map(([url]) => url)).toEqual(
     modules ? ["/api/user", "/api/module-settings"] : ["/api/user"],
   );
-  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(FakeEventSource.instances).toHaveLength(modules ? 2 : 1);
 });
 
 it("reopens the CAB stream after ITSM is restored without retrying while disabled", async () => {
@@ -192,7 +192,8 @@ it("reopens the CAB stream after ITSM is restored without retrying while disable
   firstStream.dispatchEvent(new Event("error"));
   await flushAsyncWork();
   expect(firstStream.close).toHaveBeenCalledOnce();
-  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(FakeEventSource.instances[1].url).toBe("/api/module-settings/events");
   expect(fetchAccess).toHaveBeenCalledTimes(2);
 
   await act(async () => {
@@ -200,16 +201,64 @@ it("reopens the CAB stream after ITSM is restored without retrying while disable
   });
   await flushAsyncWork();
   expect(fetchAccess).toHaveBeenCalledTimes(3);
-  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(FakeEventSource.instances).toHaveLength(2);
   expect(firstStream.close).toHaveBeenCalledOnce();
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(30_000);
   });
   await flushAsyncWork();
-  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(FakeEventSource.instances).toHaveLength(3);
   expect(fetchAccess).toHaveBeenCalledTimes(5);
-  expect(FakeEventSource.instances[1].url).toBe("/api/changes/events");
+  expect(FakeEventSource.instances[1].close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
+});
+
+it("reopens the CAB stream promptly after an ITSM-enabled signal", async () => {
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: true }]))
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }));
+  vi.stubGlobal("fetch", fetchAccess);
+  const cabStream = renderAuthWithStream();
+
+  cabStream.dispatchEvent(new Event("error"));
+  await flushAsyncWork();
+  const accessStream = FakeEventSource.instances[1];
+  expect(accessStream.url).toBe("/api/module-settings/events");
+  expect(FakeEventSource.instances).toHaveLength(2);
+
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  await flushAsyncWork();
+
+  expect(fetchAccess).toHaveBeenCalledTimes(4);
+  expect(accessStream.close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances).toHaveLength(3);
+  expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
+});
+
+it.each([
+  { name: "a different signed-in account", currentUser: { id: "bob", isActive: true } },
+  { name: "an inactive account", currentUser: { id: "alice", isActive: false } },
+])("does not reopen the CAB stream for $name after an ITSM-enabled signal", async ({ currentUser }) => {
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: true }]))
+    .mockResolvedValueOnce(response(200, currentUser));
+  vi.stubGlobal("fetch", fetchAccess);
+  const cabStream = renderAuthWithStream();
+
+  cabStream.dispatchEvent(new Event("error"));
+  await flushAsyncWork();
+  const accessStream = FakeEventSource.instances[1];
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  await flushAsyncWork();
+
+  expect(accessStream.close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(fetchAccess).toHaveBeenCalledTimes(4);
 });
 
 it("keeps the stream alive after a temporary check failure and reconciles on reconnect", async () => {

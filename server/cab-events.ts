@@ -5,9 +5,11 @@ import { pool } from "./db";
 
 // Notifications contain no CAB data. The API remains the source of truth.
 const channel = "cab_changes";
+const accessChannel = "cab_access";
 const instanceId = randomUUID();
 const drainTimeoutMs = 10_000;
 const changeEvent = "event: cab-change\ndata: {}\n\n";
+const itsmEnabledEvent = "event: itsm-enabled\ndata: {}\n\n";
 const maxStreamsPerUser = 6;
 const maxStreamsPerSession = 3;
 const streamLeaseDurationMs = 90_000;
@@ -17,8 +19,10 @@ type Subscriber = {
   userId: string;
   sessionId: string;
   leaseId: string;
+  eventType: "cab" | "access";
   blocked: boolean;
   pendingChange: boolean;
+  pendingItsmEnabled: boolean;
   drainTimer?: ReturnType<typeof setTimeout>;
   onDrain: () => void;
   onClose: () => void;
@@ -132,6 +136,7 @@ function send(subscriber: Subscriber, message: string): void {
   }
   if (subscriber.blocked) {
     if (message === changeEvent) subscriber.pendingChange = true;
+    if (message === itsmEnabledEvent) subscriber.pendingItsmEnabled = true;
     return;
   }
   try {
@@ -146,7 +151,15 @@ function send(subscriber: Subscriber, message: string): void {
 }
 
 function broadcast(): void {
-  subscribers.forEach(subscriber => send(subscriber, changeEvent));
+  subscribers.forEach(subscriber => {
+    if (subscriber.eventType === "cab") send(subscriber, changeEvent);
+  });
+}
+
+function broadcastItsmEnabled(): void {
+  subscribers.forEach(subscriber => {
+    if (subscriber.eventType === "access") send(subscriber, itsmEnabledEvent);
+  });
 }
 
 // Neon transaction-pooler endpoints cannot hold a LISTEN subscription. Use
@@ -185,12 +198,15 @@ async function connectListener(): Promise<void> {
   client.on("error", reconnect);
   client.on("end", () => reconnect());
   client.on("notification", notification => {
-    if (notification.channel === channel && notification.payload !== instanceId) broadcast();
+    if (notification.payload === instanceId) return;
+    if (notification.channel === channel) broadcast();
+    if (notification.channel === accessChannel) broadcastItsmEnabled();
   });
   try {
     await client.connect();
     if (disconnected) return;
     await client.query(`LISTEN ${channel}`);
+    await client.query(`LISTEN ${accessChannel}`);
     if (disconnected) return;
     retryDelay = 1000;
     // Reconcile streams that stayed open while the shared listener was offline.
@@ -212,7 +228,24 @@ export function startCabEventListener(): void {
 // lease makes both limits account-wide across app replicas.
 export async function subscribeToCabEvents(
   res: Response, userId: string, sessionId: string,
-): Promise<((() => Promise<void>) & { sendHeartbeat: () => void; renewLease: () => Promise<boolean> }) | null> {
+): Promise<CabEventSubscription | null> {
+  return subscribeToEventStream(res, userId, sessionId, "cab");
+}
+
+export async function subscribeToItsmAccessEvents(
+  res: Response, userId: string, sessionId: string,
+): Promise<CabEventSubscription | null> {
+  return subscribeToEventStream(res, userId, sessionId, "access");
+}
+
+type CabEventSubscription = (() => Promise<void>) & {
+  sendHeartbeat: () => void;
+  renewLease: () => Promise<boolean>;
+};
+
+async function subscribeToEventStream(
+  res: Response, userId: string, sessionId: string, eventType: Subscriber["eventType"],
+): Promise<CabEventSubscription | null> {
   const userStreams = streamsByUser.get(userId);
   if (res.destroyed || res.writableEnded ||
       (userStreams?.size ?? 0) >= maxStreamsPerUser ||
@@ -230,8 +263,10 @@ export async function subscribeToCabEvents(
     userId,
     sessionId,
     leaseId,
+    eventType,
     blocked: false,
     pendingChange: false,
+    pendingItsmEnabled: false,
     onClose: () => {
       void removeSubscriber(subscriber);
     },
@@ -243,6 +278,10 @@ export async function subscribeToCabEvents(
       if (subscriber.pendingChange) {
         subscriber.pendingChange = false;
         send(subscriber, changeEvent);
+      }
+      if (subscriber.pendingItsmEnabled) {
+        subscriber.pendingItsmEnabled = false;
+        send(subscriber, itsmEnabledEvent);
       }
     },
   };
@@ -266,5 +305,16 @@ export async function publishCabChange(): Promise<void> {
   } catch (error) {
     // The write already succeeded; polling and reconnect will reconcile.
     console.error("Failed to publish CAB notification:", error);
+  }
+}
+
+export async function publishItsmEnabled(): Promise<void> {
+  broadcastItsmEnabled();
+  try {
+    await pool.query("SELECT pg_notify($1, $2)", [accessChannel, instanceId]);
+  } catch (error) {
+    // The setting write already succeeded; paused clients still have polling as
+    // a fallback if the shared notification transport is unavailable.
+    console.error("Failed to publish ITSM access notification:", error);
   }
 }

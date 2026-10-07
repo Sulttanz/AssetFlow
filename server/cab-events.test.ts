@@ -11,7 +11,12 @@ const mockDatabase = vi.hoisted(() => ({
 }));
 vi.mock("./db", () => ({ pool: { query: mockDatabase.query, connect: mockDatabase.connect } }));
 
-import { publishCabChange, subscribeToCabEvents } from "./cab-events";
+import {
+  publishCabChange,
+  publishItsmEnabled,
+  subscribeToCabEvents,
+  subscribeToItsmAccessEvents,
+} from "./cab-events";
 
 class TestResponse extends EventEmitter {
   destroyed = false;
@@ -31,6 +36,7 @@ class TestResponse extends EventEmitter {
 }
 
 const event = "event: cab-change\ndata: {}\n\n";
+const accessEvent = "event: itsm-enabled\ndata: {}\n\n";
 const response = () => new TestResponse();
 const subscribe = async (res: TestResponse, userId = "test-user", sessionId = randomUUID()) => {
   const stream = await subscribeToCabEvents(res as unknown as Response, userId, sessionId);
@@ -281,4 +287,29 @@ describe("CAB stream connection limits", () => {
       vi.useRealTimers();
     }
   });
+});
+
+it("sends ITSM restoration signals only to paused access streams", async () => {
+  const cabResponse = response();
+  const accessResponse = response();
+  const releaseCab = await subscribe(cabResponse);
+  const accessStream = await subscribeToItsmAccessEvents(
+    accessResponse as unknown as Response,
+    "paused-user",
+    randomUUID(),
+  );
+  if (!accessStream) throw new Error("Unexpected access stream limit");
+
+  try {
+    await publishItsmEnabled();
+    expect(cabResponse.write).not.toHaveBeenCalled();
+    expect(accessResponse.write).toHaveBeenCalledWith(accessEvent);
+    expect(mockDatabase.query).toHaveBeenCalledWith(
+      "SELECT pg_notify($1, $2)",
+      ["cab_access", expect.any(String)],
+    );
+  } finally {
+    await releaseCab();
+    await accessStream();
+  }
 });

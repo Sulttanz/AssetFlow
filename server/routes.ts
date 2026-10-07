@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, invalidateUserSessions } from "./auth";
+import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
@@ -19,7 +19,7 @@ import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { publishCabChange, subscribeToCabEvents } from "./cab-events";
+import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
 import { cabApprovalsGranted } from "./cab-gate";
 
 // Column order is part of the import format; both template and export use it.
@@ -145,6 +145,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
   await ensureItsmPermissions();
+
+  const createCabEventStreamHandler = (eventType: "cab" | "access") =>
+    async (req: any, res: any) => {
+      let unsubscribe: Awaited<ReturnType<typeof subscribeToCabEvents>>;
+      try {
+        unsubscribe = eventType === "access"
+          ? await subscribeToItsmAccessEvents(res, req.user!.id, req.sessionID)
+          : await subscribeToCabEvents(res, req.user!.id, req.sessionID);
+      } catch (error) {
+        console.error("Failed to reserve CAB alert connection:", error);
+        return res.status(503).json({ message: "CAB alert connections are temporarily unavailable" });
+      }
+      if (!unsubscribe) {
+        res.setHeader("Retry-After", "5");
+        return res.status(429).json({ message: "Too many CAB alert connections for this account" });
+      }
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let closed = false;
+      const cleanup = () => {
+        closed = true;
+        if (timer) clearTimeout(timer);
+        unsubscribe();
+      };
+      res.on("close", cleanup);
+      const userId = req.user!.id;
+      const heartbeat = async () => {
+        try {
+          const hasAccess = eventType === "access"
+            ? await cabStreamHasActiveAccount(req, userId)
+            : await cabStreamHasAccess(req, userId);
+          if (!hasAccess) {
+            if (!closed) res.end();
+            return;
+          }
+          if (closed) return;
+          if (!await unsubscribe.renewLease()) {
+            if (!closed) res.end();
+            return;
+          }
+          if (closed) return;
+          unsubscribe.sendHeartbeat();
+          timer = setTimeout(heartbeat, 25_000);
+        } catch (error) {
+          console.error("Failed to verify CAB stream access:", error);
+          if (!closed) res.end();
+        }
+      };
+      timer = setTimeout(heartbeat, 25_000);
+    };
+
+  const cabEventsHandler = createCabEventStreamHandler("cab");
+  const cabAccessEventsHandler = createCabEventStreamHandler("access");
 
   // --------------------
   // USER MANAGEMENT ROUTES
@@ -4301,6 +4357,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // This authenticated stream remains available while ITSM is disabled so
+  // paused clients can hear when access is restored.
+  app.get("/api/module-settings/events", requireAuth, cabAccessEventsHandler);
+
   app.put("/api/module-settings/:moduleKey", requireAuth, requirePermission('system_admin'), async (req: any, res) => {
     try {
       const { moduleKey } = req.params;
@@ -4320,6 +4380,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const updatedBy = req.user?.id;
       const setting = await storage.updateModuleSetting(moduleKey, enabled, updatedBy);
+      if (moduleKey === "itsm" && enabled) {
+        await publishItsmEnabled();
+      }
       res.json(setting);
     } catch (error) {
       res.status(500).json({ message: "Failed to update module setting" });
@@ -5364,52 +5427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Change Management ────────────────────────────────────────────────────
-  app.get("/api/changes/events", requireAuth, requireModule("itsm"), async (req, res) => {
-    let unsubscribe: Awaited<ReturnType<typeof subscribeToCabEvents>>;
-    try {
-      unsubscribe = await subscribeToCabEvents(res, req.user!.id, req.sessionID);
-    } catch (error) {
-      console.error("Failed to reserve CAB alert connection:", error);
-      return res.status(503).json({ message: "CAB alert connections are temporarily unavailable" });
-    }
-    if (!unsubscribe) {
-      res.setHeader("Retry-After", "5");
-      return res.status(429).json({ message: "Too many CAB alert connections for this account" });
-    }
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let closed = false;
-    const cleanup = () => {
-      closed = true;
-      if (timer) clearTimeout(timer);
-      unsubscribe();
-    };
-    res.on("close", cleanup);
-    const userId = req.user!.id;
-    const heartbeat = async () => {
-      try {
-        if (!await cabStreamHasAccess(req, userId)) {
-          if (!closed) res.end();
-          return;
-        }
-        if (closed) return;
-        if (!await unsubscribe.renewLease()) {
-          if (!closed) res.end();
-          return;
-        }
-        if (closed) return;
-        unsubscribe.sendHeartbeat();
-        timer = setTimeout(heartbeat, 25_000);
-      } catch (error) {
-        console.error("Failed to verify CAB stream access:", error);
-        if (!closed) res.end();
-      }
-    };
-    timer = setTimeout(heartbeat, 25_000);
-  });
+  app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try {

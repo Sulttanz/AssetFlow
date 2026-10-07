@@ -7,6 +7,7 @@ const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
+  updateModuleSetting: vi.fn(),
   getChangeApprovals: vi.fn(),
   getChange: vi.fn(),
   updateChangeApproval: vi.fn(),
@@ -14,7 +15,8 @@ const store = vi.hoisted(() => ({
 }));
 
 vi.mock("./storage", () => ({ storage: store }));
-vi.mock("./db", () => ({ db: {} }));
+const notificationQuery = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+vi.mock("./db", () => ({ db: {}, pool: { query: notificationQuery } }));
 vi.mock("./auth", () => ({
   setupAuth: (app: express.Express) => {
     app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
@@ -58,6 +60,7 @@ describe("CAB change routes", () => {
     ]);
     store.getRolesWithDetails.mockResolvedValue([]);
     store.getModuleSetting.mockResolvedValue(undefined);
+    store.updateModuleSetting.mockResolvedValue({ moduleKey: "itsm", enabled: true });
     const app = express();
     app.use(express.json());
     server = await registerRoutes(app);
@@ -75,6 +78,7 @@ describe("CAB change routes", () => {
     vi.clearAllMocks();
     votes = [{ id: "vote-1", changeId: "change-1", approverId: "alice", decision: "pending", comments: null, decidedAt: null }];
     store.getModuleSetting.mockResolvedValue(undefined);
+    store.updateModuleSetting.mockResolvedValue({ moduleKey: "itsm", enabled: true });
     store.getChangeApprovals.mockImplementation(async (changeId: string) => votes.filter(v => v.changeId === changeId));
     store.updateChangeApproval.mockImplementation(async (changeId: string, id: string, decision: string, comments?: string) => {
       const vote = votes.find(v => v.changeId === changeId && v.id === id && v.approverId !== null && (v.decision === "pending" || v.decision === null));
@@ -93,6 +97,54 @@ describe("CAB change routes", () => {
     });
     return { status: response.status, body: await response.json() };
   }
+
+  it("publishes an ITSM-enabled signal after a successful enable update", async () => {
+    notificationQuery.mockClear();
+
+    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": "admin" },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(notificationQuery).toHaveBeenCalledWith(
+      "SELECT pg_notify($1, $2)",
+      ["cab_access", expect.any(String)],
+    );
+  });
+
+  it("signals paused clients when an enabled ITSM setting is saved again", async () => {
+    store.getModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: true });
+    notificationQuery.mockClear();
+
+    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": "admin" },
+      body: JSON.stringify({ enabled: true }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(notificationQuery).toHaveBeenCalledWith(
+      "SELECT pg_notify($1, $2)",
+      ["cab_access", expect.any(String)],
+    );
+  });
+
+  it("does not send restoration signals when ITSM is disabled", async () => {
+    store.getModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: true });
+    store.updateModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: false });
+    notificationQuery.mockClear();
+
+    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": "admin" },
+      body: JSON.stringify({ enabled: false }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(notificationQuery).not.toHaveBeenCalled();
+  });
 
   it("returns active, deleted-account, and removed CAB history from GET /api/changes/:id", async () => {
     const details = {

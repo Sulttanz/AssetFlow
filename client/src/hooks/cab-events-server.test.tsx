@@ -1,7 +1,13 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { Response } from "express";
-import { publishCabChange, startCabEventListener, subscribeToCabEvents } from "../../../server/cab-events";
+import {
+  publishCabChange,
+  publishItsmEnabled,
+  startCabEventListener,
+  subscribeToCabEvents,
+  subscribeToItsmAccessEvents,
+} from "../../../server/cab-events";
 
 const { query, connect, clients, leases } = vi.hoisted(() => ({
   query: vi.fn().mockResolvedValue({}),
@@ -93,15 +99,25 @@ it("fans out notifications from another server without echoing its own publish",
   await vi.waitFor(() => expect(client.query).toHaveBeenCalledWith("LISTEN cab_changes"));
   const stream = streamResponse();
   const unsubscribe = await subscribeToCabEvents(stream, "first", "session-1");
-  if (!unsubscribe) throw new Error("Expected CAB stream subscription");
+  const accessStream = streamResponse();
+  const unsubscribeAccess = await subscribeToItsmAccessEvents(accessStream, "second", "session-2");
+  if (!unsubscribe || !unsubscribeAccess) throw new Error("Expected CAB event stream subscriptions");
   try {
     client.emit("notification", { channel: "cab_changes", payload: "another-server" });
     expect(stream.write).toHaveBeenCalledOnce();
+    expect(accessStream.write).not.toHaveBeenCalled();
+    client.emit("notification", { channel: "cab_access", payload: "another-server" });
+    expect(accessStream.write).toHaveBeenCalledWith("event: itsm-enabled\ndata: {}\n\n");
     await publishCabChange();
     expect(stream.write).toHaveBeenCalledTimes(2);
     client.emit("notification", { channel: "cab_changes", payload: query.mock.calls.at(-1)![1][1] });
     expect(stream.write).toHaveBeenCalledTimes(2);
+    await publishItsmEnabled();
+    expect(accessStream.write).toHaveBeenCalledTimes(2);
+    client.emit("notification", { channel: "cab_access", payload: query.mock.calls.at(-1)![1][1] });
+    expect(accessStream.write).toHaveBeenCalledTimes(2);
   } finally {
     await unsubscribe();
+    await unsubscribeAccess();
   }
 });
