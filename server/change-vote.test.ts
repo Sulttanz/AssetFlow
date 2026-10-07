@@ -146,9 +146,27 @@ describe("CAB change routes", () => {
     expect(notificationQuery).not.toHaveBeenCalled();
   });
 
-  it("returns active, deleted-account, and removed CAB history from GET /api/changes/:id", async () => {
+  it("returns CAB history and deployment-stage timestamps from GET /api/changes/:id", async () => {
     const details = {
       id: "change-1",
+      stages: [
+        {
+          id: "completed-stage",
+          changeId: "change-1",
+          environment: "development",
+          status: "completed",
+          startedAt: "2026-06-02T10:00:00.000Z",
+          completedAt: "2026-06-02T10:30:00.000Z",
+        },
+        {
+          id: "failed-stage",
+          changeId: "change-1",
+          environment: "testing",
+          status: "failed",
+          startedAt: "2026-06-02T10:40:00.000Z",
+          completedAt: "2026-06-02T10:50:00.000Z",
+        },
+      ],
       approvals: [
         {
           id: "active-vote",
@@ -210,6 +228,22 @@ describe("CAB change routes", () => {
     expect(body.removedApproverIds).toEqual(["removed-user"]);
     expect(body.removedApprovals).toMatchObject([
       { id: "removed-assignment", approverId: null, originalApproverId: "removed-user", approverLabel: "Morgan Former", removedByLabel: "Taylor Manager" },
+    ]);
+    expect(body.stages).toMatchObject([
+      {
+        id: "completed-stage",
+        environment: "development",
+        status: "completed",
+        startedAt: "2026-06-02T10:00:00.000Z",
+        completedAt: "2026-06-02T10:30:00.000Z",
+      },
+      {
+        id: "failed-stage",
+        environment: "testing",
+        status: "failed",
+        startedAt: "2026-06-02T10:40:00.000Z",
+        completedAt: "2026-06-02T10:50:00.000Z",
+      },
     ]);
   });
 

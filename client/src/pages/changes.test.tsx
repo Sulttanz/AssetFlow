@@ -227,6 +227,52 @@ describe("change detail CAB approvals", () => {
     expect(within(panel).queryByRole("button")).toBeNull();
   });
 
+  it("renders deployment-stage history from the independent detail response when the list has none", async () => {
+    const listChange = change([]);
+    const stages: StageTimelineFixture[] = [
+      {
+        id: "completed-stage", environment: "development", status: "completed",
+        startedAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-02T10:30:00.000Z",
+      },
+      {
+        id: "failed-stage", environment: "testing", status: "failed",
+        startedAt: "2026-06-02T10:40:00.000Z", completedAt: "2026-06-02T10:50:00.000Z",
+      },
+    ];
+    const detailResponse = {
+      ...change([], [], [], stages),
+      title: "Detail-only deployment history",
+    };
+    queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [listChange], total: 1 });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/changes?")) {
+        return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+      }
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === "/api/changes/change-1") return { ok: true, json: async () => detailResponse };
+      if (url === "/api/users") return { ok: true, json: async () => [] };
+      if (url === "/api/departments") return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => [] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
+    await user.click(await screen.findByText("CAB review fixture"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/changes/change-1", { credentials: "include" }));
+    expect(await screen.findByText("Detail-only deployment history")).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    const timeline = screen.getByRole("tabpanel", { name: "Timeline" });
+    expect(within(timeline).getByText("Development started")).toBeTruthy();
+    expect(within(timeline).getByText("Development completed")).toBeTruthy();
+    expect(within(timeline).getByText("Testing started")).toBeTruthy();
+    expect(within(timeline).getByText("Testing failed")).toBeTruthy();
+    expect(timeline.textContent).toContain(format(new Date(stages[0].startedAt!), "MMM d, yyyy h:mm a"));
+    expect(timeline.textContent).toContain(format(new Date(stages[0].completedAt!), "MMM d, yyyy h:mm a"));
+    expect(timeline.textContent).toContain(format(new Date(stages[1].completedAt!), "MMM d, yyyy h:mm a"));
+  });
+
   it("keeps completed and failed prior attempts separate from the current retry", async () => {
     const stages = [
       {
