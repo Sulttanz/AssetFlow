@@ -115,6 +115,76 @@ describe("change list pages", () => {
   });
 });
 
+describe("CAB alert change links", () => {
+  it.each([
+    { viewerId: "alice", canVote: false },
+    { viewerId: "bob", canVote: true },
+  ])("opens a change outside the current page for $viewerId and only offers its assigned vote", async ({ viewerId, canVote }) => {
+    const changeId = "change-outside-page";
+    const listRecord = { ...change([]), id: "visible-page-record", title: "Visible page record" };
+    const pendingVote = {
+      ...approval("bob-pending-vote", "pending", "bob"),
+      changeId,
+      approverLabel: "Bob Reviewer",
+      approver: { id: "bob", username: "bob", firstName: "Bob", lastName: "Reviewer" },
+    };
+    const removedVote = {
+      ...approval("former-vote", "approved", "former-account"),
+      changeId,
+      approverId: null,
+      approver: undefined,
+      approverLabel: "Former Reviewer",
+      originalApproverId: "former-account",
+      removedAt: "2026-06-03T12:15:00.000Z",
+      removedById: null,
+      removedByLabel: "CAB Manager",
+    };
+    const detailResponse = {
+      ...change([pendingVote], ["former-account"], [removedVote]),
+      id: changeId,
+      changeNumber: "CHG-OUTSIDE",
+      title: "Outside-page CAB change",
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/changes?")) {
+        return { ok: true, json: async () => ({ changes: [listRecord], total: 26 }) };
+      }
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === `/api/changes/${changeId}`) return { ok: true, json: async () => detailResponse };
+      if (url === "/api/users") return { ok: true, json: async () => [
+        { id: "bob", username: "bob", firstName: "Bob", lastName: "Reviewer" },
+      ] };
+      if (url === "/api/departments") return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => [] };
+    });
+    auth.userId = viewerId;
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", `/changes?approval=${changeId}`);
+
+    render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
+
+    expect(await screen.findByText("Visible page record")).toBeTruthy();
+    expect(await screen.findByText("Outside-page CAB change")).toBeTruthy();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/changes/${changeId}`, { credentials: "include" }));
+
+    const approvalsTab = screen.getByRole("tab", { name: "Approvals (1)" });
+    await waitFor(() => expect(approvalsTab.getAttribute("aria-selected")).toBe("true"));
+    const panel = screen.getByRole("tabpanel", { name: "Approvals (1)" });
+    expect(within(panel).getByText("Bob Reviewer")).toBeTruthy();
+    expect(within(panel).getByRole("region", { name: "Removed CAB assignments" })).toBeTruthy();
+    expect(within(panel).getByText("Former Reviewer")).toBeTruthy();
+    expect(within(panel).getByText(/Removed .* by CAB Manager/)).toBeTruthy();
+
+    if (canVote) {
+      expect(within(panel).getByRole("button", { name: "Approve" })).toBeTruthy();
+      expect(within(panel).getByRole("button", { name: "Reject" })).toBeTruthy();
+    } else {
+      expect(within(panel).queryByRole("button", { name: "Approve" })).toBeNull();
+      expect(within(panel).queryByRole("button", { name: "Reject" })).toBeNull();
+    }
+  });
+});
+
 describe("change detail CAB approvals", () => {
   it("renders CAB history from the independent detail response, not the list snapshot", async () => {
     auth.isAdmin = true;
