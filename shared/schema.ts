@@ -1195,6 +1195,9 @@ export const changeApprovals = pgTable("change_approvals", {
   index("change_approvals_pending_approver_change_idx")
     .on(table.approverId, table.changeId)
     .where(sql`${table.removedAt} IS NULL AND (${table.decision} = 'pending' OR ${table.decision} IS NULL)`),
+  index("change_approvals_active_pending_count_idx")
+    .on(table.decision)
+    .where(sql`${table.removedAt} IS NULL AND ${table.decision} = 'pending'`),
 ]);
 
 // Environment deployment pipeline stages per change

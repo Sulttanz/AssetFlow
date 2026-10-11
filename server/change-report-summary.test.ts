@@ -72,8 +72,9 @@ describe("change report aggregates", () => {
       pendingApprovals: 8,
     });
     expect(queries.map(query => query.table)).toEqual([changes, changeApprovals]);
-    expect(queries[1]?.where).toContain("removed_at" + '"');
-    expect(queries[1]?.where).toContain("decision");
+    expect(queries[1]?.where).toContain('"change_approvals"."removed_at" is null');
+    expect(queries[1]?.where).toContain('"change_approvals"."decision" = $1');
+    expect(queries[1]?.where).not.toContain('"change_approvals"."decision" is null');
     expect(queries[1]?.params).toContain("pending");
     const monthSql = dialect.sqlToQuery(monthAggregate as Parameters<typeof dialect.sqlToQuery>[0]);
     expect(monthSql.sql).toContain("created_at");
