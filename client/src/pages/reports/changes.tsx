@@ -36,6 +36,30 @@ interface ChangeReportPage {
   summary: ChangeReportSummary;
 }
 
+type ExportAction = "Excel" | "PDF" | "Print";
+
+interface ExportFilters {
+  search: string;
+  status: string;
+  type: string;
+  risk: string;
+}
+
+interface ExportRequest {
+  action: ExportAction;
+  filters: ExportFilters;
+  matchingTotal: number;
+}
+
+interface ExportStatus {
+  action: ExportAction;
+  loaded: number;
+  total: number;
+  batch: number;
+  phase: "loading" | "printing" | "error";
+  error?: string;
+}
+
 const statusColors: Record<string, string> = {
   draft: "bg-gray-100 text-gray-800",
   submitted: "bg-blue-100 text-blue-800",
@@ -67,6 +91,9 @@ export default function ChangesReport() {
   const [riskFilter, setRiskFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
+  const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
+  const exportInProgress = useRef(false);
+  const retryRequest = useRef<ExportRequest | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -95,7 +122,11 @@ export default function ChangesReport() {
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
-    onAfterPrint: () => setPrintChanges(null),
+    onAfterPrint: () => {
+      setPrintChanges(null);
+      setExportStatus(null);
+      exportInProgress.current = false;
+    },
   });
   const records = report?.changes ?? [];
   const filtered = records;
@@ -110,90 +141,160 @@ export default function ChangesReport() {
     if (report && page > totalPages) setPage(totalPages);
   }, [report, page, totalPages]);
   useEffect(() => {
-    if (printChanges) handlePrint();
-  }, [printChanges, handlePrint]);
+    if (printChanges && exportStatus?.phase === "printing") {
+      try {
+        handlePrint();
+      } catch (error) {
+        exportInProgress.current = false;
+        setPrintChanges(null);
+        setExportStatus((current) => current ? {
+          ...current,
+          phase: "error",
+          error: error instanceof Error ? error.message : "Unable to open the print dialog.",
+        } : null);
+      }
+    }
+  }, [printChanges, exportStatus?.phase, handlePrint]);
   const displayedChanges = printChanges ?? filtered;
 
-  const loadAllMatchingChanges = async () => {
+  const loadAllMatchingChanges = async (
+    filters: ExportFilters,
+    initialTotal: number,
+    onProgress: (loaded: number, total: number, batch: number) => void,
+  ) => {
     const exportPageSize = 100;
     const params = new URLSearchParams({ pageSize: String(exportPageSize) });
-    if (debouncedSearch) params.set("search", debouncedSearch);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (typeFilter !== "all") params.set("type", typeFilter);
-    if (riskFilter !== "all") params.set("risk", riskFilter);
+    if (filters.search) params.set("search", filters.search);
+    if (filters.status !== "all") params.set("status", filters.status);
+    if (filters.type !== "all") params.set("type", filters.type);
+    if (filters.risk !== "all") params.set("risk", filters.risk);
 
     const allChanges: ChangeReportRow[] = [];
     let exportPage = 1;
-    let matchingTotal = 0;
+    let matchingTotal = initialTotal;
     do {
       params.set("page", String(exportPage));
       const response = await apiRequest("GET", `/api/reports/changes?${params}`);
       const result = await response.json() as ChangeReportPage;
       matchingTotal = result.total;
-      if (result.changes.length === 0) break;
+      if (result.changes.length === 0) {
+        if (allChanges.length < matchingTotal) {
+          throw new Error("The report returned an empty batch before all matching changes were loaded.");
+        }
+        break;
+      }
       allChanges.push(...result.changes);
+      onProgress(allChanges.length, matchingTotal, exportPage);
       exportPage += 1;
     } while (allChanges.length < matchingTotal);
     return allChanges;
   };
 
-  const handlePrintAll = async () => {
-    if (!total) return;
-    setPrintChanges(await loadAllMatchingChanges());
+  const startExport = async (request: ExportRequest) => {
+    if (exportInProgress.current) return;
+    exportInProgress.current = true;
+    retryRequest.current = request;
+    setExportStatus({
+      action: request.action,
+      loaded: 0,
+      total: request.matchingTotal,
+      batch: 0,
+      phase: "loading",
+    });
+
+    try {
+      const exportChanges = await loadAllMatchingChanges(request.filters, request.matchingTotal, (loaded, matchingTotal, batch) => {
+        setExportStatus({
+          action: request.action,
+          loaded,
+          total: matchingTotal,
+          batch,
+          phase: "loading",
+        });
+      });
+
+      if (request.action === "Print") {
+        setExportStatus((current) => current ? { ...current, phase: "printing" } : null);
+        setPrintChanges(exportChanges);
+        return;
+      }
+
+      if (request.action === "Excel") {
+        await exportToExcel(
+          exportChanges.map((c) => ({
+            changeNumber: c.changeNumber,
+            title: c.title,
+            type: c.type,
+            status: c.status.replace("_", " "),
+            priority: c.priority,
+            risk: c.risk || "low",
+            requestedBy: c.requestedByLabel ?? "N/A",
+            assignedTo: c.assignedToLabel ?? "Unassigned",
+            scheduledStart: c.scheduledStart ? formatDate(c.scheduledStart as any) : "N/A",
+            scheduledEnd: c.scheduledEnd ? formatDate(c.scheduledEnd as any) : "N/A",
+            createdAt: c.createdAt ? formatDate(c.createdAt as any) : "N/A",
+          })),
+          [
+            { header: "Change #", key: "changeNumber", width: 14 },
+            { header: "Title", key: "title", width: 30 },
+            { header: "Type", key: "type", width: 12 },
+            { header: "Status", key: "status", width: 14 },
+            { header: "Priority", key: "priority", width: 12 },
+            { header: "Risk", key: "risk", width: 12 },
+            { header: "Requested By", key: "requestedBy", width: 20 },
+            { header: "Assigned To", key: "assignedTo", width: 20 },
+            { header: "Scheduled Start", key: "scheduledStart", width: 16 },
+            { header: "Scheduled End", key: "scheduledEnd", width: 16 },
+            { header: "Created", key: "createdAt", width: 14 },
+          ],
+          "changes-report"
+        );
+      } else {
+        exportToPDF(
+          exportChanges.map((c) => [
+            c.changeNumber,
+            c.title,
+            c.type,
+            c.status.replace("_", " "),
+            c.risk || "low",
+            c.requestedByLabel ?? "N/A",
+            c.createdAt ? formatDate(c.createdAt as any) : "N/A",
+          ]),
+          ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Created"],
+          "Change Management Report",
+          "changes-report"
+        );
+      }
+      setExportStatus(null);
+      exportInProgress.current = false;
+    } catch (error) {
+      setExportStatus((current) => current ? {
+        ...current,
+        phase: "error",
+        error: error instanceof Error ? error.message : "An unexpected error occurred.",
+      } : null);
+      exportInProgress.current = false;
+    }
   };
 
-  const handleExportExcel = async () => {
+  const startCurrentExport = (action: ExportAction) => {
     if (!total) return;
-    const exportChanges = await loadAllMatchingChanges();
-    await exportToExcel(
-      exportChanges.map((c) => ({
-        changeNumber: c.changeNumber,
-        title: c.title,
-        type: c.type,
-        status: c.status.replace("_", " "),
-        priority: c.priority,
-        risk: c.risk || "low",
-        requestedBy: c.requestedByLabel ?? "N/A",
-        assignedTo: c.assignedToLabel ?? "Unassigned",
-        scheduledStart: c.scheduledStart ? formatDate(c.scheduledStart as any) : "N/A",
-        scheduledEnd: c.scheduledEnd ? formatDate(c.scheduledEnd as any) : "N/A",
-        createdAt: c.createdAt ? formatDate(c.createdAt as any) : "N/A",
-      })),
-      [
-        { header: "Change #", key: "changeNumber", width: 14 },
-        { header: "Title", key: "title", width: 30 },
-        { header: "Type", key: "type", width: 12 },
-        { header: "Status", key: "status", width: 14 },
-        { header: "Priority", key: "priority", width: 12 },
-        { header: "Risk", key: "risk", width: 12 },
-        { header: "Requested By", key: "requestedBy", width: 20 },
-        { header: "Assigned To", key: "assignedTo", width: 20 },
-        { header: "Scheduled Start", key: "scheduledStart", width: 16 },
-        { header: "Scheduled End", key: "scheduledEnd", width: 16 },
-        { header: "Created", key: "createdAt", width: 14 },
-      ],
-      "changes-report"
-    );
+    void startExport({
+      action,
+      filters: {
+        search: debouncedSearch,
+        status: statusFilter,
+        type: typeFilter,
+        risk: riskFilter,
+      },
+      matchingTotal: total,
+    });
   };
 
-  const handleExportPDF = async () => {
-    if (!total) return;
-    const exportChanges = await loadAllMatchingChanges();
-    exportToPDF(
-      exportChanges.map((c) => [
-        c.changeNumber,
-        c.title,
-        c.type,
-        c.status.replace("_", " "),
-        c.risk || "low",
-        c.requestedByLabel ?? "N/A",
-        c.createdAt ? formatDate(c.createdAt as any) : "N/A",
-      ]),
-      ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Created"],
-      "Change Management Report",
-      "changes-report"
-    );
-  };
+  const handleExportExcel = () => startCurrentExport("Excel");
+  const handleExportPDF = () => startCurrentExport("PDF");
+  const handlePrintAll = () => startCurrentExport("Print");
+  const exportIsActive = exportStatus?.phase === "loading" || exportStatus?.phase === "printing";
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -211,17 +312,55 @@ export default function ChangesReport() {
               </div>
             </div>
             <div className="flex gap-2 print:hidden">
-              <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!total}>
+              <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!total || exportIsActive}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
               </Button>
-              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!total}>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={!total || exportIsActive}>
                 <Download className="mr-2 h-4 w-4" />PDF
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrintAll} disabled={!total}>
+              <Button variant="outline" size="sm" onClick={handlePrintAll} disabled={!total || exportIsActive}>
                 <Printer className="mr-2 h-4 w-4" />Print
               </Button>
             </div>
           </div>
+
+          {exportStatus && (
+            <div
+              className={`mb-4 rounded-md border p-3 text-sm ${exportStatus.phase === "error" ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}
+              role={exportStatus.phase === "error" ? "alert" : "status"}
+              aria-live={exportStatus.phase === "error" ? "assertive" : "polite"}
+              aria-busy={exportIsActive}
+            >
+              {exportStatus.phase === "error" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p>{exportStatus.action} report failed: {exportStatus.error || "Unable to load all matching changes."}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (retryRequest.current) void startExport(retryRequest.current);
+                    }}
+                  >
+                    Retry {exportStatus.action}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <p>
+                    {exportStatus.phase === "printing"
+                      ? `Print report loaded ${exportStatus.loaded} of ${exportStatus.total} matching changes. Opening print dialog…`
+                      : `${exportStatus.action} report: loaded ${exportStatus.loaded} of ${exportStatus.total} matching changes (batch ${exportStatus.batch} of ${Math.max(1, Math.ceil(exportStatus.total / 100))}).`}
+                  </p>
+                  <progress
+                    className="mt-2 block h-2 w-full"
+                    value={exportStatus.loaded}
+                    max={Math.max(exportStatus.total, 1)}
+                    aria-label={`${exportStatus.action} report loading progress`}
+                  />
+                </>
+              )}
+            </div>
+          )}
 
           {/* Summary cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">

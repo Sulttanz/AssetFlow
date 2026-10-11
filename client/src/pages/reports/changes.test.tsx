@@ -74,12 +74,18 @@ describe("change report page", () => {
   let requests: string[];
   let reportRows: typeof history;
   let reportSummary: typeof globalSummary;
+  let failExportPage: number | null;
+  let exportPageTwoGate: Promise<void> | null;
+  let onExportPageTwoRequest: (() => void) | null;
 
   beforeEach(() => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     requests = [];
     reportRows = history;
     reportSummary = globalSummary;
+    failExportPage = null;
+    exportPageTwoGate = null;
+    onExportPageTwoRequest = null;
     vi.mocked(exportToExcel).mockClear();
     vi.mocked(exportToPDF).mockClear();
     printMock.mockClear();
@@ -103,6 +109,18 @@ describe("change report page", () => {
       );
       const page = Number(params.get("page") || 1);
       const pageSize = Number(params.get("pageSize") || 50);
+      if (pageSize === 100 && page === 2) {
+        onExportPageTwoRequest?.();
+        if (exportPageTwoGate) await exportPageTwoGate;
+      }
+      if (pageSize === 100 && page === failExportPage) {
+        return {
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          text: async () => "Batch 2 could not be loaded",
+        };
+      }
       const offset = (page - 1) * pageSize;
       return {
         ok: true,
@@ -254,5 +272,80 @@ describe("change report page", () => {
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
     if (exportType === "PDF") expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+  });
+
+  it("shows batch progress and blocks other export actions until loading finishes", async () => {
+    const user = userEvent.setup();
+    reportRows = Array.from({ length: 251 }, (_, index) => ({
+      id: `progress-change-${index + 1}`,
+      changeNumber: `PROG-${index + 1}`,
+      title: `Progress change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      approvals: [],
+      removedApprovals: [],
+    }));
+
+    let releasePageTwo!: () => void;
+    exportPageTwoGate = new Promise<void>((resolve) => {
+      releasePageTwo = resolve;
+    });
+    let pageTwoRequested!: () => void;
+    const pageTwoRequest = new Promise<void>((resolve) => {
+      pageTwoRequested = resolve;
+    });
+    onExportPageTwoRequest = pageTwoRequested;
+
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Progress change 1")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Excel" }));
+    await pageTwoRequest;
+    expect(screen.getByText(/Excel report: loaded 100 of 251 matching changes \(batch 1 of 3\)/)).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Excel report loading progress" }).getAttribute("value")).toBe("100");
+    expect(screen.getByRole("button", { name: "Excel" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "PDF" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Print" }).hasAttribute("disabled")).toBe(true);
+
+    releasePageTwo();
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalled());
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it.each(["Excel", "PDF", "Print"])("shows a retry after a failed batch for %s export", async (exportType) => {
+    const user = userEvent.setup();
+    reportRows = Array.from({ length: 251 }, (_, index) => ({
+      id: `retry-change-${index + 1}`,
+      changeNumber: `RETRY-${index + 1}`,
+      title: `Retry change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      approvals: [],
+      removedApprovals: [],
+    }));
+    failExportPage = 2;
+
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Retry change 1")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: exportType }));
+    const errorNotice = await screen.findByRole("alert");
+    expect(errorNotice.textContent).toContain(`${exportType} report failed: 500: Batch 2 could not be loaded`);
+    expect(within(errorNotice).getByRole("button", { name: `Retry ${exportType}` })).toBeTruthy();
+
+    failExportPage = null;
+    await user.click(within(errorNotice).getByRole("button", { name: `Retry ${exportType}` }));
+    await waitFor(() => {
+      if (exportType === "Excel") expect(exportToExcel).toHaveBeenCalled();
+      if (exportType === "PDF") expect(exportToPDF).toHaveBeenCalled();
+      if (exportType === "Print") expect(printMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
