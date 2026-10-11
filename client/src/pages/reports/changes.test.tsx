@@ -73,11 +73,13 @@ describe("change report page", () => {
   let queryClient: QueryClient;
   let requests: string[];
   let reportRows: typeof history;
+  let reportSummary: typeof globalSummary;
 
   beforeEach(() => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     requests = [];
     reportRows = history;
+    reportSummary = globalSummary;
     vi.mocked(exportToExcel).mockClear();
     vi.mocked(exportToPDF).mockClear();
     printMock.mockClear();
@@ -123,7 +125,7 @@ describe("change report page", () => {
           total: matching.length,
           page,
           pageSize,
-          summary: globalSummary,
+          summary: reportSummary,
         }),
       };
     }));
@@ -160,6 +162,33 @@ describe("change report page", () => {
     expect(summaryValue("Total")).toBe("51");
     expect(summaryValue("Completed")).toBe("1");
     expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("status") === "completed")).toBe(true);
+  });
+
+  it("returns to the last valid page when matching changes are removed", async () => {
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Report change 51")).toBeTruthy();
+    expect(screen.getByText("Page 2 of 2")).toBeTruthy();
+
+    reportRows = history.slice(0, 42);
+    reportSummary = { ...globalSummary, total: 42, completed: 0, emergency: 0 };
+    await queryClient.invalidateQueries({ queryKey: ["/api/reports/changes"] });
+
+    expect(await screen.findByText("Report change 42")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText("Page 1 of 1")).toBeTruthy();
+      expect(screen.getByText((_, element) =>
+        element?.tagName === "P" && element.textContent?.includes("Showing 1–42 of 42 matching changes") === true,
+      )).toBeTruthy();
+    });
+    expect(screen.queryByText("Report change 51")).toBeNull();
+    expect(summaryValue("Total")).toBe("42");
+    expect(summaryValue("Completed")).toBe("0");
+    expect(summaryValue("Emergency")).toBe("0");
+    expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("page") === "1")).toBe(true);
   });
 
   it.each(["Excel", "PDF", "Print"])("loads every matching page with active filters for %s export", async (exportType) => {
