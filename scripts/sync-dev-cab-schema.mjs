@@ -45,6 +45,33 @@ function assertMigrationHasNoTransactionWrapper(sql, name) {
   }
 }
 
+async function assertCabApprovalIdentityRecoverable(client) {
+  const { rows: [columnInfo] } = await client.query(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'change_approvals'
+        AND column_name = 'original_approver_id'
+    ) AS has_original_approver_id
+  `);
+  const hasOriginalId = columnInfo?.has_original_approver_id === true;
+  const identityMissingPredicate = hasOriginalId
+    ? "COALESCE(a.original_approver_id, a.approver_id) IS NULL"
+    : "(a.approver_id IS NULL OR u.id IS NULL)";
+  const { rows: [result] } = await client.query(`
+    SELECT string_agg(a.id, ', ' ORDER BY a.id) AS affected_approval_ids
+    FROM change_approvals AS a
+    LEFT JOIN users AS u ON u.id = a.approver_id
+    WHERE ${identityMissingPredicate}
+  `);
+  if (result?.affected_approval_ids) {
+    throw new Error(
+      `Cannot safely upgrade CAB approval history: approval row(s) ${result.affected_approval_ids} have no recoverable approver identity. Restore each original approver ID from an authoritative audit record or backup, then rerun the migration; do not delete or recreate the approval decision.`,
+    );
+  }
+}
+
 /**
  * Apply every discovered SQL migration in filename order. The caller owns the
  * connection so this runner can be tested without a live database.
@@ -98,6 +125,9 @@ export async function applyDevSqlMigrations(
           continue;
         }
 
+        if (name === "20260929_preserve_cab_approval_history.sql") {
+          await assertCabApprovalIdentityRecoverable(client);
+        }
         await client.query(sql);
         await client.query(
           `INSERT INTO ${migrationLedger} (migration_name, checksum) VALUES ($1, $2)`,

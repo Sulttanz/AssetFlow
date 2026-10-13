@@ -32,23 +32,6 @@ SET approver_label = COALESCE(
 WHERE a.original_approver_id IS NOT NULL
   AND (a.approver_label IS NULL OR trim(a.approver_label) = '');
 
-DO $$
-DECLARE
-  affected_approval_ids text;
-BEGIN
-  SELECT string_agg(a.id, ', ' ORDER BY a.id)
-  INTO affected_approval_ids
-  FROM change_approvals AS a
-  WHERE a.original_approver_id IS NULL;
-
-  IF affected_approval_ids IS NOT NULL THEN
-    RAISE EXCEPTION
-      'Cannot safely upgrade CAB approval history: approval row(s) % have no recoverable approver identity. Restore each original approver ID from an authoritative audit record or backup, then rerun the migration; do not delete or recreate the approval decision.',
-      affected_approval_ids;
-  END IF;
-END
-$$;
-
 ALTER TABLE change_approvals
   ALTER COLUMN original_approver_id SET NOT NULL,
   ALTER COLUMN approver_label SET NOT NULL,
