@@ -143,6 +143,130 @@ describe("development SQL migration sync", () => {
 
 describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
+    "rolls back partial schema changes and the ledger row, then applies the repaired migration once",
+    async () => {
+      neonConfig.webSocketConstructor = ws;
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
+      const schemaName = `cab_sync_rollback_${randomUUID().replaceAll("-", "")}`;
+      const quotedSchema = `"${schemaName}"`;
+      const directory = await createMigrationDirectory({
+        "001_partial_upgrade.sql":
+          `CREATE TABLE ${quotedSchema}.partial_upgrade (id integer); SELECT 1 / 0;`,
+      });
+      let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
+
+      try {
+        client = await pool.connect();
+        await client.query(`CREATE SCHEMA ${quotedSchema}`);
+
+        await expect(
+          applyDevSqlMigrations(client, { directory, ledgerSchema: schemaName }),
+        ).rejects.toThrow("Failed to apply SQL migration 001_partial_upgrade.sql");
+
+        const afterFailure = await client.query(
+          `SELECT to_regclass($1) AS relation,
+             (SELECT count(*)::int FROM ${quotedSchema}.sql_migrations) AS ledger_count`,
+          [`${schemaName}.partial_upgrade`],
+        );
+        expect(afterFailure.rows[0]).toEqual({ relation: null, ledger_count: 0 });
+
+        await writeFile(
+          path.join(directory, "001_partial_upgrade.sql"),
+          `CREATE TABLE ${quotedSchema}.partial_upgrade (id integer);`,
+        );
+        const retry = await applyDevSqlMigrations(client, {
+          directory,
+          ledgerSchema: schemaName,
+        });
+        expect(retry).toEqual({
+          applied: ["001_partial_upgrade.sql"],
+          alreadyApplied: [],
+          deferred: null,
+        });
+
+        const repeatedRun = await applyDevSqlMigrations(client, {
+          directory,
+          ledgerSchema: schemaName,
+        });
+        expect(repeatedRun).toEqual({
+          applied: [],
+          alreadyApplied: ["001_partial_upgrade.sql"],
+          deferred: null,
+        });
+        const afterRetry = await client.query(`
+          SELECT to_regclass($1) AS relation,
+            (SELECT count(*)::int FROM ${quotedSchema}.sql_migrations) AS ledger_count
+        `, [`${schemaName}.partial_upgrade`]);
+        expect(afterRetry.rows[0]).toEqual({
+          relation: `${schemaName}.partial_upgrade`,
+          ledger_count: 1,
+        });
+      } finally {
+        if (client) {
+          await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
+          client.release();
+        }
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
+  it.skipIf(!integrationDatabaseUrl)(
+    "serializes concurrent runners and records each migration once",
+    async () => {
+      neonConfig.webSocketConstructor = ws;
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 2 });
+      const schemaName = `cab_sync_concurrent_${randomUUID().replaceAll("-", "")}`;
+      const quotedSchema = `"${schemaName}"`;
+      const directory = await createMigrationDirectory({
+        "001_shared_upgrade.sql":
+          `SELECT pg_sleep(0.25); CREATE TABLE ${quotedSchema}.shared_upgrade (id integer);`,
+      });
+      const clients: Array<Awaited<ReturnType<typeof pool.connect>>> = [];
+
+      try {
+        clients.push(await pool.connect(), await pool.connect());
+        await clients[0].query(`CREATE SCHEMA ${quotedSchema}`);
+        const backendIds = await Promise.all(
+          clients.map(async (client) => {
+            const { rows: [row] } = await client.query("SELECT pg_backend_pid() AS id");
+            return row.id;
+          }),
+        );
+        expect(backendIds[0]).not.toBe(backendIds[1]);
+
+        const results = await Promise.all(
+          clients.map((client) =>
+            applyDevSqlMigrations(client, { directory, ledgerSchema: schemaName }),
+          ),
+        );
+        expect(results.filter((result) => result.applied.length === 1)).toHaveLength(1);
+        expect(results.filter((result) => result.alreadyApplied.length === 1)).toHaveLength(1);
+        expect(results.every((result) => result.deferred === null)).toBe(true);
+
+        const { rows: [ledger] } = await clients[0].query(`
+          SELECT count(*)::int AS count, min(migration_name) AS migration_name
+          FROM ${quotedSchema}.sql_migrations
+        `);
+        expect(ledger).toEqual({ count: 1, migration_name: "001_shared_upgrade.sql" });
+        const { rows: [createdTable] } = await clients[0].query(
+          "SELECT to_regclass($1) AS relation",
+          [`${schemaName}.shared_upgrade`],
+        );
+        expect(createdTable.relation).toBe(`${schemaName}.shared_upgrade`);
+      } finally {
+        if (clients.length) {
+          await clients[0].query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
+          clients.forEach((client) => client.release());
+        }
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
+  it.skipIf(!integrationDatabaseUrl)(
     "preserves CAB history and schema across repeated syncs in a temporary legacy schema",
     async () => {
       neonConfig.webSocketConstructor = ws;
