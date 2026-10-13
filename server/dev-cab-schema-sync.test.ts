@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -142,6 +142,113 @@ describe("development SQL migration sync", () => {
 });
 
 describe("development SQL migration sync against PostgreSQL", () => {
+  it.skipIf(!integrationDatabaseUrl)(
+    "rejects CAB approvals with no recoverable approver identity without changing schema or history",
+    async () => {
+      neonConfig.webSocketConstructor = ws;
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
+      const schemaName = `cab_sync_missing_identity_${randomUUID().replaceAll("-", "")}`;
+      const ledgerSchema = `cab_ledger_missing_${randomUUID().replaceAll("-", "")}`;
+      const quotedSchema = `"${schemaName}"`;
+      const quotedLedgerSchema = `"${ledgerSchema}"`;
+      const migrationName = "20260929_preserve_cab_approval_history.sql";
+      const migrationSql = await readFile(path.resolve("migrations", migrationName), "utf8");
+      const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+      let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
+
+      try {
+        client = await pool.connect();
+        await client.query(`CREATE SCHEMA ${quotedSchema}`);
+        await client.query(`SET search_path TO ${quotedSchema}`);
+        await client.query(`
+          CREATE TABLE users (
+            id varchar PRIMARY KEY,
+            first_name text,
+            last_name text,
+            username text NOT NULL
+          );
+          CREATE TABLE change_approvals (
+            id varchar PRIMARY KEY,
+            change_id varchar NOT NULL,
+            approver_id varchar,
+            decision text,
+            comments text,
+            decided_at timestamptz,
+            removed_at timestamptz,
+            removed_by_id varchar,
+            created_at timestamptz NOT NULL DEFAULT now()
+          );
+          INSERT INTO change_approvals
+            (id, change_id, approver_id, decision, comments, decided_at)
+          VALUES
+            ('approval-orphaned-identity', 'change-retained', NULL, 'approved',
+             'Decision must remain recoverable', '2026-09-30T10:00:00Z');
+        `);
+
+        const captureSchemaAndHistory = async () => {
+          const [columns, constraints, indexes, approvals] = await Promise.all([
+            client!.query(
+              `SELECT table_name, column_name, ordinal_position, data_type, is_nullable, column_default
+               FROM information_schema.columns
+               WHERE table_schema = $1
+               ORDER BY table_name, ordinal_position`,
+              [schemaName],
+            ),
+            client!.query(
+              `SELECT relation.relname AS table_name, constraint_row.conname,
+                  pg_get_constraintdef(constraint_row.oid) AS definition
+               FROM pg_constraint AS constraint_row
+               JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
+               WHERE constraint_row.connamespace = $1::regnamespace
+               ORDER BY relation.relname, constraint_row.conname`,
+              [schemaName],
+            ),
+            client!.query(
+              `SELECT tablename, indexname, indexdef
+               FROM pg_indexes
+               WHERE schemaname = $1
+               ORDER BY tablename, indexname`,
+              [schemaName],
+            ),
+            client!.query(`
+              SELECT id, change_id, approver_id, decision, comments, decided_at,
+                removed_at, removed_by_id, created_at
+              FROM change_approvals
+              ORDER BY id
+            `),
+          ]);
+          return {
+            columns: columns.rows,
+            constraints: constraints.rows,
+            indexes: indexes.rows,
+            approvals: approvals.rows,
+          };
+        };
+
+        const beforeFailure = await captureSchemaAndHistory();
+        await expect(
+          applyDevSqlMigrations(client, { directory, ledgerSchema }),
+        ).rejects.toThrow(
+          "Cannot safely upgrade CAB approval history: approval row(s) approval-orphaned-identity have no recoverable approver identity. Restore each original approver ID from an authoritative audit record or backup, then rerun the migration; do not delete or recreate the approval decision.",
+        );
+
+        expect(await captureSchemaAndHistory()).toEqual(beforeFailure);
+        const ledger = await client.query(
+          `SELECT count(*)::int AS count FROM ${quotedLedgerSchema}.sql_migrations`,
+        );
+        expect(ledger.rows[0].count).toBe(0);
+      } finally {
+        if (client) {
+          await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
+          await client.query(`DROP SCHEMA IF EXISTS ${quotedLedgerSchema} CASCADE`);
+          client.release();
+        }
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
   it.skipIf(!integrationDatabaseUrl)(
     "rolls back partial schema changes and the ledger row, then applies the repaired migration once",
     async () => {
