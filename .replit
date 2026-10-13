@@ -44,6 +44,10 @@ args = "security-audit"
 task = "workflow.run"
 args = "build-audit-gate"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "cab-schema-sync"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -83,6 +87,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run test:build-audit-gate"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "cab-schema-sync"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:cab-schema-sync"
 
 [workflows.workflow.metadata]
 isValidation = true

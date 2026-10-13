@@ -3,15 +3,20 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { neonConfig, Pool } from "@neondatabase/serverless";
-import ws from "ws";
+import { Pool } from "pg";
 import { applyDevSqlMigrations } from "../scripts/sync-dev-cab-schema.mjs";
 
 const tempDirectories: string[] = [];
 const integrationDatabaseUrl =
   process.env.NODE_ENV === "production" || process.env.REPLIT_DEPLOYMENT
     ? undefined
-    : process.env.CAB_SCHEMA_SYNC_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+    : process.env.CAB_SCHEMA_SYNC_TEST_DATABASE_URL;
+
+if (process.env.CAB_SCHEMA_SYNC_TEST_REQUIRED === "1" && !integrationDatabaseUrl) {
+  throw new Error(
+    "CAB schema sync integration tests require an isolated CAB_SCHEMA_SYNC_TEST_DATABASE_URL.",
+  );
+}
 
 async function createMigrationDirectory(files: Record<string, string>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "dev-sql-migrations-"));
@@ -145,7 +150,6 @@ describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
     "rejects CAB approvals with no recoverable approver identity without changing schema or history",
     async () => {
-      neonConfig.webSocketConstructor = ws;
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
       const schemaName = `cab_sync_missing_identity_${randomUUID().replaceAll("-", "")}`;
       const ledgerSchema = `cab_ledger_missing_${randomUUID().replaceAll("-", "")}`;
@@ -186,37 +190,35 @@ describe("development SQL migration sync against PostgreSQL", () => {
         `);
 
         const captureSchemaAndHistory = async () => {
-          const [columns, constraints, indexes, approvals] = await Promise.all([
-            client!.query(
-              `SELECT table_name, column_name, ordinal_position, data_type, is_nullable, column_default
-               FROM information_schema.columns
-               WHERE table_schema = $1
-               ORDER BY table_name, ordinal_position`,
-              [schemaName],
-            ),
-            client!.query(
-              `SELECT relation.relname AS table_name, constraint_row.conname,
-                  pg_get_constraintdef(constraint_row.oid) AS definition
-               FROM pg_constraint AS constraint_row
-               JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
-               WHERE constraint_row.connamespace = $1::regnamespace
-               ORDER BY relation.relname, constraint_row.conname`,
-              [schemaName],
-            ),
-            client!.query(
-              `SELECT tablename, indexname, indexdef
-               FROM pg_indexes
-               WHERE schemaname = $1
-               ORDER BY tablename, indexname`,
-              [schemaName],
-            ),
-            client!.query(`
-              SELECT id, change_id, approver_id, decision, comments, decided_at,
-                removed_at, removed_by_id, created_at
-              FROM change_approvals
-              ORDER BY id
-            `),
-          ]);
+          const columns = await client!.query(
+            `SELECT table_name, column_name, ordinal_position, data_type, is_nullable, column_default
+             FROM information_schema.columns
+             WHERE table_schema = $1
+             ORDER BY table_name, ordinal_position`,
+            [schemaName],
+          );
+          const constraints = await client!.query(
+            `SELECT relation.relname AS table_name, constraint_row.conname,
+                pg_get_constraintdef(constraint_row.oid) AS definition
+             FROM pg_constraint AS constraint_row
+             JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
+             WHERE constraint_row.connamespace = $1::regnamespace
+             ORDER BY relation.relname, constraint_row.conname`,
+            [schemaName],
+          );
+          const indexes = await client!.query(
+            `SELECT tablename, indexname, indexdef
+             FROM pg_indexes
+             WHERE schemaname = $1
+             ORDER BY tablename, indexname`,
+            [schemaName],
+          );
+          const approvals = await client!.query(`
+            SELECT id, change_id, approver_id, decision, comments, decided_at,
+              removed_at, removed_by_id, created_at
+            FROM change_approvals
+            ORDER BY id
+          `);
           return {
             columns: columns.rows,
             constraints: constraints.rows,
@@ -252,7 +254,6 @@ describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
     "rolls back partial schema changes and the ledger row, then applies the repaired migration once",
     async () => {
-      neonConfig.webSocketConstructor = ws;
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
       const schemaName = `cab_sync_rollback_${randomUUID().replaceAll("-", "")}`;
       const quotedSchema = `"${schemaName}"`;
@@ -322,7 +323,6 @@ describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
     "serializes concurrent runners and records each migration once",
     async () => {
-      neonConfig.webSocketConstructor = ws;
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 2 });
       const schemaName = `cab_sync_concurrent_${randomUUID().replaceAll("-", "")}`;
       const quotedSchema = `"${schemaName}"`;
@@ -376,7 +376,6 @@ describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
     "preserves CAB history and schema across repeated syncs in a temporary legacy schema",
     async () => {
-      neonConfig.webSocketConstructor = ws;
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
       const schemaName = `cab_sync_test_${randomUUID().replaceAll("-", "")}`;
       const quotedSchema = `"${schemaName}"`;
@@ -516,38 +515,36 @@ describe("development SQL migration sync against PostgreSQL", () => {
         });
 
         const captureSchemaAndHistory = async () => {
-          const [columns, constraints, indexes, approvals] = await Promise.all([
-            client!.query(
-              `SELECT table_name, column_name, ordinal_position, data_type, is_nullable, column_default
-               FROM information_schema.columns
-               WHERE table_schema = $1
-               ORDER BY table_name, ordinal_position`,
-              [schemaName],
-            ),
-            client!.query(
-              `SELECT relation.relname AS table_name, constraint_row.conname,
-                  pg_get_constraintdef(constraint_row.oid) AS definition
-               FROM pg_constraint AS constraint_row
-               JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
-               WHERE constraint_row.connamespace = $1::regnamespace
-               ORDER BY relation.relname, constraint_row.conname`,
-              [schemaName],
-            ),
-            client!.query(
-              `SELECT tablename, indexname, indexdef
-               FROM pg_indexes
-               WHERE schemaname = $1
-               ORDER BY tablename, indexname`,
-              [schemaName],
-            ),
-            client!.query(`
-              SELECT id, change_id, approver_id, original_approver_id, approver_label,
-                decision, comments, decided_at, removed_at, removed_by_id, removed_by_label,
-                created_at
-              FROM change_approvals
-              ORDER BY id
-            `),
-          ]);
+          const columns = await client!.query(
+            `SELECT table_name, column_name, ordinal_position, data_type, is_nullable, column_default
+             FROM information_schema.columns
+             WHERE table_schema = $1
+             ORDER BY table_name, ordinal_position`,
+            [schemaName],
+          );
+          const constraints = await client!.query(
+            `SELECT relation.relname AS table_name, constraint_row.conname,
+                pg_get_constraintdef(constraint_row.oid) AS definition
+             FROM pg_constraint AS constraint_row
+             JOIN pg_class AS relation ON relation.oid = constraint_row.conrelid
+             WHERE constraint_row.connamespace = $1::regnamespace
+             ORDER BY relation.relname, constraint_row.conname`,
+            [schemaName],
+          );
+          const indexes = await client!.query(
+            `SELECT tablename, indexname, indexdef
+             FROM pg_indexes
+             WHERE schemaname = $1
+             ORDER BY tablename, indexname`,
+            [schemaName],
+          );
+          const approvals = await client!.query(`
+            SELECT id, change_id, approver_id, original_approver_id, approver_label,
+              decision, comments, decided_at, removed_at, removed_by_id, removed_by_label,
+              created_at
+            FROM change_approvals
+            ORDER BY id
+          `);
           return {
             columns: columns.rows,
             constraints: constraints.rows,

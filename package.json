@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "test": "vitest run --config vitest.config.ts",
+    "test:cab-schema-sync": "node scripts/run-cab-schema-sync-test.mjs",
     "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "audit:security": "npm audit --audit-level=high",
     "build": "npm run audit:security && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
@@ -51,6 +52,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/express-rate-limit": "^5.1.3",
     "@types/multer": "^2.0.0",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
     "@types/speakeasy": "^2.0.10",
     "class-variance-authority": "^0.7.1",
@@ -76,6 +78,7 @@
     "next-themes": "^0.4.6",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
