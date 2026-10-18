@@ -479,6 +479,114 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     }
   }, 15_000);
 
+  it.each(["manual-update", "removal"] as const)(
+    "keeps status and active CAB membership accurate when the %s commits first",
+    async first => {
+      const managerId = randomUUID();
+      const approvedVoterId = randomUUID();
+      const pendingVoterId = randomUUID();
+      const changeId = randomUUID();
+      const approvedId = randomUUID();
+      const pendingId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+        { id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual status versus CAB removal",
+        status: "submitted", cabRequired: true,
+      });
+      await db.insert(changeApprovals).values([
+        { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+          approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() },
+        { id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
+          approverLabel: "CAB Approver", decision: "pending" },
+      ]);
+
+      // Hold both real storage operations until each request has arrived, then
+      // allow the selected operation to commit before the other one proceeds.
+      let arrived = 0;
+      let releaseBoth!: () => void;
+      const bothArrived = new Promise<void>(resolve => { releaseBoth = resolve; });
+      const rendezvous = async () => {
+        if (++arrived === 2) releaseBoth();
+        await bothArrived;
+      };
+      let releaseSecond!: () => void;
+      const firstCommitted = new Promise<void>(resolve => { releaseSecond = resolve; });
+      const originalManualUpdate = storage.updateChangeWithCabStatusGuard.bind(storage);
+      const originalRemove = storage.removeChangeApproval.bind(storage);
+      const manualUpdateSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (...args) => {
+        await rendezvous();
+        if (first === "removal") await firstCommitted;
+        try {
+          return await originalManualUpdate(...args);
+        } finally {
+          if (first === "manual-update") releaseSecond();
+        }
+      });
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+        await rendezvous();
+        if (first === "manual-update") await firstCommitted;
+        try {
+          return await originalRemove(...args);
+        } finally {
+          if (first === "removal") releaseSecond();
+        }
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      try {
+        const [manual, removal] = await Promise.all([
+          fetch(`${baseUrl}/api/changes/${changeId}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json", "x-test-user": managerId },
+            body: JSON.stringify({ status: "in_progress" }),
+          }),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, {
+            method: "DELETE",
+            headers: { "x-test-user": managerId },
+          }),
+        ]);
+        expect(arrived).toBe(2);
+        expect(removal.status).toBe(200);
+        expect(await removal.json()).toEqual({ success: true });
+        if (first === "manual-update") {
+          expect(manual.status).toBe(403);
+          expect(await manual.json()).toMatchObject({ code: "CAB_PENDING" });
+        } else {
+          expect(manual.status).toBe(200);
+          expect((await manual.json()).status).toBe("in_progress");
+        }
+
+        const [removed, approved] = await Promise.all([
+          db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId)).then(rows => rows[0]),
+          db.select().from(changeApprovals).where(eq(changeApprovals.id, approvedId)).then(rows => rows[0]),
+        ]);
+        expect(removed.removedAt).toBeInstanceOf(Date);
+        expect(removed.removedById).toBe(managerId);
+        expect(approved).toMatchObject({ decision: "approved", removedAt: null });
+        expect((await storage.getChangeApprovals(changeId)).map(row => row.id)).toEqual([approvedId]);
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe(first === "manual-update" ? "approved" : "in_progress");
+        expect(savedChange.approvedAt).toBeInstanceOf(Date);
+        expect(savedChange.actualStart instanceof Date).toBe(first === "removal");
+      } finally {
+        manualUpdateSpy.mockRestore();
+        removeSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it("keeps an opted-in change unapproved when removing its final pending assignment leaves no active voters", async () => {
     const managerId = randomUUID();
     const pendingVoterId = randomUUID();
