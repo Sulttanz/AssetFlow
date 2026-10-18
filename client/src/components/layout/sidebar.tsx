@@ -38,6 +38,7 @@ import {
   Ticket,
   Clock,
   AlertTriangle,
+  ShieldAlert,
   BookOpen,
   Gauge,
 } from "lucide-react";
@@ -118,6 +119,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
+        { name: "Risk Management", href: "/risk-management", icon: ShieldAlert, current: location === "/risk-management" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
         { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
       ]

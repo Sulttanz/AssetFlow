@@ -1,10 +1,10 @@
 ---
-name: Change risk management scope
+name: Standalone ITSM risk management
 description: User decision on the boundaries of risk management in this ITSM application.
 ---
 
-Keep the risk register focused on risks linked to changes. Do not expand it into a general enterprise or organization-wide risk register unless the user asks.
+Risk Management is a standalone ITSM register and workflow, independent of Change Management. New risks must not require or be attached to a change.
 
-**Why:** The user selected change-related risks only when choosing the initial scope for Change Management risk workflows.
+**Why:** The user clarified that Risk Management and its tracker do not belong to Change Management and must be separate.
 
-**How to apply:** Link risk assessments to a change and focus fields and reporting on inherent/residual exposure, mitigation, ownership, and closure in the change lifecycle.
+**How to apply:** Use its own top-level page, API, and permissions. Preserve legacy records safely, but do not expose a change association or make Change Management a dependency for new risk records.

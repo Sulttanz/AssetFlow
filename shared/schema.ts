@@ -1177,9 +1177,10 @@ export const changes = pgTable("changes", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
-export const changeRisks = pgTable("change_risks", {
+// Keep the existing physical table name so existing risk records survive this module separation.
+export const risks = pgTable("change_risks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   category: text("category").notNull().default("operational"),
@@ -1266,7 +1267,7 @@ export const changePIRs = pgTable("change_pirs", {
 });
 
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
-export const insertChangeRiskSchema = createInsertSchema(changeRisks).omit({ id: true, createdAt: true, updatedAt: true, createdById: true });
+export const insertRiskSchema = createInsertSchema(risks).omit({ id: true, createdAt: true, updatedAt: true, createdById: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true, originalApproverId: true, approverLabel: true });
 export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages, {
   attempts: z.array(z.object({
@@ -1277,8 +1278,8 @@ export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvir
 }).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: true, createdAt: true, updatedAt: true, completedById: true });
 export type Change = typeof changes.$inferSelect;
-export type ChangeRisk = typeof changeRisks.$inferSelect;
-export type InsertChangeRisk = z.infer<typeof insertChangeRiskSchema>;
+export type Risk = typeof risks.$inferSelect;
+export type InsertRisk = z.infer<typeof insertRiskSchema>;
 export type InsertChange = z.infer<typeof insertChangeSchema>;
 export type ChangeApproval = typeof changeApprovals.$inferSelect;
 export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;

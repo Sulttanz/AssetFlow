@@ -59,7 +59,7 @@ function Field({ label, children, className = "" }: { label: string; children: R
 export default function ChangeTracker() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "change_manage" || permission === "system_admin");
+  const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "risk_manage" || permission === "system_admin");
   const [view, setView] = useState<"open" | "closed" | "risks">("open");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -77,13 +77,14 @@ export default function ChangeTracker() {
     queryFn: async () => (await apiRequest("GET", "/api/changes?page=1&pageSize=100")).json(),
   });
   const { data: users = [] } = useQuery<Person[]>({
-    queryKey: ["/api/change-risk-users"],
-    queryFn: async () => (await apiRequest("GET", "/api/change-risk-users")).json(),
-    enabled: canManageRisks,
+    queryKey: ["/api/risk-users"],
+    queryFn: async () => (await apiRequest("GET", "/api/risk-users")).json(),
+    enabled: false,
   });
   const { data: risks = [], isLoading: risksLoading, isError: risksError, refetch: retryRisks } = useQuery<RiskRow[]>({
-    queryKey: ["/api/change-risks"],
-    queryFn: async () => (await apiRequest("GET", "/api/change-risks")).json(),
+    queryKey: ["/api/risks"],
+    queryFn: async () => (await apiRequest("GET", "/api/risks")).json(),
+    enabled: false,
   });
   const changes = changeData?.changes ?? [];
   const filteredChanges = useMemo(() => changes.filter((change) => {
@@ -111,12 +112,12 @@ export default function ChangeTracker() {
   const saveRisk = useMutation({
     mutationFn: async ({ id, changeId, payload }: { id?: string; changeId: string; payload: Record<string, unknown> }) => {
       const response = id
-        ? await apiRequest("PUT", `/api/change-risks/${id}`, payload)
-        : await apiRequest("POST", `/api/changes/${changeId}/risks`, payload);
+        ? await apiRequest("PUT", `/api/risks/${id}`, payload)
+        : await apiRequest("POST", "/api/risks", payload);
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/change-risks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/risks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
       setRiskDialog(false);
       toast({ title: editingRisk ? "Risk updated" : "Risk added to register" });
@@ -170,16 +171,13 @@ export default function ChangeTracker() {
             <p className="mt-2 max-w-2xl text-sm text-slate-600">A live, auditable view of ownership, delivery progress and change exposure.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canManageRisks && <Button variant="outline" className="border-[#c7d5ce] bg-[#f9fbf9] text-slate-700 hover:bg-white" onClick={() => { setView("risks"); startCreateRisk(); }}>
-              <Plus className="mr-2 h-4 w-4" /> Log a risk
-            </Button>}
             <Link href="/changes" className="inline-flex h-10 items-center justify-center rounded-md bg-[#174d42] px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#103d34]">
               <ClipboardCheck className="mr-2 h-4 w-4" /> Open change workflow
             </Link>
           </div>
         </header>
 
-        <section className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <section className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="relative overflow-hidden rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4">
             <div className="absolute right-0 top-0 h-full w-1 bg-teal-700" />
             <p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Open changes</p>
@@ -189,11 +187,6 @@ export default function ChangeTracker() {
             <div className="absolute right-0 top-0 h-full w-1 bg-rose-500" />
             <p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Elevated change exposure</p>
             <div className="mt-2 flex items-end justify-between"><strong className="font-mono text-3xl font-medium tracking-tight">{changesLoading ? "—" : highRiskCount}</strong><span className="flex items-center gap-1 text-xs text-rose-700"><ShieldAlert className="h-3.5 w-3.5" /> high / critical</span></div>
-          </div>
-          <div className="relative overflow-hidden rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4">
-            <div className="absolute right-0 top-0 h-full w-1 bg-amber-500" />
-            <p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Active risk actions</p>
-            <div className="mt-2 flex items-end justify-between"><strong className="font-mono text-3xl font-medium tracking-tight">{risksLoading ? "—" : activeRiskCount}</strong><span className="flex items-center gap-1 text-xs text-amber-800"><Clock3 className="h-3.5 w-3.5" /> unresolved</span></div>
           </div>
         </section>
 
@@ -205,7 +198,7 @@ export default function ChangeTracker() {
                 <p className="mt-0.5 text-xs text-slate-500">Review planned windows, CAB sign-off and deployment stage completion.</p>
               </div>
               <div className="inline-flex w-fit rounded-md border border-[#d9e2dd] bg-[#f1f5f2] p-1">
-                {(["open", "closed", "risks"] as const).map((tab) => <button key={tab} onClick={() => setView(tab)} className={`rounded px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${view === tab ? "bg-white text-[#164b40] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{tab === "risks" ? `Risk register · ${risks.length}` : `${tab} · ${tab === "open" ? openCount : changes.length - openCount}`}</button>)}
+                {(["open", "closed"] as const).map((tab) => <button key={tab} onClick={() => setView(tab)} className={`rounded px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${view === tab ? "bg-white text-[#164b40] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{`${tab} · ${tab === "open" ? openCount : changes.length - openCount}`}</button>)}
               </div>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">

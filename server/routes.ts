@@ -13,7 +13,7 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, changeRisks, changes, users
+  assetAttachments, ticketAttachments, risks, changes, users
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { db } from "./db";
@@ -109,6 +109,7 @@ async function ensureItsmPermissions() {
     const ITSM_PERMISSIONS: Array<{ name: string; description: string; resource: string; action: string }> = [
       { name: "ticket_view_all", description: "View all tickets (full queue)", resource: "tickets", action: "view" },
       { name: "ticket_manage", description: "Assign, update status, edit, and delete any ticket", resource: "tickets", action: "manage" },
+      { name: "risk_manage", description: "Create and manage ITSM risk records", resource: "risks", action: "manage" },
     ];
 
     const existingPermissions = await storage.getPermissions();
@@ -5427,53 +5428,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to create service request" }); }
   });
 
-  // ── Change Management ────────────────────────────────────────────────────
-  app.get("/api/change-risk-users", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (_req, res) => {
+  // ── Risk Management ──────────────────────────────────────────────────────
+  app.get("/api/risk-users", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (_req, res) => {
     try {
       res.json(await db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName })
         .from(users).where(eq(users.isActive, true)));
     } catch (error) {
-      console.error("Failed to fetch change risk owners:", error);
-      res.status(500).json({ message: "Failed to fetch change risk owners" });
+      console.error("Failed to fetch risk owners:", error);
+      res.status(500).json({ message: "Failed to fetch risk owners" });
     }
   });
 
-  app.get("/api/change-risks", requireAuth, requireModule("itsm"), async (_req, res) => {
+  app.get("/api/risks", requireAuth, requireModule("itsm"), async (_req, res) => {
     try {
       const rows = await db.select({
-        risk: changeRisks,
-        linkedChangeId: changes.id,
-        linkedChangeNumber: changes.changeNumber,
-        linkedChangeTitle: changes.title,
-        linkedChangeStatus: changes.status,
+        risk: risks,
         linkedOwnerId: users.id,
         linkedOwnerUsername: users.username,
         linkedOwnerFirstName: users.firstName,
         linkedOwnerLastName: users.lastName,
-      }).from(changeRisks)
-        .leftJoin(changes, eq(changeRisks.changeId, changes.id))
-        .leftJoin(users, eq(changeRisks.ownerId, users.id));
+      }).from(risks)
+        .leftJoin(users, eq(risks.ownerId, users.id));
       res.json(rows.map(row => ({
         ...row.risk,
-        change: row.linkedChangeId ? {
-          id: row.linkedChangeId, changeNumber: row.linkedChangeNumber,
-          title: row.linkedChangeTitle, status: row.linkedChangeStatus,
-        } : null,
+        changeId: undefined,
         owner: row.linkedOwnerId ? {
           id: row.linkedOwnerId, username: row.linkedOwnerUsername,
           firstName: row.linkedOwnerFirstName, lastName: row.linkedOwnerLastName,
         } : null,
       })));
     } catch (error) {
-      console.error("Failed to fetch change risks:", error);
-      res.status(500).json({ message: "Failed to fetch change risks" });
+      console.error("Failed to fetch risks:", error);
+      res.status(500).json({ message: "Failed to fetch risks" });
     }
   });
 
-  app.post("/api/changes/:changeId/risks", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (req, res) => {
+  app.post("/api/risks", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (req, res) => {
     try {
-      const change = await storage.getChange(req.params.changeId);
-      if (!change) return res.status(404).json({ message: "Change not found" });
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(200),
         description: z.string().max(5000).nullable().optional(),
@@ -5495,23 +5486,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
       }
       const user = req.user as any;
-      const [risk] = await db.insert(changeRisks).values({
+      const [risk] = await db.insert(risks).values({
         ...parsed.data,
-        changeId: req.params.changeId,
         createdById: user.id,
       }).returning();
-      await logAudit(user.id, "CREATE", "change_risks", risk.id, risk.title, null, risk, req);
+      await logAudit(user.id, "CREATE", "risks", risk.id, risk.title, null, risk, req);
       res.status(201).json(risk);
     } catch (error) {
-      console.error("Failed to create change risk:", error);
-      res.status(500).json({ message: "Failed to create change risk" });
+      console.error("Failed to create risk:", error);
+      res.status(500).json({ message: "Failed to create risk" });
     }
   });
 
-  app.put("/api/change-risks/:riskId", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (req, res) => {
+  app.put("/api/risks/:riskId", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (req, res) => {
     try {
-      const [oldRisk] = await db.select().from(changeRisks).where(eq(changeRisks.id, req.params.riskId));
-      if (!oldRisk) return res.status(404).json({ message: "Change risk not found" });
+      const [oldRisk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId));
+      if (!oldRisk) return res.status(404).json({ message: "Risk not found" });
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(200).optional(),
         description: z.string().max(5000).nullable().optional(),
@@ -5533,16 +5523,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.status === "accepted" && !nextReason?.trim()) {
         return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
       }
-      const [risk] = await db.update(changeRisks).set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(changeRisks.id, req.params.riskId)).returning();
-      await logAudit((req.user as any).id, "UPDATE", "change_risks", risk.id, risk.title, oldRisk, risk, req);
+      const [risk] = await db.update(risks).set({ ...parsed.data, updatedAt: new Date() })
+        .where(eq(risks.id, req.params.riskId)).returning();
+      await logAudit((req.user as any).id, "UPDATE", "risks", risk.id, risk.title, oldRisk, risk, req);
       res.json(risk);
     } catch (error) {
-      console.error("Failed to update change risk:", error);
-      res.status(500).json({ message: "Failed to update change risk" });
+      console.error("Failed to update risk:", error);
+      res.status(500).json({ message: "Failed to update risk" });
     }
   });
 
+  // ── Change Management ────────────────────────────────────────────────────
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
