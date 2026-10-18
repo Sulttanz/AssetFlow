@@ -22,6 +22,10 @@ export function withStageRetryHistory(
         completedAt: asIsoString(current.completedAt),
       },
     ];
+  } else if (current.status === "in_progress" && current.startedAt) {
+    // A duplicate retry may have waited for the row lock; it belongs to the
+    // active attempt and must not move that attempt's start time.
+    next.startedAt = current.startedAt;
   }
 
   // Completion belongs to the attempt that just ended, not the new one.
