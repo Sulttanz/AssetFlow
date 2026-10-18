@@ -58,6 +58,7 @@ import KnowledgeBase from "@/pages/knowledge-base";
 import Problems from "@/pages/problems";
 import ServiceCatalog from "@/pages/service-catalog";
 import Changes from "@/pages/changes";
+import ChangeTracker from "@/pages/change-tracker";
 import KpiDashboard from "@/pages/kpis";
 import Sidebar from "@/components/layout/sidebar";
 
@@ -128,6 +129,7 @@ function Router() {
                   <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" />
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
                   <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" />
+                  <ProtectedRoute path="/changes/tracker" component={ChangeTracker} requiredModule="itsm" />
                   <ProtectedRoute path="/kpis" component={KpiDashboard} />
                   <Route component={NotFound} />
                 </Switch>

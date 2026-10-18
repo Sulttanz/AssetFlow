@@ -117,6 +117,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "My Requests", href: "/my-requests", icon: ClipboardList, current: location === "/my-requests" },
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
+        { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
         { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
       ]

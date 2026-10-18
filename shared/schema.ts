@@ -1177,6 +1177,30 @@ export const changes = pgTable("changes", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
+export const changeRisks = pgTable("change_risks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("operational"),
+  likelihood: integer("likelihood").notNull(),
+  impact: integer("impact").notNull(),
+  mitigation: text("mitigation"),
+  contingency: text("contingency"),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
+  dueDate: date("due_date"),
+  residualLikelihood: integer("residual_likelihood"),
+  residualImpact: integer("residual_impact"),
+  status: text("status").notNull().default("identified"),
+  acceptanceReason: text("acceptance_reason"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+}, table => [
+  index("change_risks_change_status_idx").on(table.changeId, table.status),
+  index("change_risks_owner_idx").on(table.ownerId),
+]);
+
 export const changeApprovals = pgTable("change_approvals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
@@ -1242,6 +1266,7 @@ export const changePIRs = pgTable("change_pirs", {
 });
 
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
+export const insertChangeRiskSchema = createInsertSchema(changeRisks).omit({ id: true, createdAt: true, updatedAt: true, createdById: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true, originalApproverId: true, approverLabel: true });
 export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages, {
   attempts: z.array(z.object({
@@ -1252,6 +1277,8 @@ export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvir
 }).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: true, createdAt: true, updatedAt: true, completedById: true });
 export type Change = typeof changes.$inferSelect;
+export type ChangeRisk = typeof changeRisks.$inferSelect;
+export type InsertChangeRisk = z.infer<typeof insertChangeRiskSchema>;
 export type InsertChange = z.infer<typeof insertChangeSchema>;
 export type ChangeApproval = typeof changeApprovals.$inferSelect;
 export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;

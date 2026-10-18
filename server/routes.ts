@@ -13,7 +13,7 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments
+  assetAttachments, ticketAttachments, changeRisks, changes, users
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { db } from "./db";
@@ -5427,6 +5427,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Change Management ────────────────────────────────────────────────────
+  app.get("/api/change-risk-users", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (_req, res) => {
+    try {
+      res.json(await db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName })
+        .from(users).where(eq(users.isActive, true)));
+    } catch (error) {
+      console.error("Failed to fetch change risk owners:", error);
+      res.status(500).json({ message: "Failed to fetch change risk owners" });
+    }
+  });
+
+  app.get("/api/change-risks", requireAuth, requireModule("itsm"), async (_req, res) => {
+    try {
+      const rows = await db.select({
+        risk: changeRisks,
+        linkedChangeId: changes.id,
+        linkedChangeNumber: changes.changeNumber,
+        linkedChangeTitle: changes.title,
+        linkedChangeStatus: changes.status,
+        linkedOwnerId: users.id,
+        linkedOwnerUsername: users.username,
+        linkedOwnerFirstName: users.firstName,
+        linkedOwnerLastName: users.lastName,
+      }).from(changeRisks)
+        .leftJoin(changes, eq(changeRisks.changeId, changes.id))
+        .leftJoin(users, eq(changeRisks.ownerId, users.id));
+      res.json(rows.map(row => ({
+        ...row.risk,
+        change: row.linkedChangeId ? {
+          id: row.linkedChangeId, changeNumber: row.linkedChangeNumber,
+          title: row.linkedChangeTitle, status: row.linkedChangeStatus,
+        } : null,
+        owner: row.linkedOwnerId ? {
+          id: row.linkedOwnerId, username: row.linkedOwnerUsername,
+          firstName: row.linkedOwnerFirstName, lastName: row.linkedOwnerLastName,
+        } : null,
+      })));
+    } catch (error) {
+      console.error("Failed to fetch change risks:", error);
+      res.status(500).json({ message: "Failed to fetch change risks" });
+    }
+  });
+
+  app.post("/api/changes/:changeId/risks", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (req, res) => {
+    try {
+      const change = await storage.getChange(req.params.changeId);
+      if (!change) return res.status(404).json({ message: "Change not found" });
+      const bodySchema = z.object({
+        title: z.string().trim().min(1).max(200),
+        description: z.string().max(5000).nullable().optional(),
+        category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]),
+        likelihood: z.number().int().min(1).max(5),
+        impact: z.number().int().min(1).max(5),
+        mitigation: z.string().max(5000).nullable().optional(),
+        contingency: z.string().max(5000).nullable().optional(),
+        ownerId: z.string().nullable().optional(),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        residualLikelihood: z.number().int().min(1).max(5).nullable().optional(),
+        residualImpact: z.number().int().min(1).max(5).nullable().optional(),
+        status: z.enum(["identified", "mitigating", "accepted", "closed"]).optional(),
+        acceptanceReason: z.string().max(2000).nullable().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid risk assessment", errors: parsed.error.flatten() });
+      if (parsed.data.status === "accepted" && !parsed.data.acceptanceReason?.trim()) {
+        return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
+      }
+      const user = req.user as any;
+      const [risk] = await db.insert(changeRisks).values({
+        ...parsed.data,
+        changeId: req.params.changeId,
+        createdById: user.id,
+      }).returning();
+      await logAudit(user.id, "CREATE", "change_risks", risk.id, risk.title, null, risk, req);
+      res.status(201).json(risk);
+    } catch (error) {
+      console.error("Failed to create change risk:", error);
+      res.status(500).json({ message: "Failed to create change risk" });
+    }
+  });
+
+  app.put("/api/change-risks/:riskId", requireAuth, requirePermission("change_manage"), requireModule("itsm"), async (req, res) => {
+    try {
+      const [oldRisk] = await db.select().from(changeRisks).where(eq(changeRisks.id, req.params.riskId));
+      if (!oldRisk) return res.status(404).json({ message: "Change risk not found" });
+      const bodySchema = z.object({
+        title: z.string().trim().min(1).max(200).optional(),
+        description: z.string().max(5000).nullable().optional(),
+        category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]).optional(),
+        likelihood: z.number().int().min(1).max(5).optional(),
+        impact: z.number().int().min(1).max(5).optional(),
+        mitigation: z.string().max(5000).nullable().optional(),
+        contingency: z.string().max(5000).nullable().optional(),
+        ownerId: z.string().nullable().optional(),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        residualLikelihood: z.number().int().min(1).max(5).nullable().optional(),
+        residualImpact: z.number().int().min(1).max(5).nullable().optional(),
+        status: z.enum(["identified", "mitigating", "accepted", "closed"]).optional(),
+        acceptanceReason: z.string().max(2000).nullable().optional(),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid risk assessment", errors: parsed.error.flatten() });
+      const nextReason = parsed.data.acceptanceReason ?? oldRisk.acceptanceReason;
+      if (parsed.data.status === "accepted" && !nextReason?.trim()) {
+        return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
+      }
+      const [risk] = await db.update(changeRisks).set({ ...parsed.data, updatedAt: new Date() })
+        .where(eq(changeRisks.id, req.params.riskId)).returning();
+      await logAudit((req.user as any).id, "UPDATE", "change_risks", risk.id, risk.title, oldRisk, risk, req);
+      res.json(risk);
+    } catch (error) {
+      console.error("Failed to update change risk:", error);
+      res.status(500).json({ message: "Failed to update change risk" });
+    }
+  });
+
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
