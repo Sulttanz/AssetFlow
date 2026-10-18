@@ -262,6 +262,7 @@ it("reopens the CAB stream after ITSM is restored without retrying while disable
     .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
     .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
     .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
     .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: true }]))
     .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }));
   vi.stubGlobal("fetch", fetchAccess);
@@ -274,9 +275,7 @@ it("reopens the CAB stream after ITSM is restored without retrying while disable
   expect(FakeEventSource.instances[1].url).toBe("/api/module-settings/events");
   expect(fetchAccess).toHaveBeenCalledTimes(2);
 
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(30_000);
-  });
+  FakeEventSource.instances[1].dispatchEvent(new Event("itsm-enabled"));
   await flushAsyncWork();
   expect(fetchAccess).toHaveBeenCalledTimes(3);
   expect(FakeEventSource.instances).toHaveLength(2);
@@ -286,8 +285,16 @@ it("reopens the CAB stream after ITSM is restored without retrying while disable
     await vi.advanceTimersByTimeAsync(30_000);
   });
   await flushAsyncWork();
+  expect(fetchAccess).toHaveBeenCalledTimes(4);
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(firstStream.close).toHaveBeenCalledOnce();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  await flushAsyncWork();
   expect(FakeEventSource.instances).toHaveLength(3);
-  expect(fetchAccess).toHaveBeenCalledTimes(5);
+  expect(fetchAccess).toHaveBeenCalledTimes(6);
   expect(FakeEventSource.instances[1].close).toHaveBeenCalledOnce();
   expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
 });

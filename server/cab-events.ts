@@ -211,6 +211,9 @@ async function connectListener(): Promise<void> {
     retryDelay = 1000;
     // Reconcile streams that stayed open while the shared listener was offline.
     broadcast();
+    // Paused clients use a separate access stream and cannot hear the CAB
+    // reconciliation. Wake them so they can recheck ITSM and session state.
+    broadcastItsmEnabled();
   } catch (error) {
     reconnect(error instanceof Error ? error : new Error(String(error)));
   }

@@ -121,3 +121,33 @@ it("fans out notifications from another server without echoing its own publish",
     await unsubscribeAccess();
   }
 });
+
+it("wakes paused access streams when the shared listener reconnects", async () => {
+  const firstClient = clients[0];
+  await vi.waitFor(() => expect(firstClient.query).toHaveBeenCalledWith("LISTEN cab_access"));
+  const cabStream = streamResponse();
+  const unsubscribeCab = await subscribeToCabEvents(cabStream, "cab-user", "session-1");
+  const accessStream = streamResponse();
+  const unsubscribeAccess = await subscribeToItsmAccessEvents(accessStream, "paused-user", "session-2");
+  if (!unsubscribeCab || !unsubscribeAccess) throw new Error("Expected CAB event stream subscriptions");
+
+  try {
+    expect(cabStream.write).not.toHaveBeenCalled();
+    expect(accessStream.write).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    firstClient.emit("end", {});
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await vi.waitFor(() => expect(clients).toHaveLength(2));
+    const recoveredClient = clients[1];
+    await vi.waitFor(() => expect(recoveredClient.query).toHaveBeenCalledWith("LISTEN cab_access"));
+
+    expect(cabStream.write).toHaveBeenCalledWith("event: cab-change\ndata: {}\n\n");
+    expect(accessStream.write).toHaveBeenCalledWith("event: itsm-enabled\ndata: {}\n\n");
+  } finally {
+    vi.useRealTimers();
+    await unsubscribeCab();
+    await unsubscribeAccess();
+  }
+});
