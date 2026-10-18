@@ -196,6 +196,44 @@ describe("CAB alert change links", () => {
       expect(within(panel).queryByRole("button", { name: "Reject" })).toBeNull();
     }
   });
+
+  it.each([
+    { status: 404, responseMessage: "Change not found or no longer available" },
+    { status: 403, responseMessage: "Forbidden" },
+  ])("explains an unavailable CAB alert target after a $status detail response without showing stale approval data", async ({ status, responseMessage }) => {
+    const changeId = "unavailable-change";
+    queryClient.setQueryData(["/api/changes", changeId], {
+      ...change([approval("stale-vote", "pending", "stale-approver")]),
+      id: changeId,
+      title: "Stale approval details",
+    });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/changes?")) return { ok: true, json: async () => ({ changes: [], total: 0 }) };
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === `/api/changes/${changeId}`) {
+        return { ok: false, status, text: async () => JSON.stringify({ message: responseMessage }) };
+      }
+      return { ok: true, json: async () => [] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", `/changes?approval=${changeId}`);
+
+    render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This CAB alert points to a change that is no longer available. It may have been deleted or you may no longer have access.",
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/changes/${changeId}`, expect.objectContaining({
+      method: "GET",
+      credentials: "include",
+    })));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(screen.queryByText("unavailable-change")).toBeNull();
+    expect(screen.queryByText("Stale approval details")).toBeNull();
+    expect(screen.queryByText("stale-vote Reviewer")).toBeNull();
+  });
 });
 
 describe("change detail CAB approvals", () => {

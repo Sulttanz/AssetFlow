@@ -10,6 +10,7 @@
 - [Asset vendor FK pattern](asset-vendor-fk.md) — assets has both primaryVendorId (FK→vendors) and legacy text vendor field; asset form populates both; vendor list from /api/vendors.
 - [CAB approver removal audit](cab-approver-removal.md) — removed approvers remain as inactive audit records and may not be re-added to the same change.
 - [CAB pending notification source](cab-pending-notifications.md) — derive pending vote alerts from active approval state rather than storing a separate notification lifecycle.
+- [CAB alert link freshness](cab-alert-link-freshness.md) — verify a CAB alert target with a fresh detail request before showing its approval history or vote controls.
 - [Drizzle loader compatibility](drizzle-loader-compatibility.md) — stable kit retains the old loader; verify the resolved lock tree and isolated schema push when changing its tooling dependencies.
 - [CAB live update scope](cab-live-update-scope.md) — event signals are process-local; polling reconciles missed changes, but multiple server instances need shared fan-out.
 - [CAB stream admission policy](cab-stream-admission.md) — shared expiring database leases enforce CAB per-session and per-user limits across replicas.

@@ -257,6 +257,18 @@ describe("CAB change routes", () => {
     ]);
   });
 
+  it("returns a neutral 404 when a CAB alert target is no longer available", async () => {
+    store.getChange.mockResolvedValueOnce(undefined);
+
+    const response = await fetch(`${baseUrl}/api/changes/missing-change`, {
+      headers: { "x-test-user": "alice" },
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
+    expect(store.getChange).toHaveBeenCalledWith("missing-change");
+  });
+
   it("rejects a different authenticated approver without altering the vote", async () => {
     const result = await cast("approved", "bob");
     expect(result.status).toBe(403);

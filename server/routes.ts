@@ -5563,7 +5563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const ch = await storage.getChange(req.params.id);
-      if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (!ch) return res.status(404).json({ message: "Change not found or no longer available" });
       res.json(ch);
     } catch { res.status(500).json({ message: "Failed to fetch change" }); }
   });

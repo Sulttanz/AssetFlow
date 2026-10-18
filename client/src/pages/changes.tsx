@@ -597,6 +597,7 @@ export default function Changes() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedChange, setSelectedChange] = useState<ChangeWithDetails | null>(null);
+  const [alertLinkUnavailable, setAlertLinkUnavailable] = useState(false);
   const [detailTab, setDetailTab] = useState("details");
   const [editingChange, setEditingChange] = useState<ChangeWithDetails | null>(null);
   const [approvalComment, setApprovalComment] = useState("");
@@ -639,10 +640,34 @@ export default function Changes() {
     refetchInterval: 60_000, refetchOnMount: "always",
   });
   const approvalChangeId = new URLSearchParams(searchParams).get("approval");
-  const { data: linkedChange, isError: linkedChangeError } = useQuery<ChangeWithDetails>({
-    queryKey: ["/api/changes", approvalChangeId],
-    enabled: !!approvalChangeId,
-  });
+  useEffect(() => {
+    if (!approvalChangeId) return;
+    let cancelled = false;
+    setSelectedChange(null);
+    setAlertLinkUnavailable(false);
+    apiRequest("GET", `/api/changes/${encodeURIComponent(approvalChangeId)}`)
+      .then(response => response.json())
+      .then((change: ChangeWithDetails) => {
+        if (cancelled) return;
+        if (!change || change.id !== approvalChangeId) {
+          setSelectedChange(null);
+          setAlertLinkUnavailable(true);
+        } else {
+          setSelectedChange(change);
+          setAlertLinkUnavailable(false);
+          setDetailTab("approvals");
+        }
+        // Consume the link after the lookup so closing the dialog won't reopen it.
+        navigate("/changes", { replace: true });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSelectedChange(null);
+        setAlertLinkUnavailable(true);
+        navigate("/changes", { replace: true });
+      });
+    return () => { cancelled = true; };
+  }, [approvalChangeId, navigate]);
   const { data: detailChange } = useQuery<ChangeWithDetails>({
     queryKey: ["/api/changes", selectedChange?.id],
     enabled: !!selectedChange,
@@ -650,16 +675,6 @@ export default function Changes() {
   });
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
-
-  useEffect(() => {
-    if (!approvalChangeId || (!linkedChange && !linkedChangeError)) return;
-    if (linkedChange) {
-      setSelectedChange(linkedChange);
-      setDetailTab("approvals");
-    }
-    // Consume the link so closing the dialog doesn't reopen it on the next list refresh.
-    navigate("/changes", { replace: true });
-  }, [approvalChangeId, linkedChange, linkedChangeError, navigate]);
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -926,6 +941,7 @@ export default function Changes() {
               ) : myPendingChanges.map(c => (
                 <button key={c.id} className="w-full rounded px-2 py-2 text-left text-sm hover:bg-accent" onClick={() => {
                   setPendingVotesOpen(false);
+                  setAlertLinkUnavailable(false);
                   setSelectedChange(c);
                   setDetailTab("approvals");
                 }}>
@@ -939,6 +955,15 @@ export default function Changes() {
       </div>
 
       <div className="flex-1 overflow-auto p-6 space-y-4">
+        {alertLinkUnavailable && (
+          <div role="alert" className="flex items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>This CAB alert points to a change that is no longer available. It may have been deleted or you may no longer have access.</p>
+            </div>
+            <Button variant="ghost" size="sm" className="h-7 shrink-0" onClick={() => setAlertLinkUnavailable(false)}>Dismiss</Button>
+          </div>
+        )}
         {/* Stats for the loaded page only */}
         {(() => {
           const allStages = changes.flatMap(c => c.stages ?? []);
@@ -1042,7 +1067,7 @@ export default function Changes() {
                   </TableHeader>
                   <TableBody>
                     {changes.map(c => (
-                      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setDetailTab("details"); setSelectedChange(c); }}>
+                      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setAlertLinkUnavailable(false); setDetailTab("details"); setSelectedChange(c); }}>
                         <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
                         <TableCell className="font-medium max-w-[200px] truncate">{c.title}</TableCell>
                         <TableCell><Badge className={TYPE_COLORS[c.type] ?? ""}>{c.type}</Badge></TableCell>
@@ -1093,7 +1118,7 @@ export default function Changes() {
       </div>
 
       {/* ── Detail Dialog ────────────────────────────────────────────────── */}
-      <Dialog open={!!selectedChange && !dialogOpen} onOpenChange={open => { if (!open) setSelectedChange(null); }}>
+      <Dialog open={!!selectedChange && !dialogOpen && !approvalChangeId} onOpenChange={open => { if (!open) setSelectedChange(null); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
