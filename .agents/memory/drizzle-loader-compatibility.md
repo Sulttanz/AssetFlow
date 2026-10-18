@@ -7,4 +7,4 @@ Keep Drizzle tooling on a version compatible with the application's ORM until a 
 
 **Why:** A prerelease removed the vulnerable chain but failed before schema push; an initial override declaration also left the old nested esbuild in the lockfile. Successful package installation alone was not proof of remediation.
 
-**How to apply:** Check the actual lockfile and resolved dependency tree after changes, run the security audit, and test schema push against a disposable PostgreSQL instance (including a second no-op push). Never use the application's configured database merely to test a tooling upgrade.
+**How to apply:** Check the actual lockfile and resolved dependency tree after changes, run the security audit, and test schema push against a disposable PostgreSQL instance (including a second no-op push). Never use the application's configured database merely to test a tooling upgrade. After managed npm installs, review the lockfile diff for unrelated platform metadata churn and keep only intentional dependency changes.
