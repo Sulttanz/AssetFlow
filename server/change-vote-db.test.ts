@@ -1207,6 +1207,116 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     15_000,
   );
 
+  it.each([
+    { escalation: "risk", updates: { risk: "high" }, first: "approval" },
+    { escalation: "risk", updates: { risk: "high" }, first: "escalation" },
+    { escalation: "type", updates: { type: "emergency" }, first: "approval" },
+    { escalation: "type", updates: { type: "emergency" }, first: "escalation" },
+  ] as const)(
+    "serializes concurrent approval and $escalation escalation when both requests read stale state ($first first)",
+    async ({ escalation, updates, first }) => {
+      const managerId = randomUUID();
+      const changeId = randomUUID();
+      await db.insert(users).values({
+        id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager",
+      });
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Approval racing risk escalation",
+        type: "standard", risk: "low", status: "submitted", cabRequired: false,
+      });
+
+      // Force both HTTP handlers to capture the same old standard/low state.
+      const originalRead = storage.getChange.bind(storage);
+      let readCount = 0;
+      let releaseReads!: () => void;
+      const bothReads = new Promise<void>(resolve => { releaseReads = resolve; });
+      const readSpy = vi.spyOn(storage, "getChange").mockImplementation(async id => {
+        const change = await originalRead(id);
+        if (id === changeId && readCount < 2) {
+          expect(change).toMatchObject({ type: "standard", risk: "low", status: "submitted", cabRequired: false });
+          if (++readCount === 2) releaseReads();
+          await bothReads;
+        }
+        return change;
+      });
+
+      // Both handlers have already read the old state; choose which guarded
+      // transaction commits first to exercise both lock orderings.
+      const originalGuard = storage.updateChangeWithCabStatusGuard.bind(storage);
+      let releaseFirstGuard!: () => void;
+      const firstGuardFinished = new Promise<void>(resolve => { releaseFirstGuard = resolve; });
+      const guardSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (id, update) => {
+        if (id === changeId) {
+          const isEscalation = update.risk === "high" || update.type === "emergency";
+          const isFirst = first === "approval" ? update.status === "approved" : isEscalation;
+          if (!isFirst) await firstGuardFinished;
+          try {
+            return await originalGuard(id, update);
+          } finally {
+            if (isFirst) releaseFirstGuard();
+          }
+        }
+        return originalGuard(id, update);
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      try {
+        const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify(body),
+        });
+        const approvalRequest = update({ status: "approved" });
+        const escalationRequest = update({ ...updates, cabRequired: false });
+        // Reaching both stale reads guarantees the race setup is real rather
+        // than relying on request timing or a single sequential update.
+        await bothReads;
+        expect(readCount).toBe(2);
+        releaseReads();
+
+        const [approvalResponse, escalationResponse] = await Promise.all([
+          approvalRequest, escalationRequest,
+        ]);
+        const firstResponse = first === "approval" ? approvalResponse : escalationResponse;
+        const secondResponse = first === "approval" ? escalationResponse : approvalResponse;
+        expect(firstResponse.status).toBe(200);
+        expect(secondResponse.status).toBe(403);
+        expect(await secondResponse.json()).toMatchObject({ code: "CAB_PENDING" });
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        if (first === "approval") {
+          // Escalation was rejected after observing the already-approved
+          // record, so it cannot leave that record CAB-required and approved.
+          expect(savedChange).toMatchObject({
+            type: "standard", risk: "low", status: "approved", cabRequired: false,
+          });
+        } else {
+          // Escalation committed first; the stale approval request saw the
+          // locked CAB-required state and could not bypass its requirement.
+          expect(savedChange).toMatchObject({
+            type: escalation === "type" ? "emergency" : "standard",
+            risk: escalation === "risk" ? "high" : "low",
+            status: "submitted", cabRequired: true,
+          });
+        }
+        const activeApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(savedChange.status === "approved" && savedChange.cabRequired)
+          .toBe(activeApprovals.length > 0 && activeApprovals.every(row => row.decision === "approved"));
+      } finally {
+        releaseReads();
+        releaseFirstGuard();
+        readSpy.mockRestore();
+        guardSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it.each(["approved", "in_progress"] as const)(
     "allows a non-CAB change with no approvals to move to %s through the general update route",
     async targetStatus => {

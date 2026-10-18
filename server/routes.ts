@@ -5499,30 +5499,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!body.assignedToId)  body.assignedToId   = null;
       if (!body.departmentId)  body.departmentId   = null;
 
-      // ── Authoritative CAB flag enforcement ──────────────────────────────────
-      // Derive requirement from the *resultant* type/risk (incoming body wins,
-      // fallback to stored). This covers type/risk escalation in the same request.
-      if (oldChange) {
-        const resultantType = ((body.type ?? oldChange.type) as string) || "";
-        const resultantRisk = ((body.risk ?? (oldChange as any).risk) as string) || "";
-        const typeTriggersCAB = ["normal", "emergency"].includes(resultantType);
-        const riskTriggersCAB = ["high", "critical"].includes(resultantRisk);
-
-        if (typeTriggersCAB || riskTriggersCAB) {
-          // Mandatory CAB — force true regardless of what the caller sent
-          body.cabRequired = true;
-        } else if (body.cabRequired === false) {
-          // Optional CAB being cleared — only allowed if no approvals have been added yet
-          const existingApprovals = await storage.getChangeApprovals(req.params.id);
-          if (existingApprovals.length > 0) {
-            // CAB process already started; cannot un-opt
-            body.cabRequired = !!(oldChange as any).cabRequired;
-          }
-        }
-      }
-
       // The storage transaction locks the change row shared with CAB votes,
-      // then validates approvals and writes status from that same vote state.
+      // then derives CAB requirements from the locked resulting type/risk and
+      // validates approvals from that same vote state.
       const result = await storage.updateChangeWithCabStatusGuard(req.params.id, body);
       if (result.cabPending) {
         await logAudit(

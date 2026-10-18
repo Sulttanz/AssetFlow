@@ -4181,21 +4181,30 @@ export class DatabaseStorage implements IStorage {
       const [current] = await tx.select({
         status: changes.status,
         cabRequired: changes.cabRequired,
+        type: changes.type,
+        risk: changes.risk,
       }).from(changes).where(eq(changes.id, id)).for("update");
       if (!current) return { change: undefined, cabPending: false };
 
-      const isApprovalTransition =
-        change.status !== undefined &&
-        change.status !== current.status &&
-        (change.status === "approved" || change.status === "in_progress");
       let guardedChange = change;
-      let effectiveCabRequired = change.cabRequired ?? current.cabRequired;
+      const resultantType = change.type ?? current.type;
+      const resultantRisk = change.risk ?? current.risk;
+      const mandatoryCab =
+        ["normal", "emergency"].includes(resultantType ?? "") ||
+        ["high", "critical"].includes(resultantRisk ?? "");
+      let effectiveCabRequired = mandatoryCab || (change.cabRequired ?? current.cabRequired);
       let approvals: { decision: string | null }[] | undefined;
+
+      // CAB is mandatory for the resulting type/risk, regardless of any
+      // stale route-level read or caller-supplied opt-out.
+      if (mandatoryCab && change.cabRequired !== true) {
+        guardedChange = { ...change, cabRequired: true };
+      }
 
       // If the request is clearing an existing opt-in, inspect active
       // approvals under the lock: a CAB assignment may have committed after
       // the route's earlier "no approvals" check.
-      if (current.cabRequired && change.cabRequired === false) {
+      if (!mandatoryCab && current.cabRequired && change.cabRequired === false) {
         approvals = await tx.select({ decision: changeApprovals.decision })
           .from(changeApprovals)
           .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
@@ -4205,7 +4214,11 @@ export class DatabaseStorage implements IStorage {
         }
       }
 
-      if (isApprovalTransition && effectiveCabRequired) {
+      // An update can escalate a change after a concurrent request approved
+      // it. Validate the resulting status, not only an explicit status
+      // transition, so it cannot remain approved without unanimous CAB votes.
+      const resultingStatus = change.status ?? current.status;
+      if ((resultingStatus === "approved" || resultingStatus === "in_progress") && effectiveCabRequired) {
         approvals ??= await tx.select({ decision: changeApprovals.decision })
           .from(changeApprovals)
           .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
