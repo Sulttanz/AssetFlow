@@ -5,9 +5,9 @@
 
 ## Executive summary
 
-**Overall status: Issues found; interactive module verification is incomplete.**
+**Overall status: Automated suite is clean; interactive module verification is incomplete.**
 
-The application workflow starts, TypeScript checking passes, and the build-audit gate passes. The full automated test suite has three failing CAB tests. `npm audit` reports two moderate dependency advisories.
+The application workflow starts, TypeScript checking passes, the build-audit gate passes, and the full automated test suite now passes. `npm audit` reports two moderate dependency advisories.
 
 The `/dashboard` preview rendered the sign-in screen. The browser session used for QA is not authenticated, so module CRUD, approvals, exports, role restrictions, and other signed-in workflows could not be exercised. No test records were created or modified.
 
@@ -18,20 +18,17 @@ The `/dashboard` preview rendered the sign-in screen. The browser session used f
 | Application workflow | **Passed** | `Start application` is running. |
 | `npm run check` | **Passed** | TypeScript check completed successfully. |
 | `npm run test:build-audit-gate` | **Passed** | Build-audit gate check passed. |
-| `npm test` | **Issues found** | 21 test files passed, 3 failed; 154 tests passed, 4 skipped, 3 failed. |
+| `npm test` | **Passed** | 24 test files passed; 157 tests passed, 4 skipped, 0 failed. |
 | `npm run audit:security` | **Issues found** | Two moderate advisories for `postcss-selector-parser` through `@tailwindcss/typography`; no high/critical findings were reported at the configured high-severity threshold. |
 | Preview screenshot at `/dashboard` | **Limited** | Sign-in screen rendered; unauthenticated API requests returned 401 as expected. |
 
 ## 1. Overall System Stability / Build Health
 
-**Status: Issues Found**
+**Status: Passed for automated checks; manual UI verification remains incomplete**
 
 - Application workflow starts and serves the sign-in page.
 - TypeScript checking and the build-audit gate pass.
-- Full automated suite is not green. The three failing tests are:
-  1. `server/cab-account-deletion.test.ts` — test setup encounters “This CAB member is already assigned to the change”.
-  2. `server/cab-assignment-plan.test.ts` — query finds two matching non-unique indexes where the test expects one.
-  3. `server/cab-cross-session.test.ts` — mocked storage lacks `createPermission`; the test then receives 201 where it expects 409.
+- Full automated suite is green after correcting the CAB test fixtures and mocks: 24 test files passed, 157 tests passed, 4 skipped, 0 failed.
 - The browser console reported two 401 responses while the preview was unauthenticated. These are consistent with the sign-in state, not evidence of a post-login failure.
 
 ## 2. Core Asset & Financial Module Status
@@ -66,7 +63,7 @@ The report hub and individual report routes are registered. The preview did not 
 
 ## 6. Administration, RBAC & Security
 
-**Status: Issues Found / not verified interactively**
+**Status: Not verified interactively; dependency advisories remain**
 
 - Route/API permission guards are present in the application, but role-specific 403/hide behavior was not tested with separate accounts.
 - 2FA setup and enable/disable actions were not exercised.
@@ -79,10 +76,9 @@ The report hub and individual report routes are registered. The preview did not 
 
 ## 7. Specific Bugs, UI Polish Items, or Errors Found
 
-1. **Automated test failures:** the three CAB failures listed in section 1 remain unresolved.
-2. **Dependency advisories:** two moderate npm audit findings remain unresolved.
-3. **Manual QA limitation:** the preview opens at sign-in and this run did not have an authenticated QA session. All signed-in workflows above are therefore unverified, not passed.
-4. **No test-data mutations:** create, approve/reject, delete, import, and clear-data operations were not run against the development data.
+1. **Dependency advisories:** two moderate npm audit findings remain unresolved.
+2. **Manual QA limitation:** the preview opens at sign-in and this run did not have an authenticated QA session. All signed-in workflows above are therefore unverified, not passed.
+3. **No test-data mutations:** create, approve/reject, delete, import, and clear-data operations were not run against the development data.
 
 ## QA completion boundary
 

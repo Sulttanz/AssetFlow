@@ -7,6 +7,7 @@ import { publishCabChange } from "./cab-events";
 
 const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
+  createPermission: vi.fn(),
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
   getUserPermissions: vi.fn(),
@@ -91,6 +92,10 @@ describe("CAB route notifications across signed-in sessions", () => {
       { id: "ticket-view", name: "ticket_view_all" },
       { id: "ticket-manage", name: "ticket_manage" },
     ]);
+    store.createPermission.mockImplementation(async (permission: { name: string }) => ({
+      ...permission,
+      id: `permission-${permission.name}`,
+    }));
     store.getRolesWithDetails.mockResolvedValue([]);
     const app = express();
     app.use(express.json());
@@ -174,6 +179,14 @@ describe("CAB route notifications across signed-in sessions", () => {
     store.getChangeApprovals.mockImplementation(async () => active().map(a => ({ ...a })));
     store.getAllChangeApprovalRecords.mockImplementation(async () => approvals.map(a => ({ ...a })));
     store.createChangeApproval.mockImplementation(async ({ changeId, approverId, decision }: { changeId: string; approverId: string; decision: string }) => {
+      const duplicate = approvals.some(approval =>
+        approval.changeId === changeId && approval.originalApproverId === approverId,
+      );
+      if (duplicate) {
+        throw Object.assign(new Error("This CAB member is already assigned to the change"), {
+          code: "CAB_APPROVER_DUPLICATE",
+        });
+      }
       const record: Approval = {
         id: `approval-${approvals.length + 1}`, changeId, approverId, originalApproverId: approverId,
         decision, removedAt: null, removedById: null, decidedAt: null,

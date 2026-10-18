@@ -109,8 +109,9 @@ describe("CAB assignment history lookup index", () => {
       SELECT index_info.indisunique AS is_unique
       FROM pg_index AS index_info
       JOIN pg_class AS index_class ON index_class.oid = index_info.indexrelid
-      WHERE index_class.relname = 'change_approvals_change_original_approver_idx'
-    `);
+      JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
+      WHERE index_class.relname = $1 AND index_namespace.nspname = $2
+    `, ["change_approvals_change_original_approver_idx", schema]);
     expect(indexDetails.rows).toEqual([{ is_unique: false }]);
   });
 });

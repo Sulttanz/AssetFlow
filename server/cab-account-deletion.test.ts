@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { changes, users } from "@shared/schema";
+import { changeApprovals, changes, users } from "@shared/schema";
 import { cabApprovalsGranted } from "./cab-gate";
 import { db } from "./db";
 import { storage } from "./storage";
@@ -27,8 +27,19 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
       });
 
       const pending = await storage.createChangeApproval({ changeId, approverId, decision: "pending" });
-      const undecided = await storage.createChangeApproval({ changeId, approverId, decision: "pending" });
-      const decided = await storage.updateChangeApproval(changeId, undecided.id, "approved", "Approved before account deletion");
+      // Model a duplicate assignment from pre-existing history. New assignments
+      // for the same change/user are rejected by storage, but historical rows
+      // must still survive account deletion intact.
+      const decidedAt = new Date();
+      const [decided] = await db.insert(changeApprovals).values({
+        changeId,
+        approverId,
+        originalApproverId: approverId,
+        approverLabel: "Casey Reviewer",
+        decision: "approved",
+        comments: "Approved before account deletion",
+        decidedAt,
+      }).returning();
       expect(decided).toBeDefined();
       expect(pending.createdAt).toBeInstanceOf(Date);
       expect(decided!.createdAt).toBeInstanceOf(Date);
