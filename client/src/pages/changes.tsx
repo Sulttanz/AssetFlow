@@ -64,7 +64,7 @@ interface ChangeWithDetails {
   stages?: ChangeStage[];
   createdAt: string; updatedAt: string;
 }
-interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; }
+interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; isActive: boolean | null; }
 interface Department { id: string; name: string; }
 interface ChangePage { changes: ChangeWithDetails[]; total: number; }
 const PAGE_SIZE = 25;
@@ -1350,7 +1350,7 @@ export default function Changes() {
                           </SelectTrigger>
                           <SelectContent>
                             {allUsers
-                              .filter(u => !unavailableApproverIds.has(u.id))
+                              .filter(u => u.isActive === true && !unavailableApproverIds.has(u.id))
                               .map(u => (
                                 <SelectItem key={u.id} value={u.id}>
                                   {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}

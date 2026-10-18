@@ -22,6 +22,13 @@ type StageTimelineFixture = {
   completedAt: string | null;
   attempts?: { status: "completed" | "failed"; startedAt: string | null; completedAt: string | null }[];
 };
+type UserSummaryFixture = {
+  id: string;
+  username: string;
+  firstName: string | null;
+  lastName: string | null;
+  isActive: boolean | null;
+};
 
 function approval(id: string, decision: string | null, approverId = id, comments: string | null = null) {
   return {
@@ -39,11 +46,17 @@ function change(approvals: ReturnType<typeof approval>[], removedApproverIds: st
   };
 }
 
-async function openApprovals(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = [], stages: StageTimelineFixture[] = []) {
+async function openApprovals(
+  approvals: ReturnType<typeof approval>[],
+  removedApproverIds: string[] = [],
+  removedApprovals: ReturnType<typeof approval>[] = [],
+  stages: StageTimelineFixture[] = [],
+  users: UserSummaryFixture[] = ["alice", "bob", "carol", "dave"].map(id => ({
+    id, username: id, firstName: id, lastName: null, isActive: true,
+  })),
+) {
   queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals, stages)], total: 1 });
-  queryClient.setQueryData(["/api/users"], ["alice", "bob", "carol", "dave"].map(id => ({
-    id, username: id, firstName: id, lastName: null,
-  })));
+  queryClient.setQueryData(["/api/users"], users);
   queryClient.setQueryData(["/api/departments"], []);
   const user = userEvent.setup();
   render(<QueryClientProvider client={queryClient}><Changes /></QueryClientProvider>);
@@ -217,10 +230,10 @@ describe("change detail CAB approvals", () => {
     };
     queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [listChange], total: 1 });
     const users = [
-      { id: "active-account", username: "active", firstName: "Alex", lastName: "Active" },
-      { id: "deleted-account", username: "deleted", firstName: "Casey", lastName: "Deleted" },
-      { id: "removed-account", username: "former", firstName: "Morgan", lastName: "Former" },
-      { id: "available-account", username: "available", firstName: "Available", lastName: "User" },
+      { id: "active-account", username: "active", firstName: "Alex", lastName: "Active", isActive: true },
+      { id: "deleted-account", username: "deleted", firstName: "Casey", lastName: "Deleted", isActive: true },
+      { id: "removed-account", username: "former", firstName: "Morgan", lastName: "Former", isActive: true },
+      { id: "available-account", username: "available", firstName: "Available", lastName: "User", isActive: true },
     ];
     const fetchMock = vi.fn(async (url: string) => {
       if (url.startsWith("/api/changes?")) {
@@ -469,6 +482,21 @@ describe("change detail CAB approvals", () => {
     expect(screen.queryByRole("option", { name: "carol" })).toBeNull();
     expect(screen.getByRole("option", { name: "alice" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "dave" })).toBeTruthy();
+  });
+
+  it("offers active users but excludes inactive accounts from CAB assignment", async () => {
+    auth.isAdmin = true;
+    const users = [
+      { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
+      { id: "active-user", username: "active-user", firstName: "Active", lastName: "Reviewer", isActive: true },
+      { id: "inactive-user", username: "inactive-user", firstName: "Inactive", lastName: "Reviewer", isActive: false },
+    ];
+    const { user, panel } = await openApprovals([], [], [], [], users);
+
+    await user.click(within(panel).getByRole("combobox"));
+
+    expect(screen.getByRole("option", { name: "Active Reviewer" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Inactive Reviewer" })).toBeNull();
   });
 
   it("hides self-assignment for a previously removed member", async () => {
