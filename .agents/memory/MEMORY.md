@@ -21,3 +21,4 @@
 - [Workspace SQL migration ledger](workspace-sql-migration-ledger.md) — keep setup migration tracking outside Drizzle-managed schemas so schema pushes do not treat them as app data.
 - [Standalone ITSM risk management](change-risk-management.md) — risk records and their lifecycle are independent of Change Management.
 - [Wouter route reset in tests](wouter-test-route-reset.md) — tests that redirect through Wouter must reset browser history after cleanup to isolate later cases.
+- [Task suggestion timing](task-suggestion-timing.md) — hold suggested follow-up tasks until the user's main project tasks are complete, then ask whether to proceed.
