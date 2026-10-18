@@ -133,15 +133,28 @@ export function setupAuth(app: Express) {
       if (err) return next(err);
       if (!user) return res.status(401).json({ error: info?.message || "Authentication failed" });
 
-      req.login(user, { session: true }, (loginErr) => {
-        if (loginErr) return res.status(500).json({ error: "Login failed during session creation" });
+      void withUserSessionLock(user.id, async () => {
+        // The account may have been deactivated after Passport looked it up.
+        const currentUser = await storage.getUser(user.id);
+        if (!currentUser?.isActive) {
+          res.status(401).json({ error: "Account is inactive" });
+          return;
+        }
 
-        req.session.save((saveErr) => {
-          if (saveErr) return res.status(500).json({ error: "Failed to save session" });
-
-          const { password, ...safeUser } = user;
-          res.status(200).json(safeUser);
+        await new Promise<void>((resolve, reject) => {
+          req.login(currentUser, { session: true }, (loginErr: any) => {
+            if (loginErr) return reject(loginErr);
+            req.session.save((saveErr: any) => {
+              if (saveErr) return reject(saveErr);
+              const { password, ...safeUser } = currentUser;
+              res.status(200).json(safeUser);
+              resolve();
+            });
+          });
         });
+      }).catch((loginError) => {
+        if (res.headersSent) return next(loginError);
+        res.status(500).json({ error: "Login failed during session creation" });
       });
     })(req, res, next);
   });
@@ -177,6 +190,35 @@ export async function invalidateUserSessions(userId: string): Promise<void> {
     `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
     [userId],
   );
+}
+
+export async function withUserSessionLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  const lockKey = `user-session:${userId}`;
+  let lockAcquired = false;
+
+  try {
+    await client.query(
+      "SELECT pg_advisory_lock(hashtextextended($1, 0))",
+      [lockKey],
+    );
+    lockAcquired = true;
+    return await operation();
+  } finally {
+    let unlockError: unknown;
+    try {
+      if (lockAcquired) {
+        await client.query(
+          "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+          [lockKey],
+        );
+      }
+    } catch (error) {
+      unlockError = error;
+    }
+    client.release(unlockError instanceof Error ? unlockError : undefined);
+    if (unlockError) throw unlockError;
+  }
 }
 
 // Authentication middleware

@@ -7,6 +7,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const authTestState = vi.hoisted(() => ({
   users: new Map<string, any>(),
   sessions: new Map<string, any>(),
+  lookupGate: null as null | { username: string; entered: () => void; wait: Promise<void> },
+  advisoryLocks: new Map<string, { locked: boolean; waiters: Array<() => void> }>(),
   query: vi.fn(async (sql: string, values: unknown[] = []) => {
     if (!sql.includes('DELETE FROM "sessions"')) throw new Error("Unexpected database query");
     const userId = values[0];
@@ -19,14 +21,39 @@ const authTestState = vi.hoisted(() => ({
     }
     return { rows: [], rowCount };
   }),
+  acquireAdvisoryLock: async (key: string) => {
+    let lock = authTestState.advisoryLocks.get(key);
+    if (!lock) {
+      lock = { locked: false, waiters: [] };
+      authTestState.advisoryLocks.set(key, lock);
+    }
+    if (lock.locked) await new Promise<void>(resolve => lock!.waiters.push(resolve));
+    lock.locked = true;
+  },
+  releaseAdvisoryLock: (key: string) => {
+    const lock = authTestState.advisoryLocks.get(key);
+    if (!lock) throw new Error(`No advisory lock held for ${key}`);
+    const next = lock.waiters.shift();
+    if (next) next();
+    else {
+      lock.locked = false;
+      authTestState.advisoryLocks.delete(key);
+    }
+  },
 }));
 
 vi.mock("./storage", () => ({
   storage: {
     getUser: vi.fn(async (id: string) => authTestState.users.get(id)),
-    getUserByUsername: vi.fn(async (username: string) =>
-      Array.from(authTestState.users.values()).find(user => user.username === username),
-    ),
+    getUserByUsername: vi.fn(async (username: string) => {
+      const user = Array.from(authTestState.users.values()).find(user => user.username === username);
+      const gate = authTestState.lookupGate;
+      if (gate?.username === username) {
+        gate.entered();
+        await gate.wait;
+      }
+      return user;
+    }),
     getUserRoles: vi.fn(async () => []),
     getUserPermissions: vi.fn(async () => ["user_update", "user_view"]),
     getPermissions: vi.fn(async () => []),
@@ -42,7 +69,32 @@ vi.mock("./storage", () => ({
   },
 }));
 
-vi.mock("./db", () => ({ pool: { query: authTestState.query }, db: {} }));
+vi.mock("./db", () => ({
+  pool: {
+    query: authTestState.query,
+    connect: vi.fn(async () => {
+      const heldLocks = new Set<string>();
+      return {
+        query: async (sql: string, values: unknown[] = []) => {
+          const key = String(values[0]);
+          if (sql.includes("pg_advisory_lock(")) {
+            await authTestState.acquireAdvisoryLock(key);
+            heldLocks.add(key);
+            return { rows: [{ pg_advisory_lock: true }] };
+          }
+          if (sql.includes("pg_advisory_unlock(")) {
+            if (!heldLocks.delete(key)) throw new Error(`Connection does not hold lock ${key}`);
+            authTestState.releaseAdvisoryLock(key);
+            return { rows: [{ pg_advisory_unlock: true }] };
+          }
+          throw new Error(`Unexpected client query: ${sql}`);
+        },
+        release: vi.fn(),
+      };
+    }),
+  },
+  db: {},
+}));
 
 vi.mock("connect-pg-simple", () => ({
   default: (expressSession: typeof session) =>
@@ -93,6 +145,8 @@ describe("user deactivation session revocation", () => {
   beforeEach(() => {
     authTestState.sessions.clear();
     authTestState.users.clear();
+    authTestState.advisoryLocks.clear();
+    authTestState.lookupGate = null;
     authTestState.query.mockClear();
     for (const [id, username] of [["admin", "admin"], ["target", "target"]]) {
       authTestState.users.set(id, {
@@ -161,5 +215,38 @@ describe("user deactivation session revocation", () => {
 
     const freshSession = await signIn("target");
     expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: freshSession } })).status).toBe(200);
+  });
+
+  it("does not persist a sign-in that looked up the account before deactivation", async () => {
+    const adminSession = await signIn("admin");
+    let lookupStarted!: () => void;
+    const lookupReached = new Promise<void>(resolve => { lookupStarted = resolve; });
+    let resumeLookup!: () => void;
+    const lookupGate = new Promise<void>(resolve => { resumeLookup = resolve; });
+    authTestState.lookupGate = {
+      username: "target",
+      entered: lookupStarted,
+      wait: lookupGate,
+    };
+
+    const pendingLogin = fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "target", password: "correct horse battery staple" }),
+    });
+    await lookupReached;
+
+    const deactivation = await setAccountActive(adminSession, false);
+    expect(deactivation.status).toBe(200);
+    authTestState.lookupGate = null;
+    resumeLookup();
+
+    const loginResponse = await pendingLogin;
+    expect(loginResponse.status).toBe(401);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+
+    const reactivation = await setAccountActive(adminSession, true);
+    expect(reactivation.status).toBe(200);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
   });
 });

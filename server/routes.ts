@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions } from "./auth";
+import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
@@ -267,10 +267,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Revoke persisted sessions before deactivating so a failure cannot leave
       // old sessions available to be restored by a later reactivation.
-      if (oldUser?.isActive && validatedData.isActive === false) {
-        await invalidateUserSessions(req.params.id);
-      }
-      
       // Hash password if it's being updated
       let updateData = validatedData;
       if (validatedData.password) {
@@ -280,8 +276,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           password: hashedPassword
         };
       }
-      
-      const user = await storage.updateUser(req.params.id, updateData);
+
+      const user = oldUser?.isActive && validatedData.isActive === false
+        ? await withUserSessionLock(req.params.id, async () => {
+            await invalidateUserSessions(req.params.id);
+            return storage.updateUser(req.params.id, updateData);
+          })
+        : await storage.updateUser(req.params.id, updateData);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }

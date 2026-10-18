@@ -16,7 +16,14 @@ vi.mock("./storage", () => ({
   },
 }));
 
-vi.mock("./db", () => ({ pool: {} }));
+vi.mock("./db", () => ({
+  pool: {
+    connect: vi.fn(async () => ({
+      query: vi.fn(async () => ({ rows: [{}] })),
+      release: vi.fn(),
+    })),
+  },
+}));
 
 vi.mock("connect-pg-simple", () => ({
   default: (session: any) =>
