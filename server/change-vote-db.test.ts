@@ -866,6 +866,102 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     }
   });
 
+  it.each(["removal", "assignment"] as const)(
+    "does not reopen a removed CAB assignment when %s reaches the database first",
+    async first => {
+      const managerId = randomUUID();
+      const approverId = randomUUID();
+      const changeId = randomUUID();
+      const approvalId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Assignment and removal race",
+        status: "submitted",
+      });
+      await db.insert(changeApprovals).values({
+        id: approvalId, changeId, approverId, originalApproverId: approverId,
+        approverLabel: "CAB Approver", decision: "pending",
+      });
+
+      let operationCount = 0;
+      let releaseOperations!: () => void;
+      const bothOperationsStarted = new Promise<void>(resolve => { releaseOperations = resolve; });
+      const waitForBothOperations = async () => {
+        if (++operationCount === 2) releaseOperations();
+        await bothOperationsStarted;
+      };
+      let releaseFirst!: () => void;
+      const firstCommitted = new Promise<void>(resolve => { releaseFirst = resolve; });
+      const originalAssignment = storage.createChangeApproval.bind(storage);
+      const originalRemove = storage.removeChangeApproval.bind(storage);
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      const assignmentSpy = vi.spyOn(storage, "createChangeApproval").mockImplementation(async (...args) => {
+        await waitForBothOperations();
+        if (first === "removal") await firstCommitted;
+        try {
+          return await originalAssignment(...args);
+        } finally {
+          if (first === "assignment") releaseFirst();
+        }
+      });
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+        await waitForBothOperations();
+        if (first === "assignment") await firstCommitted;
+        try {
+          return await originalRemove(...args);
+        } finally {
+          if (first === "removal") releaseFirst();
+        }
+      });
+
+      try {
+        const [assignment, removal] = await Promise.all([
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-test-user": managerId },
+            body: JSON.stringify({ approverId }),
+          }),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`, {
+            method: "DELETE",
+            headers: { "x-test-user": managerId },
+          }),
+        ]);
+
+        expect(operationCount).toBe(2);
+        expect(assignment.status).toBe(409);
+        expect(removal.status).toBe(200);
+        const expectedAssignmentCode = first === "removal" ? "CAB_APPROVER_REMOVED" : "CAB_APPROVER_DUPLICATE";
+        expect(await assignment.json()).toMatchObject({ code: expectedAssignmentCode });
+        expect(await removal.json()).toEqual({ success: true });
+
+        const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+        expect(history).toHaveLength(1);
+        expect(history[0]).toMatchObject({
+          id: approvalId,
+          approverId,
+          originalApproverId: approverId,
+          decision: "pending",
+          removedById: managerId,
+          removedByLabel: "CAB Manager",
+        });
+        expect(history[0].removedAt).toBeInstanceOf(Date);
+        expect(await storage.getChangeApprovals(changeId)).toEqual([]);
+      } finally {
+        assignmentSpy.mockRestore();
+        removeSpy.mockRestore();
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+    15_000,
+  );
+
   it.each(["vote", "assignment"] as const)(
     "serializes a new CAB assignment against a vote when the %s commits first",
     async first => {
