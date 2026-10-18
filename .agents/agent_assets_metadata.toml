@@ -14,3 +14,17 @@ mtime_ms = 1792329185947
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/b57e72d2-fbbf-4c1f-a913-c1733422f482/2308c9ea-2418-43d0-a5ff-79072941bb81"
 storage_version_token = "1792329265401427"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "EpZnhclEgyeUpzp07Yass"
+uri = "file://QA_ASSESSMENT_REPORT.md"
+type = "text"
+title = "Master QA Assessment Report"
+description = "Completed assessment of build health, automated tests, security audit, preview access, and unverified interactive workflows."
+logical_id = "c4e56829-89e0-4028-bfa6-b006dd9a1000"
+content_hash = "sha256:fad908d0d343e500787acb4d36f69aaad818861b1f8fc296f2f9477fbbeeab33"
+size = 5866
+mtime_ms = 1792329554050
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/c4e56829-89e0-4028-bfa6-b006dd9a1000/af59cb9f-e4da-4561-8e74-a8e2891eb008"
+storage_version_token = "1792329564067979"
+content_type = "text/markdown"
