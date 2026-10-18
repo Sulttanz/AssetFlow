@@ -81,6 +81,15 @@ try {
   ]);
   postgresStarted = true;
 
+  run("psql", [
+    "--host", "127.0.0.1",
+    "--port", String(port),
+    "--username", "postgres",
+    "--dbname", "postgres",
+    "--set", "ON_ERROR_STOP=1",
+    "--file", path.join(projectRoot, "scripts/fixtures/cab-schema-sync-legacy.sql"),
+  ]);
+
   const result = spawnSync(
     process.execPath,
     [

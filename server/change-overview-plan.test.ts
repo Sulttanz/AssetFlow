@@ -81,8 +81,15 @@ describe("CAB overview pending count plan", () => {
         id varchar PRIMARY KEY,
         change_id varchar NOT NULL,
         approver_id varchar,
+        original_approver_id varchar NOT NULL,
+        approver_label text NOT NULL,
         decision text,
-        removed_at timestamp
+        comments text,
+        decided_at timestamp,
+        removed_at timestamp,
+        removed_by_id varchar,
+        removed_by_label text,
+        created_at timestamp NOT NULL DEFAULT now()
       )
     `);
 
@@ -95,18 +102,27 @@ describe("CAB overview pending count plan", () => {
     // Representative history: active pending votes, legacy undecided votes,
     // completed decisions, removed assignments, and many approvers.
     await plannerPool.query(`
-      INSERT INTO change_approvals (id, change_id, approver_id, decision, removed_at)
+      INSERT INTO change_approvals (
+        id, change_id, approver_id, original_approver_id, approver_label,
+        decision, comments, decided_at, removed_at, removed_by_id, removed_by_label
+      )
       SELECT
         'approval-' || approval_no,
         'change-' || (((approval_no - 1) / 4) + 1),
         'reviewer-' || (approval_no % 256),
+        'reviewer-' || (approval_no % 256),
+        'Reviewer ' || (approval_no % 256),
         CASE
           WHEN approval_no % 5 = 0 THEN 'pending'
           WHEN approval_no % 5 = 1 THEN NULL
           WHEN approval_no % 2 = 0 THEN 'approved'
           ELSE 'rejected'
         END,
-        CASE WHEN approval_no % 19 = 0 THEN now() ELSE NULL END
+        CASE WHEN approval_no % 5 IN (2, 3) THEN 'Historical decision comment' ELSE NULL END,
+        CASE WHEN approval_no % 5 IN (2, 3) THEN now() ELSE NULL END,
+        CASE WHEN approval_no % 19 = 0 THEN now() ELSE NULL END,
+        CASE WHEN approval_no % 19 = 0 THEN 'former-reviewer' ELSE NULL END,
+        CASE WHEN approval_no % 19 = 0 THEN 'Former reviewer' ELSE NULL END
       FROM generate_series(1, 60000) AS approval_rows(approval_no);
 
       ANALYZE change_approvals
@@ -187,6 +203,156 @@ describe("CAB overview pending count plan", () => {
       node["Index Name"] === "change_approvals_active_pending_count_idx" &&
       node["Node Type"] === "Index Only Scan",
     )).toBe(true);
+
+    const withIndex = "change_approvals_with_count_index";
+    const withoutIndex = "change_approvals_without_count_index";
+    await plannerPool.query(`
+      CREATE TABLE ${withIndex} AS SELECT * FROM change_approvals;
+      CREATE TABLE ${withoutIndex} AS SELECT * FROM change_approvals;
+
+      ALTER TABLE ${withIndex} ADD PRIMARY KEY (id);
+      ALTER TABLE ${withoutIndex} ADD PRIMARY KEY (id);
+
+      CREATE INDEX ${withIndex}_history_idx
+        ON ${withIndex} (change_id, original_approver_id);
+      CREATE INDEX ${withoutIndex}_history_idx
+        ON ${withoutIndex} (change_id, original_approver_id);
+
+      CREATE INDEX ${withIndex}_approver_idx ON ${withIndex} (approver_id, change_id)
+        WHERE removed_at IS NULL AND (decision = 'pending' OR decision IS NULL);
+      CREATE INDEX ${withoutIndex}_approver_idx ON ${withoutIndex} (approver_id, change_id)
+        WHERE removed_at IS NULL AND (decision = 'pending' OR decision IS NULL);
+
+      CREATE INDEX ${withIndex}_count_idx ON ${withIndex} (decision)
+        WHERE removed_at IS NULL AND decision = 'pending';
+      ANALYZE ${withIndex};
+      ANALYZE ${withoutIndex};
+    `);
+
+    const measureWrite = async (table: string, statement: string) => {
+      const client = await plannerPool!.connect();
+      try {
+        const result = await client.query(
+          `EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) ${statement}`,
+        );
+        const json = result.rows[0]?.["QUERY PLAN"] as unknown;
+        const [explanation] = typeof json === "string"
+          ? JSON.parse(json) as { Plan: PlanNode; "Execution Time": number }[]
+          : json as { Plan: PlanNode; "Execution Time": number }[];
+        const wal = explanation.Plan as PlanNode & { "WAL Bytes"?: number };
+        return {
+          executionMs: Number(explanation["Execution Time"]),
+          walBytes: Number(wal["WAL Bytes"] ?? 0),
+        };
+      } finally {
+        client.release();
+      }
+    };
+    const inserts = (table: string, round: number) => `
+      INSERT INTO ${table} (
+        id, change_id, approver_id, original_approver_id, approver_label, decision, removed_at
+      )
+      SELECT
+        'benchmark-insert-${round}-' || vote_no,
+        'benchmark-change-' || vote_no,
+        'benchmark-reviewer-' || vote_no,
+        'benchmark-reviewer-' || vote_no,
+        'Benchmark reviewer ' || vote_no,
+        'pending',
+        NULL
+      FROM generate_series(1, 1000) AS votes(vote_no)
+    `;
+    const decisions = (table: string, _round: number) => `
+      UPDATE ${table} AS approval
+      SET decision = 'approved',
+          comments = 'Benchmark decision comment',
+          decided_at = now()
+      FROM (
+        SELECT id FROM ${table}
+        WHERE id LIKE 'approval-%' AND decision = 'pending' AND removed_at IS NULL
+        ORDER BY id LIMIT 1000
+      ) AS candidates
+      WHERE approval.id = candidates.id
+    `;
+    const removals = (table: string, _round: number) => `
+      UPDATE ${table} AS approval
+      SET removed_at = now(),
+          removed_by_id = 'benchmark-operator',
+          removed_by_label = 'Benchmark operator'
+      FROM (
+        SELECT id FROM ${table}
+        WHERE id LIKE 'approval-%' AND decision = 'pending' AND removed_at IS NULL
+        ORDER BY id LIMIT 1000
+      ) AS candidates
+      WHERE approval.id = candidates.id
+    `;
+    const writeCases = [
+      { name: "insert", statement: inserts },
+      { name: "decision", statement: decisions },
+      { name: "removal", statement: removals },
+    ];
+    type WriteMeasurement = Awaited<ReturnType<typeof measureWrite>>;
+    type WriteSamples = { withIndex: WriteMeasurement[]; withoutIndex: WriteMeasurement[] };
+    const samples = new Map<string, WriteSamples>();
+    for (const writeCase of writeCases) {
+      const result: WriteSamples = { withIndex: [], withoutIndex: [] };
+      for (let round = 0; round < 3; round += 1) {
+        const runWithFirst = round % 2 === 0;
+        const first = runWithFirst ? withIndex : withoutIndex;
+        const second = runWithFirst ? withoutIndex : withIndex;
+        const firstResult = await measureWrite(first, writeCase.statement(first, round));
+        const secondResult = await measureWrite(second, writeCase.statement(second, round));
+        result[first === withIndex ? "withIndex" : "withoutIndex"].push(firstResult);
+        result[second === withIndex ? "withIndex" : "withoutIndex"].push(secondResult);
+      }
+      samples.set(writeCase.name, result);
+    }
+
+    const sizeResult = await plannerPool.query(`
+      SELECT
+        pg_relation_size($1::regclass)::bigint AS index_bytes,
+        pg_relation_size($2::regclass)::bigint AS table_bytes
+    `, [`${withIndex}_count_idx`, withIndex]);
+    const indexBytes = Number(sizeResult.rows[0]?.index_bytes);
+    const tableBytes = Number(sizeResult.rows[0]?.table_bytes);
+    const finalCounts = await Promise.all([withIndex, withoutIndex].map(async table => {
+      const result = await plannerPool!.query(
+        `SELECT count(*)::int AS count FROM ${table}
+         WHERE removed_at IS NULL AND decision = 'pending'`,
+      );
+      return Number(result.rows[0]?.count);
+    }));
+
+    const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const writeCosts = [...samples].map(([name, result]) => {
+      const withMetrics = {
+        executionMs: median(result.withIndex.map(sample => sample.executionMs)),
+        walBytes: median(result.withIndex.map(sample => sample.walBytes)),
+      };
+      const withoutMetrics = {
+        executionMs: median(result.withoutIndex.map(sample => sample.executionMs)),
+        walBytes: median(result.withoutIndex.map(sample => sample.walBytes)),
+      };
+      return { operation: name, withIndex: withMetrics, withoutIndex: withoutMetrics };
+    });
+    console.info("CAB count index write costs", JSON.stringify({
+      indexBytes,
+      tableBytes,
+      finalPendingCounts: finalCounts,
+      operations: writeCosts,
+    }));
+
+    expect(finalCounts).toEqual([8369, 8369]);
+    expect(indexBytes).toBeGreaterThan(0);
+    expect(indexBytes).toBeLessThan(1024 * 1024);
+    expect(indexBytes).toBeLessThan(tableBytes * 0.1);
+    for (const cost of writeCosts) {
+      expect(cost.withIndex.executionMs).toBeLessThanOrEqual(cost.withoutIndex.executionMs * 2 + 10);
+      expect(cost.withIndex.walBytes).toBeLessThanOrEqual(cost.withoutIndex.walBytes * 2);
+      expect(cost.withIndex.walBytes).toBeGreaterThan(0);
+    }
+    expect(writeCosts.find(cost => cost.operation === "insert")!.withIndex.walBytes)
+      .toBeGreaterThan(writeCosts.find(cost => cost.operation === "insert")!.withoutIndex.walBytes);
   });
 
   it("declares the same strict predicate in the Drizzle schema", () => {
