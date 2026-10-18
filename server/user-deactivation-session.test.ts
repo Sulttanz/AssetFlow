@@ -7,10 +7,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const authTestState = vi.hoisted(() => ({
   users: new Map<string, any>(),
   sessions: new Map<string, any>(),
+  sessionDeleteError: null as Error | null,
   lookupGate: null as null | { username: string; entered: () => void; wait: Promise<void> },
   advisoryLocks: new Map<string, { locked: boolean; waiters: Array<() => void> }>(),
   query: vi.fn(async (sql: string, values: unknown[] = []) => {
     if (!sql.includes('DELETE FROM "sessions"')) throw new Error("Unexpected database query");
+    if (authTestState.sessionDeleteError) throw authTestState.sessionDeleteError;
     const userId = values[0];
     let rowCount = 0;
     for (const [id, savedSession] of authTestState.sessions) {
@@ -145,6 +147,7 @@ describe("user deactivation session revocation", () => {
   beforeEach(() => {
     authTestState.sessions.clear();
     authTestState.users.clear();
+    authTestState.sessionDeleteError = null;
     authTestState.advisoryLocks.clear();
     authTestState.lookupGate = null;
     authTestState.query.mockClear();
@@ -215,6 +218,24 @@ describe("user deactivation session revocation", () => {
 
     const freshSession = await signIn("target");
     expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: freshSession } })).status).toBe(200);
+  });
+
+  it("keeps the account active and its session valid when stored sessions cannot be revoked", async () => {
+    const targetSession = await signIn("target");
+    const adminSession = await signIn("admin");
+    authTestState.sessionDeleteError = new Error("Session store unavailable");
+
+    const deactivation = await setAccountActive(adminSession, false);
+
+    expect(deactivation.status).toBe(500);
+    expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
+    expect(authTestState.query).toHaveBeenCalledWith(
+      `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
+      ["target"],
+    );
+    expect(authTestState.users.get("target")?.isActive).toBe(true);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(true);
+    expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: targetSession } })).status).toBe(200);
   });
 
   it("does not persist a sign-in that looked up the account before deactivation", async () => {
