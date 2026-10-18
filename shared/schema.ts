@@ -1177,8 +1177,7 @@ export const changes = pgTable("changes", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
-// Keep the existing physical table name so existing risk records survive this module separation.
-export const risks = pgTable("change_risks", {
+export const risks = pgTable("risk_register", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
   title: text("title").notNull(),
@@ -1186,6 +1185,7 @@ export const risks = pgTable("change_risks", {
   category: text("category").notNull().default("operational"),
   likelihood: integer("likelihood").notNull(),
   impact: integer("impact").notNull(),
+  riskScore: integer("risk_score").notNull().default(0),
   mitigation: text("mitigation"),
   contingency: text("contingency"),
   ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
@@ -1198,8 +1198,8 @@ export const risks = pgTable("change_risks", {
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 }, table => [
-  index("change_risks_change_status_idx").on(table.changeId, table.status),
-  index("change_risks_owner_idx").on(table.ownerId),
+  index("risk_register_change_status_idx").on(table.changeId, table.status),
+  index("risk_register_owner_idx").on(table.ownerId),
 ]);
 
 export const changeApprovals = pgTable("change_approvals", {

@@ -73,6 +73,9 @@ export default function RiskManagement() {
   }), [risks, search, statusFilter]);
   const activeCount = risks.filter((risk) => !["closed", "accepted"].includes(risk.status ?? "")).length;
   const highCount = risks.filter((risk) => (risk.likelihood ?? 0) * (risk.impact ?? 0) >= 15 && !["closed", "accepted"].includes(risk.status ?? "")).length;
+  const riskCountAt = (impact: number, likelihood: number) => risks.filter(
+    (risk) => risk.impact === impact && risk.likelihood === likelihood,
+  ).length;
 
   const saveRisk = useMutation({
     mutationFn: async ({ id, payload }: { id?: string; payload: Record<string, unknown> }) => {
@@ -135,6 +138,30 @@ export default function RiskManagement() {
         <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Total risks</p><strong className="mt-2 block font-mono text-3xl font-medium">{isLoading ? "—" : risks.length}</strong></div>
         <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Active risk actions</p><strong className="mt-2 block font-mono text-3xl font-medium">{isLoading ? "—" : activeCount}</strong></div>
         <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">High exposure · active</p><strong className="mt-2 block font-mono text-3xl font-medium text-rose-700">{isLoading ? "—" : highCount}</strong></div>
+      </section>
+
+      <section className="mb-6 rounded-xl border border-[#d5dfd9] bg-[#fbfcfb] p-4 sm:p-6">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold tracking-tight">5 × 5 risk matrix</h2>
+          <p className="mt-1 text-xs text-slate-500">Current inherent exposure by impact and likelihood. Cell values show risk count.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[520px]">
+            <div className="grid grid-cols-[92px_repeat(5,minmax(54px,1fr))] gap-1">
+              <div className="flex items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">Impact ↓<br />Likelihood →</div>
+              {[1, 2, 3, 4, 5].map((likelihood) => <div key={`lh-${likelihood}`} className="py-1 text-center text-[10px] font-semibold text-slate-500">{likelihood}</div>)}
+              {[5, 4, 3, 2, 1].map((impact) => <div key={`im-${impact}`} className="contents">
+                <div className="flex items-center justify-end pr-2 text-[10px] font-semibold text-slate-500">{impact} · {["", "Very low", "Low", "Moderate", "High", "Severe"][impact]}</div>
+                {[1, 2, 3, 4, 5].map((likelihood) => {
+                  const score = impact * likelihood;
+                  const count = riskCountAt(impact, likelihood);
+                  const tone = score >= 15 ? "bg-rose-100 text-rose-900 border-rose-200" : score >= 8 ? "bg-amber-100 text-amber-900 border-amber-200" : "bg-teal-50 text-teal-900 border-teal-200";
+                  return <div key={`${impact}-${likelihood}`} aria-label={`Impact ${impact}, likelihood ${likelihood}, score ${score}, ${count} risks`} className={`flex h-12 items-center justify-center rounded border text-xs ${tone}`}><span className="font-mono">{count}</span></div>;
+                })}
+              </div>)}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-xl border border-[#d5dfd9] bg-[#fbfcfb]">

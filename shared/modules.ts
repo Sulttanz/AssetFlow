@@ -23,6 +23,13 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
       "Ticketing for incidents and service requests, linked to assets and employees.",
     core: false,
   },
+  {
+    key: "risk_management",
+    label: "Risk Management",
+    description:
+      "Standalone risk register, assessment, ownership, and mitigation tracking.",
+    core: false,
+  },
 ];
 
 export const MODULE_KEYS = MODULE_REGISTRY.map((m) => m.key);

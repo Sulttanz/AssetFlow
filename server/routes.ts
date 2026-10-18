@@ -5429,7 +5429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Risk Management ──────────────────────────────────────────────────────
-  app.get("/api/risk-users", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (_req, res) => {
+  app.get("/api/risk-users", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (_req, res) => {
     try {
       res.json(await db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName })
         .from(users).where(eq(users.isActive, true)));
@@ -5439,7 +5439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/risks", requireAuth, requireModule("itsm"), async (_req, res) => {
+  app.get("/api/risks", requireAuth, requireModule("risk_management"), async (_req, res) => {
     try {
       const rows = await db.select({
         risk: risks,
@@ -5463,7 +5463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/risks", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (req, res) => {
+  app.post("/api/risks", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (req, res) => {
     try {
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(200),
@@ -5488,6 +5488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       const [risk] = await db.insert(risks).values({
         ...parsed.data,
+        riskScore: parsed.data.impact * parsed.data.likelihood,
         createdById: user.id,
       }).returning();
       await logAudit(user.id, "CREATE", "risks", risk.id, risk.title, null, risk, req);
@@ -5498,7 +5499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/risks/:riskId", requireAuth, requirePermission("risk_manage"), requireModule("itsm"), async (req, res) => {
+  app.put("/api/risks/:riskId", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (req, res) => {
     try {
       const [oldRisk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId));
       if (!oldRisk) return res.status(404).json({ message: "Risk not found" });
@@ -5523,7 +5524,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.data.status === "accepted" && !nextReason?.trim()) {
         return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
       }
-      const [risk] = await db.update(risks).set({ ...parsed.data, updatedAt: new Date() })
+      const nextImpact = parsed.data.impact ?? oldRisk.impact;
+      const nextLikelihood = parsed.data.likelihood ?? oldRisk.likelihood;
+      const [risk] = await db.update(risks).set({
+        ...parsed.data,
+        riskScore: nextImpact * nextLikelihood,
+        updatedAt: new Date(),
+      })
         .where(eq(risks.id, req.params.riskId)).returning();
       await logAudit((req.user as any).id, "UPDATE", "risks", risk.id, risk.title, oldRisk, risk, req);
       res.json(risk);

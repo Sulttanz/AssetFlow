@@ -1,0 +1,46 @@
+Role & Goal:
+Act as an expert Full-Stack Software Engineer and ITIL v4 Master Specialist. We need to refactor our current Replit project (React + TypeScript + Express + PostgreSQL with Drizzle ORM) to strictly adhere to ITIL v4 standalone practice architecture based on our recent codebase audit.
+
+Please execute the complete refactoring process across the database schema, backend storage/routes, and frontend components as follows:
+
+---
+
+### PHASE 1: DATABASE SCHEMA REFACTORING (`shared/schema.ts`)
+1. **Split Tickets Table:**
+   - Drop/replace the generic `tickets` model with two distinct tables: `incidents` and `service_requests`.
+   - `incidents`: Fields for `id`, `title`, `description`, `urgency`, `impact`, `priority` (P1-P4 matrix), `status` (`New`, `In Progress`, `Resolved`, `Closed`), `assigned_to_id`, `asset_id` (foreign key to `assets`), `change_request_id` (nullable foreign key to change requests), `response_due_at`, `resolve_due_at`, `created_at`.
+   - `service_requests`: Fields for `id`, `title`, `description`, `catalog_item_id`, `requester_id`, `fulfillment_status` (`Submitted`, `Approved`, `Fulfilling`, `Completed`, `Rejected`), `approval_status`, `cost`, `fulfilled_asset_id` (foreign key to `assets`), `target_fulfillment_date`, `created_at`.
+2. **Standalone Risk Register & Independent Flag:**
+   - Update `risk_register` schema so risks exist independently without requiring a parent `change_id`.
+   - Ensure `risk_register` includes explicit fields: `impact` (1-5), `likelihood` (1-5), `risk_score` (computed as impact × likelihood), `risk_owner_id`, `mitigation_plan`, and `status`.
+   - Add a separate feature flag for Risk Management (`is_risk_enabled`) so it can be toggled on/off independently of the `itsm` module flag.
+3. **Relational Junctions:**
+   - Create a relational linking table or foreign key setup between `change_requests` and `risk_register` for optional change-risk tracking.
+4. Safely generate and apply the Drizzle schema migrations.
+
+---
+
+### PHASE 2: STORAGE & EXPRESS API ROUTES (`server/storage.ts` & `server/routes.ts`)
+1. **Storage Implementation:**
+   - Replace generic ticket methods in `storage.ts` with dedicated CRUD operations for `incidents`, `service_requests`, and standalone `risks`.
+2. **Dedicated Endpoints:**
+   - Expose distinct API routes: `/api/incidents`, `/api/service-requests`, `/api/changes`, and `/api/risks`.
+3. **Independent SLAs & Workflows:**
+   - Implement incident SLA timers driven by Urgency × Impact matrix.
+   - Implement service request fulfillment SLAs separate from incident resolution timers.
+   - Add endpoint `POST /api/incidents/:id/create-change` to allow 1-click creation of a Change Request from an Incident.
+   - Add fulfillment logic: Completing a Service Request assigns the specified asset (`fulfilled_asset_id`) and changes its status in the `assets` table from `In Store` to `Assigned`.
+
+---
+
+### PHASE 3: FRONTEND UI & FEATURE FLAGS (React UI)
+1. **Navigation Split:**
+   - Split navigation/sidebar into separate routes: Incidents (`/incidents`), Service Requests (`/service-requests`), Change Management (`/changes`), and Risk Management (`/risks`).
+2. **Independent Risk Page & Feature Toggles:**
+   - Gate the Risk Management page strictly behind the `is_risk_enabled` flag, completely independent of the ITSM module toggle.
+   - Render a 5x5 Risk Matrix visualization on the Risk page.
+3. **Cross-Linking Actions:**
+   - On Incident view: Add a button to "Create Linked Change Request".
+   - On Service Request view: Add asset assignment dropdowns during the fulfillment phase.
+
+Please review the files, make these structural updates step-by-step, and ensure all build checks and server startup scripts pass cleanly.

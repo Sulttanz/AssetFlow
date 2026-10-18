@@ -131,7 +131,8 @@ function Router() {
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
                   <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" />
                   <ProtectedRoute path="/changes/tracker" component={ChangeTracker} requiredModule="itsm" />
-                  <ProtectedRoute path="/risk-management" component={RiskManagement} requiredModule="itsm" />
+                  <ProtectedRoute path="/risks" component={RiskManagement} requiredModule="risk_management" />
+                  <ProtectedRoute path="/risk-management" component={RiskManagement} requiredModule="risk_management" />
                   <ProtectedRoute path="/kpis" component={KpiDashboard} />
                   <Route component={NotFound} />
                 </Switch>
