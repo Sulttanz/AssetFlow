@@ -55,6 +55,7 @@ async function flushAsyncWork() {
 afterEach(() => {
   cleanup();
   queryClient.clear();
+  window.history.replaceState({}, "", "/");
   FakeEventSource.instances = [];
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -123,6 +124,83 @@ it("signs out and hides an open protected page when its API request is unauthori
   expect(queryClient.getQueryData(["/api/private"])).toBeUndefined();
   expect(screen.queryByText("private page data")).toBeNull();
   expect(screen.getByText("Sign-in page")).toBeTruthy();
+});
+
+it("signs out and hides an open protected page when an idle session is revoked", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const fetchSession = vi.fn().mockResolvedValue(response(401));
+  vi.stubGlobal("fetch", fetchSession);
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "private page data" });
+  const intervalSpy = vi.spyOn(globalThis, "setInterval");
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ProtectedRoute path="/" component={PrivatePage} />
+        <Route path="/auth"><div>Sign-in page</div></Route>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+  expect(screen.getByText("private page data")).toBeTruthy();
+
+  const sessionCheck = intervalSpy.mock.calls
+    .find(([, delay]) => delay === 5 * 60_000)?.[0];
+  await act(async () => {
+    if (typeof sessionCheck === "function") sessionCheck();
+    await flushAsyncWork();
+  });
+  await flushAsyncWork();
+
+  expect(typeof sessionCheck).toBe("function");
+  expect(fetchSession).toHaveBeenCalledWith("/api/user", { credentials: "include" });
+  expect(queryClient.getQueryData(["/api/user"])).toBeNull();
+  expect(queryClient.getQueryData(["/api/private"])).toBeUndefined();
+  await waitFor(() => {
+    expect(screen.queryByText("private page data")).toBeNull();
+    expect(screen.getByText("Sign-in page")).toBeTruthy();
+  });
+});
+
+it.each([
+  { name: "a permission denial", fetchResult: () => Promise.resolve(response(403)) },
+  { name: "a network failure", fetchResult: () => Promise.reject(new Error("offline")) },
+])("keeps the session when the idle check encounters $name", async ({ fetchResult }) => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const fetchSession = vi.fn(fetchResult);
+  vi.stubGlobal("fetch", fetchSession);
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "private page data" });
+  const intervalSpy = vi.spyOn(globalThis, "setInterval");
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ProtectedRoute path="/" component={PrivatePage} />
+        <Route path="/auth"><div>Sign-in page</div></Route>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+
+  const sessionCheck = intervalSpy.mock.calls
+    .find(([, delay]) => delay === 5 * 60_000)?.[0];
+  await act(async () => {
+    if (typeof sessionCheck === "function") sessionCheck();
+    await flushAsyncWork();
+  });
+  await flushAsyncWork();
+
+  expect(typeof sessionCheck).toBe("function");
+  expect(fetchSession).toHaveBeenCalledWith("/api/user", { credentials: "include" });
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+  });
+  expect(queryClient.getQueryData(["/api/private"])).toEqual({
+    secret: "private page data",
+  });
+  expect(screen.getByText("private page data")).toBeTruthy();
+  expect(screen.queryByText("Sign-in page")).toBeNull();
 });
 
 it.each(["/api/login", "/api/auth/verify-password"])(

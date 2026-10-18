@@ -21,6 +21,7 @@ type AuthContextType = {
 type LoginData = Pick<InsertUser, "username" | "password">;
 
 const ITSM_ACCESS_RECHECK_INTERVAL_MS = 30_000;
+const AUTH_SESSION_RECHECK_INTERVAL_MS = 5 * 60_000;
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -36,6 +37,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 10, // 10 minutes (previously cacheTime)
   });
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let checkingSession = false;
+
+    const checkSession = () => {
+      if (document.visibilityState === "hidden" || checkingSession) return;
+      checkingSession = true;
+      void queryClient.fetchQuery<UserWithDetails | null>({
+        queryKey: ["/api/user"],
+        queryFn: getQueryFn({ on401: "returnNull" }),
+        staleTime: 0,
+      }).catch(() => {
+        // A network or server failure is not proof that the session was revoked.
+      }).finally(() => {
+        checkingSession = false;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") checkSession();
+    };
+
+    const interval = setInterval(checkSession, AUTH_SESSION_RECHECK_INTERVAL_MS);
+    window.addEventListener("focus", checkSession);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", checkSession);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
