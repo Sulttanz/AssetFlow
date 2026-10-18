@@ -3965,6 +3965,7 @@ export class DatabaseStorage implements IStorage {
       loadBatches(Array.from(departmentIds), batch => db.select().from(departments).where(inArray(departments.id, batch))),
     ]);
     const userById = new Map(userRows.map(user => [user.id, this.toUserSummary(user)]));
+    const userActiveById = new Map(userRows.map(user => [user.id, user.isActive]));
     const departmentById = new Map(departmentRows.map(dept => [dept.id, dept]));
     const approvalsByChange = new Map<string, ChangeApproval[]>();
     const stagesByChange = new Map<string, ChangeEnvironmentStage[]>();
@@ -3983,10 +3984,15 @@ export class DatabaseStorage implements IStorage {
         requestedBy: ch.requestedById ? userById.get(ch.requestedById) : undefined,
         assignedTo: ch.assignedToId ? userById.get(ch.assignedToId) : undefined,
         department: ch.departmentId ? departmentById.get(ch.departmentId) : undefined,
-        approvals: approvals.filter(a => !a.removedAt).map(a => ({
-          ...a,
-          approver: a.approverId ? userById.get(a.approverId) : undefined,
-        })),
+        approvals: approvals.filter(a => !a.removedAt).map(a => {
+          const approver = a.approverId ? userById.get(a.approverId) : undefined;
+          return {
+            ...a,
+            approver: approver && a.approverId
+              ? { ...approver, isActive: userActiveById.get(a.approverId) ?? null }
+              : undefined,
+          };
+        }),
         removedApprovals: approvals.filter(a => a.removedAt).map(a => ({
           ...a,
           removedBy: a.removedById ? userById.get(a.removedById) : undefined,
@@ -4317,11 +4323,19 @@ export class DatabaseStorage implements IStorage {
         .where(eq(changes.id, changeId)).for("update");
       if (!change) return undefined;
 
+      const pendingConditions = and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, changeId),
+        sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt),
+        or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision)));
+      const [pending] = await tx.select({ approverId: changeApprovals.approverId })
+        .from(changeApprovals).where(pendingConditions).for("update");
+      if (!pending?.approverId) return undefined;
+      const [activeApprover] = await tx.select({ id: users.id }).from(users)
+        .where(and(eq(users.id, pending.approverId), eq(users.isActive, true))).for("update");
+      if (!activeApprover) return undefined;
+
       const [approval] = await tx.update(changeApprovals)
         .set({ decision, comments: comments ?? null, decidedAt: new Date() })
-        .where(and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, changeId),
-          sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt),
-          or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+        .where(pendingConditions)
         .returning();
       if (!approval) return undefined;
 

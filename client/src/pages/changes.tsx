@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
 interface ChangeApproval {
   id: string; changeId: string; approverId: string | null; originalApproverId: string; approverLabel: string; decision: string | null;
   comments: string | null; decidedAt: string | null; removedAt?: string | null; removedById?: string | null; removedByLabel?: string | null; createdAt: string;
-  approver?: { id: string; username: string; firstName: string | null; lastName: string | null };
+  approver?: { id: string; username: string; firstName: string | null; lastName: string | null; isActive?: boolean | null };
   removedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
 interface ChangeStage {
@@ -1231,7 +1231,7 @@ export default function Changes() {
               {currentChange?.approvals?.length === 0 && <p className="text-sm text-muted-foreground">No approvers added yet.</p>}
               {currentChange?.approvals?.map(a => {
                 const isPending = a.decision === "pending" || a.decision === null;
-                const isMyPendingApproval = isPending && a.approverId === (user as any)?.id;
+                const isMyPendingApproval = isPending && a.approverId === (user as any)?.id && a.approver?.isActive !== false;
                 return (
                 <div key={a.id} className={cn(
                   "rounded-md border p-3 space-y-3",
@@ -1241,6 +1241,7 @@ export default function Changes() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{a.approver ? userLabel(a.approver) : `${a.approverLabel} (deleted account)`}</p>
                       {!a.approverId && isPending && <p className="text-xs text-amber-800">This account no longer exists. A change manager must remove this pending assignment before CAB approval can proceed.</p>}
+                      {a.approverId && a.approver?.isActive === false && isPending && <p className="text-xs text-amber-800">This account is disabled, so this pending vote cannot be cast and is blocking CAB approval. A change manager must remove this assignment and add an active approver.</p>}
                       <p className="text-xs text-muted-foreground mt-1">
                         {a.decidedAt
                           ? `Decided ${format(new Date(a.decidedAt), "MMM d, yyyy h:mm a")}`

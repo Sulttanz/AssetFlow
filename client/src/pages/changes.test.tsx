@@ -34,7 +34,7 @@ function approval(id: string, decision: string | null, approverId = id, comments
   return {
     id, changeId: "change-1", approverId: approverId as string | null, originalApproverId: approverId, approverLabel: `${id} Reviewer`, decision, comments,
     createdAt: assignedAt, decidedAt: decision === "approved" || decision === "rejected" ? decidedAt : null,
-    approver: { id: approverId, username: approverId, firstName: id, lastName: "Reviewer" } as { id: string; username: string; firstName: string; lastName: string } | undefined,
+    approver: { id: approverId, username: approverId, firstName: id, lastName: "Reviewer", isActive: true } as { id: string; username: string; firstName: string; lastName: string; isActive?: boolean | null } | undefined,
   };
 }
 
@@ -535,6 +535,22 @@ describe("change detail CAB approvals", () => {
     expect(within(panel).getByText("Departed Reviewer (deleted account)")).toBeTruthy();
     expect(within(panel).getByText(/change manager must remove this pending assignment/)).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("warns managers about disabled pending approvers and keeps manager removal available", async () => {
+    auth.isAdmin = true;
+    auth.userId = "bob";
+    const disabled = {
+      ...approval("Bob", "pending", "bob"),
+      approver: { id: "bob", username: "bob", firstName: "Bob", lastName: "Reviewer", isActive: false },
+    };
+    const { panel } = await openApprovals([disabled]);
+
+    expect(within(panel).getByText(/This account is disabled, so this pending vote cannot be cast and is blocking CAB approval/)).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Remove Bob Reviewer as CAB approver" })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Reject" })).toBeNull();
+    expect(within(panel).getByText("Pending")).toBeTruthy();
   });
 
   it.each([

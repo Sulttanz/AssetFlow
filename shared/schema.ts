@@ -1264,7 +1264,7 @@ export type ChangeWithDetails = Change & {
   requestedBy?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   assignedTo?: Pick<User, "id" | "username" | "firstName" | "lastName">;
   department?: Department;
-  approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+  approvals?: (ChangeApproval & { approver?: Pick<User, "id" | "username" | "firstName" | "lastName" | "isActive"> })[];
   removedApprovals: (ChangeApproval & { removedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
   removedApproverIds: string[];
   stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
