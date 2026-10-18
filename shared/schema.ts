@@ -1192,6 +1192,8 @@ export const changeApprovals = pgTable("change_approvals", {
   removedByLabel: text("removed_by_label"),
   createdAt: timestamp("created_at").default(sql`now()`),
 }, table => [
+  index("change_approvals_change_original_approver_idx")
+    .on(table.changeId, table.originalApproverId),
   index("change_approvals_pending_approver_change_idx")
     .on(table.approverId, table.changeId)
     .where(sql`${table.removedAt} IS NULL AND (${table.decision} = 'pending' OR ${table.decision} IS NULL)`),

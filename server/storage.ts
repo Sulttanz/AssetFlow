@@ -4285,6 +4285,8 @@ export class DatabaseStorage implements IStorage {
         });
       }
       const approverLabel = [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username;
+      // Keep both keys in this history lookup so the non-unique composite index
+      // narrows the scan without discarding duplicate audit records.
       const history = await tx.select({ removedAt: changeApprovals.removedAt })
         .from(changeApprovals)
         .where(and(
