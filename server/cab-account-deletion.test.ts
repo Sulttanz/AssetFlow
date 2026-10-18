@@ -11,6 +11,8 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
   it("keeps pending and decided history, blocks the gate until the pending assignment is removed", async () => {
     const suffix = randomUUID();
     const approverId = randomUUID();
+
+    const decidedApproverId = randomUUID();
     const removerId = randomUUID();
     const changeId = randomUUID();
 
@@ -18,6 +20,8 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
       await db.insert(users).values([
         { id: approverId, username: `cab-approver-${suffix}`, email: `cab-approver-${suffix}@example.invalid`,
           password: "test-only", firstName: "Casey", lastName: "Reviewer" },
+        { id: decidedApproverId, username: `cab-decided-approver-${suffix}`, email: `cab-decided-approver-${suffix}@example.invalid`,
+          password: "test-only", firstName: "Jordan", lastName: "Reviewer" },
         { id: removerId, username: `cab-remover-${suffix}`, email: `cab-remover-${suffix}@example.invalid`,
           password: "test-only", firstName: "Test", lastName: "Manager" },
       ]);
@@ -27,15 +31,15 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
       });
 
       const pending = await storage.createChangeApproval({ changeId, approverId, decision: "pending" });
-      // Model a duplicate assignment from pre-existing history. New assignments
-      // for the same change/user are rejected by storage, but historical rows
-      // must still survive account deletion intact.
+
+      // Keep the decided history on a separate approver so this fixture follows
+      // the one-approver rule while preserving the account-deletion coverage.
       const decidedAt = new Date();
       const [decided] = await db.insert(changeApprovals).values({
         changeId,
-        approverId,
-        originalApproverId: approverId,
-        approverLabel: "Casey Reviewer",
+        approverId: decidedApproverId,
+        originalApproverId: decidedApproverId,
+        approverLabel: "Jordan Reviewer",
         decision: "approved",
         comments: "Approved before account deletion",
         decidedAt,
@@ -46,7 +50,9 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
       expect(decided!.decidedAt).toBeInstanceOf(Date);
 
       expect(await storage.deleteUser(approverId)).toBe(true);
+      expect(await storage.deleteUser(decidedApproverId)).toBe(true);
       expect(await db.select().from(users).where(eq(users.id, approverId))).toEqual([]);
+      expect(await db.select().from(users).where(eq(users.id, decidedApproverId))).toEqual([]);
 
       const history = await storage.getAllChangeApprovalRecords(changeId);
       expect(history).toHaveLength(2);
@@ -57,8 +63,8 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
         decidedAt: null, removedAt: null, createdAt: pending.createdAt,
       });
       expect(byId.get(decided!.id)).toMatchObject({
-        id: decided!.id, changeId, approverId: null, originalApproverId: approverId,
-        approverLabel: "Casey Reviewer", decision: "approved",
+        id: decided!.id, changeId, approverId: null, originalApproverId: decidedApproverId,
+        approverLabel: "Jordan Reviewer", decision: "approved",
         comments: "Approved before account deletion", decidedAt: decided!.decidedAt,
         removedAt: null, createdAt: decided!.createdAt,
       });
@@ -91,7 +97,11 @@ describe("CAB approvals after an approver account is deleted (PostgreSQL)", () =
         try {
           await db.delete(users).where(eq(users.id, approverId));
         } finally {
-          await db.delete(users).where(eq(users.id, removerId));
+          try {
+            await db.delete(users).where(eq(users.id, decidedApproverId));
+          } finally {
+            await db.delete(users).where(eq(users.id, removerId));
+          }
         }
       }
     }

@@ -179,10 +179,14 @@ describe("CAB route notifications across signed-in sessions", () => {
     store.getChangeApprovals.mockImplementation(async () => active().map(a => ({ ...a })));
     store.getAllChangeApprovalRecords.mockImplementation(async () => approvals.map(a => ({ ...a })));
     store.createChangeApproval.mockImplementation(async ({ changeId, approverId, decision }: { changeId: string; approverId: string; decision: string }) => {
-      const duplicate = approvals.some(approval =>
-        approval.changeId === changeId && approval.originalApproverId === approverId,
-      );
-      if (duplicate) {
+      const history = approvals.filter(a =>
+        a.changeId === changeId && (a.originalApproverId === approverId || a.approverId === approverId));
+      if (history.some(a => a.removedAt)) {
+        throw Object.assign(new Error("This CAB member was removed from the change and cannot be re-added"), {
+          code: "CAB_APPROVER_REMOVED",
+        });
+      }
+      if (history.length > 0) {
         throw Object.assign(new Error("This CAB member is already assigned to the change"), {
           code: "CAB_APPROVER_DUPLICATE",
         });
@@ -234,7 +238,7 @@ describe("CAB route notifications across signed-in sessions", () => {
   }
 
   it("builds CAB alerts from the signed-in user's pending-change projection, not the full change history", async () => {
-    const alice = await login("alice");
+      const alice = await login("alice");
     change.type = "emergency";
     store.getPendingCabAlertChanges.mockResolvedValueOnce([
       { id: change.id, changeNumber: change.changeNumber, title: change.title, type: change.type },
@@ -327,10 +331,10 @@ describe("CAB route notifications across signed-in sessions", () => {
   it("authenticates streams and refreshes authoritative alerts and changes after successful writes only", async () => {
     expect((await fetch(`${baseUrl}/api/changes/events`)).status).toBe(401);
     const manager = await login("manager");
-    const alice = await login("alice");
+      const alice = await login("alice");
     const bob = await login("bob");
     expect(new Set([manager, alice, bob]).size).toBe(3);
-    const aliceStream = await openStream(alice);
+      const aliceStream = await openStream(alice);
     const bobStream = await openStream(bob);
     const path = "/api/changes/change-1/approvals";
     expect((await view(alice)).alerts.filter(a => a.type === "cab")).toEqual([]);
@@ -423,9 +427,9 @@ describe("CAB route notifications across signed-in sessions", () => {
     );
     try {
       const alice = await login("alice");
-      const bob = await login("bob");
+    const bob = await login("bob");
       const aliceStream = await openStream(alice);
-      const bobStream = await openStream(bob);
+    const bobStream = await openStream(bob);
       await vi.waitFor(() => expect(streamAccess.mock.calls.filter(call => call[1] === "alice").length).toBeGreaterThan(0));
       let bobClosed = false;
       void bobStream.closed.then(() => { bobClosed = true; });
