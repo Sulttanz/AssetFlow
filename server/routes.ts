@@ -13,7 +13,8 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users
+  assetAttachments, ticketAttachments, risks, changes, users, assets,
+  incidents, serviceRequests, insertIncidentSchema, insertServiceRequestSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { db } from "./db";
@@ -748,6 +749,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ITSM TICKETING ROUTES
   // --------------------
 
+  app.get("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const rows = await storage.getIncidents();
+      const canViewAll = await canManageAllTickets(req.user.id);
+      res.json(canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id));
+    } catch {
+      res.status(500).json({ message: "Failed to fetch incidents" });
+    }
+  });
+
+  app.get("/api/incidents/:id", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.requesterId !== req.user.id && incident.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      res.json(incident);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch incident" });
+    }
+  });
+
+  app.post("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const parsed = insertIncidentSchema.parse({ ...req.body, requesterId: req.user.id });
+      if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
+        return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
+      }
+      const incident = await storage.createIncident({ ...parsed, status: "New" });
+      await logAudit(req.user.id, "CREATE", "incidents", incident.id, incident.title, null, incident, req);
+      res.status(201).json(incident);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create incident" });
+    }
+  });
+
+  app.put("/api/incidents/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
+    try {
+      const parsed = insertIncidentSchema.partial().parse(req.body);
+      if (parsed.priority && !["P1", "P2", "P3", "P4"].includes(parsed.priority)) {
+        return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
+      }
+      if (parsed.status && !["New", "In Progress", "Resolved", "Closed"].includes(parsed.status)) {
+        return res.status(400).json({ message: "Invalid incident status" });
+      }
+      const incident = await storage.updateIncident(req.params.id, parsed);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      res.json(incident);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update incident" });
+    }
+  });
+
+  app.post("/api/incidents/:id/to-change", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.changeRequestId) return res.status(409).json({ message: "Incident already has a linked change request" });
+      const change = await storage.createChange({
+        title: `Incident ${incident.incidentNumber}: ${incident.title}`,
+        description: incident.description,
+        type: "normal",
+        status: "draft",
+        priority: incident.priority,
+        requestedById: req.user.id,
+      });
+      await storage.updateIncident(incident.id, { changeRequestId: change.id });
+      res.status(201).json(change);
+    } catch {
+      res.status(500).json({ message: "Failed to create linked change request" });
+    }
+  });
+
+  app.get("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const rows = await storage.getServiceRequests();
+      const canViewAll = await canManageAllTickets(req.user.id);
+      res.json(canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id));
+    } catch {
+      res.status(500).json({ message: "Failed to fetch service requests" });
+    }
+  });
+
+  app.get("/api/service-requests/:id", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      res.json(request);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch service request" });
+    }
+  });
+
+  app.post("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const parsed = insertServiceRequestSchema.parse({ ...req.body, requesterId: req.user.id, fulfillmentStatus: "Submitted" });
+      if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
+      const request = await storage.createServiceRequest(parsed);
+      res.status(201).json(request);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
+      res.status(500).json({ message: "Failed to create service request" });
+    }
+  });
+
+  app.put("/api/service-requests/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
+    try {
+      const parsed = insertServiceRequestSchema.partial().parse(req.body);
+      if (parsed.cost !== undefined && (!Number.isFinite(parsed.cost) || parsed.cost < 0)) return res.status(400).json({ message: "cost must be a non-negative number" });
+      if (parsed.fulfillmentStatus && !["Submitted", "Approved", "Fulfilling", "Completed", "Rejected"].includes(parsed.fulfillmentStatus)) {
+        return res.status(400).json({ message: "Invalid fulfillment status" });
+      }
+      if (parsed.approvalStatus && !["pending", "approved", "rejected"].includes(parsed.approvalStatus)) {
+        return res.status(400).json({ message: "Invalid approval status" });
+      }
+      const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service request not found" });
+      const nextApproval = parsed.approvalStatus ?? existing.approvalStatus;
+      const nextStatus = parsed.fulfillmentStatus ?? existing.fulfillmentStatus;
+      if (nextStatus === "Completed" && nextApproval !== "approved") {
+        return res.status(409).json({ message: "A request must be approved before completion" });
+      }
+      if (parsed.approvalStatus === "rejected") parsed.fulfillmentStatus = "Rejected";
+      const updated = await storage.updateServiceRequest(req.params.id, parsed);
+      if (!updated) return res.status(404).json({ message: "Service request not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update service request" });
+    }
+  });
+
   async function canManageAllTickets(userId: string): Promise<boolean> {
     const perms = await storage.getUserPermissions(userId);
     return perms.includes("ticket_manage") || perms.includes("ticket_view_all");
@@ -757,6 +896,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const perms = await storage.getUserPermissions(userId);
     return perms.includes("ticket_manage");
   }
+
+  // Keep legacy ticket data readable for history/reporting, but direct new
+  // workflow writes to the dedicated incident and service-request endpoints.
+  app.use("/api/tickets", (req, res, next) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      return res.status(410).json({ message: "Legacy ticket writes are retired; use /api/incidents or /api/service-requests" });
+    }
+    next();
+  });
 
   app.get("/api/tickets", requireAuth, requireModule('itsm'), async (req, res) => {
     try {
@@ -1882,6 +2030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : await db.select().from(assetAttachments).where(eq(assetAttachments.fileName, filename)).limit(1);
       if (ticketFile) {
         const user = req.user as any;
+        if (!ticketFile.ticketId) return res.status(404).json({ message: "Legacy ticket attachment not found" });
         const ticket = await storage.getTicket(ticketFile.ticketId);
         if (!ticket || (ticket.requesterId !== user.id && ticket.assignedToId !== user.id && !(await canManageAllTickets(user.id)))) {
           return res.status(404).json({ message: "File not found" });

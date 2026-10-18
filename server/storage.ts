@@ -8,6 +8,7 @@ import {
   type SlaPolicy, type InsertSlaPolicy,
   type KbArticle, type InsertKbArticle,
   type Problem, type InsertProblem, type ProblemIncident, type ProblemWithDetails,
+  type Incident, type InsertIncident, type ServiceRequest, type InsertServiceRequest,
   type CatalogItem, type InsertCatalogItem,
   type Change, type InsertChange, type ChangeApproval, type InsertChangeApproval, type ChangeWithDetails, type ChangeReportRow,
   type ChangeEnvironmentStage, type InsertChangeEnvironmentStage,
@@ -27,7 +28,7 @@ import {
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
   budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
-  tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, catalogItems, changes, changeApprovals,
+  tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, incidents, serviceRequests, catalogItems, changes, changeApprovals,
   TICKET_PRIORITY_MATRIX, TICKET_SLA_HOURS,
 } from "@shared/schema";
 import { MODULE_REGISTRY } from "@shared/modules";
@@ -288,6 +289,12 @@ export interface IStorage {
   updateAssetRequest(id: string, request: Partial<InsertAssetRequest>): Promise<AssetRequest | undefined>;
 
   // Tickets (ITSM)
+  getIncidents(): Promise<Incident[]>;
+  createIncident(incident: InsertIncident): Promise<Incident>;
+  updateIncident(id: string, incident: Partial<InsertIncident>): Promise<Incident | undefined>;
+  getServiceRequests(): Promise<ServiceRequest[]>;
+  createServiceRequest(request: InsertServiceRequest): Promise<ServiceRequest>;
+  updateServiceRequest(id: string, request: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined>;
   getTickets(): Promise<TicketWithDetails[]>;
   getTicket(id: string): Promise<TicketWithDetails | undefined>;
   createTicket(ticket: InsertTicket): Promise<Ticket>;
@@ -407,6 +414,8 @@ export class MemStorage implements IStorage {
   private assetRelationships: Map<string, AssetRelationship>;
   private assetRequests: Map<string, AssetRequest>;
   private dropdownOptions: Map<string, DropdownOption>;
+  private incidents: Map<string, Incident>;
+  private serviceRequests: Map<string, ServiceRequest>;
   private tickets: Map<string, Ticket>;
   private ticketComments: Map<string, TicketComment>;
   
@@ -441,6 +450,8 @@ export class MemStorage implements IStorage {
     this.assetRelationships = new Map();
     this.assetRequests = new Map();
     this.dropdownOptions = new Map();
+    this.incidents = new Map();
+    this.serviceRequests = new Map();
     this.tickets = new Map();
     this.ticketComments = new Map();
     
@@ -1816,6 +1827,78 @@ export class MemStorage implements IStorage {
     return updatedRequest;
   }
 
+  async getIncidents(): Promise<Incident[]> { return Array.from(this.incidents.values()); }
+  async createIncident(input: InsertIncident): Promise<Incident> {
+    const now = new Date();
+    const priorityMap: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
+    const sla = await computeTicketSlaDates(priorityMap[input.priority ?? "P3"] ?? "medium", now, "incident", input.category);
+    const incident: Incident = {
+      ...input,
+      id: randomUUID(),
+      incidentNumber: `INC-${randomUUID().slice(0, 8).toUpperCase()}`,
+      urgency: input.urgency ?? "medium",
+      impact: input.impact ?? "medium",
+      priority: input.priority ?? "P3",
+      status: input.status ?? "New",
+      category: input.category ?? null,
+      assignedToId: input.assignedToId ?? null,
+      requesterId: input.requesterId ?? null,
+      assetId: input.assetId ?? null,
+      changeRequestId: input.changeRequestId ?? null,
+      responseDueAt: input.responseDueAt ?? sla.slaResponseDueAt,
+      resolveDueAt: input.resolveDueAt ?? sla.slaResolutionDueAt,
+      firstRespondedAt: input.firstRespondedAt ?? null,
+      resolvedAt: input.resolvedAt ?? null,
+      resolutionCode: input.resolutionCode ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.incidents.set(incident.id, incident);
+    return incident;
+  }
+  async updateIncident(id: string, input: Partial<InsertIncident>): Promise<Incident | undefined> {
+    const existing = this.incidents.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...input, updatedAt: new Date() };
+    this.incidents.set(id, updated);
+    return updated;
+  }
+  async getServiceRequests(): Promise<ServiceRequest[]> { return Array.from(this.serviceRequests.values()); }
+  async createServiceRequest(input: InsertServiceRequest): Promise<ServiceRequest> {
+    const now = new Date();
+    const sla = await computeTicketSlaDates("medium", now, "service_request", input.category);
+    const request: ServiceRequest = {
+      ...input,
+      id: randomUUID(),
+      requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
+      catalogItemId: input.catalogItemId ?? null,
+      requesterId: input.requesterId,
+      fulfillmentStatus: input.fulfillmentStatus ?? "Submitted",
+      approvalStatus: input.approvalStatus ?? "pending",
+      cost: input.cost ?? 0,
+      fulfilledAssetId: input.fulfilledAssetId ?? null,
+      targetFulfillmentDate: input.targetFulfillmentDate ?? null,
+      fulfillmentDueAt: input.fulfillmentDueAt ?? sla.slaResolutionDueAt,
+      category: input.category ?? null,
+      assignedToId: input.assignedToId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.serviceRequests.set(request.id, request);
+    return request;
+  }
+  async updateServiceRequest(id: string, input: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
+    const existing = this.serviceRequests.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...input, updatedAt: new Date() };
+    this.serviceRequests.set(id, updated);
+    if (updated.fulfillmentStatus === "Completed" && updated.fulfilledAssetId) {
+      const asset = this.assets.get(updated.fulfilledAssetId);
+      if (asset?.status === "In Store") this.assets.set(asset.id, { ...asset, status: "Assigned" });
+    }
+    return updated;
+  }
+
   // Tickets (ITSM)
   private toUserSummary(user?: User) {
     if (!user) return undefined;
@@ -1962,6 +2045,9 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const newComment: TicketComment = {
       ...comment,
+      ticketId: comment.ticketId ?? null,
+      incidentId: comment.incidentId ?? null,
+      serviceRequestId: comment.serviceRequestId ?? null,
       id,
       isInternal: comment.isInternal ?? false,
       createdAt: new Date()
@@ -2521,7 +2607,7 @@ export class MemStorage implements IStorage {
   async updateProblem(_id: string, _p: Partial<InsertProblem>): Promise<Problem | undefined> { return undefined; }
   async deleteProblem(_id: string): Promise<boolean> { return false; }
   async linkIncidentToProblem(problemId: string, ticketId: string): Promise<ProblemIncident> {
-    return { id: randomUUID(), problemId, ticketId, linkedAt: new Date() };
+    return { id: randomUUID(), problemId, ticketId, incidentId: null, linkedAt: new Date() };
   }
   async unlinkIncidentFromProblem(_problemId: string, _ticketId: string): Promise<boolean> { return false; }
 
@@ -3606,6 +3692,53 @@ export class DatabaseStorage implements IStorage {
     return result[0] || undefined;
   }
 
+  async getIncidents(): Promise<Incident[]> {
+    return db.select().from(incidents);
+  }
+  async createIncident(input: InsertIncident): Promise<Incident> {
+    const priorityMap: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
+    const sla = await computeTicketSlaDates(priorityMap[input.priority ?? "P3"] ?? "medium", new Date(), "incident", input.category);
+    const result = await db.insert(incidents).values({
+      ...input,
+      incidentNumber: `INC-${randomUUID().slice(0, 8).toUpperCase()}`,
+      responseDueAt: input.responseDueAt ?? sla.slaResponseDueAt,
+      resolveDueAt: input.resolveDueAt ?? sla.slaResolutionDueAt,
+    }).returning();
+    return result[0];
+  }
+  async updateIncident(id: string, input: Partial<InsertIncident>): Promise<Incident | undefined> {
+    const result = await db.update(incidents).set({ ...input, updatedAt: new Date() }).where(eq(incidents.id, id)).returning();
+    return result[0];
+  }
+  async getServiceRequests(): Promise<ServiceRequest[]> {
+    return db.select().from(serviceRequests);
+  }
+  async createServiceRequest(input: InsertServiceRequest): Promise<ServiceRequest> {
+    const sla = await computeTicketSlaDates("medium", new Date(), "service_request", input.category);
+    const result = await db.insert(serviceRequests).values({
+      ...input,
+      requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
+      fulfillmentDueAt: input.fulfillmentDueAt ?? sla.slaResolutionDueAt,
+    }).returning();
+    return result[0];
+  }
+  async updateServiceRequest(id: string, input: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
+    return db.transaction(async tx => {
+      const existing = (await tx.select().from(serviceRequests).where(eq(serviceRequests.id, id)))[0];
+      if (!existing) return undefined;
+      const result = await tx.update(serviceRequests).set({ ...input, updatedAt: new Date() }).where(eq(serviceRequests.id, id)).returning();
+      const request = result[0];
+      const assetId = input.fulfilledAssetId ?? request.fulfilledAssetId;
+      if (request.fulfillmentStatus === "Completed" && assetId) {
+        const asset = (await tx.select().from(assets).where(eq(assets.id, assetId)))[0];
+        if (asset?.status === "In Store") {
+          await tx.update(assets).set({ status: "Assigned" }).where(eq(assets.id, asset.id));
+        }
+      }
+      return request;
+    });
+  }
+
   // Tickets (ITSM)
   private toUserSummary(user?: User) {
     if (!user) return undefined;
@@ -3862,8 +3995,15 @@ export class DatabaseStorage implements IStorage {
       db.select().from(problemIncidents).where(eq(problemIncidents.problemId, prob.id)),
     ]);
     const linkedTickets = await Promise.all(linkedRows.map(async li => {
-      const t = await db.select().from(tickets).where(eq(tickets.id, li.ticketId));
-      return t[0] ? { ticketId: t[0].id, ticketNumber: t[0].ticketNumber, title: t[0].title } : null;
+      if (li.incidentId) {
+        const incident = await db.select().from(incidents).where(eq(incidents.id, li.incidentId));
+        if (incident[0]) return { ticketId: incident[0].id, ticketNumber: incident[0].incidentNumber, title: incident[0].title };
+      }
+      if (li.ticketId) {
+        const t = await db.select().from(tickets).where(eq(tickets.id, li.ticketId));
+        return t[0] ? { ticketId: t[0].id, ticketNumber: t[0].ticketNumber, title: t[0].title } : null;
+      }
+      return null;
     }));
     return {
       ...prob,

@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -669,7 +669,8 @@ export const insertAssetAttachmentSchema = createInsertSchema(assetAttachments).
 export type InsertAssetAttachment = z.infer<typeof insertAssetAttachmentSchema>;
 export type AssetAttachment = typeof assetAttachments.$inferSelect;
 
-// ─── ITSM Module: Incident & Service Request Ticketing ──────────────────────
+// Legacy compatibility archive. New incident and service-request workflows use
+// the dedicated tables below; retain this table for preserved history/reporting.
 
 export const tickets = pgTable("tickets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -701,6 +702,8 @@ export const tickets = pgTable("tickets", {
 export const ticketComments = pgTable("ticket_comments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  incidentId: varchar("incident_id").references(() => incidents.id, { onDelete: "cascade" }),
+  serviceRequestId: varchar("service_request_id").references(() => serviceRequests.id, { onDelete: "cascade" }),
   authorId: varchar("author_id").notNull().references(() => users.id),
   message: text("message").notNull(),
   isInternal: boolean("is_internal").default(false), // agent-only notes not visible to requester
@@ -709,7 +712,9 @@ export const ticketComments = pgTable("ticket_comments", {
 
 export const ticketAttachments = pgTable("ticket_attachments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  ticketId: varchar("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+  incidentId: varchar("incident_id").references(() => incidents.id, { onDelete: "cascade" }),
+  serviceRequestId: varchar("service_request_id").references(() => serviceRequests.id, { onDelete: "cascade" }),
   fileName: text("file_name").notNull(),
   originalName: text("original_name").notNull(),
   fileType: text("file_type"),
@@ -1115,6 +1120,7 @@ export const problemIncidents = pgTable("problem_incidents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   problemId: varchar("problem_id").notNull().references(() => problems.id, { onDelete: "cascade" }),
   ticketId: varchar("ticket_id").notNull().references(() => tickets.id, { onDelete: "cascade" }),
+  incidentId: varchar("incident_id").references(() => incidents.id, { onDelete: "cascade" }),
   linkedAt: timestamp("linked_at").default(sql`now()`),
 });
 
@@ -1177,6 +1183,63 @@ export const changes = pgTable("changes", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
+// Dedicated ITIL practice records. The legacy tickets table remains during
+// migration so existing comments, attachments, and external references remain intact.
+export const incidents = pgTable("incidents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  incidentNumber: text("incident_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  urgency: text("urgency").notNull().default("medium"),
+  impact: text("impact").notNull().default("medium"),
+  priority: text("priority").notNull().default("P3"),
+  status: text("status").notNull().default("New"),
+  category: text("category"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  requesterId: varchar("requester_id").references(() => users.id, { onDelete: "set null" }),
+  assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
+  changeRequestId: varchar("change_request_id").references(() => changes.id, { onDelete: "set null" }),
+  responseDueAt: timestamp("response_due_at"),
+  resolveDueAt: timestamp("resolve_due_at"),
+  firstRespondedAt: timestamp("first_responded_at"),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionCode: text("resolution_code"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+}, table => [
+  index("incidents_status_priority_idx").on(table.status, table.priority),
+  index("incidents_assigned_to_idx").on(table.assignedToId),
+]);
+
+export const serviceRequests = pgTable("service_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestNumber: text("request_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  catalogItemId: varchar("catalog_item_id").references(() => catalogItems.id, { onDelete: "set null" }),
+  requesterId: varchar("requester_id").notNull().references(() => users.id),
+  fulfillmentStatus: text("fulfillment_status").notNull().default("Submitted"),
+  approvalStatus: text("approval_status").notNull().default("pending"),
+  cost: real("cost").notNull().default(0),
+  fulfilledAssetId: varchar("fulfilled_asset_id").references(() => assets.id, { onDelete: "set null" }),
+  targetFulfillmentDate: date("target_fulfillment_date"),
+  fulfillmentDueAt: timestamp("fulfillment_due_at"),
+  category: text("category"),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+}, table => [
+  index("service_requests_status_idx").on(table.fulfillmentStatus),
+  index("service_requests_requester_idx").on(table.requesterId),
+]);
+
+export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
+export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });
+export type Incident = typeof incidents.$inferSelect;
+export type InsertIncident = z.infer<typeof insertIncidentSchema>;
+export type ServiceRequest = typeof serviceRequests.$inferSelect;
+export type InsertServiceRequest = z.infer<typeof insertServiceRequestSchema>;
+
 export const risks = pgTable("risk_register", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
@@ -1200,6 +1263,15 @@ export const risks = pgTable("risk_register", {
 }, table => [
   index("risk_register_change_status_idx").on(table.changeId, table.status),
   index("risk_register_owner_idx").on(table.ownerId),
+]);
+
+export const changeRiskLinks = pgTable("change_risk_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeRequestId: varchar("change_request_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+}, table => [
+  uniqueIndex("change_risk_links_pair_idx").on(table.changeRequestId, table.riskId),
 ]);
 
 export const changeApprovals = pgTable("change_approvals", {

@@ -113,9 +113,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "IT Service Management",
       moduleKey: "itsm",
       items: [
-        { name: "Tickets", href: "/tickets", icon: Ticket, current: location === "/tickets", permission: ["ticket_manage", "ticket_view_all"] },
-        { name: "My Assigned Tickets", href: "/my-assigned-tickets", icon: ClipboardCheck, current: location === "/my-assigned-tickets" },
-        { name: "My Requests", href: "/my-requests", icon: ClipboardList, current: location === "/my-requests" },
+        { name: "Incidents", href: "/incidents", icon: Ticket, current: location === "/incidents" },
+        { name: "Service Requests", href: "/service-requests", icon: ClipboardList, current: location === "/service-requests" },
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },

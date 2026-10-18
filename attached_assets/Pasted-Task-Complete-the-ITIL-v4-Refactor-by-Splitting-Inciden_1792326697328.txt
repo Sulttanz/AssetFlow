@@ -1,0 +1,22 @@
+Task: Complete the ITIL v4 Refactor by Splitting Incidents and Service Requests
+
+We have successfully decoupled Risk Management. Now, please finish the ITIL v4 architecture alignment by splitting the monolithic `tickets` table into dedicated, standalone tables and workflows:
+
+1. **Database Schema Split (`shared/schema.ts`):**
+   - Create a dedicated `incidents` table: fields for `id`, `title`, `description`, `urgency`, `impact`, `priority` (P1-P4), `status` (`New`, `In Progress`, `Resolved`, `Closed`), `assigned_to_id`, `asset_id` (foreign key to `assets`), `response_due_at`, `resolve_due_at`, `created_at`.
+   - Create a dedicated `service_requests` table: fields for `id`, `title`, `description`, `catalog_item_id`, `requester_id`, `fulfillment_status` (`Submitted`, `Approved`, `Fulfilling`, `Completed`, `Rejected`), `approval_status`, `cost`, `fulfilled_asset_id` (foreign key to `assets`), `target_fulfillment_date`, `created_at`.
+   - Migrate existing data from the legacy `tickets` table into `incidents` (where type = incident) and `service_requests` (where type = request), preserving IDs, comments, and history. Then drop or archive the old `tickets` table.
+   - Add a nullable `change_request_id` foreign key to `incidents` to enable 1-click Incident-to-Change linking.
+
+2. **Storage & Routes (`server/storage.ts` & `server/routes.ts`):**
+   - Replace generic ticket storage methods with distinct methods for `incidents` and `service_requests`.
+   - Expose clean REST endpoints: `/api/incidents` and `/api/service-requests`.
+   - Add endpoint `POST /api/incidents/:id/to-change` to spawn a Change Request from an Incident.
+   - **Asset Fulfillment Automation:** When a Service Request's `fulfillment_status` is updated to `Completed` and a `fulfilled_asset_id` is attached, automatically update that asset's status in the `assets` table from `In Store` to `Assigned`.
+
+3. **Frontend Views & Navigation:**
+   - Update the UI navigation to show separate pages: **Incidents** (`/incidents`) and **Service Requests** (`/service-requests`).
+   - Add an action button on the Incident detail view to "Create Linked Change Request".
+   - Add asset selection dropdowns on the Service Request fulfillment view.
+
+Please perform these updates, ensure proper type safety across TypeScript, and verify that the application compiles and starts successfully.
