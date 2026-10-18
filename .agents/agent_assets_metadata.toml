@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Rl_PUW_ZkucpQzRKYIFOj"
+uri = "file://SYSTEM_NAVIGATION_FEATURE_MAP.md"
+type = "text"
+title = "System Navigation & Feature Map"
+description = "Complete Markdown report of application navigation, routes, features, APIs, and database tables."
+logical_id = "b57e72d2-fbbf-4c1f-a913-c1733422f482"
+content_hash = "sha256:d4a142ff012e43d1513a6e1b9accefa5e61310610384d7c133359803bf90c2e9"
+size = 18255
+mtime_ms = 1792329185947
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/b57e72d2-fbbf-4c1f-a913-c1733422f482/2308c9ea-2418-43d0-a5ff-79072941bb81"
+storage_version_token = "1792329265401427"
+content_type = "text/markdown"
