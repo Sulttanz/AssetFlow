@@ -157,6 +157,11 @@ describe("CAB change routes", () => {
           status: "completed",
           startedAt: "2026-06-02T10:00:00.000Z",
           completedAt: "2026-06-02T10:30:00.000Z",
+          attempts: [{
+            status: "failed",
+            startedAt: "2026-06-02T09:00:00.000Z",
+            completedAt: "2026-06-02T09:30:00.000Z",
+          }],
         },
         {
           id: "failed-stage",
@@ -236,6 +241,11 @@ describe("CAB change routes", () => {
         status: "completed",
         startedAt: "2026-06-02T10:00:00.000Z",
         completedAt: "2026-06-02T10:30:00.000Z",
+        attempts: [{
+          status: "failed",
+          startedAt: "2026-06-02T09:00:00.000Z",
+          completedAt: "2026-06-02T09:30:00.000Z",
+        }],
       },
       {
         id: "failed-stage",

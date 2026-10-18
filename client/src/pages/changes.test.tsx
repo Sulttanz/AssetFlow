@@ -314,12 +314,22 @@ describe("change detail CAB approvals", () => {
     const listChange = change([]);
     const stages: StageTimelineFixture[] = [
       {
-        id: "completed-stage", environment: "development", status: "completed",
-        startedAt: "2026-06-02T10:00:00.000Z", completedAt: "2026-06-02T10:30:00.000Z",
+        id: "completed-stage", environment: "development", status: "in_progress",
+        startedAt: "2026-06-02T11:00:00.000Z", completedAt: null,
+        attempts: [{
+          status: "completed",
+          startedAt: "2026-06-02T09:00:00.000Z",
+          completedAt: "2026-06-02T09:30:00.000Z",
+        }],
       },
       {
-        id: "failed-stage", environment: "testing", status: "failed",
-        startedAt: "2026-06-02T10:40:00.000Z", completedAt: "2026-06-02T10:50:00.000Z",
+        id: "failed-stage", environment: "testing", status: "in_progress",
+        startedAt: "2026-06-02T12:00:00.000Z", completedAt: null,
+        attempts: [{
+          status: "failed",
+          startedAt: "2026-06-02T10:00:00.000Z",
+          completedAt: "2026-06-02T10:30:00.000Z",
+        }],
       },
     ];
     const detailResponse = {
@@ -347,13 +357,18 @@ describe("change detail CAB approvals", () => {
 
     await user.click(screen.getByRole("tab", { name: "Timeline" }));
     const timeline = screen.getByRole("tabpanel", { name: "Timeline" });
-    expect(within(timeline).getByText("Development started")).toBeTruthy();
-    expect(within(timeline).getByText("Development completed")).toBeTruthy();
-    expect(within(timeline).getByText("Testing started")).toBeTruthy();
-    expect(within(timeline).getByText("Testing failed")).toBeTruthy();
-    expect(timeline.textContent).toContain(format(new Date(stages[0].startedAt!), "MMM d, yyyy h:mm a"));
-    expect(timeline.textContent).toContain(format(new Date(stages[0].completedAt!), "MMM d, yyyy h:mm a"));
-    expect(timeline.textContent).toContain(format(new Date(stages[1].completedAt!), "MMM d, yyyy h:mm a"));
+    expect(within(timeline).getByText("Development attempt 1 started")).toBeTruthy();
+    expect(within(timeline).getByText("Development attempt 1 completed")).toBeTruthy();
+    expect(within(timeline).getByText("Development attempt 2 started")).toBeTruthy();
+    expect(within(timeline).getByText("Testing attempt 1 started")).toBeTruthy();
+    expect(within(timeline).getByText("Testing attempt 1 failed")).toBeTruthy();
+    expect(within(timeline).getByText("Testing attempt 2 started")).toBeTruthy();
+    for (const stage of stages) {
+      const previous = stage.attempts![0];
+      expect(timeline.textContent).toContain(format(new Date(previous.startedAt!), "MMM d, yyyy h:mm a"));
+      expect(timeline.textContent).toContain(format(new Date(previous.completedAt!), "MMM d, yyyy h:mm a"));
+      expect(timeline.textContent).toContain(format(new Date(stage.startedAt!), "MMM d, yyyy h:mm a"));
+    }
   });
 
   it("keeps completed and failed prior attempts separate from the current retry", async () => {

@@ -4000,6 +4000,7 @@ export class DatabaseStorage implements IStorage {
         removedApproverIds: approvals.filter(a => a.removedAt).map(a => a.originalApproverId),
         stages: (stagesByChange.get(ch.id) ?? []).map(s => ({
           ...s,
+          attempts: s.attempts ?? [],
           deployedBy: s.deployedById ? userById.get(s.deployedById) : undefined,
           assignedTo: s.assignedToId ? userById.get(s.assignedToId) : undefined,
         })),

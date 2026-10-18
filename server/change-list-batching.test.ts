@@ -122,6 +122,15 @@ describe("batched change list details", () => {
         removedAt: new Date("2026-01-01"), removedById: "remover", removedByLabel: "CAB Lead",
       }),
     ];
+    stageRows = [{
+      id: "stage-history", changeId: "detail-change", environment: "development", order: 1,
+      status: "in_progress", startedAt: new Date("2026-06-02T11:00:00.000Z"), completedAt: null,
+      attempts: [{
+        status: "failed",
+        startedAt: "2026-06-02T09:00:00.000Z",
+        completedAt: "2026-06-02T09:30:00.000Z",
+      }],
+    }] as ChangeEnvironmentStage[];
     userRows = ["active-member", "remover"].map(user);
 
     const result = await new DatabaseStorage().getChange("detail-change");
@@ -137,6 +146,16 @@ describe("batched change list details", () => {
       },
     ]);
     expect(result?.removedApproverIds).toEqual(["removed-account"]);
+    expect(result?.stages).toMatchObject([{
+      id: "stage-history",
+      status: "in_progress",
+      startedAt: new Date("2026-06-02T11:00:00.000Z"),
+      attempts: [{
+        status: "failed",
+        startedAt: "2026-06-02T09:00:00.000Z",
+        completedAt: "2026-06-02T09:30:00.000Z",
+      }],
+    }]);
     expect(reads.find(read => read.table === "users")?.ids).not.toContain("deleted-account");
     expect(reads.find(read => read.table === "users")?.ids).not.toContain("removed-account");
   });
