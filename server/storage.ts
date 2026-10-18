@@ -4183,6 +4183,8 @@ export class DatabaseStorage implements IStorage {
         cabRequired: changes.cabRequired,
         type: changes.type,
         risk: changes.risk,
+        actualStart: changes.actualStart,
+        approvedAt: changes.approvedAt,
       }).from(changes).where(eq(changes.id, id)).for("update");
       if (!current) return { change: undefined, cabPending: false };
 
@@ -4225,6 +4227,13 @@ export class DatabaseStorage implements IStorage {
         if (!cabApprovalsGranted(approvals)) {
           return { change: undefined, cabPending: true };
         }
+      }
+
+      if (resultingStatus === "approved" && current.status !== "approved" && change.approvedAt === undefined) {
+        guardedChange = { ...guardedChange, approvedAt: new Date() };
+      }
+      if (resultingStatus === "in_progress" && current.status !== "in_progress" && change.actualStart === undefined) {
+        guardedChange = { ...guardedChange, actualStart: new Date() };
       }
 
       const [updated] = await tx.update(changes)

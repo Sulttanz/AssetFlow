@@ -116,6 +116,39 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined);
   });
 
+  it.each([
+    { status: "approved", timestamp: "approvedAt" },
+    { status: "in_progress", timestamp: "actualStart" },
+  ] as const)("records and preserves the $timestamp lifecycle timestamp for a manual $status transition", async ({ status, timestamp }) => {
+    const userId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values({
+      id: userId, username: `manager-${userId}`, email: `${userId}@example.invalid`,
+      password: "test-only", firstName: "Change", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual lifecycle update",
+      type: "standard", status: "submitted", risk: "low",
+    });
+
+    const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": userId },
+      body: JSON.stringify(body),
+    });
+
+    const transitionResponse = await update({ status });
+    expect(transitionResponse.status).toBe(200);
+    const [transitioned] = await db.select().from(changes).where(eq(changes.id, changeId));
+    const firstTimestamp = transitioned[timestamp];
+    expect(firstTimestamp).toBeInstanceOf(Date);
+
+    const editResponse = await update({ status, title: "Manual lifecycle update edited" });
+    expect(editResponse.status).toBe(200);
+    const [edited] = await db.select().from(changes).where(eq(changes.id, changeId));
+    expect(edited[timestamp]?.getTime()).toBe(firstTimestamp?.getTime());
+  });
+
   it.each(["pending", null] as const)(
     "accepts exactly one of two competing votes when the original decision is %s",
     async initial => {
