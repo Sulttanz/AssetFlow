@@ -44,6 +44,8 @@ interface ExportFilters {
   status: string;
   type: string;
   risk: string;
+  scheduledStartFrom: string;
+  scheduledStartTo: string;
 }
 
 interface ExportRequest {
@@ -90,6 +92,8 @@ export default function ChangesReport() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [scheduledStartFrom, setScheduledStartFrom] = useState("");
+  const [scheduledStartTo, setScheduledStartTo] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
@@ -110,13 +114,15 @@ export default function ChangesReport() {
   }, [search, debouncedSearch]);
 
   const { data: report, isLoading, isFetching, isError } = useQuery<ChangeReportPage>({
-    queryKey: ["/api/reports/changes", page, pageSize, debouncedSearch, statusFilter, typeFilter, riskFilter],
+    queryKey: ["/api/reports/changes", page, pageSize, debouncedSearch, statusFilter, typeFilter, riskFilter, scheduledStartFrom, scheduledStartTo],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
       if (riskFilter !== "all") params.set("risk", riskFilter);
+      if (scheduledStartFrom) params.set("scheduledStartFrom", scheduledStartFrom);
+      if (scheduledStartTo) params.set("scheduledStartTo", scheduledStartTo);
       const response = await apiRequest("GET", `/api/reports/changes?${params}`);
       return response.json();
     },
@@ -173,6 +179,8 @@ export default function ChangesReport() {
     if (filters.status !== "all") params.set("status", filters.status);
     if (filters.type !== "all") params.set("type", filters.type);
     if (filters.risk !== "all") params.set("risk", filters.risk);
+    if (filters.scheduledStartFrom) params.set("scheduledStartFrom", filters.scheduledStartFrom);
+    if (filters.scheduledStartTo) params.set("scheduledStartTo", filters.scheduledStartTo);
 
     const allChanges: ChangeReportRow[] = [];
     let exportPage = 1;
@@ -290,6 +298,8 @@ export default function ChangesReport() {
         status: statusFilter,
         type: typeFilter,
         risk: riskFilter,
+        scheduledStartFrom,
+        scheduledStartTo,
       },
       matchingTotal: total,
     });
@@ -434,6 +444,26 @@ export default function ChangesReport() {
                 <SelectItem value="critical">Critical</SelectItem>
               </SelectContent>
             </Select>
+            <label htmlFor="scheduled-start-from" className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Scheduled start from
+              <Input
+                id="scheduled-start-from"
+                type="date"
+                value={scheduledStartFrom}
+                onChange={(event) => { setScheduledStartFrom(event.target.value); setPage(1); }}
+                className="w-[165px]"
+              />
+            </label>
+            <label htmlFor="scheduled-start-through" className="flex flex-col gap-1 text-xs text-muted-foreground">
+              Scheduled start through
+              <Input
+                id="scheduled-start-through"
+                type="date"
+                value={scheduledStartTo}
+                onChange={(event) => { setScheduledStartTo(event.target.value); setPage(1); }}
+                className="w-[165px]"
+              />
+            </label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page</span>
               <Select value={String(pageSize)} onValueChange={(value) => {
@@ -448,8 +478,8 @@ export default function ChangesReport() {
                 </SelectContent>
               </Select>
             </div>
-            {(search || statusFilter !== "all" || typeFilter !== "all" || riskFilter !== "all") && (
-              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setDebouncedSearch(""); setStatusFilter("all"); setTypeFilter("all"); setRiskFilter("all"); setPage(1); }}>
+            {(search || statusFilter !== "all" || typeFilter !== "all" || riskFilter !== "all" || scheduledStartFrom || scheduledStartTo) && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setDebouncedSearch(""); setStatusFilter("all"); setTypeFilter("all"); setRiskFilter("all"); setScheduledStartFrom(""); setScheduledStartTo(""); setPage(1); }}>
                 Clear filters
               </Button>
             )}

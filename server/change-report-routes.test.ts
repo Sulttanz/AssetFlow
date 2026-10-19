@@ -38,6 +38,7 @@ type ReportChange = {
   risk: string;
   priority: string;
   createdAt: Date;
+  scheduledStart?: Date | null;
   approvals: ReportApproval[];
 };
 
@@ -136,6 +137,8 @@ describe("change report and KPI endpoints", () => {
       type?: string;
       status?: string;
       risk?: string;
+      scheduledStartFrom?: Date;
+      scheduledStartToExclusive?: Date;
       cursorPaging?: boolean;
       cursorChangeNumber?: string;
     }) => {
@@ -144,7 +147,9 @@ describe("change report and KPI endpoints", () => {
         (!term || `${change.changeNumber} ${change.title} ${change.type}`.toLowerCase().includes(term)) &&
         (!options.type || change.type === options.type) &&
         (!options.status || change.status === options.status) &&
-        (!options.risk || change.risk === options.risk));
+        (!options.risk || change.risk === options.risk) &&
+        (!options.scheduledStartFrom || (!!change.scheduledStart && change.scheduledStart >= options.scheduledStartFrom)) &&
+        (!options.scheduledStartToExclusive || (!!change.scheduledStart && change.scheduledStart < options.scheduledStartToExclusive)));
       const offset = (options.page - 1) * options.pageSize;
       return {
         total: matching.length,
@@ -158,7 +163,7 @@ describe("change report and KPI endpoints", () => {
             status: change.status,
             risk: change.risk,
             priority: change.priority,
-            scheduledStart: null,
+            scheduledStart: change.scheduledStart ?? null,
             scheduledEnd: null,
             createdAt: change.createdAt,
             requestedByLabel: null,
@@ -250,5 +255,40 @@ describe("change report and KPI endpoints", () => {
     expect(store.getChangeReportPage).toHaveBeenNthCalledWith(4, expect.objectContaining({
       page: 2, pageSize: 2, cursorPaging: true, cursorChangeNumber: "CHG-2",
     }));
+  });
+
+  it("includes both date boundaries and paginates only matching scheduled starts", async () => {
+    changes = changes.slice(0, 4).map((change, index) => ({
+      ...change,
+      scheduledStart: [
+        new Date("2026-10-01T23:59:59.999Z"),
+        new Date("2026-10-02T00:00:00.000Z"),
+        new Date("2026-10-03T23:59:59.999Z"),
+        new Date("2026-10-04T00:00:00.000Z"),
+      ][index],
+    }));
+
+    const result = await getJson("/api/reports/changes?page=2&pageSize=1&scheduledStartFrom=2026-10-02&scheduledStartTo=2026-10-03");
+
+    expect(result.total).toBe(2);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0].scheduledStart).toEqual("2026-10-03T23:59:59.999Z");
+    expect(store.getChangeReportPage).toHaveBeenCalledWith(expect.objectContaining({
+      page: 2,
+      pageSize: 1,
+      scheduledStartFrom: new Date("2026-10-02T00:00:00.000Z"),
+      scheduledStartToExclusive: new Date("2026-10-04T00:00:00.000Z"),
+    }));
+
+    const empty = await getJson("/api/reports/changes?scheduledStartFrom=2026-10-05");
+    expect(empty.total).toBe(0);
+    expect(empty.changes).toEqual([]);
+  });
+
+  it("rejects invalid or reversed scheduled start date ranges", async () => {
+    const invalid = await fetch(`${baseUrl}/api/reports/changes?scheduledStartFrom=2026-02-30`);
+    expect(invalid.status).toBe(400);
+    const reversed = await fetch(`${baseUrl}/api/reports/changes?scheduledStartFrom=2026-10-04&scheduledStartTo=2026-10-02`);
+    expect(reversed.status).toBe(400);
   });
 });

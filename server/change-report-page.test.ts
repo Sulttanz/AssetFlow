@@ -109,6 +109,8 @@ describe("change report page projection", () => {
       type: "emergency",
       status: "approved",
       risk: "critical",
+      scheduledStartFrom: new Date("2026-10-05T00:00:00.000Z"),
+      scheduledStartToExclusive: new Date("2026-10-06T00:00:00.000Z"),
     });
 
     expect(result).toEqual({
@@ -142,8 +144,13 @@ describe("change report page projection", () => {
     expect(pageQuery?.where).toContain("title");
     expect(pageQuery?.where).toContain("change_number");
     expect(pageQuery?.where).toContain("risk");
+    expect(countQuery?.where).toContain("scheduled_start");
     expect(pageQuery?.params).toEqual(expect.arrayContaining([
       "%emergency%", "emergency", "approved", "critical",
+      "2026-10-05T00:00:00.000Z", "2026-10-06T00:00:00.000Z",
+    ]));
+    expect(countQuery?.params).toEqual(expect.arrayContaining([
+      "2026-10-05T00:00:00.000Z", "2026-10-06T00:00:00.000Z",
     ]));
 
     expect(approvalQuery?.table).toBe(changeApprovals);

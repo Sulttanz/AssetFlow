@@ -6110,6 +6110,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const type = typeof req.query.type === "string" && req.query.type !== "all" ? req.query.type : undefined;
       const status = typeof req.query.status === "string" && req.query.status !== "all" ? req.query.status : undefined;
       const risk = typeof req.query.risk === "string" && req.query.risk !== "all" ? req.query.risk : undefined;
+      const parseDateOnly = (value: unknown): Date | undefined | null => {
+        if (value === undefined) return undefined;
+        if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+        const date = new Date(`${value}T00:00:00.000Z`);
+        return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date;
+      };
+      const scheduledStartFrom = parseDateOnly(req.query.scheduledStartFrom);
+      const scheduledStartTo = parseDateOnly(req.query.scheduledStartTo);
+      if (scheduledStartFrom === null || scheduledStartTo === null) {
+        return res.status(400).json({ message: "Invalid scheduled start date filter" });
+      }
+      if (scheduledStartFrom && scheduledStartTo && scheduledStartFrom > scheduledStartTo) {
+        return res.status(400).json({ message: "Scheduled start date range is reversed" });
+      }
+      const scheduledStartToExclusive = scheduledStartTo
+        ? new Date(scheduledStartTo.getTime() + 86400000)
+        : undefined;
       const cursorPaging = req.query.cursorPaging === "true";
       const cursorChangeNumber = req.query.cursorChangeNumber;
       if (cursorChangeNumber !== undefined && (
@@ -6125,6 +6142,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [result, summary] = await Promise.all([
         storage.getChangeReportPage({
           page, pageSize, search, searchType: true, type, status, risk, cursorPaging,
+          scheduledStartFrom,
+          scheduledStartToExclusive,
           cursorChangeNumber: typeof cursorChangeNumber === "string" ? cursorChangeNumber : undefined,
         }),
         storage.getChangeReportSummary(startOfMonth),

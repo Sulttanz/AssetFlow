@@ -36,7 +36,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { cabApprovalsGranted } from "./cab-gate";
 import { withStageRetryHistory } from "./change-stage-history";
-import { eq, isNull, and, or, inArray, sql, desc, ilike, lt } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, sql, desc, ilike, lt, gte } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { EventEmitter } from "events";
 
@@ -350,7 +350,7 @@ export interface IStorage {
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
   getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
-  getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }>;
+  getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }>;
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
@@ -2624,7 +2624,7 @@ export class MemStorage implements IStorage {
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
   async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
-  async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
     return {
       total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0, requested: 0,
@@ -4173,7 +4173,7 @@ export class DatabaseStorage implements IStorage {
     ]);
     return { changes: await this.buildChangeDetails(rows), total: Number(countRows[0]?.count ?? 0) };
   }
-  async getChangeReportPage({ page, pageSize, search, searchType, type, status, risk, cursorPaging, cursorChangeNumber }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> {
+  async getChangeReportPage({ page, pageSize, search, searchType, type, status, risk, scheduledStartFrom, scheduledStartToExclusive, cursorPaging, cursorChangeNumber }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> {
     const term = search?.trim();
     const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
     const conditions = [
@@ -4185,6 +4185,8 @@ export class DatabaseStorage implements IStorage {
       type ? eq(changes.type, type) : undefined,
       status ? eq(changes.status, status) : undefined,
       risk ? eq(changes.risk, risk) : undefined,
+      scheduledStartFrom ? gte(changes.scheduledStart, scheduledStartFrom) : undefined,
+      scheduledStartToExclusive ? lt(changes.scheduledStart, scheduledStartToExclusive) : undefined,
     ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
     const where = conditions.length ? and(...conditions) : undefined;
     const pageConditions = [

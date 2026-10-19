@@ -51,6 +51,7 @@ const history = Array.from({ length: 51 }, (_, index) => ({
   priority: "medium",
   risk: "low",
   createdAt: "2026-10-01T00:00:00.000Z",
+  scheduledStart: `2026-10-${String((index % 5) + 1).padStart(2, "0")}T00:00:00.000Z`,
   approvals: index === 0
     ? [
       makeApproval("active-approved", "approved"),
@@ -72,7 +73,7 @@ function summaryValue(label: string) {
 describe("change report page", () => {
   let queryClient: QueryClient;
   let requests: string[];
-  let reportRows: typeof history;
+  let reportRows: Array<Omit<typeof history[number], "scheduledStart"> & { scheduledStart?: string | null }>;
   let reportSummary: typeof globalSummary;
   let failExportPage: number | null;
   let exportPageTwoGate: Promise<void> | null;
@@ -100,6 +101,8 @@ describe("change report page", () => {
       const status = params.get("status");
       const type = params.get("type");
       const risk = params.get("risk");
+      const scheduledStartFrom = params.get("scheduledStartFrom");
+      const scheduledStartTo = params.get("scheduledStartTo");
       const search = params.get("search")?.toLowerCase();
       const page = Number(params.get("page") || 1);
       const pageSize = Number(params.get("pageSize") || 50);
@@ -119,6 +122,8 @@ describe("change report page", () => {
         (!status || status === "all" || change.status === status)
         && (!type || type === "all" || change.type === type)
         && (!risk || risk === "all" || change.risk === risk)
+        && (!scheduledStartFrom || (!!change.scheduledStart && change.scheduledStart.slice(0, 10) >= scheduledStartFrom))
+        && (!scheduledStartTo || (!!change.scheduledStart && change.scheduledStart.slice(0, 10) <= scheduledStartTo))
         && (!search || change.changeNumber.toLowerCase().includes(search) || change.title.toLowerCase().includes(search)),
       );
       const cursorPaging = params.get("cursorPaging") === "true";
@@ -142,7 +147,7 @@ describe("change report page", () => {
             const activeApprovals = approvals.filter(approval => !approval.removedAt);
             return {
               ...change,
-              scheduledStart: null,
+              scheduledStart: change.scheduledStart ?? null,
               scheduledEnd: null,
               requestedByLabel: null,
               assignedToLabel: null,
@@ -268,6 +273,43 @@ describe("change report page", () => {
     })).toBe(true);
   });
 
+  it("filters scheduled start dates inclusively before pagination and can clear an empty result", async () => {
+    const user = userEvent.setup();
+    reportRows = [
+      { ...history[0], id: "before", changeNumber: "DATE-0", title: "Before range", scheduledStart: "2026-10-01T23:59:59.999Z" },
+      { ...history[1], id: "from-boundary", changeNumber: "DATE-1", title: "Start boundary", scheduledStart: "2026-10-02T00:00:00.000Z" },
+      { ...history[2], id: "through-boundary", changeNumber: "DATE-2", title: "End boundary", scheduledStart: "2026-10-03T23:59:59.999Z" },
+      { ...history[3], id: "after", changeNumber: "DATE-3", title: "After range", scheduledStart: "2026-10-04T00:00:00.000Z" },
+    ];
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Before range")).toBeTruthy();
+    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-02");
+    await user.type(screen.getByLabelText("Scheduled start through"), "2026-10-03");
+
+    expect(await screen.findByText("Start boundary")).toBeTruthy();
+    expect(screen.queryByText("Before range")).toBeNull();
+    expect(screen.queryByText("After range")).toBeNull();
+    expect(screen.getByText("Page 1 of 1")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("Showing 1–2 of 2 matching changes") === true,
+    )).toBeTruthy();
+    expect(requests.some(url => {
+      const params = new URL(url, "http://report.test").searchParams;
+      return params.get("scheduledStartFrom") === "2026-10-02"
+        && params.get("scheduledStartTo") === "2026-10-03";
+    })).toBe(true);
+
+    await user.clear(screen.getByLabelText("Scheduled start through"));
+    await user.clear(screen.getByLabelText("Scheduled start from"));
+    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-05");
+    await waitFor(() => expect(screen.getByText("No changes match your filters.")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByText("Before range")).toBeTruthy();
+    expect((screen.getByLabelText("Scheduled start from") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Scheduled start through") as HTMLInputElement).value).toBe("");
+  });
+
   it.each(["Excel", "PDF", "Print"])("loads every matching page with active filters for %s export", async (exportType) => {
     const user = userEvent.setup();
     reportRows = Array.from({ length: 251 }, (_, index) => ({
@@ -279,6 +321,7 @@ describe("change report page", () => {
       priority: "medium",
       risk: "high",
       createdAt: "2026-10-01T00:00:00.000Z",
+      scheduledStart: "2026-10-02T12:00:00.000Z",
       approvals: [],
       removedApprovals: [],
     }));
@@ -291,6 +334,8 @@ describe("change report page", () => {
       await user.click(screen.getAllByRole("combobox")[index]);
       await user.click(screen.getByRole("option", { name: activeFilters[index] }));
     }
+    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-01");
+    await user.type(screen.getByLabelText("Scheduled start through"), "2026-10-03");
     expect(await screen.findByText("Export batch 1")).toBeTruthy();
     await waitFor(() => {
       expect(requests.some(url => {
@@ -298,7 +343,9 @@ describe("change report page", () => {
         return params.get("search") === "Export batch"
           && params.get("status") === "completed"
           && params.get("type") === "emergency"
-          && params.get("risk") === "high";
+          && params.get("risk") === "high"
+          && params.get("scheduledStartFrom") === "2026-10-01"
+          && params.get("scheduledStartTo") === "2026-10-03";
       })).toBe(true);
     });
     requests = [];
@@ -328,6 +375,8 @@ describe("change report page", () => {
       expect(params.get("status")).toBe("completed");
       expect(params.get("type")).toBe("emergency");
       expect(params.get("risk")).toBe("high");
+      expect(params.get("scheduledStartFrom")).toBe("2026-10-01");
+      expect(params.get("scheduledStartTo")).toBe("2026-10-03");
     }
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
