@@ -13,6 +13,34 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
+type QueueScope = "mine" | "assigned" | "all";
+type LifecycleFilter = "all" | "active" | "pending" | "closed";
+
+const lifecycleOptions: { value: LifecycleFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Open / In Progress" },
+  { value: "pending", label: "Pending Approval" },
+  { value: "closed", label: "Completed / Closed" },
+];
+
+function QueuePills<T extends string>({ label, value, options, onChange }: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return <div role="group" aria-label={label} className="flex flex-wrap gap-2">
+    {options.map(option => <Button key={option.value} type="button" size="sm" variant={value === option.value ? "default" : "outline"} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
+  </div>;
+}
+
+function canViewAllQueues(user: ReturnType<typeof useAuth>["user"]): boolean {
+  const permissions = user?.permissions ?? [];
+  const roles = (user?.roles ?? []).map(role => role.name.trim().toLowerCase());
+  return permissions.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
+    roles.some(role => ["system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"].includes(role));
+}
+
 function formatRequestDate(value: string | Date | null | undefined, dateOnly = false): string {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(dateOnly ? `${value}T00:00:00` : value);
@@ -40,6 +68,8 @@ function usePracticeMutation(path: string, method: string, successMessage: strin
 }
 
 export function IncidentsPage() {
+  const [queueScope, setQueueScope] = useState<QueueScope>("mine");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("P3");
@@ -54,6 +84,21 @@ export function IncidentsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { data: incidents = [], isLoading } = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
+  const canViewAll = canViewAllQueues(user);
+  const visibleIncidents = incidents.filter(incident => {
+    const row = incident as Incident & { creatorId?: string | null; requesterId?: string | null; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
+    const matchesQueue = queueScope === "mine"
+      ? row.creatorId === user?.id || row.requesterId === user?.id
+      : queueScope === "assigned"
+        ? row.assigneeId === user?.id || row.assignedToId === user?.id || (canViewAll && Boolean(row.assignmentGroup))
+        : canViewAll;
+    const status = row.status.toLowerCase();
+    const matchesLifecycle = lifecycleFilter === "all" ||
+      (lifecycleFilter === "active" && ["new", "open", "in progress", "in_progress"].includes(status)) ||
+      (lifecycleFilter === "pending" && status === "pending") ||
+      (lifecycleFilter === "closed" && ["resolved", "closed"].includes(status));
+    return matchesQueue && matchesLifecycle;
+  });
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = incidents.find(incident => incident.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
@@ -92,10 +137,18 @@ export function IncidentsPage() {
   });
 
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Management" description="Prioritize service disruptions and coordinate resolution across teams." /><Button onClick={() => setIntakeOpen(true)}>Create Incident</Button></div>
-    <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading incidents…</p> : incidents.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No incidents yet</h2><p className="mt-1 text-sm text-muted-foreground">Create an incident to begin tracking service restoration.</p></div> :
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Management" description="Prioritize service disruptions and coordinate resolution across teams." showAddButton={false} /><Button onClick={() => setIntakeOpen(true)}>Create Incident</Button></div>
+    <div className="space-y-3">
+      <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
+        { value: "mine", label: "My Incidents" },
+        { value: "assigned", label: "Assigned to Me / My Group" },
+        ...(canViewAll ? [{ value: "all" as const, label: "All Incidents" }] : []),
+      ]} />
+      <QueuePills label="Incident status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions} />
+    </div>
+    <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading incidents…</p> : visibleIncidents.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No incidents in this view</h2><p className="mt-1 text-sm text-muted-foreground">Try another queue or status filter.</p></div> :
       <Table><TableHeader><TableRow><TableHead>Incident</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>SLA Due</TableHead><TableHead>Created By</TableHead></TableRow></TableHeader>
-        <TableBody>{incidents.map(incident => {
+        <TableBody>{visibleIncidents.map(incident => {
           const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string };
           const due = row.resolveDueAt ? new Date(row.resolveDueAt) : null;
           const overdue = Boolean(due && due.getTime() < Date.now() && !["Resolved", "Closed"].includes(row.status));
@@ -149,6 +202,8 @@ export function IncidentsPage() {
 }
 
 export function ServiceRequestsPage() {
+  const [queueScope, setQueueScope] = useState<QueueScope>("mine");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [cost, setCost] = useState("0");
@@ -164,6 +219,21 @@ export function ServiceRequestsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const { data: requests = [], isLoading } = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
+  const canViewAll = canViewAllQueues(user);
+  const visibleRequests = requests.filter(request => {
+    const row = request as ServiceRequest & { assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
+    const matchesQueue = queueScope === "mine"
+      ? row.requesterId === user?.id
+      : queueScope === "assigned"
+        ? row.assigneeId === user?.id || row.assignedToId === user?.id || (canViewAll && Boolean(row.assignmentGroup))
+        : canViewAll;
+    const stage = (row.fulfillmentStage ?? row.fulfillmentStatus ?? "").toLowerCase();
+    const matchesLifecycle = lifecycleFilter === "all" ||
+      (lifecycleFilter === "active" && !["completed", "rejected", "closed"].includes(stage) && row.approvalStatus !== "pending") ||
+      (lifecycleFilter === "pending" && row.approvalStatus === "pending") ||
+      (lifecycleFilter === "closed" && ["completed", "rejected", "closed"].includes(stage));
+    return matchesQueue && matchesLifecycle;
+  });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: catalogItems = [] } = useQuery<CatalogItem[]>({ queryKey: ["/api/catalog/items?activeOnly=true"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
@@ -215,10 +285,18 @@ export function ServiceRequestsPage() {
   });
   const manager = user?.permissions?.includes("ticket_manage");
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." /><Button onClick={() => setIntakeOpen(true)}>Submit Request</Button></div>
-    <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading service requests…</p> : requests.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No service requests yet</h2><p className="mt-1 text-sm text-muted-foreground">Submit a request to start its approval and fulfillment workflow.</p></div> :
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." showAddButton={false} /><Button onClick={() => setIntakeOpen(true)}>Submit Request</Button></div>
+    <div className="space-y-3">
+      <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
+        { value: "mine", label: "My Requests" },
+        { value: "assigned", label: "Assigned to Me / My Group" },
+        ...(canViewAll ? [{ value: "all" as const, label: "All Requests" }] : []),
+      ]} />
+      <QueuePills label="Service request status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions} />
+    </div>
+    <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading service requests…</p> : visibleRequests.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No service requests in this view</h2><p className="mt-1 text-sm text-muted-foreground">Try another queue or status filter.</p></div> :
       <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Request Date</TableHead><TableHead>Target Completion</TableHead><TableHead>Completed</TableHead><TableHead>Catalog Item</TableHead><TableHead>Stage</TableHead><TableHead>Approval</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>Cost</TableHead><TableHead>Requester</TableHead></TableRow></TableHeader>
-        <TableBody>{requests.map(request => {
+        <TableBody>{visibleRequests.map(request => {
           const row = request as ServiceRequest & { projectName?: string; catalogItemName?: string; requesterName?: string; assigneeName?: string };
           const stage = row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted";
           return <TableRow key={row.id} className="cursor-pointer" onClick={() => {

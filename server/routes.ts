@@ -812,8 +812,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const rows = await storage.getIncidents();
-      const canViewAll = await canManageAllTickets(req.user.id);
-      const visibleRows = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
+      const canViewAll = await canViewAllItsmRecords(req.user.id);
+      const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
       const [projectRows, userRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
@@ -865,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(incident);
@@ -878,7 +878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const rows = await db.select({
@@ -1018,7 +1018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const rows = await storage.getServiceRequests();
-      const canViewAll = await canManageAllTickets(req.user.id);
+      const canViewAll = await canViewAllItsmRecords(req.user.id);
       const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
       const [projectRows, userRows, catalogRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
@@ -1045,7 +1045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && request.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && request.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(request);
@@ -1058,7 +1058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && request.assigneeId !== req.user.id && request.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (request.requesterId !== req.user.id && request.assigneeId !== req.user.id && request.assignedToId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const entries = await db.select({
@@ -1204,6 +1204,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function canManageAllTickets(userId: string): Promise<boolean> {
     const perms = await storage.getUserPermissions(userId);
     return perms.includes("ticket_manage") || perms.includes("ticket_view_all");
+  }
+
+  async function canViewAllItsmRecords(userId: string): Promise<boolean> {
+    const [perms, roles] = await Promise.all([storage.getUserPermissions(userId), storage.getUserRoles(userId)]);
+    const elevatedRoleNames = new Set(["system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
+    return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
+      roles.some(role => elevatedRoleNames.has(role.name.trim().toLowerCase()));
   }
 
   async function canManageTicket(userId: string): Promise<boolean> {
