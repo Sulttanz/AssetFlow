@@ -13,6 +13,7 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+import { AlertTriangle, CheckCircle2, Ticket, UserX } from "lucide-react";
 
 type QueueScope = "mine" | "assigned" | "all";
 type LifecycleFilter = "all" | "active" | "pending" | "closed";
@@ -27,11 +28,13 @@ const lifecycleOptions: { value: LifecycleFilter; label: string }[] = [
 function QueuePills<T extends string>({ label, value, options, onChange }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; count?: number }[];
   onChange: (value: T) => void;
 }) {
-  return <div role="group" aria-label={label} className="flex flex-wrap gap-2">
-    {options.map(option => <Button key={option.value} type="button" size="sm" variant={value === option.value ? "default" : "outline"} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
+  return <div role="group" aria-label={label} className="inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-lg border bg-muted/60 p-1">
+    {options.map(option => <Button key={option.value} type="button" size="sm" variant="ghost" className={`h-8 rounded-md px-2.5 text-xs sm:px-3 ${value === option.value ? "bg-background text-foreground shadow-sm hover:bg-background" : "text-muted-foreground"}`} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>
+      <span>{option.label}</span>{option.count !== undefined && <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] leading-none ${value === option.value ? "bg-primary/10 text-primary" : "bg-background/80 text-muted-foreground"}`}>{option.count}</span>}
+    </Button>)}
   </div>;
 }
 
@@ -62,6 +65,7 @@ export function IncidentsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [search, setSearch] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolutionCode, setResolutionCode] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
@@ -82,14 +86,15 @@ export function IncidentsPage() {
     const matchesQueue = queueScope === "mine"
       ? row.creatorId === user?.id || row.requesterId === user?.id
       : queueScope === "assigned"
-        ? row.assigneeId === user?.id || row.assignedToId === user?.id || (canViewAll && Boolean(row.assignmentGroup))
+        ? row.assigneeId === user?.id || row.assignedToId === user?.id
         : canViewAll;
     const status = row.status.toLowerCase();
     const matchesLifecycle = lifecycleFilter === "all" ||
       (lifecycleFilter === "active" && ["new", "open", "in progress", "in_progress"].includes(status)) ||
       (lifecycleFilter === "pending" && status === "pending") ||
       (lifecycleFilter === "closed" && ["resolved", "closed"].includes(status));
-    return matchesQueue && matchesLifecycle && matchesSmartSearch(search, [
+    const matchesAssignee = !assigneeFilter || (row.assigneeId ?? row.assignedToId) === assigneeFilter;
+    return matchesQueue && matchesLifecycle && matchesAssignee && matchesSmartSearch(search, [
       row.incidentNumber, row.title, row.creatorName, row.requesterName,
       row.creatorEmail, row.requesterEmail, row.creatorPhone, row.creatorMobile,
       row.requesterPhone, row.requesterMobile,
@@ -98,16 +103,27 @@ export function IncidentsPage() {
   });
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const openIncidents = incidents.filter(row => !["Resolved", "Closed"].includes(row.status));
-  const incidentMetrics: [string, number][] = [
-    ["Total Open Tickets", openIncidents.length],
-    ["Unassigned Queue", openIncidents.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length],
-    ["SLA Overdue / Breached", openIncidents.filter(row => Boolean(row.resolveDueAt && new Date(row.resolveDueAt).getTime() < Date.now())).length],
-    ["Resolved Today", incidents.filter(row => {
+  const incidentMetrics = [
+    { label: "Total Open Tickets", count: openIncidents.length, icon: Ticket, color: "#2563eb" },
+    { label: "Unassigned Queue", count: openIncidents.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length, icon: UserX, color: "#d97706" },
+    { label: "SLA Overdue / Breached", count: openIncidents.filter(row => Boolean(row.resolveDueAt && new Date(row.resolveDueAt).getTime() < Date.now())).length, icon: AlertTriangle, color: "#dc2626" },
+    { label: "Resolved Today", count: incidents.filter(row => {
       const resolved = (row as any).resolvedAt ?? (row as any).closedAt;
       return resolved && new Date(resolved).getTime() >= todayStart.getTime();
-    }).length],
+    }).length, icon: CheckCircle2, color: "#16a34a" },
   ];
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const incidentQueueCounts = {
+    mine: incidents.filter(row => (row as any).creatorId === user?.id || row.requesterId === user?.id).length,
+    assigned: incidents.filter(row => (row as any).assigneeId === user?.id || (row as any).assignedToId === user?.id).length,
+    all: incidents.length,
+  };
+  const incidentStatusCounts = {
+    all: incidents.length,
+    active: incidents.filter(row => ["new", "open", "in progress", "in_progress"].includes(row.status.toLowerCase())).length,
+    pending: incidents.filter(row => row.status.toLowerCase() === "pending").length,
+    closed: incidents.filter(row => ["resolved", "closed"].includes(row.status.toLowerCase())).length,
+  };
   const selected = incidents.find(incident => incident.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/incidents", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
@@ -139,15 +155,20 @@ export function IncidentsPage() {
 
   return <div className="space-y-5 p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Tracker" description="Triage, assign, and resolve incidents across support queues." showAddButton={false} showSearch={false} /></div>
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{incidentMetrics.map(([label, count]) => <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></CardContent></Card>)}</div>
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{incidentMetrics.map(({ label, count, icon: Icon, color }) => <Card key={label} className="overflow-hidden border-l-4" style={{ borderLeftColor: color }}><CardContent className="flex items-center justify-between gap-3 p-4"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></div><Icon aria-hidden="true" className="h-5 w-5 shrink-0" style={{ color }} /></CardContent></Card>)}</div>
     <div className="space-y-2">
-      <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search incidents" placeholder="Search reference, requester, email, phone, project, or title…" />
-      <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
-        { value: "mine", label: "My Incidents" },
-        { value: "assigned", label: "Assigned to Me / My Group" },
-        ...(canViewAll ? [{ value: "all" as const, label: "All Incidents" }] : []),
-      ]} />
-      <QueuePills label="Incident status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions} />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input className="min-w-0 flex-1" value={search} onChange={event => setSearch(event.target.value)} aria-label="Search incidents" placeholder="Search reference, requester, email, phone, project, or title…" />
+        <label className="grid shrink-0 gap-1 text-xs font-medium text-muted-foreground sm:w-56"><span>Filter by Assignee</span><select className="h-10 w-full rounded-md border bg-background px-3 text-sm font-normal text-foreground" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)}><option value="">All Assignees</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5">
+        <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
+          { value: "mine", label: "My Incidents", count: incidentQueueCounts.mine },
+          { value: "assigned", label: "Assigned to Me", count: incidentQueueCounts.assigned },
+          ...(canViewAll ? [{ value: "all" as const, label: "All Incidents", count: incidentQueueCounts.all }] : []),
+        ]} />
+        <QueuePills label="Incident status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions.map(option => ({ ...option, count: incidentStatusCounts[option.value] }))} />
+      </div>
     </div>
     <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading incidents…</p> : visibleIncidents.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No incidents in this view</h2><p className="mt-1 text-sm text-muted-foreground">Try another queue or status filter.</p></div> :
       <Table><TableHeader><TableRow><TableHead>Incident</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>SLA Due</TableHead><TableHead>Created By</TableHead></TableRow></TableHeader>
