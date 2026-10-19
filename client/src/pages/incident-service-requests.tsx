@@ -13,6 +13,18 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 
+function formatRequestDate(value: string | Date | null | undefined, dateOnly = false): string {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(dateOnly ? `${value}T00:00:00` : value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+}
+
+function formatRequestTimestamp(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
 function usePracticeMutation(path: string, method: string, successMessage: string) {
   const { toast } = useToast();
   return useMutation({
@@ -205,7 +217,7 @@ export function ServiceRequestsPage() {
   return <div className="space-y-5 p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." /><Button onClick={() => setIntakeOpen(true)}>Submit Request</Button></div>
     <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading service requests…</p> : requests.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No service requests yet</h2><p className="mt-1 text-sm text-muted-foreground">Submit a request to start its approval and fulfillment workflow.</p></div> :
-      <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Catalog Item</TableHead><TableHead>Stage</TableHead><TableHead>Approval</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>Cost</TableHead><TableHead>Requester</TableHead></TableRow></TableHeader>
+      <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Request Date</TableHead><TableHead>Target Completion</TableHead><TableHead>Completed</TableHead><TableHead>Catalog Item</TableHead><TableHead>Stage</TableHead><TableHead>Approval</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>Cost</TableHead><TableHead>Requester</TableHead></TableRow></TableHeader>
         <TableBody>{requests.map(request => {
           const row = request as ServiceRequest & { projectName?: string; catalogItemName?: string; requesterName?: string; assigneeName?: string };
           const stage = row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted";
@@ -213,6 +225,9 @@ export function ServiceRequestsPage() {
             setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId("");
           }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.requestNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
+            <TableCell>{formatRequestTimestamp(row.createdAt)}</TableCell>
+            <TableCell>{formatRequestDate(row.targetFulfillmentDate, true)}</TableCell>
+            <TableCell>{formatRequestTimestamp(row.completedAt)}</TableCell>
             <TableCell>{row.catalogItemName ?? "General request"}</TableCell><TableCell><Badge variant="outline">{stage}</Badge></TableCell><TableCell><Badge className={row.approvalStatus === "approved" ? "border-green-200 bg-green-100 text-green-800" : row.approvalStatus === "rejected" ? "border-red-200 bg-red-100 text-red-800" : "border-amber-200 bg-amber-100 text-amber-800"}>{row.approvalStatus}</Badge></TableCell>
             <TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell><TableCell>{Number(row.cost).toFixed(2)}</TableCell><TableCell>{row.requesterName ?? "—"}</TableCell>
           </TableRow>;
@@ -239,7 +254,7 @@ export function ServiceRequestsPage() {
     <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.requestNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{(selected as any).catalogItemName ?? "General request"} · Requested by {(selected as any).requesterName ?? "Unknown"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6">
-          <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p>Project: {(selected as any).projectName ?? "—"}</p><p>Cost: {Number(selected.cost).toFixed(2)}</p><p>Requested by: {(selected as any).requesterName ?? "—"}</p><p>Target date: {selected.targetFulfillmentDate ?? "—"}</p><p>Asset: {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p><p>Completed: {selected.completedAt ? new Date(selected.completedAt).toLocaleString() : "—"}</p></div></section>
+          <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Request date:</span> {formatRequestTimestamp(selected.createdAt)}</p><p><span className="text-muted-foreground">Target completion:</span> {formatRequestDate(selected.targetFulfillmentDate, true)}</p><p><span className="text-muted-foreground">Completed:</span> {formatRequestTimestamp(selected.completedAt)}</p><p><span className="text-muted-foreground">Project:</span> {(selected as any).projectName ?? "—"}</p><p><span className="text-muted-foreground">Cost:</span> {Number(selected.cost).toFixed(2)}</p><p><span className="text-muted-foreground">Requested by:</span> {(selected as any).requesterName ?? "—"}</p><p><span className="text-muted-foreground">Asset:</span> {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p></div></section>
           {manager && <>
             <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<Input value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)} placeholder="e.g. IT Provisioning" /></label>
               <label className="grid gap-1 text-sm">Assignee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>

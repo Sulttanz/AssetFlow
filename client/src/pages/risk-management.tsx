@@ -39,7 +39,7 @@ function Field({ label, children, className = "" }: { label: string; children: R
 function RiskScore({ likelihood, impact, residual = false }: { likelihood?: number; impact?: number; residual?: boolean }) {
   const score = (likelihood ?? 0) * (impact ?? 0);
   return <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${score >= 15 ? "border-rose-200 bg-rose-50 text-rose-800" : score >= 8 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-teal-200 bg-teal-50 text-teal-800"}`}>
-    {residual ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}{likelihood ?? "—"} × {impact ?? "—"} <b>= {likelihood && impact ? score : "—"}</b>
+    {residual ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}{impact ?? "—"} × {likelihood ?? "—"} <b>= {likelihood && impact ? score : "—"}</b>
   </span>;
 }
 
@@ -131,7 +131,7 @@ export default function RiskManagement() {
           <h1 className="font-semibold tracking-[-.045em] text-[2rem] leading-none sm:text-[2.55rem]">Risk Management</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">A standalone ITSM register for risks, owners, response plans and residual exposure.</p>
         </div>
-        {canManageRisks && <Button className="bg-[#174d42] hover:bg-[#103d34]" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Add risk</Button>}
+        {canManageRisks && <Button className="bg-[#174d42] hover:bg-[#103d34]" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Create risk</Button>}
       </header>
 
       <section className="mb-6 grid gap-3 sm:grid-cols-3">
@@ -171,7 +171,7 @@ export default function RiskManagement() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1000px] border-collapse text-left">
-            <thead className="bg-[#f3f6f4] text-[10px] font-bold uppercase tracking-[.13em] text-slate-500"><tr><th className="px-5 py-3">Risk / description</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Inherent</th><th className="px-4 py-3">Residual</th><th className="px-4 py-3">Owner / due</th><th className="px-4 py-3">Status</th><th className="px-5 py-3 text-right">Action</th></tr></thead>
+            <thead className="bg-[#f3f6f4] text-[10px] font-bold uppercase tracking-[.13em] text-slate-500"><tr><th className="px-5 py-3">Risk / description</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Impact × likelihood</th><th className="px-4 py-3">Residual score</th><th className="px-4 py-3">Risk owner / due</th><th className="px-4 py-3">Mitigation status</th><th className="px-5 py-3 text-right">Action</th></tr></thead>
             <tbody className="divide-y divide-[#e5ebe7]">
               {isLoading && <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading risk register…</td></tr>}
               {isError && <tr><td colSpan={7} className="px-5 py-14 text-center"><AlertCircle className="mx-auto mb-2 h-6 w-6 text-rose-600" /><p className="font-medium">Risk register could not be loaded.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button></td></tr>}
@@ -182,7 +182,7 @@ export default function RiskManagement() {
                 <td className="px-4 py-4"><Badge variant="outline" className={`capitalize ${risk.status === "closed" ? "border-teal-200 bg-teal-50 text-teal-800" : risk.status === "accepted" ? "border-slate-200 bg-slate-100 text-slate-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{statusLabel(risk.status)}</Badge></td>
                 <td className="px-5 py-4 text-right">{canManageRisks && <Button variant="ghost" size="sm" className="text-teal-800 hover:bg-teal-50" onClick={() => startEdit(risk)}>Edit</Button>}</td>
               </tr>)}
-              {!isLoading && !isError && filteredRisks.length === 0 && <tr><td colSpan={7} className="px-5 py-16 text-center"><CircleAlert className="mx-auto mb-3 h-6 w-6 text-teal-800" /><p className="font-semibold">No risks found.</p><p className="mt-1 text-sm text-slate-500">Create a risk independently of the Change Management workflow.</p>{canManageRisks && <Button className="mt-4 bg-[#174d42] hover:bg-[#103d34]" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Add a risk</Button>}</td></tr>}
+              {!isLoading && !isError && filteredRisks.length === 0 && <tr><td colSpan={7} className="px-5 py-16 text-center"><CircleAlert className="mx-auto mb-3 h-6 w-6 text-teal-800" /><p className="font-semibold">No risks found.</p><p className="mt-1 text-sm text-slate-500">Create a risk independently of the Change Management workflow.</p></td></tr>}
             </tbody>
           </table>
         </div>
@@ -204,7 +204,7 @@ export default function RiskManagement() {
           </div>
           <div className="rounded-lg border border-[#e0e7e3] bg-[#f4f7f5] p-4"><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[.12em] text-slate-600"><SlidersHorizontal className="h-3.5 w-3.5" /> Risk scoring · 1 low — 5 severe</div><div className="grid grid-cols-2 gap-3 sm:grid-cols-5"><NumberField label="Likelihood" value={form.likelihood} onChange={(v) => setField("likelihood", v)} /><NumberField label="Impact" value={form.impact} onChange={(v) => setField("impact", v)} /><NumberField label="Residual likelihood" value={form.residualLikelihood} onChange={(v) => setField("residualLikelihood", v)} /><NumberField label="Residual impact" value={form.residualImpact} onChange={(v) => setField("residualImpact", v)} /><Field label="Due date"><Input type="date" value={form.dueDate} onChange={(event) => setField("dueDate", event.target.value)} /></Field></div></div>
           <div className="grid gap-4 sm:grid-cols-2"><Field label="Status"><select className={selectClass} value={form.status} onChange={(event) => setField("status", event.target.value)}><option value="identified">Identified</option><option value="mitigating">Mitigating</option><option value="accepted">Accepted</option><option value="closed">Closed</option></select></Field>{form.status === "accepted" && <Field label="Acceptance reason"><Textarea required value={form.acceptanceReason} onChange={(event) => setField("acceptanceReason", event.target.value)} rows={2} placeholder="Why is the residual risk acceptable?" /></Field>}</div>
-          <DialogFooter className="gap-2 border-t border-[#e0e7e3] pt-4"><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveRisk.isPending} className="bg-[#174d42] hover:bg-[#103d34]">{saveRisk.isPending ? "Saving…" : editingRisk ? "Save changes" : "Add to register"}</Button></DialogFooter>
+          <DialogFooter className="gap-2 border-t border-[#e0e7e3] pt-4"><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveRisk.isPending} className="bg-[#174d42] hover:bg-[#103d34]">{saveRisk.isPending ? "Saving…" : editingRisk ? "Save changes" : "Create risk"}</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
