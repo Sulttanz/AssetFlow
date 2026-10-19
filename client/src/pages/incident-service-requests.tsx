@@ -5,6 +5,7 @@ import Header from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -63,6 +64,7 @@ export function IncidentsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolutionCode, setResolutionCode] = useState("");
+  const [resolutionNotes, setResolutionNotes] = useState("");
   const [incidentAssignmentGroup, setIncidentAssignmentGroup] = useState("");
   const [incidentAssigneeId, setIncidentAssigneeId] = useState("");
   const { user } = useAuth();
@@ -94,6 +96,17 @@ export function IncidentsPage() {
       row.projectName, row.projectId,
     ]);
   });
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const openIncidents = incidents.filter(row => !["Resolved", "Closed"].includes(row.status));
+  const incidentMetrics: [string, number][] = [
+    ["Total Open Tickets", openIncidents.length],
+    ["Unassigned Queue", openIncidents.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length],
+    ["SLA Overdue / Breached", openIncidents.filter(row => Boolean(row.resolveDueAt && new Date(row.resolveDueAt).getTime() < Date.now())).length],
+    ["Resolved Today", incidents.filter(row => {
+      const resolved = (row as any).resolvedAt ?? (row as any).closedAt;
+      return resolved && new Date(resolved).getTime() >= todayStart.getTime();
+    }).length],
+  ];
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = incidents.find(incident => incident.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
@@ -111,7 +124,7 @@ export function IncidentsPage() {
   });
   const updateStatus = useMutation({
     mutationFn: async (payload: { id: string; status: string }) =>
-      (await apiRequest("PATCH", `/api/incidents/${payload.id}/status`, { status: payload.status, resolutionCode: resolutionCode || null })).json(),
+      (await apiRequest("PATCH", `/api/incidents/${payload.id}/status`, { status: payload.status, resolutionCode: resolutionCode || null, resolutionNotes: resolutionNotes || null })).json(),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }); queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedId, "activity"] }); toast({ title: "Incident status updated" }); },
     onError: (error: Error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
   });
@@ -125,8 +138,9 @@ export function IncidentsPage() {
   });
 
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Tracker" description="Triage, assign, and resolve incidents across support queues." showAddButton={false} /></div>
-    <div className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Tracker" description="Triage, assign, and resolve incidents across support queues." showAddButton={false} showSearch={false} /></div>
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{incidentMetrics.map(([label, count]) => <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></CardContent></Card>)}</div>
+    <div className="space-y-2">
       <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search incidents" placeholder="Search reference, requester, email, phone, project, or title…" />
       <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Incidents" },
@@ -141,7 +155,7 @@ export function IncidentsPage() {
           const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
           const due = row.resolveDueAt ? new Date(row.resolveDueAt) : null;
           const overdue = Boolean(due && due.getTime() < Date.now() && !["Resolved", "Closed"].includes(row.status));
-          return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCode(row.resolutionCode ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
+           return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCode(row.resolutionCode ?? ""); setResolutionNotes((row as any).resolutionNotes ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.incidentNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell><Badge className={row.priority === "P1" ? "border-red-200 bg-red-100 text-red-800" : row.priority === "P2" ? "border-orange-200 bg-orange-100 text-orange-800" : row.priority === "P3" ? "border-amber-200 bg-amber-100 text-amber-800" : "border-blue-200 bg-blue-100 text-blue-800"}>{row.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline">{row.status}</Badge></TableCell><TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell>
@@ -158,8 +172,9 @@ export function IncidentsPage() {
               <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>
-            <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
-              <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status}>{status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code is required to resolve an incident.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
+             <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
+               <label className="grid gap-1 text-sm">Resolution / closure note<Textarea value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} placeholder="Record the outcome and reason for resolving or closing this incident." /></label>
+               <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status || (["Resolved", "Closed"].includes(status) && !resolutionNotes.trim()) || (status === "Resolved" && !resolutionCode)}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code and note are required to resolve; a closure note is required to close.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
             </section>
           </>}
           <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {new Date(entry.createdAt).toLocaleString()}</p></div>)}</div></section>
@@ -177,6 +192,7 @@ export function ServiceRequestsPage() {
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [closureNote, setClosureNote] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
   const { data: requests = [], isLoading } = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
@@ -194,9 +210,9 @@ export function ServiceRequestsPage() {
         : canViewAll;
     const stage = (row.fulfillmentStage ?? row.fulfillmentStatus ?? "").toLowerCase();
     const matchesLifecycle = lifecycleFilter === "all" ||
-      (lifecycleFilter === "active" && !["completed", "rejected", "closed"].includes(stage) && row.approvalStatus !== "pending") ||
+      (lifecycleFilter === "active" && !["completed", "rejected", "closed", "cancelled"].includes(stage) && row.approvalStatus !== "pending") ||
       (lifecycleFilter === "pending" && row.approvalStatus === "pending") ||
-      (lifecycleFilter === "closed" && ["completed", "rejected", "closed"].includes(stage));
+      (lifecycleFilter === "closed" && ["completed", "rejected", "closed", "cancelled"].includes(stage));
     return matchesQueue && matchesLifecycle && matchesSmartSearch(search, [
       row.requestNumber, row.title, row.requesterName, row.requesterEmail,
       row.requesterPhone, row.requesterMobile,
@@ -204,6 +220,17 @@ export function ServiceRequestsPage() {
     ]);
   });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const openRequests = requests.filter(row => !["Completed", "Rejected", "Cancelled"].includes(row.fulfillmentStage ?? row.fulfillmentStatus));
+  const requestMetrics: [string, number][] = [
+    ["Total Open Tickets", openRequests.length],
+    ["Unassigned Queue", openRequests.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length],
+    ["SLA Overdue / Breached", openRequests.filter(row => {
+      const due = row.fulfillmentDueAt ?? row.targetFulfillmentDate;
+      return Boolean(due && new Date(due).getTime() < Date.now());
+    }).length],
+    ["Resolved Today", requests.filter(row => row.completedAt && new Date(row.completedAt).getTime() >= todayStart.getTime()).length],
+  ];
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = requests.find(request => request.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
@@ -243,10 +270,16 @@ export function ServiceRequestsPage() {
     },
     onError: (error: Error) => toast({ title: "Could not update fulfillment", description: error.message, variant: "destructive" }),
   });
+  const closeRequest = useMutation({
+    mutationFn: async ({ id }: { id: string }) => (await apiRequest("PATCH", `/api/service-requests/${id}/close`, { closureNote })).json(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] }); queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] }); toast({ title: "Request cancelled" }); },
+    onError: (error: Error) => toast({ title: "Could not close request", description: error.message, variant: "destructive" }),
+  });
   const manager = user?.permissions?.includes("ticket_manage");
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Request Tracker" description="Track request stages, approvals, and asset fulfillment." showAddButton={false} /></div>
-    <div className="space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Request Tracker" description="Track request stages, approvals, and asset fulfillment." showAddButton={false} showSearch={false} /></div>
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{requestMetrics.map(([label, count]) => <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></CardContent></Card>)}</div>
+    <div className="space-y-2">
       <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search service requests" placeholder="Search reference, requester, email, phone, project, or title…" />
       <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Requests" },
@@ -261,7 +294,7 @@ export function ServiceRequestsPage() {
           const row = request as ServiceRequest & { projectName?: string; catalogItemName?: string; requesterName?: string; assigneeName?: string };
           const stage = row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted";
           return <TableRow key={row.id} className="cursor-pointer" onClick={() => {
-            setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId("");
+             setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId(""); setClosureNote((row as any).closureNote ?? "");
           }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.requestNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell>{formatRequestTimestamp(row.createdAt)}</TableCell>
@@ -283,6 +316,7 @@ export function ServiceRequestsPage() {
               <label className="grid gap-1 text-sm">Assignee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>
+             {!["Completed", "Rejected", "Cancelled"].includes(selected.fulfillmentStage ?? selected.fulfillmentStatus) && <section className="grid gap-3"><h3 className="font-semibold">Close request</h3><label className="grid gap-1 text-sm">Closure note (required)<Textarea value={closureNote} onChange={event => setClosureNote(event.target.value)} placeholder="Explain why this request is cancelled." /></label><Button variant="destructive" onClick={() => closeRequest.mutate({ id: selected.id })} disabled={!closureNote.trim() || closeRequest.isPending}>Close as cancelled</Button></section>}
             {selected.approvalStatus === "pending" && <section className="flex gap-2"><Button onClick={() => reviewRequest.mutate({ id: selected.id, decision: "approved" })} disabled={reviewRequest.isPending}>Approve</Button><Button variant="destructive" onClick={() => reviewRequest.mutate({ id: selected.id, decision: "rejected" })} disabled={reviewRequest.isPending}>Reject</Button></section>}
             {selected.approvalStatus === "approved" && <section className="grid gap-3"><h3 className="font-semibold">Fulfillment</h3>
               {(selected.fulfillmentStage === "Approved" || selected.fulfillmentStage === "Submitted") && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "In Procurement" })} disabled={updateStage.isPending}>Start procurement</Button>}

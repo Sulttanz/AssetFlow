@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 type CatalogItem = {
   id: string;
@@ -18,7 +20,7 @@ type CatalogItem = {
   approvalRequired?: boolean;
   isActive?: boolean;
 };
-type RequestOptions = { projects: { id: string; name: string }[] };
+type RequestOptions = { projects: { id: string; name: string }[]; requesterUsers?: { id: string; name: string; email: string }[] };
 type CreatedRequest = { id: string; [key: string]: unknown };
 type RequestPayload = {
   title: string;
@@ -27,6 +29,7 @@ type RequestPayload = {
   projectId: string | null;
   targetFulfillmentDate: string | null;
   cost: number;
+  requesterId?: string;
 };
 
 const inputClass = "h-11 rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]";
@@ -45,6 +48,8 @@ function readableFileSize(bytes: number) {
 export default function NewServiceRequestPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const staffIntake = canAccessItsmWorkbench(user);
   const initialCatalogId = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("catalogItemId") ?? "";
   const [catalogItemId, setCatalogItemId] = useState(initialCatalogId);
   const [title, setTitle] = useState("");
@@ -54,6 +59,8 @@ export default function NewServiceRequestPage() {
   const [targetDate, setTargetDate] = useState("");
   const [cost, setCost] = useState("0");
   const [files, setFiles] = useState<File[]>([]);
+  const [requestedForId, setRequestedForId] = useState("");
+  const [requestedForSearch, setRequestedForSearch] = useState("");
   const [partialFailure, setPartialFailure] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const catalogQuery = useQuery<CatalogItem[]>({
@@ -136,6 +143,7 @@ export default function NewServiceRequestPage() {
       projectId: projectId || null,
       targetFulfillmentDate: targetDate || null,
       cost: numericCost,
+      ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
 
@@ -159,6 +167,13 @@ export default function NewServiceRequestPage() {
         <Card className="rounded-[22px] border-[#d8e4df] bg-[#fffdfa] shadow-[0_12px_35px_rgba(35,73,70,.05)]">
           <CardContent className="grid gap-5 p-5 sm:p-7">
             <div className="border-b border-[#e5ece8] pb-4"><h2 className="font-semibold tracking-[-.02em]">Request details</h2><p className="mt-1 text-sm text-[#768987]">Tell us what you need and how it will be used.</p></div>
+            {staffIntake && <Field label="Requested for / Affected user" hint="Search by name or email when recording a request on someone's behalf.">
+              <Input type="search" value={requestedForSearch} onChange={event => setRequestedForSearch(event.target.value)} placeholder="Search users…" className={inputClass} />
+              <select className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
+                <option value="">Me ({user?.username ?? "current user"})</option>
+                {(optionsQuery.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
+              </select>
+            </Field>}
             <Field label="Service or catalog item" hint="Choose a service, or leave this as a general request.">
               <select className={selectClass} value={catalogItemId} onChange={event => {
                 const nextId = event.target.value;

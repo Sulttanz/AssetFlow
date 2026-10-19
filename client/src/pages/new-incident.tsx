@@ -8,10 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 type IncidentOptions = {
   projects: { id: string; name: string }[];
   users: { id: string; name: string }[];
+  requesterUsers?: { id: string; name: string; email: string }[];
   slaPolicies: { id: string; name: string; priority: string }[];
 };
 
@@ -37,6 +40,8 @@ function PageFrame({ children }: { children: React.ReactNode }) {
 export default function NewIncidentPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const staffIntake = canAccessItsmWorkbench(user);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"P1" | "P2" | "P3" | "P4">("P3");
@@ -45,6 +50,8 @@ export default function NewIncidentPage() {
   const [projectId, setProjectId] = useState("");
   const [slaPolicyId, setSlaPolicyId] = useState("");
   const [assignmentGroup, setAssignmentGroup] = useState("");
+  const [requestedForId, setRequestedForId] = useState("");
+  const [requestedForSearch, setRequestedForSearch] = useState("");
   const [validationError, setValidationError] = useState("");
   const options = useQuery<IncidentOptions>({
     queryKey: ["/api/incidents/options"],
@@ -54,6 +61,7 @@ export default function NewIncidentPage() {
     mutationFn: async (payload: {
       title: string; description: string; priority: "P1" | "P2" | "P3" | "P4";
       urgency: string; impact: string; projectId: string | null; slaPolicyId: string | null; assignmentGroup: string | null;
+      requesterId?: string;
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
@@ -81,6 +89,7 @@ export default function NewIncidentPage() {
       projectId: projectId || null,
       slaPolicyId: slaPolicyId || null,
       assignmentGroup: assignmentGroup.trim() || null,
+      ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
 
@@ -100,6 +109,13 @@ export default function NewIncidentPage() {
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><LifeBuoy className="h-5 w-5" /></span>
             <div><h2 className="font-semibold tracking-[-.02em]">Issue details</h2><p className="mt-1 text-sm text-[#768987]">Include clear symptoms so responders can start with the right context.</p></div>
           </div>
+          {staffIntake && <Field label="Requested for / Affected user" hint="Search by name or email when logging this incident on someone's behalf.">
+            <Input type="search" value={requestedForSearch} onChange={event => setRequestedForSearch(event.target.value)} placeholder="Search users…" className={inputClass} />
+            <select className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
+              <option value="">Me ({user?.username ?? "current user"})</option>
+              {(options.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
+            </select>
+          </Field>}
           <Field label="Incident title">
             <Input required maxLength={180} value={title} onChange={event => setTitle(event.target.value)} placeholder="For example, finance team cannot access shared drive" className={inputClass} />
           </Field>

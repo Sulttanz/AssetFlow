@@ -848,13 +848,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const [projectRows, userRows, policyRows, incidentRows, requestRows] = await Promise.all([
+      const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, roleName: roles.name })
           .from(users).innerJoin(userRoles, eq(userRoles.userId, users.id)).innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
         db.select({ id: slaPolicies.id, name: slaPolicies.name, priority: slaPolicies.priority, ticketType: slaPolicies.ticketType }).from(slaPolicies).where(eq(slaPolicies.isActive, true)),
         storage.getIncidents(),
         storage.getServiceRequests(),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users).where(eq(users.isActive, true)),
       ]);
       const staffRoleNames = new Set(["it staff", "it support staff", "manager", "it manager", "admin", "administrator", "system administrator", "helpdesk agent", "help desk agent"]);
       const eligibleUsers = new Map<string, { id: string; name: string }>();
@@ -866,6 +867,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         projects: projectRows,
         users: await canManageAllTickets(req.user.id) ? Array.from(eligibleUsers.values()) : [],
+        requesterUsers: await canViewAllItsmRecords(req.user.id)
+          ? requesterRows.map(person => ({ id: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(" ") || person.username, email: person.email }))
+          : [],
         assignmentGroups: await canManageAllTickets(req.user.id)
           ? Array.from(new Set([...incidentRows, ...requestRows].map(row => row.assignmentGroup?.trim()).filter((group): group is string => Boolean(group))))
           : [],
@@ -921,7 +925,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const parsed = insertIncidentSchema.parse({ ...req.body, creatorId: req.user.id, requesterId: req.user.id });
+      const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
+      const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
+      if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
+      const parsed = insertIncidentSchema.parse({ ...req.body, creatorId: req.user.id, requesterId });
       if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
@@ -964,23 +971,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/incidents/:id/status", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
     try {
-      const { status, resolutionCode } = z.object({
+      const { status, resolutionCode, resolutionNotes } = z.object({
         status: z.enum(["New", "In Progress", "Pending", "Resolved", "Closed"]),
         resolutionCode: z.string().trim().max(120).nullable().optional(),
+        resolutionNotes: z.string().trim().max(4000).nullable().optional(),
       }).parse(req.body);
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (status === "Resolved" && !resolutionCode?.trim() && !incident.resolutionCode) {
-        return res.status(400).json({ message: "A resolution code is required before resolving an incident" });
+      if (["Resolved", "Closed"].includes(status) && !resolutionNotes?.trim() && !incident.resolutionNotes?.trim()) {
+        return res.status(400).json({ message: "A resolution or closure note is required" });
       }
       const now = new Date();
       const updated = await storage.updateIncident(incident.id, {
         status,
         ...(resolutionCode !== undefined ? { resolutionCode: resolutionCode || null } : {}),
+        ...(resolutionNotes !== undefined ? { resolutionNotes: resolutionNotes || null } : {}),
         ...(status === "Resolved" && incident.status !== "Resolved" ? { resolvedAt: now } : {}),
         ...(status === "Closed" && incident.status !== "Closed" ? { closedAt: now } : {}),
       });
-      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Status changed", details: `${incident.status} → ${status}${resolutionCode ? ` · ${resolutionCode}` : ""}` });
+      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Status changed", details: `${incident.status} → ${status}${resolutionCode ? ` · ${resolutionCode}` : ""}${resolutionNotes ? ` · ${resolutionNotes}` : ""}` });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.errors });
@@ -1115,7 +1124,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const parsed = insertServiceRequestSchema.parse({ ...req.body, requesterId: req.user.id, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
+      const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
+      const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
+      if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
+      const parsed = insertServiceRequestSchema.parse({ ...req.body, creatorId: req.user.id, requesterId, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
       if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
@@ -1126,6 +1138,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
       res.status(500).json({ message: "Failed to create service request" });
+    }
+  });
+
+  app.patch("/api/service-requests/:id/close", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const { closureNote } = z.object({ closureNote: z.string().trim().min(1).max(4000) }).parse(req.body);
+      const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if (["Completed", "Cancelled", "Rejected"].includes(existing.fulfillmentStage ?? existing.fulfillmentStatus)) {
+        return res.status(409).json({ message: "This request is already closed" });
+      }
+      const updated = await storage.updateServiceRequest(existing.id, { fulfillmentStage: "Cancelled", fulfillmentStatus: "Cancelled", closureNote });
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Request closed", details: closureNote });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A closure note is required", errors: error.errors });
+      res.status(500).json({ message: "Failed to close service request" });
     }
   });
 

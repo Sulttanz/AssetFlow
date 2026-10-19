@@ -29,6 +29,7 @@ interface HeaderProps {
   onAddClick?: () => void;
   addButtonText?: string;
   showAddButton?: boolean;
+  showSearch?: boolean;
   searchPlaceholder?: string;
   onSearch?: (query: string) => void;
   children?: React.ReactNode;
@@ -67,6 +68,7 @@ export default function Header({
   onAddClick,
   addButtonText = "Add Item",
   showAddButton = true,
+  showSearch = true,
   searchPlaceholder = "Search...",
   onSearch,
   children,
@@ -172,16 +174,10 @@ export default function Header({
 
       {/* Row 2: Search + action buttons — full width below title on mobile */}
       <div className="flex flex-wrap items-center gap-2 mt-3">
-        <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
+        {showSearch && <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input
-            type="text"
-            placeholder={searchPlaceholder}
-            className="w-full pl-10 pr-4"
-            onChange={(e) => onSearch?.(e.target.value)}
-            data-testid="search-input"
-          />
-        </div>
+          <Input type="text" placeholder={searchPlaceholder} className="w-full pl-10 pr-4" onChange={(e) => onSearch?.(e.target.value)} data-testid="search-input" />
+        </div>}
 
         <div className="flex flex-wrap items-center gap-2 max-w-full">
           {children}

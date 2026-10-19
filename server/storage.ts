@@ -1856,6 +1856,7 @@ export class MemStorage implements IStorage {
       resolvedAt: input.resolvedAt ?? null,
       closedAt: input.closedAt ?? null,
       resolutionCode: input.resolutionCode ?? null,
+      resolutionNotes: input.resolutionNotes ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -1878,6 +1879,7 @@ export class MemStorage implements IStorage {
       id: randomUUID(),
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
       catalogItemId: input.catalogItemId ?? null,
+      creatorId: input.creatorId ?? null,
       requesterId: input.requesterId,
       projectId: input.projectId ?? null,
       assignmentGroup: input.assignmentGroup ?? null,
@@ -1890,6 +1892,7 @@ export class MemStorage implements IStorage {
       targetFulfillmentDate: input.targetFulfillmentDate ?? null,
       fulfillmentDueAt: input.fulfillmentDueAt ?? sla.slaResolutionDueAt,
       completedAt: input.completedAt ?? null,
+      closureNote: input.closureNote ?? null,
       category: input.category ?? null,
       assignedToId: input.assignedToId ?? null,
       createdAt: now,

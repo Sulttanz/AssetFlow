@@ -1222,6 +1222,7 @@ export const incidents = pgTable("incidents", {
   resolvedAt: timestamp("resolved_at"),
   closedAt: timestamp("closed_at"),
   resolutionCode: text("resolution_code"),
+  resolutionNotes: text("resolution_notes"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 }, table => [
@@ -1247,6 +1248,7 @@ export const serviceRequests = pgTable("service_requests", {
   description: text("description").notNull(),
   catalogItemId: varchar("catalog_item_id").references(() => catalogItems.id, { onDelete: "set null" }),
   requesterId: varchar("requester_id").notNull().references(() => users.id),
+  creatorId: varchar("creator_id").references(() => users.id, { onDelete: "set null" }),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
   assignmentGroup: text("assignment_group"),
   assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
@@ -1258,6 +1260,7 @@ export const serviceRequests = pgTable("service_requests", {
   targetFulfillmentDate: date("target_fulfillment_date"),
   fulfillmentDueAt: timestamp("fulfillment_due_at"),
   completedAt: timestamp("completed_at"),
+  closureNote: text("closure_note"),
   category: text("category"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
