@@ -101,12 +101,6 @@ describe("change report page", () => {
       const type = params.get("type");
       const risk = params.get("risk");
       const search = params.get("search")?.toLowerCase();
-      const matching = reportRows.filter(change =>
-        (!status || status === "all" || change.status === status)
-        && (!type || type === "all" || change.type === type)
-        && (!risk || risk === "all" || change.risk === risk)
-        && (!search || change.changeNumber.toLowerCase().includes(search) || change.title.toLowerCase().includes(search)),
-      );
       const page = Number(params.get("page") || 1);
       const pageSize = Number(params.get("pageSize") || 50);
       if (pageSize === 100 && page === 2) {
@@ -121,11 +115,30 @@ describe("change report page", () => {
           text: async () => "Batch 2 could not be loaded",
         };
       }
-      const offset = (page - 1) * pageSize;
+      const matching = reportRows.filter(change =>
+        (!status || status === "all" || change.status === status)
+        && (!type || type === "all" || change.type === type)
+        && (!risk || risk === "all" || change.risk === risk)
+        && (!search || change.changeNumber.toLowerCase().includes(search) || change.title.toLowerCase().includes(search)),
+      );
+      const cursorPaging = params.get("cursorPaging") === "true";
+      let pageChanges = matching;
+      if (cursorPaging) {
+        pageChanges = matching.sort((left, right) =>
+          right.changeNumber.localeCompare(left.changeNumber),
+        );
+        const cursorChangeNumber = params.get("cursorChangeNumber");
+        if (cursorChangeNumber) {
+          pageChanges = pageChanges.filter(change => change.changeNumber.localeCompare(cursorChangeNumber) < 0);
+        }
+      } else {
+        const offset = (page - 1) * pageSize;
+        pageChanges = matching.slice(offset, offset + pageSize);
+      }
       return {
         ok: true,
         json: async () => ({
-          changes: matching.slice(offset, offset + pageSize).map(({ approvals, removedApprovals, ...change }) => {
+          changes: pageChanges.slice(0, pageSize).map(({ approvals, removedApprovals, ...change }) => {
             const activeApprovals = approvals.filter(approval => !approval.removedAt);
             return {
               ...change,
@@ -264,6 +277,7 @@ describe("change report page", () => {
     )).toEqual(["1", "2", "3"]);
     for (const url of exportRequests) {
       const params = new URL(url, "http://report.test").searchParams;
+      expect(params.get("cursorPaging")).toBe("true");
       expect(params.get("search")).toBe("Export batch");
       expect(params.get("status")).toBe("completed");
       expect(params.get("type")).toBe("emergency");
@@ -272,6 +286,65 @@ describe("change report page", () => {
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
     if (exportType === "PDF") expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+  });
+
+  it.each(["added", "removed"])("keeps export batches stable when a matching change is %s between requests", async (mutation) => {
+    const user = userEvent.setup();
+    const initialRows = Array.from({ length: 250 }, (_, index) => ({
+      id: `moving-change-${index + 1}`,
+      changeNumber: `MOV-${String(index + 1).padStart(3, "0")}`,
+      title: `Moving change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      createdAt: new Date(Date.UTC(2026, 9, 1) - index * 60_000).toISOString(),
+      approvals: [],
+      removedApprovals: [],
+    }));
+    reportRows = initialRows;
+
+    let releasePageTwo!: () => void;
+    exportPageTwoGate = new Promise<void>((resolve) => {
+      releasePageTwo = resolve;
+    });
+    let pageTwoRequested!: () => void;
+    const pageTwoRequest = new Promise<void>((resolve) => {
+      pageTwoRequested = resolve;
+    });
+    onExportPageTwoRequest = pageTwoRequested;
+
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Moving change 1")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Excel" }));
+    await pageTwoRequest;
+
+    if (mutation === "added") {
+      reportRows = [{
+        ...initialRows[0],
+        id: "moving-change-new",
+        changeNumber: "MOV-NEW",
+        title: "New matching change",
+        createdAt: new Date(Date.UTC(2027, 0, 1)).toISOString(),
+      }, ...reportRows];
+    } else {
+      reportRows = reportRows.filter(change => change.id !== initialRows[0].id);
+    }
+    releasePageTwo();
+
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalledOnce());
+    const exportedNumbers = vi.mocked(exportToExcel).mock.calls[0][0].map(change => change.changeNumber);
+    if (mutation === "added") {
+      expect(exportedNumbers).toHaveLength(initialRows.length);
+      expect(exportedNumbers).not.toContain("MOV-NEW");
+      expect(new Set(exportedNumbers).size).toBe(initialRows.length);
+      expect(new Set(exportedNumbers)).toEqual(new Set(initialRows.map(change => change.changeNumber)));
+    } else {
+      const expectedNumbers = initialRows.slice(1).map(change => change.changeNumber);
+      expect(exportedNumbers).toHaveLength(initialRows.length - 1);
+      expect(new Set(exportedNumbers).size).toBe(expectedNumbers.length);
+      expect(new Set(exportedNumbers)).toEqual(new Set(expectedNumbers));
+    }
   });
 
   it("shows batch progress and blocks other export actions until loading finishes", async () => {

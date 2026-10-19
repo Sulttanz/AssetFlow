@@ -136,6 +136,8 @@ describe("change report and KPI endpoints", () => {
       type?: string;
       status?: string;
       risk?: string;
+      cursorPaging?: boolean;
+      cursorChangeNumber?: string;
     }) => {
       const term = options.search?.toLowerCase();
       const matching = changes.filter(change =>
@@ -204,10 +206,12 @@ describe("change report and KPI endpoints", () => {
     const firstPage = await getJson("/api/reports/changes?page=1&pageSize=2");
     const filteredPage = await getJson("/api/reports/changes?page=1&pageSize=1&status=completed");
     const laterPage = await getJson("/api/reports/changes?page=2&pageSize=2&type=normal");
+    const cursorPage = await getJson("/api/reports/changes?page=2&pageSize=2&cursorPaging=true&cursorChangeNumber=CHG-2");
 
     expect(firstPage.total).toBe(9);
     expect(filteredPage.total).toBe(1);
     expect(laterPage.total).toBe(7);
+    expect(cursorPage.total).toBe(9);
     expect(filteredPage.summary).toEqual(firstPage.summary);
     expect(laterPage.summary).toEqual(firstPage.summary);
     expect(firstPage.summary).toMatchObject({
@@ -242,6 +246,9 @@ describe("change report and KPI endpoints", () => {
     }));
     expect(store.getChangeReportPage).toHaveBeenNthCalledWith(3, expect.objectContaining({
       page: 2, pageSize: 2, type: "normal",
+    }));
+    expect(store.getChangeReportPage).toHaveBeenNthCalledWith(4, expect.objectContaining({
+      page: 2, pageSize: 2, cursorPaging: true, cursorChangeNumber: "CHG-2",
     }));
   });
 });

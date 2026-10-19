@@ -33,6 +33,7 @@ describe("change report page projection", () => {
       params?: unknown[];
       selectedSql?: string;
       selectedParams?: unknown[];
+      orderBySql?: string;
       limit?: number;
       offset?: number;
       orderByCount?: number;
@@ -71,6 +72,9 @@ describe("change report page projection", () => {
         },
         orderBy(...args: unknown[]) {
           query.orderByCount = args.length;
+          query.orderBySql = args.map(expression =>
+            dialect.sqlToQuery(expression as Parameters<typeof dialect.sqlToQuery>[0]).sql,
+          ).join(", ");
           return builder;
         },
         limit(value: number) {
@@ -152,5 +156,21 @@ describe("change report page projection", () => {
     expect(approvalQuery?.params).toEqual(expect.arrayContaining(["change-1"]));
     expect(approvalQuery?.groupByCount).toBe(1);
     expect(queries.some(query => query.table !== changes && query.table !== changeApprovals)).toBe(false);
+
+    const cursorQueryStart = queries.length;
+    await new DatabaseStorage().getChangeReportPage({
+      page: 2,
+      pageSize: 25,
+      cursorPaging: true,
+      cursorChangeNumber: "CHG-000050",
+    });
+    const cursorQueries = queries.slice(cursorQueryStart);
+    const cursorCountQuery = cursorQueries.find(query => query.keys.includes("count"));
+    const cursorPageQuery = cursorQueries.find(query => query.keys.includes("requestedByLabel"));
+    expect(cursorCountQuery?.params ?? []).not.toContain("CHG-000050");
+    expect(cursorPageQuery).toMatchObject({ limit: 25, offset: 0 });
+    expect(cursorPageQuery?.where).toContain("change_number");
+    expect(cursorPageQuery?.params).toContain("CHG-000050");
+    expect(cursorPageQuery?.orderBySql).toContain("change_number");
   });
 });

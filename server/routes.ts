@@ -6110,11 +6110,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const type = typeof req.query.type === "string" && req.query.type !== "all" ? req.query.type : undefined;
       const status = typeof req.query.status === "string" && req.query.status !== "all" ? req.query.status : undefined;
       const risk = typeof req.query.risk === "string" && req.query.risk !== "all" ? req.query.risk : undefined;
+      const cursorPaging = req.query.cursorPaging === "true";
+      const cursorChangeNumber = req.query.cursorChangeNumber;
+      if (cursorChangeNumber !== undefined && (
+        !cursorPaging
+        || typeof cursorChangeNumber !== "string"
+        || !cursorChangeNumber
+      )) {
+        return res.status(400).json({ message: "Invalid change report cursor" });
+      }
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
       const [result, summary] = await Promise.all([
-        storage.getChangeReportPage({ page, pageSize, search, searchType: true, type, status, risk }),
+        storage.getChangeReportPage({
+          page, pageSize, search, searchType: true, type, status, risk, cursorPaging,
+          cursorChangeNumber: typeof cursorChangeNumber === "string" ? cursorChangeNumber : undefined,
+        }),
         storage.getChangeReportSummary(startOfMonth),
       ]);
       res.json({ ...result, page, pageSize, summary });

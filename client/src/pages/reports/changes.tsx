@@ -163,7 +163,10 @@ export default function ChangesReport() {
     onProgress: (loaded: number, total: number, batch: number) => void,
   ) => {
     const exportPageSize = 100;
-    const params = new URLSearchParams({ pageSize: String(exportPageSize) });
+    const params = new URLSearchParams({
+      pageSize: String(exportPageSize),
+      cursorPaging: "true",
+    });
     if (filters.search) params.set("search", filters.search);
     if (filters.status !== "all") params.set("status", filters.status);
     if (filters.type !== "all") params.set("type", filters.type);
@@ -172,21 +175,20 @@ export default function ChangesReport() {
     const allChanges: ChangeReportRow[] = [];
     let exportPage = 1;
     let matchingTotal = initialTotal;
+    let lastBatchSize: number;
     do {
       params.set("page", String(exportPage));
       const response = await apiRequest("GET", `/api/reports/changes?${params}`);
       const result = await response.json() as ChangeReportPage;
-      matchingTotal = result.total;
-      if (result.changes.length === 0) {
-        if (allChanges.length < matchingTotal) {
-          throw new Error("The report returned an empty batch before all matching changes were loaded.");
-        }
-        break;
-      }
+      matchingTotal = Math.max(result.total, allChanges.length + result.changes.length);
+      lastBatchSize = result.changes.length;
+      if (lastBatchSize === 0) break;
       allChanges.push(...result.changes);
       onProgress(allChanges.length, matchingTotal, exportPage);
+      const lastChange = result.changes[lastBatchSize - 1];
+      params.set("cursorChangeNumber", lastChange.changeNumber);
       exportPage += 1;
-    } while (allChanges.length < matchingTotal);
+    } while (lastBatchSize === exportPageSize);
     return allChanges;
   };
 
