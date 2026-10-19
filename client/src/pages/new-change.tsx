@@ -167,7 +167,7 @@ export default function NewChangePage() {
           <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createChange.isPending || Boolean(scheduledStart && scheduledEnd && scheduledEnd < scheduledStart)}>
             {createChange.isPending ? "Saving draft…" : "Create change draft"}
           </Button>
-          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white"><Link href="/changes">Cancel</Link></Button>
+          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white"><Link href="/portal">Cancel</Link></Button>
         </aside>
       </form>
     </div>

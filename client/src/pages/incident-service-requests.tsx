@@ -63,6 +63,8 @@ export function IncidentsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolutionCode, setResolutionCode] = useState("");
+  const [incidentAssignmentGroup, setIncidentAssignmentGroup] = useState("");
+  const [incidentAssigneeId, setIncidentAssigneeId] = useState("");
   const { user } = useAuth();
   const { toast } = useToast();
   const { data: incidents = [], isLoading } = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
@@ -92,7 +94,7 @@ export function IncidentsPage() {
       row.projectName, row.projectId,
     ]);
   });
-  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = incidents.find(incident => incident.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/incidents", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
@@ -100,7 +102,11 @@ export function IncidentsPage() {
   const updateAssignment = useMutation({
     mutationFn: async (payload: { id: string; assignmentGroup: string; assigneeId: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}/assignment`, { assignmentGroup: payload.assignmentGroup || null, assigneeId: payload.assigneeId || null })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }); toast({ title: "Assignment updated" }); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedId, "activity"] });
+      toast({ title: "Assignment updated", description: "The change was added to incident activity." });
+    },
     onError: (error: Error) => toast({ title: "Assignment failed", description: error.message, variant: "destructive" }),
   });
   const updateStatus = useMutation({
@@ -132,10 +138,10 @@ export function IncidentsPage() {
     <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading incidents…</p> : visibleIncidents.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No incidents in this view</h2><p className="mt-1 text-sm text-muted-foreground">Try another queue or status filter.</p></div> :
       <Table><TableHeader><TableRow><TableHead>Incident</TableHead><TableHead>Priority</TableHead><TableHead>Status</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>SLA Due</TableHead><TableHead>Created By</TableHead></TableRow></TableHeader>
         <TableBody>{visibleIncidents.map(incident => {
-          const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string };
+          const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
           const due = row.resolveDueAt ? new Date(row.resolveDueAt) : null;
           const overdue = Boolean(due && due.getTime() < Date.now() && !["Resolved", "Closed"].includes(row.status));
-          return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCode(row.resolutionCode ?? ""); }}>
+          return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCode(row.resolutionCode ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.incidentNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell><Badge className={row.priority === "P1" ? "border-red-200 bg-red-100 text-red-800" : row.priority === "P2" ? "border-orange-200 bg-orange-100 text-orange-800" : row.priority === "P3" ? "border-amber-200 bg-amber-100 text-amber-800" : "border-blue-200 bg-blue-100 text-blue-800"}>{row.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline">{row.status}</Badge></TableCell><TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell>
@@ -148,9 +154,9 @@ export function IncidentsPage() {
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.incidentNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{selected.priority} priority · Opened {selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "date unavailable"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6"><section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Description</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><p className="mt-3 text-sm text-muted-foreground">Resolution due: {selected.resolveDueAt ? new Date(selected.resolveDueAt).toLocaleString() : "—"}</p></section>
           {user?.permissions?.includes("ticket_manage") && <>
-            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<Input key={`group-${selected.id}`} defaultValue={selected.assignmentGroup ?? ""} id="incident-assignment-group" placeholder="e.g. Network Team" /></label>
-              <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" id="incident-assignee" defaultValue={selected.assigneeId ?? selected.assignedToId ?? ""}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-              <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: (document.getElementById("incident-assignment-group") as HTMLInputElement)?.value ?? "", assigneeId: (document.getElementById("incident-assignee") as HTMLSelectElement)?.value ?? "" })} disabled={updateAssignment.isPending}>Save assignment</Button>
+            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssignmentGroup} onChange={event => setIncidentAssignmentGroup(event.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
+              <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+              <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>
             <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
               <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status}>{status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code is required to resolve an incident.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
@@ -198,7 +204,7 @@ export function ServiceRequestsPage() {
     ]);
   });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
-  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = requests.find(request => request.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/service-requests", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
@@ -273,7 +279,7 @@ export function ServiceRequestsPage() {
           <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Request date:</span> {formatRequestTimestamp(selected.createdAt)}</p><p><span className="text-muted-foreground">Target completion:</span> {formatRequestDate(selected.targetFulfillmentDate, true)}</p><p><span className="text-muted-foreground">Completed:</span> {formatRequestTimestamp(selected.completedAt)}</p><p><span className="text-muted-foreground">Project:</span> {(selected as any).projectName ?? "—"}</p><p><span className="text-muted-foreground">Cost:</span> {Number(selected.cost).toFixed(2)}</p><p><span className="text-muted-foreground">Requested by:</span> {(selected as any).requesterName ?? "—"}</p><p><span className="text-muted-foreground">Asset:</span> {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p></div></section>
           <section><h3 className="font-semibold">Supporting files</h3>{attachmentsLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading attachments…</p> : attachments.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No files attached.</p> : <ul className="mt-2 space-y-2">{attachments.map(file => <li key={file.id}><a className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/api/service-requests/${selected.id}/attachments/${file.id}`} target="_blank" rel="noreferrer">{file.originalName}</a><span className="ml-2 text-xs text-muted-foreground">{file.fileSize ? `${(file.fileSize / 1024).toFixed(0)} KB` : file.fileType ?? ""}</span></li>)}</ul>}</section>
           {manager && <>
-            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<Input value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)} placeholder="e.g. IT Provisioning" /></label>
+            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
               <label className="grid gap-1 text-sm">Assignee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>

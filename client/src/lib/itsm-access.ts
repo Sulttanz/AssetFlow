@@ -1,6 +1,9 @@
 import type { UserWithDetails } from "@shared/schema";
 
 const ITSM_WORKBENCH_ROLES = new Set([
+  "it staff",
+  "it support staff",
+  "manager",
   "system administrator",
   "administrator",
   "admin",

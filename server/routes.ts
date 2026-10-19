@@ -14,7 +14,7 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, users, employees, assets,
-  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems
+  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -848,15 +848,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const [projectRows, userRows, policyRows] = await Promise.all([
+      const [projectRows, userRows, policyRows, incidentRows, requestRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)),
-        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.isActive, true)),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, roleName: roles.name })
+          .from(users).innerJoin(userRoles, eq(userRoles.userId, users.id)).innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
         db.select({ id: slaPolicies.id, name: slaPolicies.name, priority: slaPolicies.priority, ticketType: slaPolicies.ticketType }).from(slaPolicies).where(eq(slaPolicies.isActive, true)),
+        storage.getIncidents(),
+        storage.getServiceRequests(),
       ]);
+      const staffRoleNames = new Set(["it staff", "it support staff", "manager", "it manager", "admin", "administrator", "system administrator", "helpdesk agent", "help desk agent"]);
+      const eligibleUsers = new Map<string, { id: string; name: string }>();
+      for (const user of userRows) {
+        if (staffRoleNames.has(user.roleName.trim().toLowerCase())) {
+          eligibleUsers.set(user.id, { id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username });
+        }
+      }
       res.json({
         projects: projectRows,
-        users: await canManageAllTickets(req.user.id)
-          ? userRows.map(user => ({ id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username }))
+        users: await canManageAllTickets(req.user.id) ? Array.from(eligibleUsers.values()) : [],
+        assignmentGroups: await canManageAllTickets(req.user.id)
+          ? Array.from(new Set([...incidentRows, ...requestRows].map(row => row.assignmentGroup?.trim()).filter((group): group is string => Boolean(group))))
           : [],
         slaPolicies: policyRows.filter(policy => !policy.ticketType || policy.ticketType === "incident"),
       });
@@ -941,7 +952,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
         ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
       });
-      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignment.assignmentGroup ?? incident.assignmentGroup ?? "Unassigned"}; assignee: ${assignment.assigneeId ?? incident.assigneeId ?? "Unassigned"}` });
+      const assignedGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : incident.assignmentGroup;
+      const assignedUser = assignment.assigneeId !== undefined ? assignment.assigneeId : incident.assigneeId ?? incident.assignedToId;
+      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assignee: ${assignedUser || "Unassigned"}` });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
@@ -1145,7 +1158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
         ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
       });
-      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignment.assignmentGroup ?? existing.assignmentGroup ?? "Unassigned"}; assigned to: ${assignment.assigneeId ?? existing.assigneeId ?? "Unassigned"}` });
+      const assignedGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : existing.assignmentGroup;
+      const assignedUser = assignment.assigneeId !== undefined ? assignment.assigneeId : existing.assigneeId ?? existing.assignedToId;
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assigned to: ${assignedUser || "Unassigned"}` });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
@@ -1234,7 +1249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   async function canViewAllItsmRecords(userId: string): Promise<boolean> {
     const [perms, roles] = await Promise.all([storage.getUserPermissions(userId), storage.getUserRoles(userId)]);
-    const elevatedRoleNames = new Set(["system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
+    const elevatedRoleNames = new Set(["it staff", "it support staff", "manager", "system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
     return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
       roles.some(role => elevatedRoleNames.has(role.name.trim().toLowerCase()));
   }
