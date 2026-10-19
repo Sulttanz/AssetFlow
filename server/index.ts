@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startCabEventListener } from "./cab-events";
+import { runStartupMigrations } from "./startup-migrations";
 
 // Production startup logging
 console.log("🚀 Starting IT Asset Management System...");
@@ -84,6 +85,11 @@ app.use((req, res, next) => {
     }
     
     console.log("✅ Environment variables validated");
+
+    // Fail fast before serving requests if a safe additive upgrade cannot be
+    // applied. The runner uses its own ledger and excludes workspace history.
+    console.log("🗃️  Applying on-prem database migrations...");
+    await runStartupMigrations();
     
     // Register routes and setup authentication
     console.log("🛣️  Registering routes...");

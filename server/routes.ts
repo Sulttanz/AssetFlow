@@ -17,11 +17,13 @@ import {
   incidents, serviceRequests, insertIncidentSchema, insertServiceRequestSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
+import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
 import { cabApprovalsGranted } from "./cab-gate";
+import { compareAppVersions } from "./startup-migrations";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -1478,6 +1480,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid system settings", errors: error.errors });
       }
       res.status(500).json({ message: "Failed to update system settings" });
+    }
+  });
+
+  app.get("/api/system/version", async (_req, res) => {
+    try {
+      const modules = await storage.getModuleSettings();
+      const buildTimestamp = process.env.BUILD_TIMESTAMP ?? new Date().toISOString();
+      res.json({
+        version: APP_VERSION,
+        buildTimestamp,
+        activeModules: modules.filter((module) => module.enabled).map((module) => module.moduleKey),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch system version" });
+    }
+  });
+
+  app.get("/api/system/update-check", requireAuth, requirePermission("system_admin"), async (_req, res) => {
+    const latestVersion = process.env.UPDATE_AVAILABLE_VERSION?.trim() || null;
+    try {
+      const updateAvailable = latestVersion
+        ? compareAppVersions(latestVersion, APP_VERSION) > 0
+        : false;
+      res.json({
+        currentVersion: APP_VERSION,
+        latestVersion,
+        updateAvailable,
+        checkedAt: new Date().toISOString(),
+        sourceConfigured: latestVersion !== null,
+      });
+    } catch {
+      res.status(500).json({ message: "Configured update version is invalid" });
     }
   });
 

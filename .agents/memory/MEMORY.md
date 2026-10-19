@@ -20,7 +20,7 @@
 - [CAB vote serialization](cab-vote-serialization.md) — use the parent change as the serialization point when deriving status from separate CAB votes.
 - [CAB index benchmarking](cab-index-benchmarking.md) — partial-index updates can leave EXPLAIN WAL bytes unchanged; compare elapsed time and index size too.
 - [Deployment config edit guard](deployment-config-edit-guard.md) — direct .replit patches can be blocked; when deployment configuration is unavailable, use an existing build lifecycle hook if appropriate.
-- [Workspace SQL migration ledger](workspace-sql-migration-ledger.md) — keep setup migration tracking outside Drizzle-managed schemas so schema pushes do not treat them as app data.
+- [Workspace and on-prem migration ledgers](workspace-sql-migration-ledger.md) — keep both ledgers outside Drizzle-managed schemas and keep their migration sources separate.
 - [Standalone ITSM risk management](change-risk-management.md) — risk records and their lifecycle are independent of Change Management.
 - [Wouter route reset in tests](wouter-test-route-reset.md) — tests that redirect through Wouter must reset browser history after cleanup to isolate later cases.
 - [Task suggestion timing](task-suggestion-timing.md) — hold suggested follow-up tasks until the user's main project tasks are complete, then ask whether to proceed.

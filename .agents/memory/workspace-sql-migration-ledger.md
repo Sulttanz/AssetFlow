@@ -3,6 +3,14 @@ name: Workspace SQL migration ledger
 description: Keep persistent workspace migration bookkeeping separate from application tables managed by Drizzle.
 ---
 
+## Migration ledger separation
+
+Keep migration bookkeeping outside Drizzle-managed schemas. Workspace setup migrations use their own ledger and remain limited to development setup. On-prem application startup migrations use a separate ledger and only read additive, idempotent SQL from `migrations/onprem/`; do not replay the historical root-level SQL migrations at application startup.
+
+**Why:** Root-level migration files were created for workspace setup and include historical data backfills and constraint changes. A new on-prem database ledger cannot infer which of those were already applied, so replaying them could fail or affect customer data.
+
+**How to apply:** Put new on-prem startup migrations in `migrations/onprem/`, use only operations accepted by the additive migration guard, and never edit a checksummed migration after it has been applied. Keep workspace setup bookkeeping in its separate schema.
+
 Store the workspace SQL migration ledger in its own PostgreSQL schema, not alongside the application's Drizzle-managed tables.
 
 **Why:** Drizzle schema pushes reconcile the application schema. Setup bookkeeping in that schema can be mistaken for an unmodeled application table.

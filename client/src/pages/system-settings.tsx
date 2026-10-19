@@ -12,7 +12,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Settings, Save, RotateCcw, Info, Trash2, AlertTriangle } from "lucide-react";
+import { Settings, Save, RotateCcw, Info, Trash2, AlertTriangle, RefreshCw } from "lucide-react";
 
 const systemSettingsSchema = z.object({
   assetIdPrefix: z.string().min(1, "Asset ID prefix is required").max(10, "Prefix must be 10 characters or less"),
@@ -32,6 +32,36 @@ export default function SystemSettings() {
   const { toast } = useToast();
   const [clearDataPassword, setClearDataPassword] = useState("");
   const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState<{
+    currentVersion: string;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    checkedAt: string;
+    sourceConfigured: boolean;
+  } | null>(null);
+
+  const { data: versionInfo, isLoading: isVersionLoading } = useQuery<{
+    version: string;
+    buildTimestamp: string;
+    activeModules: string[];
+  }>({
+    queryKey: ["/api/system/version"],
+  });
+
+  const updateCheckMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("GET", "/api/system/update-check");
+      return response.json();
+    },
+    onSuccess: (result) => setUpdateCheckResult(result),
+    onError: (error: Error) => {
+      toast({
+        title: "Update check failed",
+        description: error.message || "Could not check for updates.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const { data: settings, isLoading } = useQuery<SystemSettings>({
     queryKey: ["/api/system-settings"],
@@ -285,6 +315,46 @@ export default function SystemSettings() {
         </form>
       </Form>
 
+      <Card data-testid="card-system-update">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5" />
+            System Update &amp; Version
+          </CardTitle>
+          <CardDescription>
+            Review the installed release and check the configured update version.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-2 text-sm sm:grid-cols-2">
+            <p><span className="font-medium">Current version:</span> {isVersionLoading ? "Loading…" : versionInfo?.version ?? "Unavailable"}</p>
+            <p><span className="font-medium">Build timestamp:</span> {versionInfo?.buildTimestamp ? new Date(versionInfo.buildTimestamp).toLocaleString() : "Unavailable"}</p>
+            <p className="sm:col-span-2">
+              <span className="font-medium">Active modules:</span>{" "}
+              {versionInfo?.activeModules?.length ? versionInfo.activeModules.join(", ") : "None"}
+            </p>
+          </div>
+          {updateCheckResult && (
+            <p className="text-sm" role="status" data-testid="update-check-result">
+              {updateCheckResult.updateAvailable
+                ? `Version ${updateCheckResult.latestVersion} is available (current: ${updateCheckResult.currentVersion}).`
+                : updateCheckResult.sourceConfigured
+                  ? `You are up to date (${updateCheckResult.currentVersion}).`
+                  : `No update version is configured. Current version: ${updateCheckResult.currentVersion}.`}
+            </p>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => updateCheckMutation.mutate()}
+            disabled={updateCheckMutation.isPending}
+            data-testid="button-check-updates"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${updateCheckMutation.isPending ? "animate-spin" : ""}`} />
+            {updateCheckMutation.isPending ? "Checking…" : "Check for Updates"}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Dangerous Operations Card */}
       <Card data-testid="card-dangerous-operations" className="border-destructive/50 bg-destructive/5 dark:bg-destructive/10">
