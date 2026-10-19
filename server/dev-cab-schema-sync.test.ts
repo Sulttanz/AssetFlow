@@ -148,6 +148,86 @@ describe("development SQL migration sync", () => {
 
 describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
+    "preserves a CAB decision when only the deleted approver's original identity remains",
+    async () => {
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
+      const schemaName = `cab_sync_retained_identity_${randomUUID().replaceAll("-", "")}`;
+      const ledgerSchema = `cab_ledger_retained_${randomUUID().replaceAll("-", "")}`;
+      const quotedSchema = `"${schemaName}"`;
+      const migrationName = "20260929_preserve_cab_approval_history.sql";
+      const migrationSql = await readFile(path.resolve("migrations", migrationName), "utf8");
+      const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+      let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
+
+      try {
+        client = await pool.connect();
+        await client.query(`CREATE SCHEMA ${quotedSchema}`);
+        await client.query(`SET search_path TO ${quotedSchema}`);
+        await client.query(`
+          CREATE TABLE users (
+            id varchar PRIMARY KEY,
+            first_name text,
+            last_name text,
+            username text NOT NULL
+          );
+          CREATE TABLE change_approvals (
+            id varchar PRIMARY KEY,
+            change_id varchar NOT NULL,
+            approver_id varchar,
+            original_approver_id varchar NOT NULL,
+            approver_label text,
+            decision text,
+            comments text,
+            decided_at timestamptz,
+            removed_at timestamptz,
+            removed_by_id varchar,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT change_approvals_approver_id_users_id_fk
+              FOREIGN KEY (approver_id) REFERENCES users(id) ON DELETE SET NULL
+          );
+          INSERT INTO change_approvals (
+            id, change_id, approver_id, original_approver_id, approver_label,
+            decision, comments, decided_at
+          ) VALUES (
+            'approval-deleted-voter', 'change-retained', NULL, 'deleted-voter', NULL,
+            'approved', 'Decision must remain recoverable', '2026-09-30T10:00:00Z'
+          );
+        `);
+
+        const result = await applyDevSqlMigrations(client, { directory, ledgerSchema });
+        expect(result.applied).toContain(migrationName);
+
+        const upgraded = await client.query(`
+          SELECT id, change_id, approver_id, original_approver_id, approver_label,
+            decision, comments, decided_at
+          FROM change_approvals
+          WHERE id = 'approval-deleted-voter'
+        `);
+        expect(upgraded.rows).toEqual([
+          {
+            id: "approval-deleted-voter",
+            change_id: "change-retained",
+            approver_id: null,
+            original_approver_id: "deleted-voter",
+            approver_label: "deleted-voter",
+            decision: "approved",
+            comments: "Decision must remain recoverable",
+            decided_at: new Date("2026-09-30T10:00:00Z"),
+          },
+        ]);
+      } finally {
+        if (client) {
+          await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
+          await client.query(`DROP SCHEMA IF EXISTS "${ledgerSchema}" CASCADE`);
+          client.release();
+        }
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
+  it.skipIf(!integrationDatabaseUrl)(
     "rejects CAB approvals with no recoverable approver identity without changing schema or history",
     async () => {
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
