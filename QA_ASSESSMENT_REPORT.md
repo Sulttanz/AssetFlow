@@ -1,13 +1,13 @@
 # Master QA Assessment Report
 
-**Date:** 2026-10-18  
+**Date:** 2026-10-19  
 **Basis:** Automated checks, current Replit preview screenshot, route/API inspection, and the supplied QA plan.
 
 ## Executive summary
 
-**Overall status: Automated suite is clean; interactive module verification is incomplete.**
+**Overall status: Requested automated verification is clean; interactive module verification is incomplete.**
 
-The application workflow starts, TypeScript checking passes, the build-audit gate passes, and the full automated test suite now passes. `npm audit` reports two moderate dependency advisories.
+The application workflow starts, TypeScript checking passes, the build-audit gate passes, the full automated test suite passes, and the production build completes. The build's security audit reports zero vulnerabilities.
 
 The `/dashboard` preview rendered the sign-in screen. The browser session used for QA is not authenticated, so module CRUD, approvals, exports, role restrictions, and other signed-in workflows could not be exercised. No test records were created or modified.
 
@@ -18,8 +18,8 @@ The `/dashboard` preview rendered the sign-in screen. The browser session used f
 | Application workflow | **Passed** | `Start application` is running. |
 | `npm run check` | **Passed** | TypeScript check completed successfully. |
 | `npm run test:build-audit-gate` | **Passed** | Build-audit gate check passed. |
-| `npm test` | **Passed** | 24 test files passed; 157 tests passed, 4 skipped, 0 failed. |
-| `npm run audit:security` | **Issues found** | Two moderate advisories for `postcss-selector-parser` through `@tailwindcss/typography`; no high/critical findings were reported at the configured high-severity threshold. |
+| `npm test` | **Passed** | 24 test files passed; 160 tests passed, 4 skipped, 0 failed. |
+| `npm run build` | **Passed with warning** | Security audit found 0 vulnerabilities; Vite frontend and server bundles built. One frontend chunk is larger than the 500 kB advisory threshold. |
 | Preview screenshot at `/dashboard` | **Limited** | Sign-in screen rendered; unauthenticated API requests returned 401 as expected. |
 
 ## 1. Overall System Stability / Build Health
@@ -28,7 +28,8 @@ The `/dashboard` preview rendered the sign-in screen. The browser session used f
 
 - Application workflow starts and serves the sign-in page.
 - TypeScript checking and the build-audit gate pass.
-- Full automated suite is green after correcting the CAB test fixtures and mocks: 24 test files passed, 157 tests passed, 4 skipped, 0 failed.
+- Full automated suite is green: 24 test files passed, 160 tests passed, 4 skipped, 0 failed.
+- Production build and its included security audit pass. Vite reports a non-blocking oversized frontend chunk.
 - The browser console reported two 401 responses while the preview was unauthenticated. These are consistent with the sign-in state, not evidence of a post-login failure.
 
 ## 2. Core Asset & Financial Module Status
@@ -63,20 +64,18 @@ The report hub and individual report routes are registered. The preview did not 
 
 ## 6. Administration, RBAC & Security
 
-**Status: Not verified interactively; dependency advisories remain**
+**Status: Not verified interactively**
 
 - Route/API permission guards are present in the application, but role-specific 403/hide behavior was not tested with separate accounts.
 - 2FA setup and enable/disable actions were not exercised.
 - Audit-log entries were not validated after a user action.
 - Import template download and upload were not exercised.
-- `npm audit` reports two moderate advisories:
-  - `postcss-selector-parser` versions below `7.1.6` (quadratic parsing complexity).
-  - The dependency path is through `@tailwindcss/typography`.
-  - npm offers a fix via `npm audit fix --force`, which would make a breaking dependency change; it was not applied during QA.
+- The current production build's security audit reports zero vulnerabilities.
+- Vite reports one frontend chunk above 500 kB after minification. The build succeeds; this is a performance advisory, not a build failure.
 
 ## 7. Specific Bugs, UI Polish Items, or Errors Found
 
-1. **Dependency advisories:** two moderate npm audit findings remain unresolved.
+1. **Build-size advisory:** one minified frontend chunk exceeds Vite's 500 kB recommendation; the production build still completes.
 2. **Manual QA limitation:** the preview opens at sign-in and this run did not have an authenticated QA session. All signed-in workflows above are therefore unverified, not passed.
 3. **No test-data mutations:** create, approve/reject, delete, import, and clear-data operations were not run against the development data.
 
