@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 type QueueScope = "mine" | "assigned" | "all";
 type LifecycleFilter = "all" | "active" | "pending" | "closed";
@@ -32,13 +33,6 @@ function QueuePills<T extends string>({ label, value, options, onChange }: {
   return <div role="group" aria-label={label} className="flex flex-wrap gap-2">
     {options.map(option => <Button key={option.value} type="button" size="sm" variant={value === option.value ? "default" : "outline"} aria-pressed={value === option.value} onClick={() => onChange(option.value)}>{option.label}</Button>)}
   </div>;
-}
-
-function canViewAllQueues(user: ReturnType<typeof useAuth>["user"]): boolean {
-  const permissions = user?.permissions ?? [];
-  const roles = (user?.roles ?? []).map(role => role.name.trim().toLowerCase());
-  return permissions.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
-    roles.some(role => ["system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"].includes(role));
 }
 
 function formatRequestDate(value: string | Date | null | undefined, dateOnly = false): string {
@@ -84,7 +78,7 @@ export function IncidentsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { data: incidents = [], isLoading } = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
-  const canViewAll = canViewAllQueues(user);
+  const canViewAll = canAccessItsmWorkbench(user);
   const visibleIncidents = incidents.filter(incident => {
     const row = incident as Incident & { creatorId?: string | null; requesterId?: string | null; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
     const matchesQueue = queueScope === "mine"
@@ -219,7 +213,7 @@ export function ServiceRequestsPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const { data: requests = [], isLoading } = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
-  const canViewAll = canViewAllQueues(user);
+  const canViewAll = canAccessItsmWorkbench(user);
   const visibleRequests = requests.filter(request => {
     const row = request as ServiceRequest & { assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
     const matchesQueue = queueScope === "mine"

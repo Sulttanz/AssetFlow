@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -59,7 +59,15 @@ import ChangeTracker from "@/pages/change-tracker";
 import RiskManagement from "@/pages/risk-management";
 import { IncidentsPage, ServiceRequestsPage } from "@/pages/incident-service-requests";
 import KpiDashboard from "@/pages/kpis";
+import PortalPage from "@/pages/portal";
 import Sidebar from "@/components/layout/sidebar";
+import { useAuth } from "@/hooks/use-auth";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+
+function HomeRedirect() {
+  const { user } = useAuth();
+  return <Redirect to={canAccessItsmWorkbench(user) ? "/dashboard" : "/portal"} />;
+}
 
 function Router() {
   return (
@@ -77,8 +85,9 @@ function Router() {
               <Sidebar />
               <div className="flex-1 overflow-auto pt-14 md:pt-0">
                 <Switch>
-                  <ProtectedRoute path="/" component={Dashboard} />
+                  <ProtectedRoute path="/" component={HomeRedirect} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
+                  <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" />
                   <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
@@ -116,18 +125,18 @@ function Router() {
                   <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
-                  <ProtectedRoute path="/incidents" component={IncidentsPage} requiredModule="itsm" />
-                  <ProtectedRoute path="/service-requests" component={ServiceRequestsPage} requiredModule="itsm" />
+                  <ProtectedRoute path="/incidents" component={IncidentsPage} requiredModule="itsm" requiresItsmWorkbench />
+                  <ProtectedRoute path="/service-requests" component={ServiceRequestsPage} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/problems" component={ProblemsReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} requiredModule="itsm" />
                   <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredPermission="system_admin" />
                   <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} requiredModule="itsm" />
-                  <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" />
+                  <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
-                  <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" />
-                  <ProtectedRoute path="/changes/tracker" component={ChangeTracker} requiredModule="itsm" />
+                  <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" requiresItsmWorkbench />
+                  <ProtectedRoute path="/changes/tracker" component={ChangeTracker} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/risks" component={RiskManagement} requiredModule="risk_management" />
                   <ProtectedRoute path="/risk-management" component={RiskManagement} requiredModule="risk_management" />
                   <ProtectedRoute path="/kpis" component={KpiDashboard} />

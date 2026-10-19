@@ -349,7 +349,7 @@ export interface IStorage {
 
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
-  getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
   getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }>;
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
@@ -2647,7 +2647,7 @@ export class MemStorage implements IStorage {
 
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
-  async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
     return {
@@ -4215,7 +4215,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
     return this.buildChangeDetails(rows);
   }
-  async getChangesPage({ page, pageSize, search, searchType, type, status, risk }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
+  async getChangesPage({ page, pageSize, search, searchType, type, status, risk, requestedById }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
     const term = search?.trim();
     // Escape LIKE metacharacters so search remains a literal title/number search.
     const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
@@ -4228,6 +4228,7 @@ export class DatabaseStorage implements IStorage {
       type ? eq(changes.type, type) : undefined,
       status ? eq(changes.status, status) : undefined,
       risk ? eq(changes.risk, risk) : undefined,
+      requestedById ? eq(changes.requestedById, requestedById) : undefined,
     ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
     const where = conditions.length ? and(...conditions) : undefined;
     const [countRows, rows] = await Promise.all([

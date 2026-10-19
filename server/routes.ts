@@ -813,7 +813,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getIncidents();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
-      const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
+      const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id);
       const [projectRows, userRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
@@ -865,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(incident);
@@ -878,7 +878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const rows = await db.select({
@@ -1019,7 +1019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getServiceRequests();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
-      const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
+      const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id);
       const [projectRows, userRows, catalogRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
@@ -1045,7 +1045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && request.assigneeId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(request);
@@ -1058,7 +1058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && request.assigneeId !== req.user.id && request.assignedToId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const entries = await db.select({
@@ -1211,6 +1211,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const elevatedRoleNames = new Set(["system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
     return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
       roles.some(role => elevatedRoleNames.has(role.name.trim().toLowerCase()));
+  }
+
+  async function canReadChangeRecord(userId: string, changeId: string): Promise<boolean> {
+    const change = await storage.getChange(changeId);
+    return Boolean(change && (
+      change.requestedById === userId || await canViewAllItsmRecords(userId)
+    ));
   }
 
   async function canManageTicket(userId: string): Promise<boolean> {
@@ -6047,6 +6054,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
+      const userId = (req.user as any).id as string;
+      const canViewAll = await canViewAllItsmRecords(userId);
       const page = Number(req.query.page);
       const pageSize = Number(req.query.pageSize);
       const search = req.query.search;
@@ -6059,7 +6068,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (status !== undefined && (typeof status !== "string" || !["draft", "submitted", "approved", "rejected", "in_progress", "completed", "cancelled", "failed"].includes(status)))) {
         return res.status(400).json({ message: "Invalid change list parameters" });
       }
-      res.json(await storage.getChangesPage({ page, pageSize, search: search as string | undefined, type: type as string | undefined, status: status as string | undefined }));
+      res.json(await storage.getChangesPage({
+        page, pageSize, search: search as string | undefined, type: type as string | undefined, status: status as string | undefined,
+        ...(!canViewAll ? { requestedById: userId } : {}),
+      }));
     }
     catch { res.status(500).json({ message: "Failed to fetch changes" }); }
   });
@@ -6073,6 +6085,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found or no longer available" });
+      if (ch.requestedById !== (req.user as any).id && !(await canViewAllItsmRecords((req.user as any).id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
       res.json(ch);
     } catch { res.status(500).json({ message: "Failed to fetch change" }); }
   });
@@ -6153,7 +6168,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
-    try { res.json(await storage.getChangeApprovals(req.params.id)); }
+    try {
+      const change = await storage.getChange(req.params.id);
+      if (!change) return res.status(404).json({ message: "Change not found" });
+      if (change.requestedById !== (req.user as any).id && !(await canViewAllItsmRecords((req.user as any).id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      res.json(await storage.getChangeApprovals(req.params.id));
+    }
     catch { res.status(500).json({ message: "Failed to fetch approvals" }); }
   });
 
@@ -6291,6 +6313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const pir = await storage.getChangePIR(req.params.id);
       if (!pir) return res.status(404).json({ message: "PIR not found" });
+      if (!(await canReadChangeRecord((req.user as any).id, req.params.id))) return res.status(403).json({ message: "Insufficient permissions" });
       res.json(pir);
     } catch { res.status(500).json({ message: "Failed to fetch PIR" }); }
   });
@@ -6404,7 +6427,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Environment Stages ───────────────────────────────────────────────────
   app.get("/api/changes/:id/stages", requireAuth, requireModule("itsm"), async (req, res) => {
-    try { res.json(await storage.getChangeStages(req.params.id)); }
+    try {
+      if (!(await canReadChangeRecord((req.user as any).id, req.params.id))) return res.status(403).json({ message: "Insufficient permissions" });
+      res.json(await storage.getChangeStages(req.params.id));
+    }
     catch { res.status(500).json({ message: "Failed to fetch stages" }); }
   });
 

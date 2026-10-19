@@ -13,6 +13,7 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType } from "react";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -95,7 +96,7 @@ export default function AuthPage() {
 
   // Redirect if already logged in
   if (user) {
-    return <Redirect to="/" />;
+    return <Redirect to={canAccessItsmWorkbench(user) ? "/dashboard" : "/portal"} />;
   }
 
   // Show loading while checking system status

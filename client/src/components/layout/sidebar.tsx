@@ -41,6 +41,7 @@ import {
   ShieldAlert,
   BookOpen,
   Gauge,
+  LifeBuoy,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -51,6 +52,7 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
@@ -60,6 +62,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       ? permission.some(p => user?.permissions?.includes(p))
       : !!user?.permissions?.includes(permission));
   const { isModuleEnabled } = useModules();
+  const isItsmStaff = canAccessItsmWorkbench(user);
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
 
   const toggleSection = (title: string) => {
@@ -67,6 +70,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   const navigationSections = [
+    {
+      title: "Employee Support",
+      moduleKey: "itsm",
+      items: [
+        { name: "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
+      ]
+    },
     {
       title: "Overview",
       items: [
@@ -119,7 +130,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
       ]
     },
     {
@@ -209,6 +219,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Navigation Menu */}
       <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
         {navigationSections
+          .filter((section) => isItsmStaff || section.title === "Employee Support")
           .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
           .map((section) => {
             const isSectionExpanded = expandedSections[section.title] ?? false;

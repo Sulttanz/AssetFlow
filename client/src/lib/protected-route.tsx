@@ -2,6 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { Loader2, PackageX } from "lucide-react";
 import { Redirect, Route } from "wouter";
+import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 export function ProtectedRoute({
   path,
@@ -9,12 +10,14 @@ export function ProtectedRoute({
   requiredPermission,
   requiredAnyPermission,
   requiredModule,
+  requiresItsmWorkbench,
 }: {
   path: string;
   component: React.ComponentType;
   requiredPermission?: string;
   requiredAnyPermission?: string[];
   requiredModule?: string;
+  requiresItsmWorkbench?: boolean;
 }) {
   const { user, isLoading } = useAuth();
   const { isModuleEnabled, isLoading: isModulesLoading } = useModules();
@@ -35,6 +38,10 @@ export function ProtectedRoute({
         <Redirect to="/auth" />
       </Route>
     );
+  }
+
+  if (requiresItsmWorkbench && !canAccessItsmWorkbench(user)) {
+    return <Route path={path}><Redirect to="/portal" /></Route>;
   }
 
   // Check specific permission if required
