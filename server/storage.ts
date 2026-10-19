@@ -1879,12 +1879,17 @@ export class MemStorage implements IStorage {
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
       catalogItemId: input.catalogItemId ?? null,
       requesterId: input.requesterId,
+      projectId: input.projectId ?? null,
+      assignmentGroup: input.assignmentGroup ?? null,
+      assigneeId: input.assigneeId ?? null,
+      fulfillmentStage: input.fulfillmentStage ?? "Submitted",
       fulfillmentStatus: input.fulfillmentStatus ?? "Submitted",
       approvalStatus: input.approvalStatus ?? "pending",
       cost: input.cost ?? 0,
       fulfilledAssetId: input.fulfilledAssetId ?? null,
       targetFulfillmentDate: input.targetFulfillmentDate ?? null,
       fulfillmentDueAt: input.fulfillmentDueAt ?? sla.slaResolutionDueAt,
+      completedAt: input.completedAt ?? null,
       category: input.category ?? null,
       assignedToId: input.assignedToId ?? null,
       createdAt: now,
@@ -1896,7 +1901,20 @@ export class MemStorage implements IStorage {
   async updateServiceRequest(id: string, input: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
     const existing = this.serviceRequests.get(id);
     if (!existing) return undefined;
-    const updated = { ...existing, ...input, updatedAt: new Date() };
+    const stage = input.fulfillmentStage ?? ({
+      Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement",
+      Completed: "Completed", Rejected: "Rejected",
+    } as Record<string, string>)[input.fulfillmentStatus ?? ""];
+    const legacyStatus: Record<string, string> = {
+      Submitted: "Submitted", "Pending Approval": "Submitted", Approved: "Approved",
+      "In Procurement": "Fulfilling", "Ready for Delivery": "Fulfilling", Completed: "Completed", Rejected: "Rejected",
+    };
+    const updated = {
+      ...existing, ...input,
+      ...(stage ? { fulfillmentStage: stage, fulfillmentStatus: legacyStatus[stage] ?? stage } : {}),
+      ...(stage === "Completed" ? { completedAt: existing.completedAt ?? new Date() } : {}),
+      updatedAt: new Date(),
+    };
     this.serviceRequests.set(id, updated);
     if (updated.fulfillmentStatus === "Completed" && updated.fulfilledAssetId) {
       const asset = this.assets.get(updated.fulfilledAssetId);
@@ -3746,6 +3764,7 @@ export class DatabaseStorage implements IStorage {
     const sla = await computeTicketSlaDates("medium", new Date(), "service_request", input.category);
     const result = await db.insert(serviceRequests).values({
       ...input,
+      fulfillmentStage: input.fulfillmentStage ?? "Submitted",
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
       fulfillmentDueAt: input.fulfillmentDueAt ?? sla.slaResolutionDueAt,
     }).returning();
@@ -3755,14 +3774,30 @@ export class DatabaseStorage implements IStorage {
     return db.transaction(async tx => {
       const existing = (await tx.select().from(serviceRequests).where(eq(serviceRequests.id, id)))[0];
       if (!existing) return undefined;
-      const result = await tx.update(serviceRequests).set({ ...input, updatedAt: new Date() }).where(eq(serviceRequests.id, id)).returning();
+      const stage = input.fulfillmentStage ?? ({
+        Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement",
+        Completed: "Completed", Rejected: "Rejected",
+      } as Record<string, string>)[input.fulfillmentStatus ?? ""];
+      const legacyStatus: Record<string, string> = {
+        Submitted: "Submitted", "Pending Approval": "Submitted", Approved: "Approved",
+        "In Procurement": "Fulfilling", "Ready for Delivery": "Fulfilling", Completed: "Completed", Rejected: "Rejected",
+      };
+      const updateData = {
+        ...input,
+        ...(stage ? { fulfillmentStage: stage, fulfillmentStatus: legacyStatus[stage] ?? stage } : {}),
+        ...(stage === "Completed" ? { completedAt: existing.completedAt ?? new Date() } : {}),
+        updatedAt: new Date(),
+      };
+      const result = await tx.update(serviceRequests).set(updateData).where(eq(serviceRequests.id, id)).returning();
       const request = result[0];
       const assetId = input.fulfilledAssetId ?? request.fulfilledAssetId;
-      if (request.fulfillmentStatus === "Completed" && assetId) {
+      if ((request.fulfillmentStage === "Completed" || request.fulfillmentStatus === "Completed") && assetId && existing.fulfilledAssetId !== assetId) {
         const asset = (await tx.select().from(assets).where(eq(assets.id, assetId)))[0];
-        if (asset?.status === "In Store") {
-          await tx.update(assets).set({ status: "Assigned" }).where(eq(assets.id, asset.id));
-        }
+        if (!asset || asset.status !== "In Store") throw new Error("The selected asset is no longer in store.");
+        const claimedAsset = await tx.update(assets).set({ status: "Assigned" })
+          .where(and(eq(assets.id, asset.id), eq(assets.status, "In Store")))
+          .returning({ id: assets.id });
+        if (!claimedAsset.length) throw new Error("The selected asset is no longer in store.");
       }
       return request;
     });

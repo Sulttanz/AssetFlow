@@ -1246,12 +1246,17 @@ export const serviceRequests = pgTable("service_requests", {
   description: text("description").notNull(),
   catalogItemId: varchar("catalog_item_id").references(() => catalogItems.id, { onDelete: "set null" }),
   requesterId: varchar("requester_id").notNull().references(() => users.id),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  assignmentGroup: text("assignment_group"),
+  assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
+  fulfillmentStage: text("fulfillment_stage"),
   fulfillmentStatus: text("fulfillment_status").notNull().default("Submitted"),
   approvalStatus: text("approval_status").notNull().default("pending"),
   cost: real("cost").notNull().default(0),
   fulfilledAssetId: varchar("fulfilled_asset_id").references(() => assets.id, { onDelete: "set null" }),
   targetFulfillmentDate: date("target_fulfillment_date"),
   fulfillmentDueAt: timestamp("fulfillment_due_at"),
+  completedAt: timestamp("completed_at"),
   category: text("category"),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
@@ -1259,7 +1264,17 @@ export const serviceRequests = pgTable("service_requests", {
 }, table => [
   index("service_requests_status_idx").on(table.fulfillmentStatus),
   index("service_requests_requester_idx").on(table.requesterId),
+  index("service_requests_project_idx").on(table.projectId),
 ]);
+
+export const serviceRequestActivities = pgTable("service_request_activities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  serviceRequestId: varchar("service_request_id").notNull().references(() => serviceRequests.id, { onDelete: "cascade" }),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+}, table => [index("service_request_activities_request_created_idx").on(table.serviceRequestId, table.createdAt)]);
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });

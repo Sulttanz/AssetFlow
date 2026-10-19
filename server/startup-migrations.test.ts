@@ -74,12 +74,14 @@ describe("on-prem startup migrations", () => {
     )).toThrow(/destructive|non-additive or unsupported/);
   });
 
-  it("accepts the incident migration's additive foreign keys and activity table", async () => {
-    const migration = await readFile(
-      path.resolve(process.cwd(), "migrations/onprem/20261020_incident_management.sql"),
-      "utf8",
-    );
-    expect(() => assertAdditiveMigration(migration, "20261020_incident_management.sql")).not.toThrow();
+  it("accepts the ITSM migrations' additive foreign keys and activity tables", async () => {
+    for (const name of [
+      "20261020_incident_management.sql",
+      "20261021_service_request_management.sql",
+    ]) {
+      const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
+      expect(() => assertAdditiveMigration(migration, name)).not.toThrow();
+    }
   });
 
   it("compares configured release versions numerically", () => {

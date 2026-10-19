@@ -62,3 +62,10 @@ New incidents use `incident_activities` for creation, assignment, and workflow e
 **Why:** preserving comments as user-authored messages and maintaining referential integrity are both important; a separate activity stream fits incident records that no longer have a legacy ticket row.
 
 **How to apply:** add new incident lifecycle events to the incident activity stream and enforce visibility through the incident's requester/creator/assignee or ticket-manager access.
+
+## Service request stages and asset fulfillment
+Keep request approval separate from the fulfillment stage. The new stage field is authoritative for the UI while the legacy fulfillment status remains synchronized for older integrations; map older records to a stage when reading because the additive migration intentionally does not rewrite historical rows. Completing a request with an inventory asset must claim that asset only while its status is still `In Store`, inside the same transaction as the request update.
+
+**Why:** approval decisions are not fulfillment progress, and existing rows must remain compatible without a startup backfill; asset assignment must not leave a request completed if another workflow already claimed the asset.
+
+**How to apply:** use explicit approval, assignment, and fulfillment endpoints; route completion through the transactional storage method and keep the conditional asset claim.

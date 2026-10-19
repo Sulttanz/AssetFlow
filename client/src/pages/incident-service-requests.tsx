@@ -142,72 +142,119 @@ export function ServiceRequestsPage() {
   const [cost, setCost] = useState("0");
   const [catalogItemId, setCatalogItemId] = useState("");
   const [targetDate, setTargetDate] = useState("");
-  const [selectedAssets, setSelectedAssets] = useState<Record<string, string>>({});
+  const [projectId, setProjectId] = useState("");
+  const [projectDraft, setProjectDraft] = useState("");
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [assignmentGroup, setAssignmentGroup] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [selectedAssetId, setSelectedAssetId] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
   const { data: requests = [], isLoading } = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: catalogItems = [] } = useQuery<CatalogItem[]>({ queryKey: ["/api/catalog/items?activeOnly=true"], queryFn: getQueryFn({ on401: "throw" }) });
+  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const selected = requests.find(request => request.id === selectedId);
+  const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
+    queryKey: ["/api/service-requests", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
+  });
   const createRequest = usePracticeMutation("/api/service-requests", "POST", "Service request submitted");
-  const approveRequest = useMutation({
-    mutationFn: async (id: string) => (await apiRequest("PUT", `/api/service-requests/${id}`, { approvalStatus: "approved", fulfillmentStatus: "Approved" })).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-      toast({ title: "Request approved" });
+  const createProject = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/incidents/projects", { name: projectDraft.trim() })).json() as Promise<{ id: string; name: string }>,
+    onSuccess: (project: { id: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents/options"] });
+      setProjectId(project.id);
+      setProjectDraft("");
+      toast({ title: "Project created" });
     },
-    onError: (error: Error) => toast({ title: "Could not approve request", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not create project", description: error.message, variant: "destructive" }),
   });
-  const rejectRequest = useMutation({
-    mutationFn: async (id: string) => (await apiRequest("PUT", `/api/service-requests/${id}`, { approvalStatus: "rejected", fulfillmentStatus: "Rejected" })).json(),
-    onSuccess: () => {
+  const reviewRequest = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) =>
+      (await apiRequest("PATCH", `/api/service-requests/${id}/approval`, { decision })).json(),
+    onSuccess: (_data, { decision }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-      toast({ title: "Request rejected" });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] });
+      toast({ title: decision === "approved" ? "Request approved" : "Request rejected" });
     },
-    onError: (error: Error) => toast({ title: "Could not reject request", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not review request", description: error.message, variant: "destructive" }),
   });
-  const fulfill = useMutation({
-    mutationFn: async ({ id, assetId }: { id: string; assetId: string }) => (await apiRequest("PUT", `/api/service-requests/${id}`, { fulfillmentStatus: "Completed", fulfilledAssetId: assetId || null })).json(),
+  const updateAssignment = useMutation({
+    mutationFn: async ({ id }: { id: string }) =>
+      (await apiRequest("PATCH", `/api/service-requests/${id}/assignment`, { assignmentGroup: assignmentGroup || null, assigneeId: assigneeId || null })).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] });
+      toast({ title: "Assignment updated" });
+    },
+    onError: (error: Error) => toast({ title: "Could not update assignment", description: error.message, variant: "destructive" }),
+  });
+  const updateStage = useMutation({
+    mutationFn: async ({ id, stage, assetId }: { id: string; stage: string; assetId?: string }) =>
+      (await apiRequest("PATCH", `/api/service-requests/${id}/stage`, { stage, ...(stage === "Completed" ? { fulfilledAssetId: assetId || null } : {}) })).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      toast({ title: "Request completed" });
+      toast({ title: "Fulfillment stage updated" });
     },
-    onError: (error: Error) => toast({ title: "Could not complete request", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not update fulfillment", description: error.message, variant: "destructive" }),
   });
-  return <div className="p-6 space-y-5">
-    <Header title="Service Requests" description="Submit catalog requests and manage fulfillment." />
-    <Card><CardContent className="p-5">
-      <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => {
+  const manager = user?.permissions?.includes("ticket_manage");
+  return <div className="space-y-5 p-6">
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." /><Button onClick={() => setIntakeOpen(true)}>Submit Request</Button></div>
+    <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading service requests…</p> : requests.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No service requests yet</h2><p className="mt-1 text-sm text-muted-foreground">Submit a request to start its approval and fulfillment workflow.</p></div> :
+      <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Catalog Item</TableHead><TableHead>Stage</TableHead><TableHead>Approval</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>Cost</TableHead><TableHead>Requester</TableHead></TableRow></TableHeader>
+        <TableBody>{requests.map(request => {
+          const row = request as ServiceRequest & { projectName?: string; catalogItemName?: string; requesterName?: string; assigneeName?: string };
+          const stage = row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted";
+          return <TableRow key={row.id} className="cursor-pointer" onClick={() => {
+            setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId("");
+          }}>
+            <TableCell><div className="font-mono text-xs text-muted-foreground">{row.requestNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
+            <TableCell>{row.catalogItemName ?? "General request"}</TableCell><TableCell><Badge variant="outline">{stage}</Badge></TableCell><TableCell><Badge className={row.approvalStatus === "approved" ? "border-green-200 bg-green-100 text-green-800" : row.approvalStatus === "rejected" ? "border-red-200 bg-red-100 text-red-800" : "border-amber-200 bg-amber-100 text-amber-800"}>{row.approvalStatus}</Badge></TableCell>
+            <TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell><TableCell>{Number(row.cost).toFixed(2)}</TableCell><TableCell>{row.requesterName ?? "—"}</TableCell>
+          </TableRow>;
+        })}</TableBody>
+      </Table>}
+    </Card>
+    <Sheet open={intakeOpen} onOpenChange={setIntakeOpen}><SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetHeader><SheetTitle>Submit Request</SheetTitle><SheetDescription>Describe what you need. Your request will be routed for approval.</SheetDescription></SheetHeader>
+      <form className="mt-6 grid gap-4" onSubmit={event => {
         event.preventDefault();
-        createRequest.mutate({ title, description, catalogItemId: catalogItemId || null, targetFulfillmentDate: targetDate || null, fulfillmentStatus: "Submitted", approvalStatus: "pending", cost: Number(cost) });
-        setTitle(""); setDescription(""); setCost("0"); setCatalogItemId(""); setTargetDate("");
+        createRequest.mutate({ title, description, catalogItemId: catalogItemId || null, projectId: projectId || null, targetFulfillmentDate: targetDate || null, fulfillmentStage: "Submitted", fulfillmentStatus: "Submitted", approvalStatus: "pending", cost: Number(cost) }, {
+          onSuccess: () => { setTitle(""); setDescription(""); setCost("0"); setCatalogItemId(""); setTargetDate(""); setProjectId(""); setIntakeOpen(false); },
+        });
       }}>
-        <Input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Request title" aria-label="Request title" />
-        <Textarea required value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe what you need" />
-        <select className="h-10 rounded-md border bg-background px-3 text-sm" value={catalogItemId} onChange={(e) => setCatalogItemId(e.target.value)} aria-label="Catalog item">
-          <option value="">General service request</option>{catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-        <Input type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} aria-label="Estimated cost" placeholder="Estimated cost" />
-        <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} aria-label="Target fulfillment date" />
-        <Button type="submit" disabled={createRequest.isPending} className="md:col-span-2">Submit request</Button>
+        <label className="grid gap-1.5 text-sm font-medium">Request title<Input required value={title} onChange={e => setTitle(e.target.value)} /></label>
+        <label className="grid gap-1.5 text-sm font-medium">Description<Textarea required rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the service or item you need" /></label>
+        <label className="grid gap-1.5 text-sm font-medium">Catalog item<select className="h-10 rounded-md border bg-background px-3 text-sm" value={catalogItemId} onChange={e => setCatalogItemId(e.target.value)}><option value="">General service request</option>{catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="grid gap-1.5 text-sm font-medium">Project<select className="h-10 rounded-md border bg-background px-3 text-sm" value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">No project</option>{options?.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        {manager && <div className="flex gap-2"><Input value={projectDraft} onChange={e => setProjectDraft(e.target.value)} placeholder="Add a project" aria-label="New project name" /><Button type="button" variant="outline" disabled={!projectDraft.trim() || createProject.isPending} onClick={() => createProject.mutate()}>Add project</Button></div>}
+        <div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-medium">Estimated cost<Input type="number" min="0" step="0.01" value={cost} onChange={e => setCost(e.target.value)} /></label><label className="grid gap-1.5 text-sm font-medium">Needed by<Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} /></label></div>
+        <Button type="submit" disabled={createRequest.isPending}>{createRequest.isPending ? "Submitting…" : "Submit request"}</Button>
       </form>
-    </CardContent></Card>
-    <div className="grid gap-3">
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading service requests…</p> : requests.map((request) => <Card key={request.id}><CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <div><p className="font-mono text-xs text-muted-foreground">{request.requestNumber}</p><h2 className="font-semibold">{request.title}</h2><p className="text-sm text-muted-foreground">{request.fulfillmentStatus} · {request.approvalStatus} · Cost {Number(request.cost).toFixed(2)} · Fulfill by {request.targetFulfillmentDate || (request.fulfillmentDueAt ? new Date(request.fulfillmentDueAt).toLocaleString() : "—")}</p></div>
-        <div className="flex flex-wrap items-center gap-2">
-          {request.fulfillmentStatus === "Submitted" && request.approvalStatus === "pending" && user?.permissions?.includes("ticket_manage") && <>
-            <Button size="sm" variant="outline" onClick={() => approveRequest.mutate(request.id)} disabled={approveRequest.isPending}>Approve request</Button>
-            <Button size="sm" variant="destructive" onClick={() => rejectRequest.mutate(request.id)} disabled={rejectRequest.isPending}>Reject request</Button>
+    </SheetContent></Sheet>
+    <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+      {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.requestNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{(selected as any).catalogItemName ?? "General request"} · Requested by {(selected as any).requesterName ?? "Unknown"}</SheetDescription></SheetHeader>
+        <div className="mt-6 grid gap-6">
+          <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p>Project: {(selected as any).projectName ?? "—"}</p><p>Cost: {Number(selected.cost).toFixed(2)}</p><p>Requested by: {(selected as any).requesterName ?? "—"}</p><p>Target date: {selected.targetFulfillmentDate ?? "—"}</p><p>Asset: {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p><p>Completed: {selected.completedAt ? new Date(selected.completedAt).toLocaleString() : "—"}</p></div></section>
+          {manager && <>
+            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<Input value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)} placeholder="e.g. IT Provisioning" /></label>
+              <label className="grid gap-1 text-sm">Assignee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+              <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id })} disabled={updateAssignment.isPending}>Save assignment</Button>
+            </section>
+            {selected.approvalStatus === "pending" && <section className="flex gap-2"><Button onClick={() => reviewRequest.mutate({ id: selected.id, decision: "approved" })} disabled={reviewRequest.isPending}>Approve</Button><Button variant="destructive" onClick={() => reviewRequest.mutate({ id: selected.id, decision: "rejected" })} disabled={reviewRequest.isPending}>Reject</Button></section>}
+            {selected.approvalStatus === "approved" && <section className="grid gap-3"><h3 className="font-semibold">Fulfillment</h3>
+              {(selected.fulfillmentStage === "Approved" || selected.fulfillmentStage === "Submitted") && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "In Procurement" })} disabled={updateStage.isPending}>Start procurement</Button>}
+              {selected.fulfillmentStage === "In Procurement" && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "Ready for Delivery" })} disabled={updateStage.isPending}>Mark ready for delivery</Button>}
+              {selected.fulfillmentStage === "Ready for Delivery" && <><label className="grid gap-1 text-sm">Inventory asset<select className="h-10 rounded-md border bg-background px-3 text-sm" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}><option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name}</option>)}</select></label><Button onClick={() => updateStage.mutate({ id: selected.id, stage: "Completed", assetId: selectedAssetId })} disabled={updateStage.isPending}>Complete request</Button></>}
+            </section>}
           </>}
-          {user?.permissions?.includes("ticket_manage") && (request.fulfillmentStatus === "Approved" || request.fulfillmentStatus === "Fulfilling") ? <div className="flex flex-wrap items-center gap-2">
-          <select className="h-10 min-w-48 rounded-md border bg-background px-3 text-sm" value={selectedAssets[request.id] ?? request.fulfilledAssetId ?? ""} onChange={(e) => setSelectedAssets(prev => ({ ...prev, [request.id]: e.target.value }))} aria-label={`Asset for ${request.requestNumber}`}>
-            <option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name} · {asset.status}</option>)}
-          </select>
-          <Button size="sm" onClick={() => fulfill.mutate({ id: request.id, assetId: selectedAssets[request.id] ?? request.fulfilledAssetId ?? "" })} disabled={fulfill.isPending}>Mark completed</Button>
-          </div> : null}
+          <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {new Date(entry.createdAt).toLocaleString()}</p></div>)}</div></section>
         </div>
-      </CardContent></Card>)}
-    </div>
+      </>}
+    </SheetContent></Sheet>
   </div>;
 }

@@ -14,7 +14,7 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, users, assets,
-  incidents, incidentActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema
+  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -1019,7 +1019,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getServiceRequests();
       const canViewAll = await canManageAllTickets(req.user.id);
-      res.json(canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id));
+      const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
+      const [projectRows, userRows, catalogRows] = await Promise.all([
+        db.select({ id: projects.id, name: projects.name }).from(projects),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
+        db.select({ id: catalogItems.id, name: catalogItems.name }).from(catalogItems),
+      ]);
+      const projectNames = new Map(projectRows.map(row => [row.id, row.name]));
+      const userNames = new Map(userRows.map(row => [row.id, [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username]));
+      const catalogNames = new Map(catalogRows.map(row => [row.id, row.name]));
+      res.json(visible.map(row => ({
+        ...row,
+        fulfillmentStage: row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted",
+        projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
+        catalogItemName: row.catalogItemId ? catalogNames.get(row.catalogItemId) ?? null : null,
+        requesterName: userNames.get(row.requesterId) ?? null,
+        assigneeName: (row.assigneeId || row.assignedToId) ? userNames.get(row.assigneeId || row.assignedToId!) ?? null : null,
+      })));
     } catch {
       res.status(500).json({ message: "Failed to fetch service requests" });
     }
@@ -1029,7 +1045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (request.requesterId !== req.user.id && request.assignedToId !== req.user.id && request.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(request);
@@ -1038,11 +1054,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/service-requests/:id/activity", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (request.requesterId !== req.user.id && request.assigneeId !== req.user.id && request.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const entries = await db.select({
+        id: serviceRequestActivities.id, action: serviceRequestActivities.action,
+        details: serviceRequestActivities.details, createdAt: serviceRequestActivities.createdAt,
+        actorName: users.username,
+      }).from(serviceRequestActivities)
+        .leftJoin(users, eq(users.id, serviceRequestActivities.actorId))
+        .where(eq(serviceRequestActivities.serviceRequestId, request.id));
+      res.json(entries);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch service request activity" });
+    }
+  });
+
   app.post("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const parsed = insertServiceRequestSchema.parse({ ...req.body, requesterId: req.user.id, fulfillmentStatus: "Submitted" });
+      const parsed = insertServiceRequestSchema.parse({ ...req.body, requesterId: req.user.id, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
       if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
+      if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
       const request = await storage.createServiceRequest(parsed);
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: request.id, actorId: req.user.id, action: "Request submitted", details: request.title });
       res.status(201).json(request);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
@@ -1050,12 +1090,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/service-requests/:id/approval", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const { decision } = z.object({ decision: z.enum(["approved", "rejected"]) }).parse(req.body);
+      const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if (existing.approvalStatus !== "pending") return res.status(409).json({ message: "This request has already been reviewed" });
+      const stage = decision === "approved" ? "Approved" : "Rejected";
+      const updated = await storage.updateServiceRequest(existing.id, { approvalStatus: decision, fulfillmentStage: stage });
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: decision === "approved" ? "Request approved" : "Request rejected" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid approval decision", errors: error.errors });
+      res.status(500).json({ message: "Failed to review service request" });
+    }
+  });
+
+  app.patch("/api/service-requests/:id/assignment", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const assignment = z.object({
+        assignmentGroup: z.string().trim().max(120).nullable().optional(),
+        assigneeId: z.string().uuid().nullable().optional(),
+      }).parse(req.body);
+      const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if (assignment.assigneeId && !(await storage.getUser(assignment.assigneeId))) return res.status(400).json({ message: "Assignee not found" });
+      const updated = await storage.updateServiceRequest(existing.id, {
+        ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
+        ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
+      });
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignment.assignmentGroup ?? existing.assignmentGroup ?? "Unassigned"}; assigned to: ${assignment.assigneeId ?? existing.assigneeId ?? "Unassigned"}` });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update assignment" });
+    }
+  });
+
+  app.patch("/api/service-requests/:id/stage", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const { stage, fulfilledAssetId } = z.object({
+        stage: z.enum(["Submitted", "Pending Approval", "Approved", "In Procurement", "Ready for Delivery", "Completed", "Rejected"]),
+        fulfilledAssetId: z.string().uuid().nullable().optional(),
+      }).parse(req.body);
+      const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if (["In Procurement", "Ready for Delivery", "Completed"].includes(stage) && existing.approvalStatus !== "approved") {
+        return res.status(409).json({ message: "The request must be approved before fulfillment can proceed" });
+      }
+      if (stage === "Completed" && existing.fulfillmentStage !== "Ready for Delivery") {
+        return res.status(409).json({ message: "Move the request to Ready for Delivery before completing it" });
+      }
+      if (stage === "Completed" && fulfilledAssetId) {
+        const [asset] = await db.select({ id: assets.id, status: assets.status }).from(assets).where(eq(assets.id, fulfilledAssetId));
+        if (!asset || asset.status !== "In Store") return res.status(409).json({ message: "The selected asset is no longer in store" });
+      }
+      const updated = await storage.updateServiceRequest(existing.id, {
+        fulfillmentStage: stage,
+        ...(stage === "Completed" ? { fulfilledAssetId: fulfilledAssetId ?? null } : {}),
+      });
+      await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Fulfillment stage changed", details: `${existing.fulfillmentStage ?? existing.fulfillmentStatus} → ${stage}` });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid fulfillment stage", errors: error.errors });
+      if (error instanceof Error && error.message.includes("no longer in store")) return res.status(409).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update fulfillment stage" });
+    }
+  });
+
   app.put("/api/service-requests/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
-      const parsed = insertServiceRequestSchema.partial().parse(req.body);
+      const parsed = insertServiceRequestSchema.partial().omit({ requesterId: true, completedAt: true }).parse(req.body);
       if (parsed.cost !== undefined && (!Number.isFinite(parsed.cost) || parsed.cost < 0)) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.fulfillmentStatus && !["Submitted", "Approved", "Fulfilling", "Completed", "Rejected"].includes(parsed.fulfillmentStatus)) {
         return res.status(400).json({ message: "Invalid fulfillment status" });
+      }
+      if (parsed.fulfillmentStage && !["Submitted", "Pending Approval", "Approved", "In Procurement", "Ready for Delivery", "Completed", "Rejected"].includes(parsed.fulfillmentStage)) {
+        return res.status(400).json({ message: "Invalid fulfillment stage" });
       }
       if (parsed.approvalStatus && !["pending", "approved", "rejected"].includes(parsed.approvalStatus)) {
         return res.status(400).json({ message: "Invalid approval status" });
@@ -1067,9 +1178,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (nextStatus === "Completed" && nextApproval !== "approved") {
         return res.status(409).json({ message: "A request must be approved before completion" });
       }
-      if (parsed.approvalStatus === "rejected") parsed.fulfillmentStatus = "Rejected";
+      const nextStage = parsed.fulfillmentStage ?? (nextStatus === "Completed" ? "Completed" : undefined);
+      if (nextStage === "Completed" && existing.fulfillmentStage !== "Ready for Delivery") {
+        return res.status(409).json({ message: "Move the request to Ready for Delivery before completing it" });
+      }
+      if (parsed.approvalStatus === "rejected") {
+        parsed.fulfillmentStatus = "Rejected";
+        parsed.fulfillmentStage = "Rejected";
+      }
       const updated = await storage.updateServiceRequest(req.params.id, parsed);
       if (!updated) return res.status(404).json({ message: "Service request not found" });
+      if (parsed.fulfillmentStage && parsed.fulfillmentStage !== existing.fulfillmentStage) {
+        await db.insert(serviceRequestActivities).values({ serviceRequestId: updated.id, actorId: (req as any).user.id, action: "Fulfillment stage changed", details: `${existing.fulfillmentStage ?? existing.fulfillmentStatus} → ${parsed.fulfillmentStage}` });
+      }
+      if (parsed.approvalStatus && parsed.approvalStatus !== existing.approvalStatus) {
+        await db.insert(serviceRequestActivities).values({ serviceRequestId: updated.id, actorId: (req as any).user.id, action: "Approval status changed", details: `${existing.approvalStatus} → ${parsed.approvalStatus}` });
+      }
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
