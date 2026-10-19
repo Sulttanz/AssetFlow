@@ -60,6 +60,9 @@ import RiskManagement from "@/pages/risk-management";
 import { IncidentsPage, ServiceRequestsPage } from "@/pages/incident-service-requests";
 import KpiDashboard from "@/pages/kpis";
 import PortalPage from "@/pages/portal";
+import NewIncidentPage from "@/pages/new-incident";
+import NewServiceRequestPage from "@/pages/new-service-request";
+import NewChangePage from "@/pages/new-change";
 import Sidebar from "@/components/layout/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
@@ -125,6 +128,9 @@ function Router() {
                   <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
+                  <ProtectedRoute path="/incidents/new" component={NewIncidentPage} requiredModule="itsm" />
+                  <ProtectedRoute path="/service-requests/new" component={NewServiceRequestPage} requiredModule="itsm" />
+                  <ProtectedRoute path="/changes/new" component={NewChangePage} requiredModule="itsm" />
                   <ProtectedRoute path="/incidents" component={IncidentsPage} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/service-requests" component={ServiceRequestsPage} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />

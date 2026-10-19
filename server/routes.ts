@@ -2228,11 +2228,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
       destination: (_req, _file, cb) => cb(null, 'server/uploads/'),
       filename: (_req, file, cb) => {
         const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-        const ext = file.originalname.split('.').pop();
-        cb(null, `${unique}.${ext}`);
+        const baseName = file.originalname.replace(/\\/g, "/").split("/").pop() ?? "";
+        const extension = baseName.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0].toLowerCase() ?? "";
+        cb(null, `${unique}${extension}`);
       },
     }),
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  });
+
+  app.get("/api/service-requests/:id/attachments", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.serviceRequestId, request.id));
+      res.json(rows.map(({ filePath: _filePath, ...row }) => row));
+    } catch {
+      res.status(500).json({ message: "Failed to fetch service request attachments" });
+    }
+  });
+
+  app.post("/api/service-requests/:id/attachments", requireAuth, requireModule("itsm"), async (req: any, res, next) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (request.requesterId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      next();
+    } catch {
+      res.status(500).json({ message: "Failed to authorize service request attachment upload" });
+    }
+  }, diskUpload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      const values = insertTicketAttachmentSchema.parse({
+        ticketId: null,
+        incidentId: null,
+        serviceRequestId: request.id,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        filePath: req.file.path,
+        description: null,
+        uploadedBy: req.user.id,
+      });
+      const [row] = await db.insert(ticketAttachments).values(values).returning();
+      await db.insert(serviceRequestActivities).values({
+        serviceRequestId: request.id,
+        actorId: req.user.id,
+        action: "Attachment uploaded",
+        details: req.file.originalname,
+      });
+      const { filePath: _filePath, ...safeRow } = row;
+      res.status(201).json(safeRow);
+    } catch (error) {
+      if (req.file?.path) {
+        const fs = await import("fs");
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.errors });
+      res.status(500).json({ message: "Failed to upload service request attachment" });
+    }
+  });
+
+  app.get("/api/service-requests/:id/attachments/:attachId", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const [attachment] = await db.select().from(ticketAttachments).where(and(
+        eq(ticketAttachments.id, req.params.attachId),
+        eq(ticketAttachments.serviceRequestId, request.id),
+      ));
+      if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+      res.download(attachment.filePath, attachment.originalName);
+    } catch {
+      res.status(500).json({ message: "Failed to download service request attachment" });
+    }
   });
 
   app.get("/api/assets/:id/attachments", requireAuth, async (req, res) => {
@@ -6103,6 +6183,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // strip empty-string nullable FK fields so DB doesn't complain
       if (!body.assignedToId) body.assignedToId = null;
       if (!body.departmentId) body.departmentId = null;
+      if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
       // New changes always start as draft regardless of caller-supplied status
       body.status = "draft";
       // Compute authoritative cabRequired from type/risk on creation

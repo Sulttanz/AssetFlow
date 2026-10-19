@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -682,12 +682,6 @@ export default function Changes() {
   });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const createMutation = useMutation({
-    mutationFn: async (data: FormData) => (await apiRequest("POST", "/api/changes", { ...data, status: "draft" })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/changes"] }); toast({ title: "Change Created" }); setDialogOpen(false); form.reset(); },
-    onError: () => toast({ title: "Error", description: "Failed to create change", variant: "destructive" }),
-  });
-
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => (await apiRequest("PUT", `/api/changes/${id}`, data)).json(),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/changes"] }); toast({ title: "Change Updated" }); setDialogOpen(false); setEditingChange(null); },
@@ -783,12 +777,6 @@ export default function Changes() {
   });
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  function openCreate() {
-    setEditingChange(null);
-    form.reset({ title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", cabRequired: true, cabScheduledFor: "" });
-    setDialogOpen(true);
-  }
-
   function openEdit(c: ChangeWithDetails, e?: React.MouseEvent) {
     e?.stopPropagation();
     setEditingChange(c);
@@ -817,7 +805,6 @@ export default function Changes() {
       cabScheduledFor: data.cabScheduledFor || null,
     };
     if (editingChange) updateMutation.mutate({ id: editingChange.id, data: payload });
-    else createMutation.mutate(payload as any);
   }
 
   const currentChange = detailChange?.id === selectedChange?.id ? detailChange : selectedChange;
@@ -950,7 +937,7 @@ export default function Changes() {
               ))}
             </PopoverContent>
           </Popover>
-          <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />New Change</Button>
+          <Button asChild className="gap-2"><Link href="/changes/new"><Plus className="h-4 w-4" />Propose Change</Link></Button>
         </div>
       </div>
 
@@ -1049,7 +1036,7 @@ export default function Changes() {
                 <div className="text-center py-10 text-muted-foreground">
                   <GitMerge className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p className="text-sm">No changes found.</p>
-                  <Button variant="outline" size="sm" className="mt-3" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Log first change</Button>
+                  <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/changes/new"><Plus className="h-4 w-4 mr-1" />Propose a change</Link></Button>
                 </div>
               ) : (
                 <Table>
@@ -1523,7 +1510,7 @@ export default function Changes() {
       {/* ── Create/Edit Dialog ──────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditingChange(null); form.reset(); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingChange ? "Edit Change" : "New Change Request"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Change</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField control={form.control} name="title" render={({ field }) => (
@@ -1684,9 +1671,9 @@ export default function Changes() {
               )} />
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {editingChange ? "Save Changes" : "Create Change"}
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Save Changes
                 </Button>
               </DialogFooter>
             </form>

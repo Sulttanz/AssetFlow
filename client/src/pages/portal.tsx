@@ -1,16 +1,14 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Activity, ArrowDownRight, ArrowRight, BookOpen, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, Send, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowRight, BookOpen, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
+import { getQueryFn } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { useToast } from "@/hooks/use-toast";
 
 type CatalogItem = {
   id: string; name: string; description?: string | null; category?: string;
@@ -21,10 +19,6 @@ type Incident = { id: string; incidentNumber: string; title: string; status: str
 type ServiceRequest = { id: string; requestNumber: string; title: string; requesterId: string; fulfillmentStage?: string | null; fulfillmentStatus?: string | null; approvalStatus?: string | null; createdAt?: string | null; targetFulfillmentDate?: string | null };
 type Change = { id: string; changeNumber: string; title: string; status: string; createdAt?: string | null; scheduledStart?: string | null; requestedById?: string | null };
 type ActivityRow = { id: string; ticket: string; title: string; type: string; status: string; createdAt?: string | null; target?: string | null };
-type IntakeKind = "incident" | "request" | "change" | null;
-
-const inputClass = "h-11 rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]";
-const selectClass = "h-11 w-full rounded-xl border border-[#d8e2e2] bg-white/80 px-3.5 text-sm text-[#1b383a] outline-none focus:ring-2 focus:ring-[#327a78]/25";
 
 function dateLabel(value?: string | null) {
   if (!value) return "—";
@@ -48,21 +42,10 @@ function StatusPill({ status }: { status: string }) {
   return <Badge variant="outline" className={`whitespace-nowrap rounded-full px-2.5 py-1 font-medium ${tone}`}>{shortStatus(status)}</Badge>;
 }
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
-  return <label className="grid gap-1.5 text-sm font-medium text-[#244345]">{label}{children}{hint && <span className="text-xs font-normal text-[#788d8e]">{hint}</span>}</label>;
-}
-
 export default function PortalPage() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const [search, setSearch] = useState("");
-  const [intake, setIntake] = useState<IntakeKind>(null);
   const [articleId, setArticleId] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    title: "", description: "", priority: "P3", urgency: "medium", impact: "medium",
-    catalogItemId: "", targetFulfillmentDate: "", risk: "low", scheduledStart: "", scheduledEnd: "",
-    implementationPlan: "", rollbackPlan: "",
-  });
   const queryTerm = search.trim();
   const kbQuery = useQuery<Article[]>({
     queryKey: [`/api/kb/search?q=${encodeURIComponent(queryTerm)}`],
@@ -85,20 +68,6 @@ export default function PortalPage() {
     enabled: Boolean(articleId),
   });
 
-  const createMutation = useMutation({
-    mutationFn: async ({ kind, payload }: { kind: Exclude<IntakeKind, null>; payload: Record<string, unknown> }) =>
-      (await apiRequest("POST", kind === "incident" ? "/api/incidents" : kind === "request" ? "/api/service-requests" : "/api/changes", payload)).json(),
-    onSuccess: (_result, { kind }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
-      toast({ title: kind === "incident" ? "Incident reported" : kind === "request" ? "Request submitted" : "Change proposed", description: "You can follow its progress in your activity." });
-      setIntake(null);
-      setForm({ title: "", description: "", priority: "P3", urgency: "medium", impact: "medium", catalogItemId: "", targetFulfillmentDate: "", risk: "low", scheduledStart: "", scheduledEnd: "", implementationPlan: "", rollbackPlan: "" });
-    },
-    onError: (error: Error) => toast({ title: "We couldn't submit that", description: error.message, variant: "destructive" }),
-  });
-
   const catalog = (catalogQuery.data ?? []).filter(item => item.isActive !== false);
   const matchingCatalog = useMemo(() => {
     if (!queryTerm) return [];
@@ -115,29 +84,6 @@ export default function PortalPage() {
   const activityLoading = incidentsQuery.isLoading || requestsQuery.isLoading || changesQuery.isLoading;
   const activityError = incidentsQuery.isError || requestsQuery.isError || changesQuery.isError;
   const refetchActivity = () => { void incidentsQuery.refetch(); void requestsQuery.refetch(); void changesQuery.refetch(); };
-
-  function submitIntake(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const title = form.title.trim();
-    const description = form.description.trim();
-    if (!title || !description || !intake) return;
-    if (intake === "incident") {
-      createMutation.mutate({ kind: intake, payload: { title, description, urgency: form.urgency, impact: form.impact, priority: form.priority, projectId: null, slaPolicyId: null, status: "New" } });
-    } else if (intake === "request") {
-      createMutation.mutate({ kind: intake, payload: { title, description, catalogItemId: form.catalogItemId || null, projectId: null, targetFulfillmentDate: form.targetFulfillmentDate || null, fulfillmentStage: "Submitted", fulfillmentStatus: "Submitted", approvalStatus: "pending", cost: 0 } });
-    } else {
-      if (!form.scheduledStart || !form.scheduledEnd) {
-        toast({ title: "Add a change window", description: "Choose both a scheduled start and end time.", variant: "destructive" });
-        return;
-      }
-      createMutation.mutate({ kind: intake, payload: { title, description, type: "normal", priority: form.priority, risk: form.risk, impact: form.impact, rollbackPlan: form.rollbackPlan, implementationPlan: form.implementationPlan, scheduledStart: new Date(form.scheduledStart).toISOString(), scheduledEnd: new Date(form.scheduledEnd).toISOString() } });
-    }
-  }
-
-  function openIntake(kind: Exclude<IntakeKind, null>) {
-    setForm(current => ({ ...current, title: "", description: "", catalogItemId: "", targetFulfillmentDate: "", scheduledStart: "", scheduledEnd: "", implementationPlan: "", rollbackPlan: "" }));
-    setIntake(kind);
-  }
 
   return <main className="min-h-[100dvh] bg-[#f2f7f5] text-[#193638]">
     <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden" aria-hidden="true">
@@ -181,8 +127,8 @@ export default function PortalPage() {
             <Link href="/knowledge-base" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Browse all articles <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
           <SearchResults title="Services and equipment" icon={<Laptop className="h-4 w-4" />} loading={catalogQuery.isLoading} error={catalogQuery.isError} retry={() => void catalogQuery.refetch()} empty={!catalogQuery.isLoading && !catalogQuery.isError && matchingCatalog.length === 0} emptyLabel="No catalog items match this search.">
-            {matchingCatalog.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 hover:bg-[#f0f6f3]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#294a4a]">{item.name}</span><span className="mt-1 block truncate text-xs text-[#738785]">{item.description || item.category || "Available service"}</span></span><Button size="sm" className="shrink-0 rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]" onClick={() => { setForm(current => ({ ...current, title: item.name, catalogItemId: item.id })); setIntake("request"); }}>Request <ArrowRight className="ml-1 h-3.5 w-3.5" /></Button></div>)}
-            <button onClick={() => { setForm(current => ({ ...current, title: "", catalogItemId: "" })); setIntake("request"); }} className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Make a general request <ArrowRight className="h-3.5 w-3.5" /></button>
+            {matchingCatalog.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 hover:bg-[#f0f6f3]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#294a4a]">{item.name}</span><span className="mt-1 block truncate text-xs text-[#738785]">{item.description || item.category || "Available service"}</span></span><Button asChild size="sm" className="shrink-0 rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]"><Link href={`/service-requests/new?catalogItemId=${encodeURIComponent(item.id)}`}>Request <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>)}
+            <Link href="/service-requests/new" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Make a general request <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
         </div>}
         {!queryTerm && <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#809391]"><span>Popular:</span>{["VPN access", "password reset", "new equipment"].map(term => <button key={term} className="rounded-full border border-[#dce7e2] bg-white px-2.5 py-1 text-[#54716e] hover:border-[#9ebdb4] hover:bg-[#f1f7f3]" onClick={() => setSearch(term)}>{term}</button>)}</div>}
@@ -191,9 +137,9 @@ export default function PortalPage() {
       <section className="mt-10">
         <div className="mb-4 flex items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#68827f]">Take the next step</p><h2 className="mt-1 text-2xl font-semibold tracking-[-.04em]">How can we help?</h2></div><span className="hidden text-sm text-[#829491] sm:block">Choose a starting point</span></div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ActionTile icon={<ShieldAlert />} title="Report an incident" description="Something is broken or disrupting your work." onClick={() => openIntake("incident")} accent="coral" />
-          <ActionTile icon={<Wrench />} title="Request a service" description="Ask for equipment, access, or IT help." onClick={() => openIntake("request")} accent="teal" />
-          <ActionTile icon={<ArrowDownRight />} title="Propose a change" description="Plan a controlled change to a service." onClick={() => openIntake("change")} accent="gold" />
+          <ActionTile icon={<ShieldAlert />} title="Report an incident" description="Something is broken or disrupting your work." href="/incidents/new" accent="coral" />
+          <ActionTile icon={<Wrench />} title="Request a service" description="Ask for equipment, access, or IT help." href="/service-requests/new" accent="teal" />
+          <ActionTile icon={<ArrowDownRight />} title="Propose a change" description="Plan a controlled change to a service." href="/changes/new" accent="gold" />
           <Link href="/knowledge-base" className="group flex min-h-[142px] flex-col justify-between rounded-[20px] border border-[#d8e3df] bg-[#f9fbf9] p-5 transition-transform hover:-translate-y-0.5 hover:border-[#b7cec5] hover:bg-white">
             <div className="flex items-start justify-between"><span className="grid h-10 w-10 place-items-center rounded-[13px] bg-[#e7eee5] text-[#55755b]"><BookOpen className="h-5 w-5" /></span><ArrowRight className="h-4 w-4 text-[#9bab9f] transition-transform group-hover:translate-x-1" /></div>
             <div><h3 className="text-base font-semibold tracking-[-.02em]">Browse knowledge base</h3><p className="mt-1 text-sm leading-5 text-[#768987]">Find step-by-step answers and guidance.</p></div>
@@ -208,7 +154,7 @@ export default function PortalPage() {
         </div>
         {activityLoading ? <div className="space-y-3 p-6" aria-label="Loading activity">{[0, 1, 2].map(index => <div key={index} className="h-12 animate-pulse rounded-xl bg-[#f0f4f1]" />)}</div>
           : activityError ? <div className="p-10 text-center"><CircleHelp className="mx-auto h-8 w-8 text-[#a1b3ae]" /><p className="mt-3 font-semibold">Your activity could not load</p><p className="mt-1 text-sm text-[#7c908d]">Check your connection and try again.</p><Button variant="outline" className="mt-4 rounded-full" onClick={refetchActivity}>Try again</Button></div>
-          : rows.length === 0 ? <div className="px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#edf4ef] text-[#64847b]"><FileText className="h-5 w-5" /></div><h3 className="mt-4 font-semibold">Nothing here just yet</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#7a8e8b]">When you report an issue or submit a request, you can follow it here.</p><Button className="mt-5 rounded-full bg-[#285f5d] hover:bg-[#1f514f]" onClick={() => openIntake("incident")}>Report an incident <ArrowRight className="ml-2 h-4 w-4" /></Button></div>
+           : rows.length === 0 ? <div className="px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#edf4ef] text-[#64847b]"><FileText className="h-5 w-5" /></div><h3 className="mt-4 font-semibold">Nothing here just yet</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#7a8e8b]">When you report an issue or submit a request, you can follow it here.</p><Button asChild className="mt-5 rounded-full bg-[#285f5d] hover:bg-[#1f514f]"><Link href="/incidents/new">Report an incident <ArrowRight className="ml-2 h-4 w-4" /></Link></Button></div>
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow className="border-[#e6ece9] hover:bg-transparent"><TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Ticket ID</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Title</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Type</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Status</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Submitted</TableHead><TableHead className="pr-6 text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Target date</TableHead></TableRow></TableHeader><TableBody>
             {rows.map(row => <TableRow key={`${row.type}-${row.id}`} className="border-[#edf1ee]">
               <TableCell className="whitespace-nowrap pl-6 font-mono text-xs font-semibold text-[#56716e]">{row.ticket || "—"}</TableCell>
@@ -221,38 +167,6 @@ export default function PortalPage() {
       </section>
       <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-[#8a9b97]"><span>Workplace Support · Here when you need us.</span><Link href="/knowledge-base" className="inline-flex items-center gap-1 hover:text-[#397571]">Help articles <ArrowRight className="h-3 w-3" /></Link></footer>
     </div>
-
-    <Sheet open={Boolean(intake)} onOpenChange={open => { if (!open && !createMutation.isPending) setIntake(null); }}>
-      <SheetContent className="w-full overflow-y-auto border-[#d6e3de] bg-[#f8fbf8] sm:max-w-[540px]">
-        <SheetHeader className="border-b border-[#e0e9e4] pb-5 pr-8 text-left">
-          <div className="mb-1 grid h-10 w-10 place-items-center rounded-xl bg-[#e1eee7] text-[#3a716a]">{intake === "incident" ? <ShieldAlert className="h-5 w-5" /> : intake === "change" ? <ArrowDownRight className="h-5 w-5" /> : <Wrench className="h-5 w-5" />}</div>
-          <SheetTitle className="text-2xl tracking-[-.04em] text-[#214344]">{intake === "incident" ? "Report an incident" : intake === "change" ? "Propose a change" : "Request a service"}</SheetTitle>
-          <SheetDescription className="text-[#718582]">{intake === "incident" ? "Tell us what is getting in the way. Our team will take it from here." : intake === "change" ? "Share the plan and maintenance window so the right people can review it." : "Tell us what you need and where it will help."}</SheetDescription>
-        </SheetHeader>
-        <form onSubmit={submitIntake} className="mt-6 grid gap-5">
-          <Field label="Title"><Input required maxLength={180} value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} placeholder={intake === "incident" ? "A short summary of the issue" : intake === "change" ? "What will change?" : "What do you need?"} className={inputClass} /></Field>
-          <Field label="Details"><Textarea required rows={4} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder={intake === "incident" ? "What happened, who is affected, and when did it start?" : "Add the context our team needs to help."} className="resize-y rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 py-3 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]" /></Field>
-          {intake === "incident" && <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Priority"><select className={selectClass} value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value })}><option value="P1">P1 · Critical</option><option value="P2">P2 · High</option><option value="P3">P3 · Moderate</option><option value="P4">P4 · Low</option></select></Field>
-            <Field label="Urgency"><select className={selectClass} value={form.urgency} onChange={event => setForm({ ...form, urgency: event.target.value })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></Field>
-            <Field label="Impact"><select className={selectClass} value={form.impact} onChange={event => setForm({ ...form, impact: event.target.value })}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></Field>
-          </div>}
-          {intake === "request" && <>
-            <Field label="Service or item" hint="Choose a catalog item, or leave as a general request.">
-              <select className={selectClass} value={form.catalogItemId} onChange={event => setForm({ ...form, catalogItemId: event.target.value })}><option value="">General service request</option>{catalog.map(item => <option key={item.id} value={item.id}>{item.name}{item.approvalRequired ? " · approval required" : ""}</option>)}</select>
-            </Field>
-            <Field label="Needed by (optional)"><Input type="date" value={form.targetFulfillmentDate} onChange={event => setForm({ ...form, targetFulfillmentDate: event.target.value })} className={inputClass} /></Field>
-          </>}
-          {intake === "change" && <>
-            <div className="grid gap-4 sm:grid-cols-2"><Field label="Priority"><select className={selectClass} value={form.priority} onChange={event => setForm({ ...form, priority: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></Field><Field label="Risk"><select className={selectClass} value={form.risk} onChange={event => setForm({ ...form, risk: event.target.value })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></Field></div>
-            <div className="grid gap-4 sm:grid-cols-2"><Field label="Scheduled start"><Input required type="datetime-local" value={form.scheduledStart} onChange={event => setForm({ ...form, scheduledStart: event.target.value })} className={inputClass} /></Field><Field label="Scheduled end"><Input required type="datetime-local" min={form.scheduledStart || undefined} value={form.scheduledEnd} onChange={event => setForm({ ...form, scheduledEnd: event.target.value })} className={inputClass} /></Field></div>
-            <Field label="Implementation plan"><Textarea required rows={3} value={form.implementationPlan} onChange={event => setForm({ ...form, implementationPlan: event.target.value })} placeholder="Steps to make the change safely" className="rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 py-3 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]" /></Field>
-            <Field label="Rollback plan"><Textarea required rows={3} value={form.rollbackPlan} onChange={event => setForm({ ...form, rollbackPlan: event.target.value })} placeholder="How the service will be restored if needed" className="rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 py-3 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]" /></Field>
-          </>}
-          <div className="mt-1 flex gap-3 border-t border-[#e0e9e4] pt-5"><Button type="button" variant="outline" className="h-11 flex-1 rounded-xl border-[#d5e1dc] bg-white" onClick={() => setIntake(null)} disabled={createMutation.isPending}>Cancel</Button><Button type="submit" className="h-11 flex-1 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createMutation.isPending}>{createMutation.isPending ? "Submitting…" : intake === "incident" ? "Submit incident" : intake === "change" ? "Submit proposal" : "Submit request"}<Send className="ml-2 h-4 w-4" /></Button></div>
-        </form>
-      </SheetContent>
-    </Sheet>
 
     <Sheet open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }}>
       <SheetContent className="w-full overflow-y-auto border-[#d6e3de] bg-[#f8fbf8] sm:max-w-[620px]">
@@ -275,14 +189,14 @@ function SearchResults({ title, icon, loading, error, retry, empty, emptyLabel, 
   </div>;
 }
 
-function ActionTile({ icon, title, description, onClick, accent }: { icon: React.ReactNode; title: string; description: string; onClick: () => void; accent: "coral" | "teal" | "gold" }) {
+function ActionTile({ icon, title, description, href, accent }: { icon: React.ReactNode; title: string; description: string; href: string; accent: "coral" | "teal" | "gold" }) {
   const tones = {
     coral: "bg-[#f8e9e2] text-[#a65e48]",
     teal: "bg-[#e1efeb] text-[#3d7770]",
     gold: "bg-[#f3eddb] text-[#927847]",
   };
-  return <button onClick={onClick} className="group flex min-h-[142px] flex-col justify-between rounded-[20px] border border-[#d8e3df] bg-[#fffdfa] p-5 text-left transition-transform hover:-translate-y-0.5 hover:border-[#b7cec5] hover:shadow-[0_12px_28px_rgba(35,73,70,.07)]">
+  return <Link href={href} className="group flex min-h-[142px] flex-col justify-between rounded-[20px] border border-[#d8e3df] bg-[#fffdfa] p-5 text-left transition-transform hover:-translate-y-0.5 hover:border-[#b7cec5] hover:shadow-[0_12px_28px_rgba(35,73,70,.07)]">
     <div className="flex w-full items-start justify-between"><span className={`grid h-10 w-10 place-items-center rounded-[13px] ${tones[accent]}`}>{icon}</span><ArrowRight className="h-4 w-4 text-[#9bab9f] transition-transform group-hover:translate-x-1" /></div>
     <div><h3 className="text-base font-semibold tracking-[-.02em]">{title}</h3><p className="mt-1 max-w-[260px] text-sm leading-5 text-[#768987]">{description}</p></div>
-  </button>;
+  </Link>;
 }

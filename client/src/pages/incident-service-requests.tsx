@@ -1,11 +1,11 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type Asset, type CatalogItem, type Incident, type ServiceRequest } from "@shared/schema";
+import { type Asset, type Incident, type ServiceRequest } from "@shared/schema";
 import Header from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -47,32 +47,9 @@ function formatRequestTimestamp(value: string | Date | null | undefined): string
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
-function usePracticeMutation(path: string, method: string, successMessage: string) {
-  const { toast } = useToast();
-  return useMutation({
-    mutationFn: async (body: unknown) => (await apiRequest(method, path, body)).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      toast({ title: successMessage });
-    },
-    onError: (error: Error) => toast({ title: "Action failed", description: error.message, variant: "destructive" }),
-  });
-}
-
 export function IncidentsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState("P3");
-  const [urgency, setUrgency] = useState("medium");
-  const [impact, setImpact] = useState("medium");
-  const [projectId, setProjectId] = useState("");
-  const [projectDraft, setProjectDraft] = useState("");
-  const [slaPolicyId, setSlaPolicyId] = useState("");
-  const [intakeOpen, setIntakeOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolutionCode, setResolutionCode] = useState("");
   const { user } = useAuth();
@@ -98,17 +75,6 @@ export function IncidentsPage() {
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/incidents", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
   });
-  const createIncident = usePracticeMutation("/api/incidents", "POST", "Incident submitted");
-  const createProject = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/incidents/projects", { name: projectDraft.trim() })).json() as Promise<{ id: string; name: string }>,
-    onSuccess: (project: { id: string; name: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/options"] });
-      setProjectId(project.id);
-      setProjectDraft("");
-      toast({ title: "Project created" });
-    },
-    onError: (error: Error) => toast({ title: "Could not create project", description: error.message, variant: "destructive" }),
-  });
   const updateAssignment = useMutation({
     mutationFn: async (payload: { id: string; assignmentGroup: string; assigneeId: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}/assignment`, { assignmentGroup: payload.assignmentGroup || null, assigneeId: payload.assigneeId || null })).json(),
@@ -131,7 +97,7 @@ export function IncidentsPage() {
   });
 
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Management" description="Prioritize service disruptions and coordinate resolution across teams." showAddButton={false} /><Button onClick={() => setIntakeOpen(true)}>Create Incident</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Management" description="Prioritize service disruptions and coordinate resolution across teams." showAddButton={false} /><Button asChild><Link href="/incidents/new">Create Incident</Link></Button></div>
     <div className="space-y-3">
       <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Incidents" },
@@ -155,27 +121,6 @@ export function IncidentsPage() {
         })}</TableBody>
       </Table>}
     </Card>
-    <Sheet open={intakeOpen} onOpenChange={setIntakeOpen}><SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-      <SheetHeader><SheetTitle>Create Incident</SheetTitle><SheetDescription>Capture service impact and route the incident for response.</SheetDescription></SheetHeader>
-      <form className="mt-6 grid gap-4" onSubmit={event => {
-        event.preventDefault();
-        createIncident.mutate({ title, description, urgency, impact, priority, projectId: projectId || null, slaPolicyId: slaPolicyId || null, status: "New" }, {
-          onSuccess: () => { setTitle(""); setDescription(""); setPriority("P3"); setUrgency("medium"); setImpact("medium"); setProjectId(""); setSlaPolicyId(""); setIntakeOpen(false); },
-        });
-      }}>
-        <label className="grid gap-1.5 text-sm font-medium">Title<Input required value={title} onChange={e => setTitle(e.target.value)} placeholder="Briefly describe the disruption" /></label>
-        <label className="grid gap-1.5 text-sm font-medium">Description<Textarea required rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Symptoms, affected users, and what has been tried" /></label>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1.5 text-sm font-medium">Priority<select className="h-10 rounded-md border bg-background px-3 text-sm" value={priority} onChange={e => setPriority(e.target.value)}><option value="P1">P1 · Critical</option><option value="P2">P2 · High</option><option value="P3">P3 · Moderate</option><option value="P4">P4 · Low</option></select></label>
-          <label className="grid gap-1.5 text-sm font-medium">Project<select className="h-10 rounded-md border bg-background px-3 text-sm" value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">No project</option>{options?.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-          <label className="grid gap-1.5 text-sm font-medium">Urgency<select className="h-10 rounded-md border bg-background px-3 text-sm" value={urgency} onChange={e => setUrgency(e.target.value)}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
-          <label className="grid gap-1.5 text-sm font-medium">Impact<select className="h-10 rounded-md border bg-background px-3 text-sm" value={impact} onChange={e => setImpact(e.target.value)}><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
-        </div>
-        {user?.permissions?.includes("ticket_manage") && <div className="flex gap-2"><Input value={projectDraft} onChange={e => setProjectDraft(e.target.value)} placeholder="Add a project" aria-label="New project name" /><Button type="button" variant="outline" disabled={!projectDraft.trim() || createProject.isPending} onClick={() => createProject.mutate()}>{createProject.isPending ? "Adding…" : "Add project"}</Button></div>}
-        <label className="grid gap-1.5 text-sm font-medium">SLA policy<select className="h-10 rounded-md border bg-background px-3 text-sm" value={slaPolicyId} onChange={e => setSlaPolicyId(e.target.value)}><option value="">Use default SLA</option>{options?.slaPolicies.map(policy => <option key={policy.id} value={policy.id}>{policy.name} · {policy.priority}</option>)}</select></label>
-        <Button type="submit" disabled={createIncident.isPending}>{createIncident.isPending ? "Creating…" : "Create incident"}</Button>
-      </form>
-    </SheetContent></Sheet>
     <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.incidentNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{selected.priority} priority · Opened {selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "date unavailable"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6"><section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Description</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><p className="mt-3 text-sm text-muted-foreground">Resolution due: {selected.resolveDueAt ? new Date(selected.resolveDueAt).toLocaleString() : "—"}</p></section>
@@ -198,14 +143,6 @@ export function IncidentsPage() {
 export function ServiceRequestsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [cost, setCost] = useState("0");
-  const [catalogItemId, setCatalogItemId] = useState("");
-  const [targetDate, setTargetDate] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [projectDraft, setProjectDraft] = useState("");
-  const [intakeOpen, setIntakeOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -229,22 +166,13 @@ export function ServiceRequestsPage() {
     return matchesQueue && matchesLifecycle;
   });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
-  const { data: catalogItems = [] } = useQuery<CatalogItem[]>({ queryKey: ["/api/catalog/items?activeOnly=true"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = requests.find(request => request.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/service-requests", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
   });
-  const createRequest = usePracticeMutation("/api/service-requests", "POST", "Service request submitted");
-  const createProject = useMutation({
-    mutationFn: async () => (await apiRequest("POST", "/api/incidents/projects", { name: projectDraft.trim() })).json() as Promise<{ id: string; name: string }>,
-    onSuccess: (project: { id: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/options"] });
-      setProjectId(project.id);
-      setProjectDraft("");
-      toast({ title: "Project created" });
-    },
-    onError: (error: Error) => toast({ title: "Could not create project", description: error.message, variant: "destructive" }),
+  const { data: attachments = [], isLoading: attachmentsLoading } = useQuery<{ id: string; originalName: string; fileSize: number | null; fileType: string | null }[]>({
+    queryKey: ["/api/service-requests", selectedId, "attachments"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
   });
   const reviewRequest = useMutation({
     mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) =>
@@ -279,7 +207,7 @@ export function ServiceRequestsPage() {
   });
   const manager = user?.permissions?.includes("ticket_manage");
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." showAddButton={false} /><Button onClick={() => setIntakeOpen(true)}>Submit Request</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." showAddButton={false} /><Button asChild><Link href="/service-requests/new">Submit Request</Link></Button></div>
     <div className="space-y-3">
       <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Requests" },
@@ -306,27 +234,11 @@ export function ServiceRequestsPage() {
         })}</TableBody>
       </Table>}
     </Card>
-    <Sheet open={intakeOpen} onOpenChange={setIntakeOpen}><SheetContent className="w-full overflow-y-auto sm:max-w-xl">
-      <SheetHeader><SheetTitle>Submit Request</SheetTitle><SheetDescription>Describe what you need. Your request will be routed for approval.</SheetDescription></SheetHeader>
-      <form className="mt-6 grid gap-4" onSubmit={event => {
-        event.preventDefault();
-        createRequest.mutate({ title, description, catalogItemId: catalogItemId || null, projectId: projectId || null, targetFulfillmentDate: targetDate || null, fulfillmentStage: "Submitted", fulfillmentStatus: "Submitted", approvalStatus: "pending", cost: Number(cost) }, {
-          onSuccess: () => { setTitle(""); setDescription(""); setCost("0"); setCatalogItemId(""); setTargetDate(""); setProjectId(""); setIntakeOpen(false); },
-        });
-      }}>
-        <label className="grid gap-1.5 text-sm font-medium">Request title<Input required value={title} onChange={e => setTitle(e.target.value)} /></label>
-        <label className="grid gap-1.5 text-sm font-medium">Description<Textarea required rows={5} value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe the service or item you need" /></label>
-        <label className="grid gap-1.5 text-sm font-medium">Catalog item<select className="h-10 rounded-md border bg-background px-3 text-sm" value={catalogItemId} onChange={e => setCatalogItemId(e.target.value)}><option value="">General service request</option>{catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label className="grid gap-1.5 text-sm font-medium">Project<select className="h-10 rounded-md border bg-background px-3 text-sm" value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">No project</option>{options?.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-        {manager && <div className="flex gap-2"><Input value={projectDraft} onChange={e => setProjectDraft(e.target.value)} placeholder="Add a project" aria-label="New project name" /><Button type="button" variant="outline" disabled={!projectDraft.trim() || createProject.isPending} onClick={() => createProject.mutate()}>Add project</Button></div>}
-        <div className="grid gap-4 sm:grid-cols-2"><label className="grid gap-1.5 text-sm font-medium">Estimated cost<Input type="number" min="0" step="0.01" value={cost} onChange={e => setCost(e.target.value)} /></label><label className="grid gap-1.5 text-sm font-medium">Needed by<Input type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} /></label></div>
-        <Button type="submit" disabled={createRequest.isPending}>{createRequest.isPending ? "Submitting…" : "Submit request"}</Button>
-      </form>
-    </SheetContent></Sheet>
     <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.requestNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{(selected as any).catalogItemName ?? "General request"} · Requested by {(selected as any).requesterName ?? "Unknown"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6">
           <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Request date:</span> {formatRequestTimestamp(selected.createdAt)}</p><p><span className="text-muted-foreground">Target completion:</span> {formatRequestDate(selected.targetFulfillmentDate, true)}</p><p><span className="text-muted-foreground">Completed:</span> {formatRequestTimestamp(selected.completedAt)}</p><p><span className="text-muted-foreground">Project:</span> {(selected as any).projectName ?? "—"}</p><p><span className="text-muted-foreground">Cost:</span> {Number(selected.cost).toFixed(2)}</p><p><span className="text-muted-foreground">Requested by:</span> {(selected as any).requesterName ?? "—"}</p><p><span className="text-muted-foreground">Asset:</span> {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p></div></section>
+          <section><h3 className="font-semibold">Supporting files</h3>{attachmentsLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading attachments…</p> : attachments.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No files attached.</p> : <ul className="mt-2 space-y-2">{attachments.map(file => <li key={file.id}><a className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/api/service-requests/${selected.id}/attachments/${file.id}`} target="_blank" rel="noreferrer">{file.originalName}</a><span className="ml-2 text-xs text-muted-foreground">{file.fileSize ? `${(file.fileSize / 1024).toFixed(0)} KB` : file.fileType ?? ""}</span></li>)}</ul>}</section>
           {manager && <>
             <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<Input value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)} placeholder="e.g. IT Provisioning" /></label>
               <label className="grid gap-1 text-sm">Assignee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assigneeId} onChange={e => setAssigneeId(e.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
