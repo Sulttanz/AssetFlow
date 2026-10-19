@@ -7,6 +7,7 @@ import ws from "ws";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { changeApprovals, changes, users } from "@shared/schema";
+import { initializeTestSchema } from "./test-database";
 
 vi.mock("./auth", () => ({
   setupAuth: (app: express.Express) => {
@@ -24,7 +25,7 @@ vi.mock("./auth", () => ({
 }));
 
 describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
-  const schema = `cab_vote_test_${randomUUID().replace(/-/g, "")}`;
+  const schema = `test_cab_vote_${randomUUID().replace(/-/g, "")}`;
   const originalUrl = process.env.DATABASE_URL;
   let setupPool: Pool;
   let appPool: Pool;
@@ -37,54 +38,18 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     if (!originalUrl) throw new Error("DATABASE_URL is required for the CAB concurrency test");
     neonConfig.webSocketConstructor = ws;
     setupPool = new Pool({ connectionString: originalUrl });
-    // This schema belongs only to this test. In particular, never use the live
-    // changes/approvals tables: their columns may differ during migrations.
-    await setupPool.query(`CREATE SCHEMA "${schema}"`);
-    await setupPool.query(`
-      CREATE TABLE "${schema}".users (
-        id varchar PRIMARY KEY, username text NOT NULL UNIQUE, email text NOT NULL UNIQUE,
-        password text NOT NULL, first_name text NOT NULL, last_name text NOT NULL,
-        is_active boolean DEFAULT true, last_login timestamp, created_at timestamp DEFAULT now(),
-        created_by varchar, two_factor_enabled boolean DEFAULT false, two_factor_secret text
-      );
-      CREATE TABLE "${schema}".changes (
-        id varchar PRIMARY KEY, change_number text NOT NULL UNIQUE, title text NOT NULL,
-        description text, type text NOT NULL DEFAULT 'normal', status text NOT NULL DEFAULT 'draft',
-        priority text NOT NULL DEFAULT 'medium', risk text DEFAULT 'low', impact text,
-        rollback_plan text, implementation_plan text, test_plan text,
-        scheduled_start timestamp, scheduled_end timestamp, actual_start timestamp,
-        actual_end timestamp, assigned_at timestamp, submitted_at timestamp,
-        approved_at timestamp, cab_required boolean DEFAULT false, cab_scheduled_for timestamp,
-        requested_by_id varchar, assigned_to_id varchar, department_id varchar,
-        created_at timestamp DEFAULT now(), updated_at timestamp DEFAULT now()
-      );
-      CREATE TABLE "${schema}".change_environment_stages (
-        id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
-        environment text NOT NULL, "order" integer NOT NULL, status text NOT NULL DEFAULT 'pending',
-        assigned_to_id varchar, due_date timestamp, started_at timestamp, completed_at timestamp,
-        attempts jsonb NOT NULL DEFAULT '[]'::jsonb,
-        notes text, evidence text, deployed_by_id varchar, created_at timestamp DEFAULT now(),
-        updated_at timestamp DEFAULT now()
-      );
-      CREATE TABLE "${schema}".change_approvals (
-        id varchar PRIMARY KEY DEFAULT gen_random_uuid(), change_id varchar NOT NULL REFERENCES "${schema}".changes(id),
-        approver_id varchar REFERENCES "${schema}".users(id),
-        original_approver_id varchar NOT NULL, approver_label text NOT NULL,
-        decision text, comments text, decided_at timestamp, removed_at timestamp,
-        removed_by_id varchar, removed_by_label text, created_at timestamp DEFAULT now()
-      )
-    `);
+    const setupClient = await setupPool.connect();
+    try {
+      await initializeTestSchema(setupClient, schema);
+    } finally {
+      setupClient.release();
+    }
 
     const url = new URL(originalUrl);
     url.searchParams.set("options", `-c search_path=${schema}`);
     process.env.DATABASE_URL = url.toString();
     ({ db, pool: appPool } = await import("./db"));
     ({ storage } = await import("./storage"));
-    vi.spyOn(storage, "getPermissions").mockResolvedValue([
-      { id: "ticket-view", name: "ticket_view_all" },
-      { id: "ticket-manage", name: "ticket_manage" },
-    ] as Awaited<ReturnType<typeof storage.getPermissions>>);
-    vi.spyOn(storage, "getRolesWithDetails").mockResolvedValue([]);
     vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined);
 
     const app = express();
@@ -94,7 +59,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
     baseUrl = `http://127.0.0.1:${address.port}`;
-  });
+  }, 60_000);
 
   afterAll(async () => {
     vi.restoreAllMocks();
@@ -933,7 +898,7 @@ describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
       approverLabel: "CAB Approver", decision: "pending",
     });
     await db.update(users).set({ isActive: false }).where(eq(users.id, approverId));
-    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage", "ticket_view_all"]);
     const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
 
     try {

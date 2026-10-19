@@ -11,6 +11,7 @@ const store = vi.hoisted(() => ({
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
   getUserPermissions: vi.fn(),
+  getUserRoles: vi.fn(),
   getChanges: vi.fn(),
   getChangesPage: vi.fn(),
   getPendingCabAlertChanges: vi.fn(),
@@ -147,7 +148,8 @@ describe("CAB route notifications across signed-in sessions", () => {
     approvals = [];
     change = { id: "change-1", changeNumber: "CHG-000001", title: "Upgrade network", type: "normal", status: "draft" };
     store.getModuleSetting.mockResolvedValue(undefined);
-    store.getUserPermissions.mockImplementation(async (id: string) => id === "manager" ? ["change_manage"] : []);
+    store.getUserPermissions.mockImplementation(async (id: string) => id === "manager" ? ["change_manage", "ticket_view_all"] : ["ticket_view_all"]);
+    store.getUserRoles.mockResolvedValue([]);
     store.createAuditLog.mockResolvedValue({});
     notify.mockImplementation(async (sql: string, parameters: any[] = []) => {
       const statement = sql.replace(/\s+/g, " ").trim();

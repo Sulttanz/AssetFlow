@@ -5,6 +5,8 @@ import type { Server } from "node:http";
 
 const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
+  getUserPermissions: vi.fn(),
+  getUserRoles: vi.fn(),
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
   updateModuleSetting: vi.fn(),
@@ -57,9 +59,12 @@ describe("CAB change routes", () => {
     store.getPermissions.mockResolvedValue([
       { id: "ticket-view", name: "ticket_view_all" },
       { id: "ticket-manage", name: "ticket_manage" },
+      { id: "risk-manage", name: "risk_manage" },
     ]);
     store.getRolesWithDetails.mockResolvedValue([]);
     store.getModuleSetting.mockResolvedValue(undefined);
+    store.getUserPermissions.mockResolvedValue([]);
+    store.getUserRoles.mockResolvedValue([]);
     store.updateModuleSetting.mockResolvedValue({ moduleKey: "itsm", enabled: true });
     const app = express();
     app.use(express.json());
@@ -76,6 +81,8 @@ describe("CAB change routes", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    store.getUserPermissions.mockResolvedValue([]);
+    store.getUserRoles.mockResolvedValue([]);
     votes = [{ id: "vote-1", changeId: "change-1", approverId: "alice", decision: "pending", comments: null, decidedAt: null }];
     store.getModuleSetting.mockResolvedValue(undefined);
     store.updateModuleSetting.mockResolvedValue({ moduleKey: "itsm", enabled: true });
@@ -147,6 +154,7 @@ describe("CAB change routes", () => {
   });
 
   it("returns CAB history and deployment-stage timestamps from GET /api/changes/:id", async () => {
+    store.getUserPermissions.mockResolvedValue(["ticket_view_all"]);
     const details = {
       id: "change-1",
       stages: [
@@ -267,6 +275,15 @@ describe("CAB change routes", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
     expect(store.getChange).toHaveBeenCalledWith("missing-change");
+  });
+
+  it("returns 403 rather than a mock error for an unrelated reader without staff access", async () => {
+    store.getChange.mockResolvedValue({ id: "change-1", requestedById: "another-user" });
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+      headers: { "x-test-user": "alice" },
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ message: "Insufficient permissions" });
   });
 
   it("rejects a different authenticated approver without altering the vote", async () => {
