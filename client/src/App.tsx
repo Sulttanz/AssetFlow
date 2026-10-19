@@ -123,7 +123,7 @@ function Router() {
                   <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} requiredModule="itsm" />
                   <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredPermission="system_admin" />
-                  <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} />
+                  <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} requiredModule="itsm" />
                   <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" />
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
                   <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" />

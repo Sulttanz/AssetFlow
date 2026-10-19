@@ -58,19 +58,66 @@ const assetSpreadsheetColumns = [
 ];
 
 // Middleware factory to gate a route behind a module being enabled
-export function requireModule(moduleKey: string) {
+export function checkModuleEnabled(moduleKey: string) {
   return async (req: any, res: any, next: any) => {
     try {
       const setting = await storage.getModuleSetting(moduleKey);
-      const enabled = setting ? setting.enabled : true;
+      const enabled = setting?.enabled ?? getModuleDefinition(moduleKey)?.defaultEnabled ?? true;
       if (!enabled) {
-        return res.status(403).json({ message: "This module is not enabled" });
+        return res.status(403).json({ error: `Module ${moduleKey} is currently disabled.` });
       }
       next();
     } catch (error) {
       res.status(500).json({ message: "Failed to verify module status" });
     }
   };
+}
+
+export const requireModule = checkModuleEnabled;
+
+const MODULE_API_PREFIXES: Array<[string, string]> = [
+  ...[
+    "/assets",
+    "/assignments",
+    "/maintenance",
+    "/maintenance-schedules",
+    "/maintenance-records",
+    "/asset-bookings",
+    "/asset-disposal",
+    "/asset-requests",
+    "/asset-audits",
+    "/employees",
+    "/departments",
+    "/locations",
+    "/vendors",
+    "/purchase-orders",
+    "/budgets",
+    "/contracts",
+    "/reports",
+    "/import/assets",
+  ].map((prefix) => [prefix, "asset_management"] as [string, string]),
+  ...[
+    "/incidents",
+    "/service-requests",
+    "/tickets",
+    "/changes",
+    "/problems",
+    "/catalog",
+    "/knowledge-base",
+    "/kb-articles",
+    "/reports/tickets",
+    "/reports/problems",
+    "/reports/changes",
+    "/reports/kb-articles",
+  ].map((prefix) => [prefix, "itsm"] as [string, string]),
+  ["/risks", "risk_management"],
+  ["/risk-users", "risk_management"],
+];
+
+export function moduleForApiPath(path: string): string | undefined {
+  return [...MODULE_API_PREFIXES].sort((a, b) => b[0].length - a[0].length).find(([prefix]) =>
+    path === prefix || path.startsWith(`${prefix}/`)
+  )?.[1];
 }
 
 // Audit logging helper function
@@ -147,6 +194,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
   await ensureItsmPermissions();
+
+  // Apply module enforcement centrally as well as at route declarations, so
+  // newly added endpoints in an existing module namespace cannot bypass it.
+  app.use("/api", (req, res, next) => {
+    const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
+    const moduleKey = moduleForApiPath(apiPath);
+    if (!moduleKey) return next();
+    return requireAuth(req, res, () =>
+      checkModuleEnabled(moduleKey)(req, res, next)
+    );
+  });
 
   const createCabEventStreamHandler = (eventType: "cab" | "access") =>
     async (req: any, res: any) => {
@@ -4478,7 +4536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           key: def.key,
           name: def.label,
           core: def.core,
-          enabled: found ? found.enabled : true,
+          enabled: found ? found.enabled : def.defaultEnabled,
         };
       });
       res.json(enriched);
@@ -4497,7 +4555,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: def.label,
           description: def.description,
           core: def.core,
-          enabled: found ? found.enabled : true,
+          enabled: found ? found.enabled : def.defaultEnabled,
           updatedAt: found?.updatedAt ?? null,
           updatedBy: found?.updatedBy ?? null,
         };

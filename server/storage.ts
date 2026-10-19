@@ -2372,7 +2372,7 @@ export class MemStorage implements IStorage {
       const setting: ModuleSetting = {
         id,
         moduleKey: m.key,
-        enabled: true,
+        enabled: m.defaultEnabled,
         updatedAt: new Date(),
         updatedBy: null,
       };
@@ -3451,7 +3451,7 @@ export class DatabaseStorage implements IStorage {
     if (missing.length > 0) {
       const created = await db
         .insert(moduleSettings)
-        .values(missing.map((m) => ({ moduleKey: m.key, enabled: true })))
+        .values(missing.map((m) => ({ moduleKey: m.key, enabled: m.defaultEnabled })))
         .returning();
       return [...existing, ...created];
     }
@@ -3460,7 +3460,20 @@ export class DatabaseStorage implements IStorage {
 
   async getModuleSetting(moduleKey: string): Promise<ModuleSetting | undefined> {
     const result = await db.select().from(moduleSettings).where(eq(moduleSettings.moduleKey, moduleKey));
-    return result[0] || undefined;
+    if (result[0]) return result[0];
+
+    const definition = MODULE_REGISTRY.find((module) => module.key === moduleKey);
+    if (!definition) return undefined;
+
+    const created = await db
+      .insert(moduleSettings)
+      .values({ moduleKey, enabled: definition.defaultEnabled })
+      .onConflictDoNothing({ target: moduleSettings.moduleKey })
+      .returning();
+    if (created[0]) return created[0];
+
+    const raced = await db.select().from(moduleSettings).where(eq(moduleSettings.moduleKey, moduleKey));
+    return raced[0] || undefined;
   }
 
   async updateModuleSetting(moduleKey: string, enabled: boolean, updatedBy?: string): Promise<ModuleSetting> {

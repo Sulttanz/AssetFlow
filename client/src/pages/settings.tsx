@@ -64,8 +64,11 @@ export default function Settings() {
       const response = await apiRequest("PUT", `/api/module-settings/${moduleKey}`, { enabled });
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/module-settings"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/module-settings"], refetchType: "all" }),
+        queryClient.invalidateQueries({ queryKey: ["/api/module-status"], refetchType: "all" }),
+      ]);
       toast({
         title: "Module updated",
         description: "Module status has been updated successfully.",

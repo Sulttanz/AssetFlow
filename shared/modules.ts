@@ -6,6 +6,7 @@ export interface ModuleDefinition {
   label: string;
   description: string;
   core: boolean;
+  defaultEnabled: boolean;
 }
 
 export const MODULE_REGISTRY: ModuleDefinition[] = [
@@ -15,6 +16,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:
       "Core asset tracking: assets, employees, assignments, budgets, purchase orders, maintenance, reports.",
     core: true,
+    defaultEnabled: true,
   },
   {
     key: "itsm",
@@ -22,6 +24,7 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:
       "Ticketing for incidents and service requests, linked to assets and employees.",
     core: false,
+    defaultEnabled: true,
   },
   {
     key: "risk_management",
@@ -29,6 +32,14 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     description:
       "Standalone risk register, assessment, ownership, and mitigation tracking.",
     core: false,
+    defaultEnabled: true,
+  },
+  {
+    key: "project_management",
+    label: "Project Management",
+    description: "Upcoming project planning and tracking module.",
+    core: false,
+    defaultEnabled: false,
   },
 ];
 
