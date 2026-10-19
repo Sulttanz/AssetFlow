@@ -99,6 +99,7 @@ export default function ChangesReport() {
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const exportInProgress = useRef(false);
+  const exportController = useRef<AbortController | null>(null);
   const retryRequest = useRef<ExportRequest | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +170,7 @@ export default function ChangesReport() {
     filters: ExportFilters,
     initialTotal: number,
     onProgress: (loaded: number, total: number, batch: number) => void,
+    signal: AbortSignal,
   ) => {
     const exportPageSize = 100;
     const params = new URLSearchParams({
@@ -187,9 +189,11 @@ export default function ChangesReport() {
     let matchingTotal = initialTotal;
     let lastBatchSize: number;
     do {
+      signal.throwIfAborted();
       params.set("page", String(exportPage));
-      const response = await apiRequest("GET", `/api/reports/changes?${params}`);
+      const response = await apiRequest("GET", `/api/reports/changes?${params}`, undefined, { signal });
       const result = await response.json() as ChangeReportPage;
+      signal.throwIfAborted();
       matchingTotal = Math.max(result.total, allChanges.length + result.changes.length);
       lastBatchSize = result.changes.length;
       if (lastBatchSize === 0) break;
@@ -205,6 +209,8 @@ export default function ChangesReport() {
   const startExport = async (request: ExportRequest) => {
     if (exportInProgress.current) return;
     exportInProgress.current = true;
+    const controller = new AbortController();
+    exportController.current = controller;
     retryRequest.current = request;
     setExportStatus({
       action: request.action,
@@ -223,9 +229,10 @@ export default function ChangesReport() {
           batch,
           phase: "loading",
         });
-      });
+      }, controller.signal);
 
       if (request.action === "Print") {
+        exportController.current = null;
         setExportStatus((current) => current ? { ...current, phase: "printing" } : null);
         setPrintChanges(exportChanges);
         return;
@@ -278,15 +285,37 @@ export default function ChangesReport() {
         );
       }
       setExportStatus(null);
+      exportController.current = null;
       exportInProgress.current = false;
     } catch (error) {
+      if (controller.signal.aborted) {
+        if (exportController.current === controller) {
+          exportController.current = null;
+          setExportStatus(null);
+          setPrintChanges(null);
+          exportInProgress.current = false;
+        }
+        return;
+      }
+      if (exportController.current !== controller) return;
       setExportStatus((current) => current ? {
         ...current,
         phase: "error",
         error: error instanceof Error ? error.message : "An unexpected error occurred.",
       } : null);
+      exportController.current = null;
       exportInProgress.current = false;
     }
+  };
+
+  const cancelExport = () => {
+    const controller = exportController.current;
+    if (!controller) return;
+    exportController.current = null;
+    controller.abort();
+    setExportStatus(null);
+    setPrintChanges(null);
+    exportInProgress.current = false;
   };
 
   const startCurrentExport = (action: ExportAction) => {
@@ -371,6 +400,11 @@ export default function ChangesReport() {
                     max={Math.max(exportStatus.total, 1)}
                     aria-label={`${exportStatus.action} report loading progress`}
                   />
+                  {exportStatus.phase === "loading" && (
+                    <Button className="mt-3" variant="outline" size="sm" onClick={cancelExport}>
+                      Cancel export
+                    </Button>
+                  )}
                 </>
               )}
             </div>

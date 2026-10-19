@@ -94,7 +94,7 @@ describe("change report page", () => {
     HTMLElement.prototype.setPointerCapture = () => {};
     HTMLElement.prototype.releasePointerCapture = () => {};
     HTMLElement.prototype.scrollIntoView = () => {};
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       requests.push(url);
       const params = new URL(url, "http://report.test").searchParams;
@@ -108,7 +108,25 @@ describe("change report page", () => {
       const pageSize = Number(params.get("pageSize") || 50);
       if (pageSize === 100 && page === 2) {
         onExportPageTwoRequest?.();
-        if (exportPageTwoGate) await exportPageTwoGate;
+        if (exportPageTwoGate) {
+          const signal = init?.signal;
+          const gate = exportPageTwoGate;
+          await new Promise<void>((resolve, reject) => {
+            const onAbort = () => {
+              signal?.removeEventListener("abort", onAbort);
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            };
+            if (signal?.aborted) {
+              onAbort();
+              return;
+            }
+            signal?.addEventListener("abort", onAbort, { once: true });
+            gate.then(() => {
+              signal?.removeEventListener("abort", onAbort);
+              resolve();
+            });
+          });
+        }
       }
       if (pageSize === 100 && page === failExportPage) {
         return {
@@ -481,6 +499,55 @@ describe("change report page", () => {
     releasePageTwo();
     await waitFor(() => expect(exportToExcel).toHaveBeenCalled());
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it.each(["Excel", "PDF", "Print"])("cancels a loading %s export and allows a later export", async (exportType) => {
+    const user = userEvent.setup();
+    reportRows = Array.from({ length: 251 }, (_, index) => ({
+      id: `cancel-change-${index + 1}`,
+      changeNumber: `CANCEL-${index + 1}`,
+      title: `Cancel change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      approvals: [],
+      removedApprovals: [],
+    }));
+
+    let pageTwoRequested!: () => void;
+    const pageTwoRequest = new Promise<void>((resolve) => {
+      pageTwoRequested = resolve;
+    });
+    exportPageTwoGate = new Promise<void>(() => {});
+    onExportPageTwoRequest = pageTwoRequested;
+
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Cancel change 1")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: exportType }));
+    await pageTwoRequest;
+
+    expect(screen.getByRole("button", { name: "Cancel export" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Cancel export" }));
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel export" })).toBeNull();
+    expect(exportToExcel).not.toHaveBeenCalled();
+    expect(exportToPDF).not.toHaveBeenCalled();
+    expect(printMock).not.toHaveBeenCalled();
+    expect(requests.filter(url =>
+      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+    ).map(url => new URL(url, "http://report.test").searchParams.get("page"))).toEqual(["1", "2"]);
+
+    exportPageTwoGate = null;
+    await user.click(screen.getByRole("button", { name: exportType }));
+    await waitFor(() => {
+      if (exportType === "Excel") expect(exportToExcel).toHaveBeenCalledOnce();
+      if (exportType === "PDF") expect(exportToPDF).toHaveBeenCalledOnce();
+      if (exportType === "Print") expect(printMock).toHaveBeenCalledOnce();
+    });
   });
 
   it.each(["Excel", "PDF", "Print"])("shows a retry after a failed batch for %s export", async (exportType) => {
