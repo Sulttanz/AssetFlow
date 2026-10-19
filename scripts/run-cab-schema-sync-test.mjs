@@ -42,7 +42,7 @@ async function findAvailablePort() {
 function assertNoSkippedTests(report) {
   const expectedIntegrationTests = [
     "preserves a CAB decision when only the deleted approver's original identity remains",
-    "rejects CAB approvals with no recoverable approver identity without changing schema or history",
+    "retries the unchanged CAB migration after restoring missing approver identity",
     "rolls back partial schema changes and the ledger row, then applies the repaired migration once",
     "serializes concurrent runners and records each migration once",
     "preserves CAB history and schema across repeated syncs in a temporary legacy schema",

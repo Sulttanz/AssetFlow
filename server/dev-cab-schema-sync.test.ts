@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -228,7 +228,7 @@ describe("development SQL migration sync against PostgreSQL", () => {
   );
 
   it.skipIf(!integrationDatabaseUrl)(
-    "rejects CAB approvals with no recoverable approver identity without changing schema or history",
+    "retries the unchanged CAB migration after restoring missing approver identity",
     async () => {
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
       const schemaName = `cab_sync_missing_identity_${randomUUID().replaceAll("-", "")}`;
@@ -237,7 +237,15 @@ describe("development SQL migration sync against PostgreSQL", () => {
       const quotedLedgerSchema = `"${ledgerSchema}"`;
       const migrationName = "20260929_preserve_cab_approval_history.sql";
       const migrationSql = await readFile(path.resolve("migrations", migrationName), "utf8");
+      const migrationChecksum = createHash("sha256").update(migrationSql).digest("hex");
       const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+      const authoritativeIdentityFixture = {
+        approvalId: "approval-orphaned-identity",
+        approverId: "restored-voter",
+        firstName: "Recovered",
+        lastName: "Operator",
+        username: "recovered.operator",
+      };
       let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
 
       try {
@@ -316,9 +324,66 @@ describe("development SQL migration sync against PostgreSQL", () => {
 
         expect(await captureSchemaAndHistory()).toEqual(beforeFailure);
         const ledger = await client.query(
-          `SELECT count(*)::int AS count FROM ${quotedLedgerSchema}.sql_migrations`,
+          `SELECT migration_name, checksum
+           FROM ${quotedLedgerSchema}.sql_migrations
+           ORDER BY migration_name`,
         );
-        expect(ledger.rows[0].count).toBe(0);
+        expect(ledger.rows).toEqual([]);
+
+        await client.query(
+          `INSERT INTO users (id, first_name, last_name, username)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            authoritativeIdentityFixture.approverId,
+            authoritativeIdentityFixture.firstName,
+            authoritativeIdentityFixture.lastName,
+            authoritativeIdentityFixture.username,
+          ],
+        );
+        const restoredApproval = await client.query(
+          `UPDATE change_approvals
+           SET approver_id = $2
+           WHERE id = $1`,
+          [authoritativeIdentityFixture.approvalId, authoritativeIdentityFixture.approverId],
+        );
+        expect(restoredApproval.rowCount).toBe(1);
+
+        expect(await readFile(path.resolve("migrations", migrationName), "utf8"))
+          .toBe(migrationSql);
+        const retry = await applyDevSqlMigrations(client, { directory, ledgerSchema });
+        expect(retry).toEqual({
+          applied: [migrationName],
+          alreadyApplied: [],
+          deferred: null,
+        });
+
+        const upgradedApproval = await client.query(`
+          SELECT id, change_id, approver_id, original_approver_id, approver_label,
+            decision, comments, decided_at
+          FROM change_approvals
+          WHERE id = $1
+        `, [authoritativeIdentityFixture.approvalId]);
+        expect(upgradedApproval.rows).toEqual([
+          {
+            id: authoritativeIdentityFixture.approvalId,
+            change_id: "change-retained",
+            approver_id: authoritativeIdentityFixture.approverId,
+            original_approver_id: authoritativeIdentityFixture.approverId,
+            approver_label: "Recovered Operator",
+            decision: "approved",
+            comments: "Decision must remain recoverable",
+            decided_at: new Date("2026-09-30T10:00:00Z"),
+          },
+        ]);
+
+        const appliedLedger = await client.query(
+          `SELECT migration_name, checksum
+           FROM ${quotedLedgerSchema}.sql_migrations
+           ORDER BY migration_name`,
+        );
+        expect(appliedLedger.rows).toEqual([
+          { migration_name: migrationName, checksum: migrationChecksum },
+        ]);
       } finally {
         if (client) {
           await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
