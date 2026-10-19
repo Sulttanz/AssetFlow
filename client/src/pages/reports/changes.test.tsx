@@ -378,6 +378,8 @@ describe("change report page", () => {
         expect(screen.getByText((_, element) =>
           element?.tagName === "P" && element.textContent?.includes("Showing 251 of 251 matching changes") === true,
         )).toBeTruthy();
+      } else {
+        expect(screen.getByRole("status").textContent).toContain(`${exportType} report is ready.`);
       }
     });
     const exportRequests = requests.filter(url =>
@@ -498,7 +500,25 @@ describe("change report page", () => {
 
     releasePageTwo();
     await waitFor(() => expect(exportToExcel).toHaveBeenCalled());
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(await screen.findByText("Excel report is ready.")).toBeTruthy();
+
+    let releaseNextPage!: () => void;
+    exportPageTwoGate = new Promise<void>((resolve) => {
+      releaseNextPage = resolve;
+    });
+    let nextPageRequested!: () => void;
+    const nextPageRequest = new Promise<void>((resolve) => {
+      nextPageRequested = resolve;
+    });
+    onExportPageTwoRequest = nextPageRequested;
+    await user.click(screen.getByRole("button", { name: "PDF" }));
+    await nextPageRequest;
+    expect(screen.getByRole("status").textContent).toContain("PDF report: loaded 100 of 251 matching changes");
+    expect(screen.queryByText("Excel report is ready.")).toBeNull();
+
+    releaseNextPage();
+    await waitFor(() => expect(exportToPDF).toHaveBeenCalled());
+    expect(await screen.findByText("PDF report is ready.")).toBeTruthy();
   });
 
   it.each(["Excel", "PDF", "Print"])("cancels a loading %s export and allows a later export", async (exportType) => {

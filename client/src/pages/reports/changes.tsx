@@ -59,7 +59,7 @@ interface ExportStatus {
   loaded: number;
   total: number;
   batch: number;
-  phase: "loading" | "printing" | "error";
+  phase: "loading" | "printing" | "ready" | "error";
   error?: string;
 }
 
@@ -284,7 +284,13 @@ export default function ChangesReport() {
           "changes-report"
         );
       }
-      setExportStatus(null);
+      setExportStatus({
+        action: request.action,
+        loaded: exportChanges.length,
+        total: exportChanges.length,
+        batch: Math.ceil(exportChanges.length / 100),
+        phase: "ready",
+      });
       exportController.current = null;
       exportInProgress.current = false;
     } catch (error) {
@@ -369,7 +375,13 @@ export default function ChangesReport() {
 
           {exportStatus && (
             <div
-              className={`mb-4 rounded-md border p-3 text-sm ${exportStatus.phase === "error" ? "border-destructive/40 text-destructive" : "border-border text-muted-foreground"}`}
+              className={`mb-4 rounded-md border p-3 text-sm ${
+                exportStatus.phase === "error"
+                  ? "border-destructive/40 text-destructive"
+                  : exportStatus.phase === "ready"
+                    ? "border-green-600/30 bg-green-50 text-green-800 dark:bg-green-950/30 dark:text-green-300"
+                    : "border-border text-muted-foreground"
+              }`}
               role={exportStatus.phase === "error" ? "alert" : "status"}
               aria-live={exportStatus.phase === "error" ? "assertive" : "polite"}
               aria-busy={exportIsActive}
@@ -387,6 +399,8 @@ export default function ChangesReport() {
                     Retry {exportStatus.action}
                   </Button>
                 </div>
+              ) : exportStatus.phase === "ready" ? (
+                <p>{exportStatus.action} report is ready.</p>
               ) : (
                 <>
                   <p>
