@@ -209,6 +209,7 @@ export function ServiceRequestsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [search, setSearch] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -234,7 +235,8 @@ export function ServiceRequestsPage() {
       (lifecycleFilter === "active" && !["completed", "rejected", "closed", "cancelled"].includes(stage) && row.approvalStatus !== "pending") ||
       (lifecycleFilter === "pending" && row.approvalStatus === "pending") ||
       (lifecycleFilter === "closed" && ["completed", "rejected", "closed", "cancelled"].includes(stage));
-    return matchesQueue && matchesLifecycle && matchesSmartSearch(search, [
+    const matchesAssignee = !assigneeFilter || (row.assigneeId ?? row.assignedToId) === assigneeFilter;
+    return matchesQueue && matchesLifecycle && matchesAssignee && matchesSmartSearch(search, [
       row.requestNumber, row.title, row.requesterName, row.requesterEmail,
       row.requesterPhone, row.requesterMobile,
       row.projectName, row.projectId,
@@ -243,16 +245,27 @@ export function ServiceRequestsPage() {
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const openRequests = requests.filter(row => !["Completed", "Rejected", "Cancelled"].includes(row.fulfillmentStage ?? row.fulfillmentStatus));
-  const requestMetrics: [string, number][] = [
-    ["Total Open Tickets", openRequests.length],
-    ["Unassigned Queue", openRequests.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length],
-    ["SLA Overdue / Breached", openRequests.filter(row => {
+  const requestMetrics = [
+    { label: "Total Open Requests", count: openRequests.length, icon: Ticket, color: "#2563eb" },
+    { label: "Unassigned Queue", count: openRequests.filter(row => !(row as any).assigneeId && !(row as any).assignedToId).length, icon: UserX, color: "#d97706" },
+    { label: "SLA Overdue / Breached", count: openRequests.filter(row => {
       const due = row.fulfillmentDueAt ?? row.targetFulfillmentDate;
       return Boolean(due && new Date(due).getTime() < Date.now());
-    }).length],
-    ["Resolved Today", requests.filter(row => row.completedAt && new Date(row.completedAt).getTime() >= todayStart.getTime()).length],
+    }).length, icon: AlertTriangle, color: "#dc2626" },
+    { label: "Completed Today", count: requests.filter(row => row.completedAt && new Date(row.completedAt).getTime() >= todayStart.getTime()).length, icon: CheckCircle2, color: "#16a34a" },
   ];
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const requestQueueCounts = {
+    mine: requests.filter(row => row.requesterId === user?.id).length,
+    assigned: requests.filter(row => (row as any).assigneeId === user?.id || (row as any).assignedToId === user?.id || (canViewAll && Boolean((row as any).assignmentGroup))).length,
+    all: requests.length,
+  };
+  const requestStatusCounts = {
+    all: requests.length,
+    active: requests.filter(row => !["completed", "rejected", "closed", "cancelled"].includes((row.fulfillmentStage ?? row.fulfillmentStatus).toLowerCase()) && row.approvalStatus !== "pending").length,
+    pending: requests.filter(row => row.approvalStatus === "pending").length,
+    closed: requests.filter(row => ["completed", "rejected", "closed", "cancelled"].includes((row.fulfillmentStage ?? row.fulfillmentStatus).toLowerCase())).length,
+  };
   const selected = requests.find(request => request.id === selectedId);
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/service-requests", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
@@ -299,15 +312,20 @@ export function ServiceRequestsPage() {
   const manager = user?.permissions?.includes("ticket_manage");
   return <div className="space-y-5 p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Request Tracker" description="Track request stages, approvals, and asset fulfillment." showAddButton={false} showSearch={false} /></div>
-    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{requestMetrics.map(([label, count]) => <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></CardContent></Card>)}</div>
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{requestMetrics.map(({ label, count, icon: Icon, color }) => <Card key={label} className="overflow-hidden border-l-4" style={{ borderLeftColor: color }}><CardContent className="flex items-center justify-between gap-3 p-4"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></div><Icon aria-hidden="true" className="h-5 w-5 shrink-0" style={{ color }} /></CardContent></Card>)}</div>
     <div className="space-y-2">
-      <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search service requests" placeholder="Search reference, requester, email, phone, project, or title…" />
-      <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
-        { value: "mine", label: "My Requests" },
-        { value: "assigned", label: "Assigned to Me / My Group" },
-        ...(canViewAll ? [{ value: "all" as const, label: "All Requests" }] : []),
-      ]} />
-      <QueuePills label="Service request status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions} />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input className="min-w-0 flex-1" value={search} onChange={event => setSearch(event.target.value)} aria-label="Search service requests" placeholder="Search reference, requester, email, phone, project, or title…" />
+        <label className="grid shrink-0 gap-1 text-xs font-medium text-muted-foreground sm:w-56"><span>Filter by Assignee</span><select className="h-10 w-full rounded-md border bg-background px-3 text-sm font-normal text-foreground" value={assigneeFilter} onChange={event => setAssigneeFilter(event.target.value)}><option value="">All Assignees</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-2.5">
+        <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
+          { value: "mine", label: "My Requests", count: requestQueueCounts.mine },
+          { value: "assigned", label: "Assigned to Me", count: requestQueueCounts.assigned },
+          ...(canViewAll ? [{ value: "all" as const, label: "All Requests", count: requestQueueCounts.all }] : []),
+        ]} />
+        <QueuePills label="Service request status" value={lifecycleFilter} onChange={setLifecycleFilter} options={lifecycleOptions.map(option => ({ ...option, count: requestStatusCounts[option.value] }))} />
+      </div>
     </div>
     <Card className="overflow-hidden">{isLoading ? <p className="p-6 text-sm text-muted-foreground">Loading service requests…</p> : visibleRequests.length === 0 ? <div className="p-12 text-center"><h2 className="font-semibold">No service requests in this view</h2><p className="mt-1 text-sm text-muted-foreground">Try another queue or status filter.</p></div> :
       <Table><TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Request Date</TableHead><TableHead>Target Completion</TableHead><TableHead>Completed</TableHead><TableHead>Catalog Item</TableHead><TableHead>Stage</TableHead><TableHead>Approval</TableHead><TableHead>Project</TableHead><TableHead>Assignment Group</TableHead><TableHead>Assignee</TableHead><TableHead>Cost</TableHead><TableHead>Requester</TableHead></TableRow></TableHeader>
