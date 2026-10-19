@@ -15,7 +15,8 @@ import Header from "@/components/layout/header";
 import type { ChangeReportRow } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 50;
 
 interface ChangeReportSummary {
   total: number;
@@ -90,6 +91,7 @@ export default function ChangesReport() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const exportInProgress = useRef(false);
@@ -108,9 +110,9 @@ export default function ChangesReport() {
   }, [search, debouncedSearch]);
 
   const { data: report, isLoading, isFetching, isError } = useQuery<ChangeReportPage>({
-    queryKey: ["/api/reports/changes", page, debouncedSearch, statusFilter, typeFilter, riskFilter],
+    queryKey: ["/api/reports/changes", page, pageSize, debouncedSearch, statusFilter, typeFilter, riskFilter],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
@@ -131,7 +133,7 @@ export default function ChangesReport() {
   const records = report?.changes ?? [];
   const filtered = records;
   const total = report?.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const summary = report?.summary ?? {
     total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0,
     inProgress: 0, completed: 0, emergency: 0,
@@ -432,6 +434,20 @@ export default function ChangesReport() {
                 <SelectItem value="critical">Critical</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page</span>
+              <Select value={String(pageSize)} onValueChange={(value) => {
+                setPageSize(Number(value));
+                setPage(1);
+              }}>
+                <SelectTrigger className="w-[100px]" aria-label="Rows per page"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {(search || statusFilter !== "all" || typeFilter !== "all" || riskFilter !== "all") && (
               <Button variant="ghost" size="sm" onClick={() => { setSearch(""); setDebouncedSearch(""); setStatusFilter("all"); setTypeFilter("all"); setRiskFilter("all"); setPage(1); }}>
                 Clear filters
@@ -442,7 +458,7 @@ export default function ChangesReport() {
           <p className="text-sm text-muted-foreground mb-3">
             Showing <span className="font-medium">{printChanges
               ? `${printChanges.length}`
-              : total === 0 ? "0" : `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, total)}`}</span> of{" "}
+              : total === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`}</span> of{" "}
             <span className="font-medium">{total}</span> matching changes
           </p>
 

@@ -222,6 +222,52 @@ describe("change report page", () => {
     expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("page") === "1")).toBe(true);
   });
 
+  it("offers supported page sizes, updates ranges, and resets to page one when the size changes", async () => {
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    const pageSizeSelect = screen.getByRole("combobox", { name: "Rows per page" });
+    await user.click(pageSizeSelect);
+    for (const size of ["25", "50", "100"]) {
+      expect(screen.getByRole("option", { name: size })).toBeTruthy();
+    }
+    await user.click(screen.getByRole("option", { name: "25" }));
+
+    expect(await screen.findByText("Page 1 of 3")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("Showing 1–25 of 51 matching changes") === true,
+    )).toBeTruthy();
+    expect(requests.some(url => {
+      const params = new URL(url, "http://report.test").searchParams;
+      return params.get("page") === "1" && params.get("pageSize") === "25";
+    })).toBe(true);
+    expect(summaryValue("Total")).toBe("51");
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Report change 26")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("Showing 26–50 of 51 matching changes") === true,
+    )).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Report change 51")).toBeTruthy();
+    expect(screen.getByText("Page 3 of 3")).toBeTruthy();
+
+    await user.click(pageSizeSelect);
+    await user.click(screen.getByRole("option", { name: "100" }));
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+    expect(screen.getByText("Page 1 of 1")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("Showing 1–51 of 51 matching changes") === true,
+    )).toBeTruthy();
+    expect(summaryValue("Total")).toBe("51");
+    expect(requests.some(url => {
+      const params = new URL(url, "http://report.test").searchParams;
+      return params.get("page") === "1" && params.get("pageSize") === "100";
+    })).toBe(true);
+  });
+
   it.each(["Excel", "PDF", "Print"])("loads every matching page with active filters for %s export", async (exportType) => {
     const user = userEvent.setup();
     reportRows = Array.from({ length: 251 }, (_, index) => ({
