@@ -28,7 +28,10 @@ export function assertAdditiveMigration(sql: string, name: string): void {
   if (!statements.length) throw new Error(`Migration ${name} is empty.`);
 
   for (const statement of statements) {
-    if (/\b(DROP|DELETE|TRUNCATE|RENAME|UPDATE|ALTER COLUMN)\b/i.test(statement)) {
+    if (
+      /^\s*(?:DROP|DELETE\b|TRUNCATE|RENAME|UPDATE)\b/i.test(statement) ||
+      /^ALTER TABLE\b[\s\S]*\b(?:DROP|ALTER COLUMN|RENAME)\b/i.test(statement)
+    ) {
       throw new Error(`Migration ${name} contains a destructive SQL operation.`);
     }
     const allowed =

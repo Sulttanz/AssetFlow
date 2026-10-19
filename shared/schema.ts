@@ -43,6 +43,17 @@ export const departments = pgTable("departments", {
   locationId: varchar("location_id"),
 });
 
+export const projects = pgTable("projects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true });
+export type Project = typeof projects.$inferSelect;
+export type InsertProject = z.infer<typeof insertProjectSchema>;
+
 export const assets = pgTable("assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   
@@ -1195,6 +1206,11 @@ export const incidents = pgTable("incidents", {
   priority: text("priority").notNull().default("P3"),
   status: text("status").notNull().default("New"),
   category: text("category"),
+  creatorId: varchar("creator_id").references(() => users.id, { onDelete: "set null" }),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  slaPolicyId: varchar("sla_policy_id").references(() => slaPolicies.id, { onDelete: "set null" }),
+  assignmentGroup: text("assignment_group"),
+  assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
   requesterId: varchar("requester_id").references(() => users.id, { onDelete: "set null" }),
   assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
@@ -1203,13 +1219,25 @@ export const incidents = pgTable("incidents", {
   resolveDueAt: timestamp("resolve_due_at"),
   firstRespondedAt: timestamp("first_responded_at"),
   resolvedAt: timestamp("resolved_at"),
+  closedAt: timestamp("closed_at"),
   resolutionCode: text("resolution_code"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 }, table => [
   index("incidents_status_priority_idx").on(table.status, table.priority),
   index("incidents_assigned_to_idx").on(table.assignedToId),
+  index("incidents_project_id_idx").on(table.projectId),
+  index("incidents_creator_id_idx").on(table.creatorId),
 ]);
+
+export const incidentActivities = pgTable("incident_activities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id").notNull().references(() => incidents.id, { onDelete: "cascade" }),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+}, table => [index("incident_activities_incident_created_idx").on(table.incidentId, table.createdAt)]);
 
 export const serviceRequests = pgTable("service_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

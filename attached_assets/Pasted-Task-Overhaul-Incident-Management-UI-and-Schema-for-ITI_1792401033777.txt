@@ -1,0 +1,26 @@
+Task: Overhaul Incident Management UI and Schema for ITIL v4 and Multi-Project Support
+
+The current Incident view is too basic and cluttered. Please refactor the Incident Management module in our database schema, backend routes, and frontend UI to meet enterprise ITIL standards:
+
+1. **Database Schema Enhancements (`shared/schema.ts`):**
+   - Update the `incidents` table to include:
+     * `creator_id` (foreign key to users - who opened the ticket)
+     * `project_id` (nullable foreign key to a `projects` table for multi-project tracking)
+     * `sla_policy_id` (foreign key linking the incident to its specific project/SLA policy)
+     * `assignment_group` (text or enum: e.g., "L1 Helpdesk", "Network Team", "IT Infrastructure")
+     * `assignee_id` (foreign key to users - individual assigned engineer)
+     * `resolution_code` (e.g., "Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "Vendor Escalation")
+     * `resolved_at` (timestamp)
+     * `closed_at` (timestamp)
+
+2. **Backend Storage & API Updates (`server/storage.ts` & `server/routes.ts`):**
+   - Update incident creation to automatically capture the authenticated user as `creator_id`.
+   - Add endpoints to assign incidents to specific teams/agents, update resolution codes, and transition statuses (`New` -> `In Progress` -> `Pending` -> `Resolved` -> `Closed`).
+
+3. **Frontend UI Overhaul (`client/src/pages/incidents.tsx`):**
+   - **Remove the messy inline form** from the top of the page.
+   - **Add an "Create Incident" Button** that opens a clean modal or slide-over drawer for intake.
+   - **Transform the main view into a professional Data Table / Grid** displaying: Incident ID, Title, Priority (P1-P4 with color badges), Status, Project Name, Assignment Group, Assignee, SLA Due Timers, and Created By.
+   - **Add a rich Incident Detail Drawer/Page** where engineers can update assignment groups, assign agents, change statuses, select resolution codes, and view full activity logs.
+
+Please perform these updates so the Incident module looks and acts like an enterprise-grade ITSM tool, and verify with `npm run check`.

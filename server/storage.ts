@@ -1841,6 +1841,11 @@ export class MemStorage implements IStorage {
       priority: input.priority ?? "P3",
       status: input.status ?? "New",
       category: input.category ?? null,
+      creatorId: input.creatorId ?? null,
+      projectId: input.projectId ?? null,
+      slaPolicyId: input.slaPolicyId ?? null,
+      assignmentGroup: input.assignmentGroup ?? null,
+      assigneeId: input.assigneeId ?? null,
       assignedToId: input.assignedToId ?? null,
       requesterId: input.requesterId ?? null,
       assetId: input.assetId ?? null,
@@ -1849,6 +1854,7 @@ export class MemStorage implements IStorage {
       resolveDueAt: input.resolveDueAt ?? sla.slaResolutionDueAt,
       firstRespondedAt: input.firstRespondedAt ?? null,
       resolvedAt: input.resolvedAt ?? null,
+      closedAt: input.closedAt ?? null,
       resolutionCode: input.resolutionCode ?? null,
       createdAt: now,
       updatedAt: now,
@@ -3710,12 +3716,22 @@ export class DatabaseStorage implements IStorage {
   }
   async createIncident(input: InsertIncident): Promise<Incident> {
     const priorityMap: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
-    const sla = await computeTicketSlaDates(priorityMap[input.priority ?? "P3"] ?? "medium", new Date(), "incident", input.category);
+    const now = new Date();
+    const sla = await computeTicketSlaDates(priorityMap[input.priority ?? "P3"] ?? "medium", now, "incident", input.category);
+    const selectedPolicy = input.slaPolicyId
+      ? (await db.select().from(slaPolicies).where(and(eq(slaPolicies.id, input.slaPolicyId), eq(slaPolicies.isActive, true))))[0]
+      : undefined;
+    const responseDueAt = selectedPolicy
+      ? new Date(now.getTime() + selectedPolicy.responseHours * 60 * 60 * 1000)
+      : sla.slaResponseDueAt;
+    const resolveDueAt = selectedPolicy
+      ? new Date(now.getTime() + selectedPolicy.resolutionHours * 60 * 60 * 1000)
+      : sla.slaResolutionDueAt;
     const result = await db.insert(incidents).values({
       ...input,
       incidentNumber: `INC-${randomUUID().slice(0, 8).toUpperCase()}`,
-      responseDueAt: input.responseDueAt ?? sla.slaResponseDueAt,
-      resolveDueAt: input.resolveDueAt ?? sla.slaResolutionDueAt,
+      responseDueAt: input.responseDueAt ?? responseDueAt,
+      resolveDueAt: input.resolveDueAt ?? resolveDueAt,
     }).returning();
     return result[0];
   }

@@ -14,7 +14,7 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, users, assets,
-  incidents, serviceRequests, insertIncidentSchema, insertServiceRequestSchema
+  incidents, incidentActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -813,9 +813,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getIncidents();
       const canViewAll = await canManageAllTickets(req.user.id);
-      res.json(canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id));
+      const visibleRows = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id || row.assignedToId === req.user.id || row.assigneeId === req.user.id);
+      const [projectRows, userRows] = await Promise.all([
+        db.select({ id: projects.id, name: projects.name }).from(projects),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
+      ]);
+      const projectNames = new Map(projectRows.map(project => [project.id, project.name]));
+      const userNames = new Map(userRows.map(user => [user.id, [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username]));
+      res.json(visibleRows.map(row => ({
+        ...row,
+        projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
+        creatorName: row.creatorId ? userNames.get(row.creatorId) ?? null : null,
+        assigneeName: (row.assigneeId || row.assignedToId) ? userNames.get(row.assigneeId || row.assignedToId!) ?? null : null,
+      })));
     } catch {
       res.status(500).json({ message: "Failed to fetch incidents" });
+    }
+  });
+
+  app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const [projectRows, userRows, policyRows] = await Promise.all([
+        db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.isActive, true)),
+        db.select({ id: slaPolicies.id, name: slaPolicies.name, priority: slaPolicies.priority, ticketType: slaPolicies.ticketType }).from(slaPolicies).where(eq(slaPolicies.isActive, true)),
+      ]);
+      res.json({
+        projects: projectRows,
+        users: await canManageAllTickets(req.user.id)
+          ? userRows.map(user => ({ id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username }))
+          : [],
+        slaPolicies: policyRows.filter(policy => !policy.ticketType || policy.ticketType === "incident"),
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to load incident options" });
+    }
+  });
+
+  app.post("/api/incidents/projects", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
+    try {
+      const projectData = insertProjectSchema.pick({ name: true, description: true }).parse(req.body);
+      const [project] = await db.insert(projects).values(projectData).returning({ id: projects.id, name: projects.name });
+      res.status(201).json(project);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid project", errors: error.errors });
+      res.status(409).json({ message: "A project with this name may already exist" });
     }
   });
 
@@ -823,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.assignedToId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(incident);
@@ -832,13 +874,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/incidents/:id/activity", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && incident.assignedToId !== req.user.id && incident.assigneeId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const rows = await db.select({
+        id: incidentActivities.id, action: incidentActivities.action, details: incidentActivities.details,
+        createdAt: incidentActivities.createdAt, actorId: incidentActivities.actorId,
+        actorName: users.username,
+      }).from(incidentActivities).leftJoin(users, eq(users.id, incidentActivities.actorId))
+        .where(eq(incidentActivities.incidentId, incident.id));
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch incident activity" });
+    }
+  });
+
   app.post("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const parsed = insertIncidentSchema.parse({ ...req.body, requesterId: req.user.id });
+      const parsed = insertIncidentSchema.parse({ ...req.body, creatorId: req.user.id, requesterId: req.user.id });
       if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
+      if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
+      if (parsed.slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(and(eq(slaPolicies.id, parsed.slaPolicyId), eq(slaPolicies.isActive, true)))).length) {
+        return res.status(400).json({ message: "Active SLA policy not found" });
+      }
       const incident = await storage.createIncident({ ...parsed, status: "New" });
+      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Incident created", details: incident.title });
       await logAudit(req.user.id, "CREATE", "incidents", incident.id, incident.title, null, incident, req);
       res.status(201).json(incident);
     } catch (error) {
@@ -847,17 +915,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/incidents/:id/assignment", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const schema = z.object({ assignmentGroup: z.string().trim().max(120).nullable().optional(), assigneeId: z.string().uuid().nullable().optional() });
+      const assignment = schema.parse(req.body);
+      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (assignment.assigneeId && !(await storage.getUser(assignment.assigneeId))) return res.status(400).json({ message: "Assignee not found" });
+      const updated = await storage.updateIncident(incident.id, {
+        ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
+        ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
+      });
+      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignment.assignmentGroup ?? incident.assignmentGroup ?? "Unassigned"}; assignee: ${assignment.assigneeId ?? incident.assigneeId ?? "Unassigned"}` });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+      res.status(500).json({ message: "Failed to update incident assignment" });
+    }
+  });
+
+  app.patch("/api/incidents/:id/status", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const { status, resolutionCode } = z.object({
+        status: z.enum(["New", "In Progress", "Pending", "Resolved", "Closed"]),
+        resolutionCode: z.string().trim().max(120).nullable().optional(),
+      }).parse(req.body);
+      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (status === "Resolved" && !resolutionCode?.trim() && !incident.resolutionCode) {
+        return res.status(400).json({ message: "A resolution code is required before resolving an incident" });
+      }
+      const now = new Date();
+      const updated = await storage.updateIncident(incident.id, {
+        status,
+        ...(resolutionCode !== undefined ? { resolutionCode: resolutionCode || null } : {}),
+        ...(status === "Resolved" && incident.status !== "Resolved" ? { resolvedAt: now } : {}),
+        ...(status === "Closed" && incident.status !== "Closed" ? { closedAt: now } : {}),
+      });
+      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Status changed", details: `${incident.status} → ${status}${resolutionCode ? ` · ${resolutionCode}` : ""}` });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.errors });
+      res.status(500).json({ message: "Failed to update incident status" });
+    }
+  });
+
   app.put("/api/incidents/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
-      const parsed = insertIncidentSchema.partial().parse(req.body);
+      const parsed = insertIncidentSchema.partial().omit({
+        creatorId: true,
+        requesterId: true,
+        resolvedAt: true,
+        closedAt: true,
+        firstRespondedAt: true,
+      }).parse(req.body);
       if (parsed.priority && !["P1", "P2", "P3", "P4"].includes(parsed.priority)) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
-      if (parsed.status && !["New", "In Progress", "Resolved", "Closed"].includes(parsed.status)) {
+      if (parsed.status && !["New", "In Progress", "Pending", "Resolved", "Closed"].includes(parsed.status)) {
         return res.status(400).json({ message: "Invalid incident status" });
       }
-      const incident = await storage.updateIncident(req.params.id, parsed);
+      const oldIncident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (parsed.status === "Resolved" && !parsed.resolutionCode?.trim() && !oldIncident?.resolutionCode) {
+        return res.status(400).json({ message: "A resolution code is required before resolving an incident" });
+      }
+      const lifecycleFields = parsed.status ? {
+        ...(parsed.status === "Resolved" && oldIncident?.status !== "Resolved" ? { resolvedAt: new Date() } : {}),
+        ...(parsed.status === "Closed" && oldIncident?.status !== "Closed" ? { closedAt: new Date() } : {}),
+      } : {};
+      const incident = await storage.updateIncident(req.params.id, { ...parsed, ...lifecycleFields });
       if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (parsed.status && oldIncident?.status !== parsed.status) {
+        await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: (req as any).user.id, action: "Status changed", details: `${oldIncident?.status ?? "Unknown"} → ${parsed.status}` });
+      }
       res.json(incident);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.errors });

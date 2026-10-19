@@ -55,3 +55,10 @@ A ticket's `requesterId` points to `users`, but email/mobile/job title/departmen
 `/reports/tickets` fetches `["/api/reports/tickets"]`, a separate cache key from `["/api/tickets"]` used by the Tickets and Assign Tickets pages, even though both endpoints return the same ticket data. Any mutation that changes ticket status/assignment must invalidate both keys or the report page shows stale status until a hard reload.
 
 **Why:** discovered as a bug — status changes on the Tickets/Assignment pages weren't reflected in the Ticket Report because only `/api/tickets` was invalidated.
+
+## Dedicated incident activity history
+New incidents use `incident_activities` for creation, assignment, and workflow events. Do not store these records only in `ticket_comments`: that table requires a legacy ticket foreign key, which a newly created dedicated incident does not have.
+
+**Why:** preserving comments as user-authored messages and maintaining referential integrity are both important; a separate activity stream fits incident records that no longer have a legacy ticket row.
+
+**How to apply:** add new incident lifecycle events to the incident activity stream and enforce visibility through the incident's requester/creator/assignee or ticket-manager access.

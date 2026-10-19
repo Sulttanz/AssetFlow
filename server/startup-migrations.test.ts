@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -72,6 +72,14 @@ describe("on-prem startup migrations", () => {
       "DELETE FROM assets;",
       "unsafe.sql",
     )).toThrow(/destructive|non-additive or unsupported/);
+  });
+
+  it("accepts the incident migration's additive foreign keys and activity table", async () => {
+    const migration = await readFile(
+      path.resolve(process.cwd(), "migrations/onprem/20261020_incident_management.sql"),
+      "utf8",
+    );
+    expect(() => assertAdditiveMigration(migration, "20261020_incident_management.sql")).not.toThrow();
   });
 
   it("compares configured release versions numerically", () => {
