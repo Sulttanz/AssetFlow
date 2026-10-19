@@ -13,7 +13,7 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users, assets,
+  assetAttachments, ticketAttachments, risks, changes, users, employees, assets,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
@@ -814,17 +814,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rows = await storage.getIncidents();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
       const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id);
-      const [projectRows, userRows] = await Promise.all([
+      const [projectRows, userRows, employeeRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
-        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
+        db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees),
       ]);
       const projectNames = new Map(projectRows.map(project => [project.id, project.name]));
-      const userNames = new Map(userRows.map(user => [user.id, [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username]));
+      const userDetails = new Map(userRows.map(user => [user.id, {
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
+        email: user.email,
+      }]));
+      const employeeContacts = new Map(employeeRows.map(employee => [employee.email.toLowerCase(), {
+        phone: employee.phone,
+        mobile: employee.mobile,
+      }]));
       res.json(visibleRows.map(row => ({
         ...row,
         projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
-        creatorName: row.creatorId ? userNames.get(row.creatorId) ?? null : null,
-        assigneeName: (row.assigneeId || row.assignedToId) ? userNames.get(row.assigneeId || row.assignedToId!) ?? null : null,
+        creatorName: row.creatorId ? userDetails.get(row.creatorId)?.name ?? null : null,
+        creatorEmail: row.creatorId ? userDetails.get(row.creatorId)?.email ?? null : null,
+        creatorPhone: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email.toLowerCase() ?? "")?.phone ?? null : null,
+        creatorMobile: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email.toLowerCase() ?? "")?.mobile ?? null : null,
+        requesterName: row.requesterId ? userDetails.get(row.requesterId)?.name ?? null : null,
+        requesterEmail: row.requesterId ? userDetails.get(row.requesterId)?.email ?? null : null,
+        requesterPhone: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.phone ?? null : null,
+        requesterMobile: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null : null,
+        assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
     } catch {
       res.status(500).json({ message: "Failed to fetch incidents" });
@@ -1020,21 +1035,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rows = await storage.getServiceRequests();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
       const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id);
-      const [projectRows, userRows, catalogRows] = await Promise.all([
+      const [projectRows, userRows, catalogRows, employeeRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
-        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName }).from(users),
+        db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
         db.select({ id: catalogItems.id, name: catalogItems.name }).from(catalogItems),
+        db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees),
       ]);
       const projectNames = new Map(projectRows.map(row => [row.id, row.name]));
-      const userNames = new Map(userRows.map(row => [row.id, [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username]));
+      const userDetails = new Map(userRows.map(user => [user.id, {
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
+        email: user.email,
+      }]));
+      const employeeContacts = new Map(employeeRows.map(employee => [employee.email.toLowerCase(), {
+        phone: employee.phone,
+        mobile: employee.mobile,
+      }]));
       const catalogNames = new Map(catalogRows.map(row => [row.id, row.name]));
       res.json(visible.map(row => ({
         ...row,
         fulfillmentStage: row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted",
         projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
         catalogItemName: row.catalogItemId ? catalogNames.get(row.catalogItemId) ?? null : null,
-        requesterName: userNames.get(row.requesterId) ?? null,
-        assigneeName: (row.assigneeId || row.assignedToId) ? userNames.get(row.assigneeId || row.assignedToId!) ?? null : null,
+        requesterName: userDetails.get(row.requesterId)?.name ?? null,
+        requesterEmail: userDetails.get(row.requesterId)?.email ?? null,
+        requesterPhone: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.phone ?? null,
+        requesterMobile: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null,
+        assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
     } catch {
       res.status(500).json({ message: "Failed to fetch service requests" });

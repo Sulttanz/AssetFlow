@@ -26,8 +26,8 @@ function Field({ label, children, hint }: { label: string; children: React.React
 function PageFrame({ children }: { children: React.ReactNode }) {
   return <main className="min-h-[100dvh] bg-[#f2f7f5] px-4 py-6 text-[#193638] sm:px-7 sm:py-9">
     <div className="mx-auto max-w-5xl">
-      <Link href="/incidents" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]">
-        <ArrowLeft className="h-4 w-4" /> Back to incidents
+      <Link href="/portal" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]">
+        <ArrowLeft className="h-4 w-4" /> Back to portal
       </Link>
       {children}
     </div>
@@ -58,7 +58,7 @@ export default function NewIncidentPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       toast({ title: "Incident submitted", description: "Your support team can now triage the issue." });
-      navigate("/incidents");
+      navigate("/portal");
     },
     onError: (error: Error) => toast({ title: "Incident could not be submitted", description: error.message, variant: "destructive" }),
   });
@@ -160,7 +160,7 @@ export default function NewIncidentPage() {
             {createIncident.isPending ? "Submitting incident…" : "Submit incident"}
           </Button>
           <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white">
-            <Link href="/incidents">Cancel</Link>
+            <Link href="/portal">Cancel</Link>
           </Button>
         </div>
       </aside>

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { type Asset, type Incident, type ServiceRequest } from "@shared/schema";
 import Header from "@/components/layout/header";
@@ -47,9 +46,21 @@ function formatRequestTimestamp(value: string | Date | null | undefined): string
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
 }
 
+function matchesSmartSearch(query: string, values: unknown[]): boolean {
+  const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const searchable = values.filter(value => value !== null && value !== undefined).join(" ").toLocaleLowerCase();
+  const compact = searchable.replace(/[^a-z0-9]/gi, "");
+  return tokens.every(token => {
+    const normalizedToken = token.replace(/[^a-z0-9]/gi, "");
+    return searchable.includes(token) || (normalizedToken.length > 0 && compact.includes(normalizedToken));
+  });
+}
+
 export function IncidentsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolutionCode, setResolutionCode] = useState("");
   const { user } = useAuth();
@@ -57,7 +68,13 @@ export function IncidentsPage() {
   const { data: incidents = [], isLoading } = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
   const canViewAll = canAccessItsmWorkbench(user);
   const visibleIncidents = incidents.filter(incident => {
-    const row = incident as Incident & { creatorId?: string | null; requesterId?: string | null; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
+    const row = incident as Incident & {
+      creatorId?: string | null; requesterId?: string | null; assignmentGroup?: string | null;
+      assigneeId?: string | null; assignedToId?: string | null; creatorName?: string | null;
+      requesterName?: string | null; creatorEmail?: string | null; requesterEmail?: string | null;
+      creatorPhone?: string | null; creatorMobile?: string | null; requesterPhone?: string | null;
+      requesterMobile?: string | null; projectName?: string | null;
+    };
     const matchesQueue = queueScope === "mine"
       ? row.creatorId === user?.id || row.requesterId === user?.id
       : queueScope === "assigned"
@@ -68,7 +85,12 @@ export function IncidentsPage() {
       (lifecycleFilter === "active" && ["new", "open", "in progress", "in_progress"].includes(status)) ||
       (lifecycleFilter === "pending" && status === "pending") ||
       (lifecycleFilter === "closed" && ["resolved", "closed"].includes(status));
-    return matchesQueue && matchesLifecycle;
+    return matchesQueue && matchesLifecycle && matchesSmartSearch(search, [
+      row.incidentNumber, row.title, row.creatorName, row.requesterName,
+      row.creatorEmail, row.requesterEmail, row.creatorPhone, row.creatorMobile,
+      row.requesterPhone, row.requesterMobile,
+      row.projectName, row.projectId,
+    ]);
   });
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const selected = incidents.find(incident => incident.id === selectedId);
@@ -97,8 +119,9 @@ export function IncidentsPage() {
   });
 
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Management" description="Prioritize service disruptions and coordinate resolution across teams." showAddButton={false} /><Button asChild><Link href="/incidents/new">Create Incident</Link></Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Incident Tracker" description="Triage, assign, and resolve incidents across support queues." showAddButton={false} /></div>
     <div className="space-y-3">
+      <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search incidents" placeholder="Search reference, requester, email, phone, project, or title…" />
       <QueuePills label="Incident queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Incidents" },
         { value: "assigned", label: "Assigned to Me / My Group" },
@@ -143,6 +166,7 @@ export function IncidentsPage() {
 export function ServiceRequestsPage() {
   const [queueScope, setQueueScope] = useState<QueueScope>("mine");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -152,7 +176,11 @@ export function ServiceRequestsPage() {
   const { data: requests = [], isLoading } = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
   const canViewAll = canAccessItsmWorkbench(user);
   const visibleRequests = requests.filter(request => {
-    const row = request as ServiceRequest & { assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
+    const row = request as ServiceRequest & {
+      assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null;
+      requesterName?: string | null; requesterEmail?: string | null; requesterPhone?: string | null;
+      requesterMobile?: string | null; projectName?: string | null;
+    };
     const matchesQueue = queueScope === "mine"
       ? row.requesterId === user?.id
       : queueScope === "assigned"
@@ -163,7 +191,11 @@ export function ServiceRequestsPage() {
       (lifecycleFilter === "active" && !["completed", "rejected", "closed"].includes(stage) && row.approvalStatus !== "pending") ||
       (lifecycleFilter === "pending" && row.approvalStatus === "pending") ||
       (lifecycleFilter === "closed" && ["completed", "rejected", "closed"].includes(stage));
-    return matchesQueue && matchesLifecycle;
+    return matchesQueue && matchesLifecycle && matchesSmartSearch(search, [
+      row.requestNumber, row.title, row.requesterName, row.requesterEmail,
+      row.requesterPhone, row.requesterMobile,
+      row.projectName, row.projectId,
+    ]);
   });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
   const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
@@ -207,8 +239,9 @@ export function ServiceRequestsPage() {
   });
   const manager = user?.permissions?.includes("ticket_manage");
   return <div className="space-y-5 p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Service Requests" description="Track requests from intake through approval and fulfillment." showAddButton={false} /><Button asChild><Link href="/service-requests/new">Submit Request</Link></Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Request Tracker" description="Track request stages, approvals, and asset fulfillment." showAddButton={false} /></div>
     <div className="space-y-3">
+      <Input value={search} onChange={event => setSearch(event.target.value)} aria-label="Search service requests" placeholder="Search reference, requester, email, phone, project, or title…" />
       <QueuePills label="Service request queue" value={queueScope} onChange={setQueueScope} options={[
         { value: "mine", label: "My Requests" },
         { value: "assigned", label: "Assigned to Me / My Group" },

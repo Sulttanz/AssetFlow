@@ -57,7 +57,8 @@ import ServiceCatalog from "@/pages/service-catalog";
 import Changes from "@/pages/changes";
 import ChangeTracker from "@/pages/change-tracker";
 import RiskManagement from "@/pages/risk-management";
-import { IncidentsPage, ServiceRequestsPage } from "@/pages/incident-service-requests";
+import IncidentTracker from "@/pages/incident-tracker";
+import ServiceRequestTracker from "@/pages/service-request-tracker";
 import KpiDashboard from "@/pages/kpis";
 import PortalPage from "@/pages/portal";
 import NewIncidentPage from "@/pages/new-incident";
@@ -131,8 +132,10 @@ function Router() {
                   <ProtectedRoute path="/incidents/new" component={NewIncidentPage} requiredModule="itsm" />
                   <ProtectedRoute path="/service-requests/new" component={NewServiceRequestPage} requiredModule="itsm" />
                   <ProtectedRoute path="/changes/new" component={NewChangePage} requiredModule="itsm" />
-                  <ProtectedRoute path="/incidents" component={IncidentsPage} requiredModule="itsm" requiresItsmWorkbench />
-                  <ProtectedRoute path="/service-requests" component={ServiceRequestsPage} requiredModule="itsm" requiresItsmWorkbench />
+                  <ProtectedRoute path="/incidents/tracker" component={IncidentTracker} requiredModule="itsm" requiresItsmWorkbench />
+                  <ProtectedRoute path="/service-requests/tracker" component={ServiceRequestTracker} requiredModule="itsm" requiresItsmWorkbench />
+                  <ProtectedRoute path="/incidents" component={NewIncidentPage} requiredModule="itsm" />
+                  <ProtectedRoute path="/service-requests" component={NewServiceRequestPage} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/problems" component={ProblemsReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />

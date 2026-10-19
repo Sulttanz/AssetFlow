@@ -105,7 +105,7 @@ export default function NewServiceRequestPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] });
       toast({ title: "Service request submitted", description: "You can follow its progress in your requests." });
-      navigate("/service-requests");
+      navigate("/portal");
     },
     onError: (error: Error) => {
       setPartialFailure(error.message.includes("was created, but") ? error.message : "");
@@ -148,7 +148,7 @@ export default function NewServiceRequestPage() {
 
   return <main className="min-h-[100dvh] bg-[#f2f7f5] px-4 py-6 text-[#193638] sm:px-7 sm:py-9">
     <div className="mx-auto max-w-5xl">
-      <Link href="/service-requests" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]"><ArrowLeft className="h-4 w-4" /> Back to service requests</Link>
+      <Link href="/portal" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]"><ArrowLeft className="h-4 w-4" /> Back to portal</Link>
       <header className="mb-7 mt-7 border-b border-[#d9e5e1] pb-6 sm:mt-9">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d1e1da] bg-[#e8f2ed] px-3 py-1.5 text-xs font-semibold uppercase tracking-[.13em] text-[#47716a]"><Wrench className="h-3.5 w-3.5" /> Service request</div>
         <h1 className="font-display text-3xl font-semibold tracking-[-.045em] text-[#183c3d] sm:text-4xl">Request a service</h1>
@@ -233,7 +233,7 @@ export default function NewServiceRequestPage() {
           <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createRequest.isPending || Boolean(partialFailure)}>
             {createRequest.isPending ? "Submitting request…" : partialFailure ? "Request created" : "Submit request"}
           </Button>
-          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white" disabled={createRequest.isPending}><Link href="/service-requests">Cancel</Link></Button>
+          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white" disabled={createRequest.isPending}><Link href="/portal">Cancel</Link></Button>
         </aside>
       </form>
     </div>

@@ -75,7 +75,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: !isItsmStaff },
       ]
     },
     {
@@ -125,11 +125,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Incidents", href: "/incidents", icon: Ticket, current: location === "/incidents" },
+        { name: "Incident Tracker", href: "/incidents/tracker", icon: AlertTriangle, current: location === "/incidents/tracker" },
         { name: "Service Requests", href: "/service-requests", icon: ClipboardList, current: location === "/service-requests" },
+        { name: "Request Tracker", href: "/service-requests/tracker", icon: ClipboardCheck, current: location === "/service-requests/tracker" },
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: isItsmStaff },
       ]
     },
     {
@@ -241,7 +244,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </button>
                 {isSectionExpanded && (
                   <div className="space-y-0.5">
-                    {section.items.filter((item: any) => hasPermission(item.permission)).map((item: any) => {
+                    {section.items.filter((item: any) => hasPermission(item.permission) && item.visible !== false).map((item: any) => {
                       const Icon = item.icon;
 
                       if (item.hasSubmenu) {
