@@ -405,12 +405,31 @@ describe("change report page", () => {
     failExportPage = 2;
 
     render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    const searchInput = screen.getByPlaceholderText("Search change #, title...");
+    await user.type(searchInput, "Retry change");
     expect(await screen.findByText("Retry change 1")).toBeTruthy();
+    await waitFor(() => {
+      expect(requests.some(url =>
+        new URL(url, "http://report.test").searchParams.get("search") === "Retry change",
+      )).toBe(true);
+    });
+    requests = [];
 
     await user.click(screen.getByRole("button", { name: exportType }));
     const errorNotice = await screen.findByRole("alert");
     expect(errorNotice.textContent).toContain(`${exportType} report failed: 500: Batch 2 could not be loaded`);
     expect(within(errorNotice).getByRole("button", { name: `Retry ${exportType}` })).toBeTruthy();
+    expect(exportToExcel).not.toHaveBeenCalled();
+    expect(exportToPDF).not.toHaveBeenCalled();
+    expect(printMock).not.toHaveBeenCalled();
+    expect(requests.filter(url =>
+      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+    )).toHaveLength(2);
+    for (const url of requests) {
+      const params = new URL(url, "http://report.test").searchParams;
+      expect(params.get("search")).toBe("Retry change");
+      expect(params.get("pageSize")).toBe("100");
+    }
 
     failExportPage = null;
     await user.click(within(errorNotice).getByRole("button", { name: `Retry ${exportType}` }));
@@ -420,5 +439,14 @@ describe("change report page", () => {
       if (exportType === "Print") expect(printMock).toHaveBeenCalled();
     });
     expect(screen.queryByRole("alert")).toBeNull();
+    const retryRequests = requests.filter(url =>
+      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+    );
+    expect(retryRequests.map(url =>
+      new URL(url, "http://report.test").searchParams.get("page"),
+    )).toEqual(["1", "2", "1", "2", "3"]);
+    for (const url of retryRequests.slice(2)) {
+      expect(new URL(url, "http://report.test").searchParams.get("search")).toBe("Retry change");
+    }
   });
 });
