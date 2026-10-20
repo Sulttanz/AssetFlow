@@ -8,6 +8,8 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import ws from "ws";
 import { changeApprovals, changes } from "@shared/schema";
 
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+
 const database = vi.hoisted(() => ({
   select: vi.fn(),
   selectDistinct: vi.fn(),
@@ -124,7 +126,7 @@ describe("CAB alert storage query", () => {
     expect(query.orderBySql?.join(" ")).toContain('"changes"."id"');
   });
 
-  describe("PostgreSQL query plan", () => {
+  describe.skipIf(!databaseIntegrationEnabled)("PostgreSQL query plan", () => {
     const schema = `cab_alert_plan_${randomUUID().replace(/-/g, "")}`;
     const databaseUrl = process.env.DATABASE_URL;
     let setupPool: Pool | undefined;

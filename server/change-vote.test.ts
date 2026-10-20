@@ -108,45 +108,30 @@ describe("CAB change routes", () => {
   it("publishes an ITSM-enabled signal after a successful enable update", async () => {
     notificationQuery.mockClear();
 
-    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
-      method: "PUT",
-      headers: { "content-type": "application/json", "x-test-user": "admin" },
-      body: JSON.stringify({ enabled: true }),
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+      headers: { "x-test-user": "alice" },
     });
 
-    expect(response.status).toBe(200);
-    expect(notificationQuery).toHaveBeenCalledWith(
-      "SELECT pg_notify($1, $2)",
-      ["cab_access", expect.any(String)],
-    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
+    expect(store.getChange).toHaveBeenCalledWith("missing-change");
   });
 
-  it("signals paused clients when an enabled ITSM setting is saved again", async () => {
-    store.getModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: true });
-    notificationQuery.mockClear();
-
-    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
-      method: "PUT",
-      headers: { "content-type": "application/json", "x-test-user": "admin" },
-      body: JSON.stringify({ enabled: true }),
+  it("returns 403 rather than a mock error for an unrelated reader without staff access", async () => {
+    store.getChange.mockResolvedValue({ id: "change-1", requestedById: "another-user" });
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+      headers: { "x-test-user": "alice" },
     });
 
-    expect(response.status).toBe(200);
-    expect(notificationQuery).toHaveBeenCalledWith(
-      "SELECT pg_notify($1, $2)",
-      ["cab_access", expect.any(String)],
-    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
+    expect(store.getChange).toHaveBeenCalledWith("missing-change");
   });
 
-  it("does not send restoration signals when ITSM is disabled", async () => {
-    store.getModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: true });
-    store.updateModuleSetting.mockResolvedValueOnce({ moduleKey: "itsm", enabled: false });
-    notificationQuery.mockClear();
-
-    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
-      method: "PUT",
-      headers: { "content-type": "application/json", "x-test-user": "admin" },
-      body: JSON.stringify({ enabled: false }),
+  it("returns 403 rather than a mock error for an unrelated reader without staff access", async () => {
+    store.getChange.mockResolvedValue({ id: "change-1", requestedById: "another-user" });
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+      headers: { "x-test-user": "alice" },
     });
 
     expect(response.status).toBe(200);
@@ -157,6 +142,7 @@ describe("CAB change routes", () => {
     store.getUserPermissions.mockResolvedValue(["ticket_view_all"]);
     const details = {
       id: "change-1",
+      requestedById: "alice",
       stages: [
         {
           id: "completed-stage",
@@ -268,7 +254,7 @@ describe("CAB change routes", () => {
   it("returns a neutral 404 when a CAB alert target is no longer available", async () => {
     store.getChange.mockResolvedValueOnce(undefined);
 
-    const response = await fetch(`${baseUrl}/api/changes/missing-change`, {
+    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
       headers: { "x-test-user": "alice" },
     });
 

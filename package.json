@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "test": "vitest run --config vitest.config.ts",
+    "test": "node scripts/run-full-vitest.mjs",
     "test:cab-schema-sync": "node scripts/run-cab-schema-sync-test.mjs",
     "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "audit:security": "npm audit --audit-level=high",

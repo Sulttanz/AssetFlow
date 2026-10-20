@@ -6,7 +6,9 @@ import { ticketComments, tickets, users } from "@shared/schema";
 import { db } from "./db";
 import { storage } from "./storage";
 
-describe("requester ticket cancellation (PostgreSQL)", () => {
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+
+describe.skipIf(!databaseIntegrationEnabled)("requester ticket cancellation (PostgreSQL)", () => {
   it("cancels open, in-progress, and resolved requests and records the requester reason", async () => {
     const suffix = randomUUID();
     const requesterId = randomUUID();

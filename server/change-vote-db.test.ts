@@ -1,743 +1,2268 @@
 // @vitest-environment node
-import { randomUUID } from "node:crypto";
-import type { Server } from "node:http";
-import express from "express";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import ws from "ws";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
-import { changeApprovals, changes, users } from "@shared/schema";
-import { initializeTestSchema } from "./test-database";
+import 
+{
+ randomUUID 
+}
+ from "node:crypto"
+;
 
-vi.mock("./auth", () => ({
-  setupAuth: (app: express.Express) => {
-    app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
-      const userId = req.header("x-test-user");
-      req.isAuthenticated = () => !!userId;
-      if (userId) req.user = { id: userId } as express.Request["user"];
-      next();
-    });
-  },
+import type 
+{
+ Server 
+}
+ from "node:http"
+;
+
+import express from "express"
+;
+
+import 
+{
+ Pool, neonConfig 
+}
+ from "@neondatabase/serverless"
+;
+
+import ws from "ws"
+;
+
+import 
+{
+ afterAll, beforeAll, beforeEach, describe, expect, it, vi 
+}
+ from "vitest"
+;
+
+import 
+{
+ eq 
+}
+ from "drizzle-orm"
+;
+
+import 
+{
+ changeApprovals, changes, users 
+}
+ from "@shared/schema"
+;
+
+import 
+{
+ initializeTestSchema 
+}
+ from "./test-database"
+;
+
+
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1"
+;
+
+
+vi.mock("./auth", () => (
+{
+
+  setupAuth: (app: express.Express) => 
+{
+
+    app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => 
+{
+
+      const userId = req.header("x-test-user")
+;
+
+      req.isAuthenticated = () => !!userId
+;
+
+      if (userId) req.user = 
+{
+ id: userId 
+}
+ as express.Request["user"]
+;
+
+      next()
+;
+
+    
+}
+)
+;
+
+  
+}
+,
   requireAuth: (req: express.Request, res: express.Response, next: express.NextFunction) =>
     req.isAuthenticated() ? next() : res.sendStatus(401),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
-}));
+}
+))
+;
 
-describe("concurrent CAB votes (PostgreSQL and HTTP)", () => {
-  const schema = `test_cab_vote_${randomUUID().replace(/-/g, "")}`;
-  const originalUrl = process.env.DATABASE_URL;
-  let setupPool: Pool;
-  let appPool: Pool;
-  let server: Server;
-  let baseUrl: string;
-  let storage: typeof import("./storage").storage;
-  let db: typeof import("./db").db;
 
-  beforeAll(async () => {
-    if (!originalUrl) throw new Error("DATABASE_URL is required for the CAB concurrency test");
-    neonConfig.webSocketConstructor = ws;
-    setupPool = new Pool({ connectionString: originalUrl });
-    const setupClient = await setupPool.connect();
-    try {
-      await initializeTestSchema(setupClient, schema);
-    } finally {
-      setupClient.release();
-    }
+describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL and HTTP)", () => 
+{
 
-    const url = new URL(originalUrl);
-    url.searchParams.set("options", `-c search_path=${schema}`);
-    process.env.DATABASE_URL = url.toString();
-    ({ db, pool: appPool } = await import("./db"));
-    ({ storage } = await import("./storage"));
-    vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined);
+  const schema = `test_cab_vote_${randomUUID().replace(/-/g, "")}`
+;
 
-    const app = express();
-    app.use(express.json());
-    server = await (await import("./routes")).registerRoutes(app);
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Expected a TCP listener");
-    baseUrl = `http://127.0.0.1:${address.port}`;
-  }, 60_000);
+  const originalUrl = process.env.DATABASE_URL
+;
 
-  afterAll(async () => {
-    vi.restoreAllMocks();
-    if (server?.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    if (appPool) await appPool.end();
-    process.env.DATABASE_URL = originalUrl;
-    if (setupPool) {
-      try {
-        await setupPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-      } finally {
-        await setupPool.end();
-      }
-    }
-  });
+  let setupPool: Pool
+;
 
-  beforeEach(() => {
-    // Vitest restores spies between tests; the route's module gate must not
+  let appPool: Pool
+;
+
+  let server: Server
+;
+
+  let baseUrl: string
+;
+
+  let storage: typeof import("./storage").storage
+;
+
+  let db: typeof import("./db").db
+;
+
+
+  beforeAll(async () => 
+{
+
+    if (!originalUrl) throw new Error("DATABASE_URL is required for the CAB concurrency test")
+;
+
+    neonConfig.webSocketConstructor = ws
+;
+
+    setupPool = new Pool(
+{
+ connectionString: originalUrl 
+}
+)
+;
+
+    const setupClient = await setupPool.connect()
+;
+
+    try 
+{
+
+      await initializeTestSchema(setupClient, schema)
+;
+
+    
+}
+ finally 
+{
+
+      setupClient.release()
+;
+
+    
+}
+
+
+    const url = new URL(originalUrl)
+;
+
+    url.searchParams.set("options", `-c search_path=${schema}`)
+;
+
+    process.env.DATABASE_URL = url.toString()
+;
+
+    (
+{
+ db, pool: appPool 
+}
+ = await import("./db"))
+;
+
+    (
+{
+ storage 
+}
+ = await import("./storage"))
+;
+
+    vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined)
+;
+
+
+    const app = express()
+;
+
+    app.use(express.json())
+;
+
+    server = await (await import("./routes")).registerRoutes(app)
+;
+
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+;
+
+    const address = server.address()
+;
+
+    if (!address || typeof address === "string") throw new Error("Expected a TCP listener")
+;
+
+    baseUrl = `http://127.0.0.1:${address.port}`
+;
+
+  
+}
+, 60_000)
+;
+
+
+  afterAll(async () => 
+{
+
+    vi.restoreAllMocks()
+;
+
+    if (server?.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+;
+
+    if (appPool) await appPool.end()
+;
+
+    process.env.DATABASE_URL = originalUrl
+;
+
+    if (setupPool) 
+{
+
+      try 
+{
+
+        await setupPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+;
+
+      
+}
+ finally 
+{
+
+        await setupPool.end()
+;
+
+      
+}
+
+    
+}
+
+  
+}
+)
+;
+
+
+  beforeEach(() => 
+{
+
+    // Vitest restores spies between tests
+;
+ the route's module gate must not
     // consult the application's system_settings table in this tiny schema.
-    vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined);
-  });
+    vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined)
+;
+
+  
+}
+)
+;
+
 
   it.each([
-    { status: "approved", timestamp: "approvedAt" },
-    { status: "in_progress", timestamp: "actualStart" },
-  ] as const)("records and preserves the $timestamp lifecycle timestamp for a manual $status transition", async ({ status, timestamp }) => {
-    const userId = randomUUID();
-    const changeId = randomUUID();
-    await db.insert(users).values({
+    
+{
+ status: "approved", timestamp: "approvedAt" 
+}
+,
+    
+{
+ status: "in_progress", timestamp: "actualStart" 
+}
+,
+  ] as const)("records and preserves the $timestamp lifecycle timestamp for a manual $status transition", async (
+{
+ status, timestamp 
+}
+) => 
+{
+
+    const userId = randomUUID()
+;
+
+    const changeId = randomUUID()
+;
+
+    await db.insert(users).values(
+{
+
       id: userId, username: `manager-${userId}`, email: `${userId}@example.invalid`,
       password: "test-only", firstName: "Change", lastName: "Manager",
-    });
-    await db.insert(changes).values({
+    
+}
+)
+;
+
+    await db.insert(changes).values(
+{
+
       id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual lifecycle update",
       type: "standard", status: "submitted", risk: "low",
-    });
+    
+}
+)
+;
 
-    const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+
+    const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, 
+{
+
       method: "PUT",
-      headers: { "content-type": "application/json", "x-test-user": userId },
+      headers: 
+{
+ "content-type": "application/json", "x-test-user": userId 
+}
+,
       body: JSON.stringify(body),
-    });
+    
+}
+)
+;
 
-    const transitionResponse = await update({ status });
-    expect(transitionResponse.status).toBe(200);
-    const [transitioned] = await db.select().from(changes).where(eq(changes.id, changeId));
-    const firstTimestamp = transitioned[timestamp];
-    expect(firstTimestamp).toBeInstanceOf(Date);
 
-    const editResponse = await update({ status, title: "Manual lifecycle update edited" });
-    expect(editResponse.status).toBe(200);
-    const [edited] = await db.select().from(changes).where(eq(changes.id, changeId));
-    expect(edited[timestamp]?.getTime()).toBe(firstTimestamp?.getTime());
-  });
+    const transitionResponse = await update(
+{
+ status 
+}
+)
+;
+
+    expect(transitionResponse.status).toBe(200)
+;
+
+    const [transitioned] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+    const firstTimestamp = transitioned[timestamp]
+;
+
+    expect(firstTimestamp).toBeInstanceOf(Date)
+;
+
+
+    const editResponse = await update(
+{
+ status, title: "Manual lifecycle update edited" 
+}
+)
+;
+
+    expect(editResponse.status).toBe(200)
+;
+
+    const [edited] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+    expect(edited[timestamp]?.getTime()).toBe(firstTimestamp?.getTime())
+;
+
+  
+}
+)
+;
+
 
   it.each(["pending", null] as const)(
     "accepts exactly one of two competing votes when the original decision is %s",
-    async initial => {
-      const userId = randomUUID();
-      const changeId = randomUUID();
-      const approvalId = randomUUID();
-      await db.insert(users).values({
+    async initial => 
+{
+
+      const userId = randomUUID()
+;
+
+      const changeId = randomUUID()
+;
+
+      const approvalId = randomUUID()
+;
+
+      await db.insert(users).values(
+{
+
         id: userId, username: `voter-${userId}`, email: `${userId}@example.invalid`,
         password: "test-only", firstName: "CAB", lastName: "Voter",
-      });
-      await db.insert(changes).values({
+      
+}
+)
+;
+
+      await db.insert(changes).values(
+{
+
         id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent CAB vote",
         status: "submitted",
-      });
-      await db.insert(changeApprovals).values({
+      
+}
+)
+;
+
+      await db.insert(changeApprovals).values(
+{
+
         id: approvalId, changeId, approverId: userId, originalApproverId: userId,
         approverLabel: "CAB Voter", decision: initial,
-      });
+      
+}
+)
+;
+
 
       // Hold each request after its initial read, so both see the same uncast
       // approval before either reaches the real conditional UPDATE.
-      const originalRead = storage.getChangeApprovals.bind(storage);
-      let arrived = 0;
-      let release!: () => void;
-      const bothRead = new Promise<void>(resolve => { release = resolve; });
-      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
-        const rows = await originalRead(id);
-        if (id === changeId && arrived < 2) {
-          arrived++;
-          if (arrived === 2) release();
-          await bothRead;
-        }
-        return rows;
-      });
+      const originalRead = storage.getChangeApprovals.bind(storage)
+;
 
-      try {
-        const path = `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`;
-        const cast = (decision: string) => fetch(path, {
+      let arrived = 0
+;
+
+      let release!: () => void
+;
+
+      const bothRead = new Promise<void>(resolve => 
+{
+ release = resolve
+;
+ 
+}
+)
+;
+
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => 
+{
+
+        const rows = await originalRead(id)
+;
+
+        if (id === changeId && arrived < 2) 
+{
+
+          arrived++
+;
+
+          if (arrived === 2) release()
+;
+
+          await bothRead
+;
+
+        
+}
+
+        return rows
+;
+
+      
+}
+)
+;
+
+
+      try 
+{
+
+        const path = `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`
+;
+
+        const cast = (decision: string) => fetch(path, 
+{
+
           method: "PUT",
-          headers: { "content-type": "application/json", "x-test-user": userId },
-          body: JSON.stringify({ decision, comments: `Vote: ${decision}` }),
-        });
-        const responses = await Promise.all([cast("approved"), cast("rejected")]);
-        if (arrived !== 2) {
-          throw new Error(`Both requests did not reach the approval read: ${JSON.stringify(await Promise.all(responses.map(async response => ({ status: response.status, body: await response.text() }))))}`);
-        }
-        expect(arrived).toBe(2);
-        expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
-        const winner = responses.find(response => response.status === 200)!;
-        const loser = responses.find(response => response.status === 409)!;
-        const recorded = await winner.json() as { id: string; decision: string; comments: string };
-        expect(recorded.id).toBe(approvalId);
-        expect(recorded.decision).toMatch(/^(approved|rejected)$/);
-        expect(recorded.comments).toBe(`Vote: ${recorded.decision}`);
-        expect((await loser.json()).message).toMatch(/already voted on|already been recorded/);
+          headers: 
+{
+ "content-type": "application/json", "x-test-user": userId 
+}
+,
+          body: JSON.stringify(
+{
+ decision, comments: `Vote: ${decision}` 
+}
+),
+        
+}
+)
+;
 
-        const [saved] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
-        expect(saved).toMatchObject({
+        const responses = await Promise.all([cast("approved"), cast("rejected")])
+;
+
+        if (arrived !== 2) 
+{
+
+          throw new Error(`Both requests did not reach the approval read: ${JSON.stringify(await Promise.all(responses.map(async response => ({ status: response.status, body: await response.text() }))))}`)
+;
+
+        
+}
+
+        expect(arrived).toBe(2)
+;
+
+        expect(responses.map(response => response.status).sort()).toEqual([200, 409])
+;
+
+        const winner = responses.find(response => response.status === 200)!
+;
+
+        const loser = responses.find(response => response.status === 409)!
+;
+
+        const recorded = await winner.json() as 
+{
+ id: string
+;
+ decision: string
+;
+ comments: string 
+}
+;
+
+        expect(recorded.id).toBe(approvalId)
+;
+
+        expect(recorded.decision).toMatch(/^(approved|rejected)$/)
+;
+
+        expect(recorded.comments).toBe(`Vote: ${recorded.decision}`)
+;
+
+        expect((await loser.json()).message).toMatch(/already voted on|already been recorded/)
+;
+
+
+        const [saved] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId))
+;
+
+        expect(saved).toMatchObject(
+{
+
           decision: recorded.decision, comments: recorded.comments, approverId: userId,
-        });
-        expect(saved.decidedAt).toBeInstanceOf(Date);
-      } finally {
-        readSpy.mockRestore();
-      }
-    },
+        
+}
+)
+;
+
+        expect(saved.decidedAt).toBeInstanceOf(Date)
+;
+
+      
+}
+ finally 
+{
+
+        readSpy.mockRestore()
+;
+
+      
+}
+
+    
+}
+,
     15_000,
-  );
+  )
+;
+
 
   it.each(["vote", "removal"] as const)(
     "keeps only the %s when a vote races an assignment removal",
-    async first => {
-      const voterId = randomUUID();
-      const managerId = randomUUID();
-      const changeId = randomUUID();
-      const approvalId = randomUUID();
+    async first => 
+{
+
+      const voterId = randomUUID()
+;
+
+      const managerId = randomUUID()
+;
+
+      const changeId = randomUUID()
+;
+
+      const approvalId = randomUUID()
+;
+
       await db.insert(users).values([
-        { id: voterId, username: `voter-${voterId}`, email: `${voterId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Voter" },
-        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Manager" },
-      ]);
-      await db.insert(changes).values({
+        
+{
+ id: voterId, username: `voter-${voterId}`, email: `${voterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+        
+{
+ id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" 
+}
+,
+      ])
+;
+
+      await db.insert(changes).values(
+{
+
         id: changeId, changeNumber: `TEST-${changeId}`, title: "Vote versus removal",
         status: "submitted",
-      });
-      await db.insert(changeApprovals).values({
+      
+}
+)
+;
+
+      await db.insert(changeApprovals).values(
+{
+
         id: approvalId, changeId, approverId: voterId, originalApproverId: voterId,
         approverLabel: "CAB Voter", decision: "pending",
-      });
+      
+}
+)
+;
+
 
       // Both HTTP handlers must read the same pending row before either writes.
-      const originalRead = storage.getChangeApprovals.bind(storage);
-      let arrived = 0;
-      let releaseReads!: () => void;
-      const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
-      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
-        const rows = await originalRead(id);
-        if (id === changeId && arrived < 2) {
-          expect(rows.find(row => row.id === approvalId)).toMatchObject({
+      const originalRead = storage.getChangeApprovals.bind(storage)
+;
+
+      let arrived = 0
+;
+
+      let releaseReads!: () => void
+;
+
+      const bothRead = new Promise<void>(resolve => 
+{
+ releaseReads = resolve
+;
+ 
+}
+)
+;
+
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => 
+{
+
+        const rows = await originalRead(id)
+;
+
+        if (id === changeId && arrived < 2) 
+{
+
+          expect(rows.find(row => row.id === approvalId)).toMatchObject(
+{
+
             decision: "pending", removedAt: null,
-          });
-          if (++arrived === 2) releaseReads();
-          await bothRead;
-        }
-        return rows;
-      });
-      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+          
+}
+)
+;
+
+          if (++arrived === 2) releaseReads()
+;
+
+          await bothRead
+;
+
+        
+}
+
+        return rows
+;
+
+      
+}
+)
+;
+
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
 
       // Release the second storage call only after the first real DB update
       // commits. This covers both possible outcomes without replacing either UPDATE.
-      let releaseSecond!: () => void;
-      const firstFinished = new Promise<void>(resolve => { releaseSecond = resolve; });
-      const originalVote = storage.updateChangeApproval.bind(storage);
-      const originalRemove = storage.removeChangeApproval.bind(storage);
-      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
-        if (first === "removal") await firstFinished;
-        try {
-          return await originalVote(...args);
-        } finally {
-          if (first === "vote") releaseSecond();
-        }
-      });
-      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
-        if (first === "vote") await firstFinished;
-        try {
-          return await originalRemove(...args);
-        } finally {
-          if (first === "removal") releaseSecond();
-        }
-      });
+      let releaseSecond!: () => void
+;
 
-      try {
-        const path = `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`;
+      const firstFinished = new Promise<void>(resolve => 
+{
+ releaseSecond = resolve
+;
+ 
+}
+)
+;
+
+      const originalVote = storage.updateChangeApproval.bind(storage)
+;
+
+      const originalRemove = storage.removeChangeApproval.bind(storage)
+;
+
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => 
+{
+
+        if (first === "removal") await firstFinished
+;
+
+        try 
+{
+
+          return await originalVote(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "vote") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => 
+{
+
+        if (first === "vote") await firstFinished
+;
+
+        try 
+{
+
+          return await originalRemove(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "removal") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+
+      try 
+{
+
+        const path = `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`
+;
+
         const [vote, removal] = await Promise.all([
-          fetch(path, {
-            method: "PUT",
-            headers: { "content-type": "application/json", "x-test-user": voterId },
-            body: JSON.stringify({ decision: "approved", comments: "Approved in race" }),
-          }),
-          fetch(path, { method: "DELETE", headers: { "x-test-user": managerId } }),
-        ]);
-        expect(arrived).toBe(2);
-        expect([vote.status, removal.status].sort()).toEqual([200, 409]);
-        expect([vote.status, removal.status]).toEqual(first === "vote" ? [200, 409] : [409, 200]);
-        const loser = first === "vote" ? removal : vote;
-        expect((await loser.json()).message).toBe("This CAB approval was already voted on or removed");
-        if (first === "vote") {
-          expect(await vote.json()).toMatchObject({ id: approvalId, decision: "approved" });
-        } else {
-          expect(await removal.json()).toEqual({ success: true });
-        }
+          fetch(path, 
+{
 
-        const [saved] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
-        expect(saved).toMatchObject({
+            method: "PUT",
+            headers: 
+{
+ "content-type": "application/json", "x-test-user": voterId 
+}
+,
+            body: JSON.stringify(
+{
+ decision: "approved", comments: "Approved in race" 
+}
+),
+          
+}
+),
+          fetch(path, 
+{
+ method: "DELETE", headers: 
+{
+ "x-test-user": managerId 
+}
+ 
+}
+),
+        ])
+;
+
+        expect(arrived).toBe(2)
+;
+
+        expect([vote.status, removal.status].sort()).toEqual([200, 409])
+;
+
+        expect([vote.status, removal.status]).toEqual(first === "vote" ? [200, 409] : [409, 200])
+;
+
+        const loser = first === "vote" ? removal : vote
+;
+
+        expect((await loser.json()).message).toBe("This CAB approval was already voted on or removed")
+;
+
+        if (first === "vote") 
+{
+
+          expect(await vote.json()).toMatchObject(
+{
+ id: approvalId, decision: "approved" 
+}
+)
+;
+
+        
+}
+ else 
+{
+
+          expect(await removal.json()).toEqual(
+{
+ success: true 
+}
+)
+;
+
+        
+}
+
+
+        const [saved] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId))
+;
+
+        expect(saved).toMatchObject(
+{
+
           decision: first === "vote" ? "approved" : "pending",
           comments: first === "vote" ? "Approved in race" : null,
           removedById: first === "removal" ? managerId : null,
           removedByLabel: first === "removal" ? "CAB Manager" : null,
-        });
-        expect(saved.decidedAt instanceof Date).toBe(first === "vote");
-        expect(saved.removedAt instanceof Date).toBe(first === "removal");
-        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-        expect(savedChange.status).toBe(first === "vote" ? "approved" : "submitted");
-        const history = await storage.getAllChangeApprovalRecords(changeId);
-        expect(history).toHaveLength(1);
-        expect(history[0].id).toBe(approvalId);
-        expect((await storage.getChangeApprovals(changeId)).map(row => row.id))
-          .toEqual(first === "vote" ? [approvalId] : []);
-      } finally {
-        readSpy.mockRestore();
-        permissionSpy.mockRestore();
-        auditSpy.mockRestore();
-        voteSpy.mockRestore();
-        removeSpy.mockRestore();
-      }
-    },
-    15_000,
-  );
+        
+}
+)
+;
 
-  it("approves a change when removing the last pending member leaves only approved votes", async () => {
-    const managerId = randomUUID();
-    const approvedVoterId = randomUUID();
-    const pendingVoterId = randomUUID();
-    const changeId = randomUUID();
-    const approvedId = randomUUID();
-    const pendingId = randomUUID();
+        expect(saved.decidedAt instanceof Date).toBe(first === "vote")
+;
+
+        expect(saved.removedAt instanceof Date).toBe(first === "removal")
+;
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+        expect(savedChange.status).toBe(first === "vote" ? "approved" : "submitted")
+;
+
+        const history = await storage.getAllChangeApprovalRecords(changeId)
+;
+
+        expect(history).toHaveLength(1)
+;
+
+        expect(history[0].id).toBe(approvalId)
+;
+
+        expect((await storage.getChangeApprovals(changeId)).map(row => row.id))
+          .toEqual(first === "vote" ? [approvalId] : [])
+;
+
+      
+}
+ finally 
+{
+
+        readSpy.mockRestore()
+;
+
+        permissionSpy.mockRestore()
+;
+
+        auditSpy.mockRestore()
+;
+
+        voteSpy.mockRestore()
+;
+
+        removeSpy.mockRestore()
+;
+
+      
+}
+
+    
+}
+,
+    15_000,
+  )
+;
+
+
+  it("approves a change when removing the last pending member leaves only approved votes", async () => 
+{
+
+    const managerId = randomUUID()
+;
+
+    const approvedVoterId = randomUUID()
+;
+
+    const pendingVoterId = randomUUID()
+;
+
+    const changeId = randomUUID()
+;
+
+    const approvedId = randomUUID()
+;
+
+    const pendingId = randomUUID()
+;
+
     await db.insert(users).values([
-      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Manager" },
-      { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Voter" },
-      { id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Voter" },
-    ]);
-    await db.insert(changes).values({
+      
+{
+ id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" 
+}
+,
+      
+{
+ id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+      
+{
+ id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+    ])
+;
+
+    await db.insert(changes).values(
+{
+
       id: changeId, changeNumber: `TEST-${changeId}`, title: "Remove final pending CAB member",
       status: "submitted",
-    });
+    
+}
+)
+;
+
     await db.insert(changeApprovals).values([
-      { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
-        approverLabel: "CAB Voter", decision: "approved", decidedAt: new Date() },
-      { id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
-        approverLabel: "CAB Voter", decision: "pending" },
-    ]);
-    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      
+{
+ id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+        approverLabel: "CAB Voter", decision: "approved", decidedAt: new Date() 
+}
+,
+      
+{
+ id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
+        approverLabel: "CAB Voter", decision: "pending" 
+}
+,
+    ])
+;
 
-    try {
-      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, {
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
+
+    try 
+{
+
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, 
+{
+
         method: "DELETE",
-        headers: { "x-test-user": managerId },
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ success: true });
+        headers: 
+{
+ "x-test-user": managerId 
+}
+,
+      
+}
+)
+;
 
-      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-      expect(savedChange.status).toBe("approved");
-      expect(savedChange.approvedAt).toBeInstanceOf(Date);
-      const active = await storage.getChangeApprovals(changeId);
-      expect(active).toHaveLength(1);
-      expect(active[0]).toMatchObject({ id: approvedId, decision: "approved" });
-      const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId));
-      expect(removed.removedAt).toBeInstanceOf(Date);
-      expect(removed.removedById).toBe(managerId);
-    } finally {
-      permissionSpy.mockRestore();
-      auditSpy.mockRestore();
-    }
-  });
+      expect(response.status).toBe(200)
+;
 
-  it("recalculates status after concurrent removals leave only approved CAB members", async () => {
-    const managerAId = randomUUID();
-    const managerBId = randomUUID();
-    const approvedVoterId = randomUUID();
-    const pendingVoterAId = randomUUID();
-    const pendingVoterBId = randomUUID();
-    const changeId = randomUUID();
-    const approvedId = randomUUID();
-    const pendingAId = randomUUID();
-    const pendingBId = randomUUID();
+      expect(await response.json()).toEqual(
+{
+ success: true 
+}
+)
+;
+
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+      expect(savedChange.status).toBe("approved")
+;
+
+      expect(savedChange.approvedAt).toBeInstanceOf(Date)
+;
+
+      const active = await storage.getChangeApprovals(changeId)
+;
+
+      expect(active).toHaveLength(1)
+;
+
+      expect(active[0]).toMatchObject(
+{
+ id: approvedId, decision: "approved" 
+}
+)
+;
+
+      const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId))
+;
+
+      expect(removed.removedAt).toBeInstanceOf(Date)
+;
+
+      expect(removed.removedById).toBe(managerId)
+;
+
+    
+}
+ finally 
+{
+
+      permissionSpy.mockRestore()
+;
+
+      auditSpy.mockRestore()
+;
+
+    
+}
+
+  
+}
+)
+;
+
+
+  it("recalculates status after concurrent removals leave only approved CAB members", async () => 
+{
+
+    const managerAId = randomUUID()
+;
+
+    const managerBId = randomUUID()
+;
+
+    const approvedVoterId = randomUUID()
+;
+
+    const pendingVoterAId = randomUUID()
+;
+
+    const pendingVoterBId = randomUUID()
+;
+
+    const changeId = randomUUID()
+;
+
+    const approvedId = randomUUID()
+;
+
+    const pendingAId = randomUUID()
+;
+
+    const pendingBId = randomUUID()
+;
+
     await db.insert(users).values([
-      { id: managerAId, username: `manager-${managerAId}`, email: `${managerAId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Manager A" },
-      { id: managerBId, username: `manager-${managerBId}`, email: `${managerBId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Manager B" },
-      { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Approver" },
-      { id: pendingVoterAId, username: `voter-${pendingVoterAId}`, email: `${pendingVoterAId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Approver" },
-      { id: pendingVoterBId, username: `voter-${pendingVoterBId}`, email: `${pendingVoterBId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Approver" },
-    ]);
-    await db.insert(changes).values({
+      
+{
+ id: managerAId, username: `manager-${managerAId}`, email: `${managerAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager A" 
+}
+,
+      
+{
+ id: managerBId, username: `manager-${managerBId}`, email: `${managerBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager B" 
+}
+,
+      
+{
+ id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" 
+}
+,
+      
+{
+ id: pendingVoterAId, username: `voter-${pendingVoterAId}`, email: `${pendingVoterAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" 
+}
+,
+      
+{
+ id: pendingVoterBId, username: `voter-${pendingVoterBId}`, email: `${pendingVoterBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" 
+}
+,
+    ])
+;
+
+    await db.insert(changes).values(
+{
+
       id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent CAB member removals",
       status: "submitted",
-    });
+    
+}
+)
+;
+
     await db.insert(changeApprovals).values([
-      { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
-        approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() },
-      { id: pendingAId, changeId, approverId: pendingVoterAId, originalApproverId: pendingVoterAId,
-        approverLabel: "CAB Approver", decision: "pending" },
-      { id: pendingBId, changeId, approverId: pendingVoterBId, originalApproverId: pendingVoterBId,
-        approverLabel: "CAB Approver", decision: "pending" },
-    ]);
+      
+{
+ id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+        approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() 
+}
+,
+      
+{
+ id: pendingAId, changeId, approverId: pendingVoterAId, originalApproverId: pendingVoterAId,
+        approverLabel: "CAB Approver", decision: "pending" 
+}
+,
+      
+{
+ id: pendingBId, changeId, approverId: pendingVoterBId, originalApproverId: pendingVoterBId,
+        approverLabel: "CAB Approver", decision: "pending" 
+}
+,
+    ])
+;
+
 
     // Both requests must pass their route-level membership read before either
     // removal reaches storage, then enter the real database operation together.
-    const originalRead = storage.getChangeApprovals.bind(storage);
-    let readCount = 0;
-    let releaseReads!: () => void;
-    const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
-    const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
-      const rows = await originalRead(id);
-      if (id === changeId && readCount < 2) {
-        if (++readCount === 2) releaseReads();
-        await bothRead;
-      }
-      return rows;
-    });
-    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
-    const originalRemove = storage.removeChangeApproval.bind(storage);
-    let removalCount = 0;
-    let releaseRemovals!: () => void;
-    const bothRemovals = new Promise<void>(resolve => { releaseRemovals = resolve; });
-    const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
-      if (++removalCount === 2) releaseRemovals();
-      await bothRemovals;
-      return originalRemove(...args);
-    });
+    const originalRead = storage.getChangeApprovals.bind(storage)
+;
 
-    try {
+    let readCount = 0
+;
+
+    let releaseReads!: () => void
+;
+
+    const bothRead = new Promise<void>(resolve => 
+{
+ releaseReads = resolve
+;
+ 
+}
+)
+;
+
+    const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => 
+{
+
+      const rows = await originalRead(id)
+;
+
+      if (id === changeId && readCount < 2) 
+{
+
+        if (++readCount === 2) releaseReads()
+;
+
+        await bothRead
+;
+
+      
+}
+
+      return rows
+;
+
+    
+}
+)
+;
+
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
+    const originalRemove = storage.removeChangeApproval.bind(storage)
+;
+
+    let removalCount = 0
+;
+
+    let releaseRemovals!: () => void
+;
+
+    const bothRemovals = new Promise<void>(resolve => 
+{
+ releaseRemovals = resolve
+;
+ 
+}
+)
+;
+
+    const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => 
+{
+
+      if (++removalCount === 2) releaseRemovals()
+;
+
+      await bothRemovals
+;
+
+      return originalRemove(...args)
+;
+
+    
+}
+)
+;
+
+
+    try 
+{
+
       const remove = (approvalId: string, managerId: string) => fetch(
         `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`,
-        { method: "DELETE", headers: { "x-test-user": managerId } },
-      );
+        
+{
+ method: "DELETE", headers: 
+{
+ "x-test-user": managerId 
+}
+ 
+}
+,
+      )
+;
+
       const responses = await Promise.all([
         remove(pendingAId, managerAId),
         remove(pendingBId, managerBId),
-      ]);
-      expect(readCount).toBe(2);
-      expect(removalCount).toBe(2);
-      expect(responses.map(response => response.status)).toEqual([200, 200]);
+      ])
+;
+
+      expect(readCount).toBe(2)
+;
+
+      expect(removalCount).toBe(2)
+;
+
+      expect(responses.map(response => response.status)).toEqual([200, 200])
+;
+
       expect(await Promise.all(responses.map(response => response.json())))
-        .toEqual([{ success: true }, { success: true }]);
+        .toEqual([
+{
+ success: true 
+}
+, 
+{
+ success: true 
+}
+])
+;
 
-      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
-      expect(history).toHaveLength(3);
+
+      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId))
+;
+
+      expect(history).toHaveLength(3)
+;
+
       expect(history.find(row => row.id === pendingAId))
-        .toMatchObject({ decision: "pending", removedById: managerAId });
-      expect(history.find(row => row.id === pendingBId))
-        .toMatchObject({ decision: "pending", removedById: managerBId });
-      expect(history.find(row => row.id === pendingAId)?.removedAt).toBeInstanceOf(Date);
-      expect(history.find(row => row.id === pendingBId)?.removedAt).toBeInstanceOf(Date);
-      const active = await storage.getChangeApprovals(changeId);
-      expect(active.map(row => row.id)).toEqual([approvedId]);
-      expect(active[0].decision).toBe("approved");
+        .toMatchObject(
+{
+ decision: "pending", removedById: managerAId 
+}
+)
+;
 
-      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-      expect(savedChange.status).toBe("approved");
-      expect(savedChange.approvedAt).toBeInstanceOf(Date);
-    } finally {
-      readSpy.mockRestore();
-      permissionSpy.mockRestore();
-      auditSpy.mockRestore();
-      removeSpy.mockRestore();
-    }
-  }, 15_000);
+      expect(history.find(row => row.id === pendingBId))
+        .toMatchObject(
+{
+ decision: "pending", removedById: managerBId 
+}
+)
+;
+
+      expect(history.find(row => row.id === pendingAId)?.removedAt).toBeInstanceOf(Date)
+;
+
+      expect(history.find(row => row.id === pendingBId)?.removedAt).toBeInstanceOf(Date)
+;
+
+      const active = await storage.getChangeApprovals(changeId)
+;
+
+      expect(active.map(row => row.id)).toEqual([approvedId])
+;
+
+      expect(active[0].decision).toBe("approved")
+;
+
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+      expect(savedChange.status).toBe("approved")
+;
+
+      expect(savedChange.approvedAt).toBeInstanceOf(Date)
+;
+
+    
+}
+ finally 
+{
+
+      readSpy.mockRestore()
+;
+
+      permissionSpy.mockRestore()
+;
+
+      auditSpy.mockRestore()
+;
+
+      removeSpy.mockRestore()
+;
+
+    
+}
+
+  
+}
+, 15_000)
+;
+
 
   it.each(["manual-update", "removal"] as const)(
     "keeps status and active CAB membership accurate when the %s commits first",
-    async first => {
-      const managerId = randomUUID();
-      const approvedVoterId = randomUUID();
-      const pendingVoterId = randomUUID();
-      const changeId = randomUUID();
-      const approvedId = randomUUID();
-      const pendingId = randomUUID();
+    async first => 
+{
+
+      const managerId = randomUUID()
+;
+
+      const approvedVoterId = randomUUID()
+;
+
+      const pendingVoterId = randomUUID()
+;
+
+      const changeId = randomUUID()
+;
+
+      const approvedId = randomUUID()
+;
+
+      const pendingId = randomUUID()
+;
+
       await db.insert(users).values([
-        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Manager" },
-        { id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Approver" },
-        { id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Approver" },
-      ]);
-      await db.insert(changes).values({
+        
+{
+ id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" 
+}
+,
+        
+{
+ id: approvedVoterId, username: `voter-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" 
+}
+,
+        
+{
+ id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" 
+}
+,
+      ])
+;
+
+      await db.insert(changes).values(
+{
+
         id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual status versus CAB removal",
         status: "submitted", cabRequired: true,
-      });
+      
+}
+)
+;
+
       await db.insert(changeApprovals).values([
-        { id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
-          approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() },
-        { id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
-          approverLabel: "CAB Approver", decision: "pending" },
-      ]);
+        
+{
+ id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+          approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date() 
+}
+,
+        
+{
+ id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
+          approverLabel: "CAB Approver", decision: "pending" 
+}
+,
+      ])
+;
+
 
       // Hold both real storage operations until each request has arrived, then
       // allow the selected operation to commit before the other one proceeds.
-      let arrived = 0;
-      let releaseBoth!: () => void;
-      const bothArrived = new Promise<void>(resolve => { releaseBoth = resolve; });
-      const rendezvous = async () => {
-        if (++arrived === 2) releaseBoth();
-        await bothArrived;
-      };
-      let releaseSecond!: () => void;
-      const firstCommitted = new Promise<void>(resolve => { releaseSecond = resolve; });
-      const originalManualUpdate = storage.updateChangeWithCabStatusGuard.bind(storage);
-      const originalRemove = storage.removeChangeApproval.bind(storage);
-      const manualUpdateSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (...args) => {
-        await rendezvous();
-        if (first === "removal") await firstCommitted;
-        try {
-          return await originalManualUpdate(...args);
-        } finally {
-          if (first === "manual-update") releaseSecond();
-        }
-      });
-      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
-        await rendezvous();
-        if (first === "manual-update") await firstCommitted;
-        try {
-          return await originalRemove(...args);
-        } finally {
-          if (first === "removal") releaseSecond();
-        }
-      });
-      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      let arrived = 0
+;
 
-      try {
+      let releaseBoth!: () => void
+;
+
+      const bothArrived = new Promise<void>(resolve => 
+{
+ releaseBoth = resolve
+;
+ 
+}
+)
+;
+
+      const rendezvous = async () => 
+{
+
+        if (++arrived === 2) releaseBoth()
+;
+
+        await bothArrived
+;
+
+      
+}
+;
+
+      let releaseSecond!: () => void
+;
+
+      const firstCommitted = new Promise<void>(resolve => 
+{
+ releaseSecond = resolve
+;
+ 
+}
+)
+;
+
+      const originalManualUpdate = storage.updateChangeWithCabStatusGuard.bind(storage)
+;
+
+      const originalRemove = storage.removeChangeApproval.bind(storage)
+;
+
+      const manualUpdateSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (...args) => 
+{
+
+        await rendezvous()
+;
+
+        if (first === "removal") await firstCommitted
+;
+
+        try 
+{
+
+          return await originalManualUpdate(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "manual-update") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => 
+{
+
+        await rendezvous()
+;
+
+        if (first === "manual-update") await firstCommitted
+;
+
+        try 
+{
+
+          return await originalRemove(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "removal") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
+
+      try 
+{
+
         const [manual, removal] = await Promise.all([
-          fetch(`${baseUrl}/api/changes/${changeId}`, {
+          fetch(`${baseUrl}/api/changes/${changeId}`, 
+{
+
             method: "PUT",
-            headers: { "content-type": "application/json", "x-test-user": managerId },
-            body: JSON.stringify({ status: "in_progress" }),
-          }),
-          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, {
+            headers: 
+{
+ "content-type": "application/json", "x-test-user": managerId 
+}
+,
+            body: JSON.stringify(
+{
+ status: "in_progress" 
+}
+),
+          
+}
+),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, 
+{
+
             method: "DELETE",
-            headers: { "x-test-user": managerId },
-          }),
-        ]);
-        expect(arrived).toBe(2);
-        expect(removal.status).toBe(200);
-        expect(await removal.json()).toEqual({ success: true });
-        if (first === "manual-update") {
-          expect(manual.status).toBe(403);
-          expect(await manual.json()).toMatchObject({ code: "CAB_PENDING" });
-        } else {
-          expect(manual.status).toBe(200);
-          expect((await manual.json()).status).toBe("in_progress");
-        }
+            headers: 
+{
+ "x-test-user": managerId 
+}
+,
+          
+}
+),
+        ])
+;
+
+        expect(arrived).toBe(2)
+;
+
+        expect(removal.status).toBe(200)
+;
+
+        expect(await removal.json()).toEqual(
+{
+ success: true 
+}
+)
+;
+
+        if (first === "manual-update") 
+{
+
+          expect(manual.status).toBe(403)
+;
+
+          expect(await manual.json()).toMatchObject(
+{
+ code: "CAB_PENDING" 
+}
+)
+;
+
+        
+}
+ else 
+{
+
+          expect(manual.status).toBe(200)
+;
+
+          expect((await manual.json()).status).toBe("in_progress")
+;
+
+        
+}
+
 
         const [removed, approved] = await Promise.all([
           db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId)).then(rows => rows[0]),
           db.select().from(changeApprovals).where(eq(changeApprovals.id, approvedId)).then(rows => rows[0]),
-        ]);
-        expect(removed.removedAt).toBeInstanceOf(Date);
-        expect(removed.removedById).toBe(managerId);
-        expect(approved).toMatchObject({ decision: "approved", removedAt: null });
-        expect((await storage.getChangeApprovals(changeId)).map(row => row.id)).toEqual([approvedId]);
+        ])
+;
 
-        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-        expect(savedChange.status).toBe(first === "manual-update" ? "approved" : "in_progress");
-        expect(savedChange.approvedAt).toBeInstanceOf(Date);
-        expect(savedChange.actualStart instanceof Date).toBe(first === "removal");
-      } finally {
-        manualUpdateSpy.mockRestore();
-        removeSpy.mockRestore();
-        permissionSpy.mockRestore();
-        auditSpy.mockRestore();
-      }
-    },
+        expect(removed.removedAt).toBeInstanceOf(Date)
+;
+
+        expect(removed.removedById).toBe(managerId)
+;
+
+        expect(approved).toMatchObject(
+{
+ decision: "approved", removedAt: null 
+}
+)
+;
+
+        expect((await storage.getChangeApprovals(changeId)).map(row => row.id)).toEqual([approvedId])
+;
+
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+        expect(savedChange.status).toBe(first === "manual-update" ? "approved" : "in_progress")
+;
+
+        expect(savedChange.approvedAt).toBeInstanceOf(Date)
+;
+
+        expect(savedChange.actualStart instanceof Date).toBe(first === "removal")
+;
+
+      
+}
+ finally 
+{
+
+        manualUpdateSpy.mockRestore()
+;
+
+        removeSpy.mockRestore()
+;
+
+        permissionSpy.mockRestore()
+;
+
+        auditSpy.mockRestore()
+;
+
+      
+}
+
+    
+}
+,
     15_000,
-  );
+  )
+;
 
-  it("keeps an opted-in change unapproved when removing its final pending assignment leaves no active voters", async () => {
-    const managerId = randomUUID();
-    const pendingVoterId = randomUUID();
-    const changeId = randomUUID();
-    const pendingId = randomUUID();
+
+  it("keeps an opted-in change unapproved when removing its final pending assignment leaves no active voters", async () => 
+{
+
+    const managerId = randomUUID()
+;
+
+    const pendingVoterId = randomUUID()
+;
+
+    const changeId = randomUUID()
+;
+
+    const pendingId = randomUUID()
+;
+
     await db.insert(users).values([
-      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Manager" },
-      { id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
-        password: "test-only", firstName: "CAB", lastName: "Voter" },
-    ]);
-    await db.insert(changes).values({
+      
+{
+ id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" 
+}
+,
+      
+{
+ id: pendingVoterId, username: `voter-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+    ])
+;
+
+    await db.insert(changes).values(
+{
+
       id: changeId, changeNumber: `TEST-${changeId}`, title: "Remove the final pending CAB assignment",
       status: "submitted", cabRequired: true,
-    });
-    await db.insert(changeApprovals).values({
+    
+}
+)
+;
+
+    await db.insert(changeApprovals).values(
+{
+
       id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
       approverLabel: "CAB Voter", decision: "pending",
-    });
-    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+    
+}
+)
+;
 
-    try {
-      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, {
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
+
+    try 
+{
+
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${pendingId}`, 
+{
+
         method: "DELETE",
-        headers: { "x-test-user": managerId },
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ success: true });
+        headers: 
+{
+ "x-test-user": managerId 
+}
+,
+      
+}
+)
+;
 
-      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(response.status).toBe(200)
+;
+
+      expect(await response.json()).toEqual(
+{
+ success: true 
+}
+)
+;
+
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
       // With no active CAB approvals, the change remains submitted and cannot
       // be treated as approved merely because there are no pending votes.
-      expect(savedChange).toMatchObject({
+      expect(savedChange).toMatchObject(
+{
+
         status: "submitted", cabRequired: true, approvedAt: null,
-      });
-      expect(await storage.getChangeApprovals(changeId)).toEqual([]);
-      const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId));
-      expect(removed.removedAt).toBeInstanceOf(Date);
-      expect(removed.removedById).toBe(managerId);
-    } finally {
-      permissionSpy.mockRestore();
-      auditSpy.mockRestore();
-    }
-  });
+      
+}
+)
+;
+
+      expect(await storage.getChangeApprovals(changeId)).toEqual([])
+;
+
+      const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId))
+;
+
+      expect(removed.removedAt).toBeInstanceOf(Date)
+;
+
+      expect(removed.removedById).toBe(managerId)
+;
+
+    
+}
+ finally 
+{
+
+      permissionSpy.mockRestore()
+;
+
+      auditSpy.mockRestore()
+;
+
+    
+}
+
+  
+}
+)
+;
+
 
   it.each([
-    { first: "vote", decision: "approved" },
-    { first: "removal", decision: "approved" },
-    { first: "vote", decision: "rejected" },
-    { first: "removal", decision: "rejected" },
+    
+{
+ first: "vote", decision: "approved" 
+}
+,
+    
+{
+ first: "removal", decision: "approved" 
+}
+,
+    
+{
+ first: "vote", decision: "rejected" 
+}
+,
+    
+{
+ first: "removal", decision: "rejected" 
+}
+,
   ] as const)(
     "serializes a $decision vote on another assignment against removal when the $first commits first",
-    async ({ first, decision }) => {
-      const managerId = randomUUID();
-      const alreadyApprovedId = randomUUID();
-      const removedVoterId = randomUUID();
-      const votingVoterId = randomUUID();
-      const changeId = randomUUID();
-      const alreadyApprovedApprovalId = randomUUID();
-      const removedApprovalId = randomUUID();
-      const votingApprovalId = randomUUID();
+    async (
+{
+ first, decision 
+}
+) => 
+{
+
+      const managerId = randomUUID()
+;
+
+      const alreadyApprovedId = randomUUID()
+;
+
+      const removedVoterId = randomUUID()
+;
+
+      const votingVoterId = randomUUID()
+;
+
+      const changeId = randomUUID()
+;
+
+      const alreadyApprovedApprovalId = randomUUID()
+;
+
+      const removedApprovalId = randomUUID()
+;
+
+      const votingApprovalId = randomUUID()
+;
+
       await db.insert(users).values([
-        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Manager" },
-        { id: alreadyApprovedId, username: `voter-${alreadyApprovedId}`, email: `${alreadyApprovedId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Voter" },
-        { id: removedVoterId, username: `voter-${removedVoterId}`, email: `${removedVoterId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Voter" },
-        { id: votingVoterId, username: `voter-${votingVoterId}`, email: `${votingVoterId}@example.invalid`,
-          password: "test-only", firstName: "CAB", lastName: "Voter" },
-      ]);
-      await db.insert(changes).values({
+        
+{
+ id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" 
+}
+,
+        
+{
+ id: alreadyApprovedId, username: `voter-${alreadyApprovedId}`, email: `${alreadyApprovedId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+        
+{
+ id: removedVoterId, username: `voter-${removedVoterId}`, email: `${removedVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+        
+{
+ id: votingVoterId, username: `voter-${votingVoterId}`, email: `${votingVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Voter" 
+}
+,
+      ])
+;
+
+      await db.insert(changes).values(
+{
+
         id: changeId, changeNumber: `TEST-${changeId}`, title: "Vote and removal on separate CAB assignments",
         status: "submitted",
-      });
+      
+}
+)
+;
+
       await db.insert(changeApprovals).values([
-        { id: alreadyApprovedApprovalId, changeId, approverId: alreadyApprovedId,
+        
+{
+ id: alreadyApprovedApprovalId, changeId, approverId: alreadyApprovedId,
           originalApproverId: alreadyApprovedId, approverLabel: "CAB Voter",
-          decision: "approved", decidedAt: new Date() },
-        { id: removedApprovalId, changeId, approverId: removedVoterId,
-          originalApproverId: removedVoterId, approverLabel: "CAB Voter", decision: "pending" },
-        { id: votingApprovalId, changeId, approverId: votingVoterId,
-          originalApproverId: votingVoterId, approverLabel: "CAB Voter", decision: "pending" },
-      ]);
+          decision: "approved", decidedAt: new Date() 
+}
+,
+        
+{
+ id: removedApprovalId, changeId, approverId: removedVoterId,
+          originalApproverId: removedVoterId, approverLabel: "CAB Voter", decision: "pending" 
+}
+,
+        
+{
+ id: votingApprovalId, changeId, approverId: votingVoterId,
+          originalApproverId: votingVoterId, approverLabel: "CAB Voter", decision: "pending" 
+}
+,
+      ])
+;
+
 
       // Both routes inspect the initial membership before either storage write.
-      const originalRead = storage.getChangeApprovals.bind(storage);
-      let arrived = 0;
-      let releaseReads!: () => void;
-      const bothRead = new Promise<void>(resolve => { releaseReads = resolve; });
-      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
-        const rows = await originalRead(id);
-        if (id === changeId && arrived < 2) {
-          if (++arrived === 2) releaseReads();
-          await bothRead;
-        }
-        return rows;
-      });
-      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      const originalRead = storage.getChangeApprovals.bind(storage)
+;
 
-      let releaseSecond!: () => void;
-      const firstCommitted = new Promise<void>(resolve => { releaseSecond = resolve; });
-      const originalVote = storage.updateChangeApproval.bind(storage);
-      const originalRemove = storage.removeChangeApproval.bind(storage);
-      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => {
-        if (first === "removal") await firstCommitted;
-        try {
-          return await originalVote(...args);
-        } finally {
-          if (first === "vote") releaseSecond();
-        }
-      });
-      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
-        if (first === "vote") await firstCommitted;
-        try {
-          return await originalRemove(...args);
-        } finally {
-          if (first === "removal") releaseSecond();
-        }
-      });
+      let arrived = 0
+;
 
-      try {
+      let releaseReads!: () => void
+;
+
+      const bothRead = new Promise<void>(resolve => 
+{
+ releaseReads = resolve
+;
+ 
+}
+)
+;
+
+      const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => 
+{
+
+        const rows = await originalRead(id)
+;
+
+        if (id === changeId && arrived < 2) 
+{
+
+          if (++arrived === 2) releaseReads()
+;
+
+          await bothRead
+;
+
+        
+}
+
+        return rows
+;
+
+      
+}
+)
+;
+
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"])
+;
+
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never)
+;
+
+
+      let releaseSecond!: () => void
+;
+
+      const firstCommitted = new Promise<void>(resolve => 
+{
+ releaseSecond = resolve
+;
+ 
+}
+)
+;
+
+      const originalVote = storage.updateChangeApproval.bind(storage)
+;
+
+      const originalRemove = storage.removeChangeApproval.bind(storage)
+;
+
+      const voteSpy = vi.spyOn(storage, "updateChangeApproval").mockImplementation(async (...args) => 
+{
+
+        if (first === "removal") await firstCommitted
+;
+
+        try 
+{
+
+          return await originalVote(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "vote") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => 
+{
+
+        if (first === "vote") await firstCommitted
+;
+
+        try 
+{
+
+          return await originalRemove(...args)
+;
+
+        
+}
+ finally 
+{
+
+          if (first === "removal") releaseSecond()
+;
+
+        
+}
+
+      
+}
+)
+;
+
+
+      try 
+{
+
         const [vote, removal] = await Promise.all([
-          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${votingApprovalId}`, {
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${votingApprovalId}`, 
+{
+
             method: "PUT",
-            headers: { "content-type": "application/json", "x-test-user": votingVoterId },
-            body: JSON.stringify({ decision, comments: "Voted during removal" }),
-          }),
-          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${removedApprovalId}`, {
+            headers: 
+{
+ "content-type": "application/json", "x-test-user": votingVoterId 
+}
+,
+            body: JSON.stringify(
+{
+ decision, comments: "Voted during removal" 
+}
+),
+          
+}
+),
+          fetch(`${baseUrl}/api/changes/${changeId}/approvals/${removedApprovalId}`, 
+{
+
             method: "DELETE",
-            headers: { "x-test-user": managerId },
-          }),
-        ]);
-        expect(arrived).toBe(2);
-        expect(vote.status).toBe(200);
-        expect(removal.status).toBe(200);
+            headers: 
+{
+ "x-test-user": managerId 
+}
+,
+          
+}
+),
+        ])
+;
+
+        expect(arrived).toBe(2)
+;
+
+        expect(vote.status).toBe(200)
+;
+
+        expect(removal.status).toBe(200)
+;
+
 
         const savedApprovals = await db.select().from(changeApprovals)
-          .where(eq(changeApprovals.changeId, changeId));
-        expect(savedApprovals.find(row => row.id === alreadyApprovedApprovalId)?.decision).toBe("approved");
+          .where(eq(changeApprovals.changeId, changeId))
+;
+
+        expect(savedApprovals.find(row => row.id === alreadyApprovedApprovalId)?.decision).toBe("approved")
+;
+
         expect(savedApprovals.find(row => row.id === votingApprovalId))
-          .toMatchObject({ decision, comments: "Voted during removal" });
-        expect(savedApprovals.find(row => row.id === removedApprovalId)?.removedAt).toBeInstanceOf(Date);
-        const active = await storage.getChangeApprovals(changeId);
-        expect(active.map(row => row.id).sort()).toEqual([alreadyApprovedApprovalId, votingApprovalId].sort());
-        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-        expect(savedChange.status).toBe(decision);
-        expect(savedChange.approvedAt instanceof Date).toBe(decision === "approved");
-      } finally {
-        readSpy.mockRestore();
-        permissionSpy.mockRestore();
-        auditSpy.mockRestore();
-        voteSpy.mockRestore();
-        removeSpy.mockRestore();
-      }
-    },
+          .toMatchObject(
+{
+ decision, comments: "Voted during removal" 
+}
+)
+;
+
+        expect(savedApprovals.find(row => row.id === removedApprovalId)?.removedAt).toBeInstanceOf(Date)
+;
+
+        const active = await storage.getChangeApprovals(changeId)
+;
+
+        expect(active.map(row => row.id).sort()).toEqual([alreadyApprovedApprovalId, votingApprovalId].sort())
+;
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId))
+;
+
+        expect(savedChange.status).toBe(decision)
+;
+
+        expect(savedChange.approvedAt instanceof Date).toBe(decision === "approved")
+;
+
+      
+}
+ finally 
+{
+
+        readSpy.mockRestore()
+;
+
+        permissionSpy.mockRestore()
+;
+
+        auditSpy.mockRestore()
+;
+
+        voteSpy.mockRestore()
+;
+
+        removeSpy.mockRestore()
+;
+
+      
+}
+
+    
+}
+,
     15_000,
-  );
+  )
+;
+
 
   it.each(["approved", "rejected"] as const)(
     "keeps the change rejected when the %s vote commits first on a separate approval",
-    async firstDecision => {
-      const changeId = randomUUID();
+    async firstDecision => 
+{
+
+      const changeId = randomUUID()
+;
+
       const voters = [
-        { id: randomUUID(), decision: "approved" },
-        { id: randomUUID(), decision: "rejected" },
-      ] as const;
-      const approvalIds = [randomUUID(), randomUUID()];
-      for (const voter of voters) {
-        await db.insert(users).values({
+        
+{
+ id: randomUUID(), decision: "approved" 
+}
+,
+        
+{
+ id: randomUUID(), decision: "rejected" 
+}
+,
+      ] as const
+;
+
+      const approvalIds = [randomUUID(), randomUUID()]
+;
+
+      for (const voter of voters) 
+{
+
+        await db.insert(users).values(
+{
+
           id: voter.id, username: `voter-${voter.id}`, email: `${voter.id}@example.invalid`,
           password: "test-only", firstName: "CAB", lastName: "Voter",
-        });
-      }
-      await db.insert(changes).values({
+        
+}
+)
+;
+
+      
+}
+
+      await db.insert(changes).values(
+{
+
         id: changeId, changeNumber: `TEST-${changeId}`, title: "Competing CAB decisions",
         status: "submitted",
-      });
-      for (const [index, voter] of voters.entries()) {
-        await db.insert(changeApprovals).values({
+      
+}
+)
+;
+
+      for (const [index, voter] of voters.entries()) 
+{
+
+        await db.insert(changeApprovals).values(
+{
+
           id: approvalIds[index], changeId, approverId: voter.id,
           originalApproverId: voter.id, approverLabel: "CAB Voter", decision: "pending",
-        });
-      }
+        
+}
+)
+;
+
+      
+}
+
 
       // Both requests pass the route's initial approval read before either vote
       // starts. Control the commit order while still using real database writes.

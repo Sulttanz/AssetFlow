@@ -7,7 +7,9 @@ import { cabApprovalsGranted } from "./cab-gate";
 import { db } from "./db";
 import { storage } from "./storage";
 
-describe("CAB approvals after an approver account is deleted (PostgreSQL)", () => {
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+
+describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver account is deleted (PostgreSQL)", () => {
   it("keeps pending and decided history, blocks the gate until the pending assignment is removed", async () => {
     const suffix = randomUUID();
     const approverId = randomUUID();

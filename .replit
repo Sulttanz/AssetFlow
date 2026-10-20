@@ -46,6 +46,10 @@ args = "build-audit-gate"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
+args = "full-vitest"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "cab-schema-sync"
 
 [[workflows.workflow]]
@@ -87,6 +91,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run test:build-audit-gate"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "full-vitest"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm test"
 
 [workflows.workflow.metadata]
 isValidation = true

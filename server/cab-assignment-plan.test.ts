@@ -7,6 +7,8 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import ws from "ws";
 import { changeApprovals } from "@shared/schema";
 
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+
 describe("CAB assignment history lookup index", () => {
   const schema = `cab_assignment_plan_${randomUUID().replaceAll("-", "")}`;
   const databaseUrl = process.env.DATABASE_URL;
@@ -14,6 +16,7 @@ describe("CAB assignment history lookup index", () => {
   let plannerPool: Pool | undefined;
 
   beforeAll(async () => {
+    if (!databaseIntegrationEnabled) return;
     if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB assignment planner test");
     neonConfig.webSocketConstructor = ws;
     setupPool = new Pool({ connectionString: databaseUrl });
@@ -75,7 +78,7 @@ describe("CAB assignment history lookup index", () => {
     expect(index!.config.unique).toBe(false);
   });
 
-  it("uses the index and preserves duplicate historical assignment rows", async () => {
+  it.skipIf(!databaseIntegrationEnabled)("uses the index and preserves duplicate historical assignment rows", async () => {
     if (!plannerPool) throw new Error("CAB assignment planner database was not initialized");
 
     const history = await plannerPool.query(

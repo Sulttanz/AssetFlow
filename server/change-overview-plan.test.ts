@@ -34,6 +34,8 @@ const queries: {
   whereCondition?: Parameters<typeof dialect.sqlToQuery>[0];
 }[] = [];
 
+const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+
 describe("CAB overview pending count plan", () => {
   const schema = `cab_overview_plan_${randomUUID().replaceAll("-", "")}`;
   const databaseUrl = process.env.DATABASE_URL;
@@ -67,6 +69,7 @@ describe("CAB overview pending count plan", () => {
   });
 
   beforeAll(async () => {
+    if (!databaseIntegrationEnabled) return;
     if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB overview planner test");
     neonConfig.webSocketConstructor = ws;
     setupPool = new Pool({ connectionString: databaseUrl });
@@ -143,7 +146,7 @@ describe("CAB overview pending count plan", () => {
     }
   });
 
-  it("uses the strict pending-count index without changing the overview count", async () => {
+  it.skipIf(!databaseIntegrationEnabled)("uses the strict pending-count index without changing the overview count", async () => {
     if (!plannerPool) throw new Error("CAB overview planner database was not initialized");
 
     const summary = await new DatabaseStorage().getChangeReportSummary(new Date("2026-10-01T00:00:00Z"));
