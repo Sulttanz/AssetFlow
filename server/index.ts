@@ -90,6 +90,9 @@ app.use((req, res, next) => {
     // applied. The runner uses its own ledger and excludes workspace history.
     console.log("🗃️  Applying on-prem database migrations...");
     await runStartupMigrations();
+    const { ensureDropdownIntegrity } = await import("./dropdown-integrity");
+    const dropdownCleanup = await ensureDropdownIntegrity();
+    console.log(`Dropdown integrity: ${dropdownCleanup.deleted} redundant options archived and removed.`);
     
     // Register routes and setup authentication
     console.log("🛣️  Registering routes...");

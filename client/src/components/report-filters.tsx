@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, X } from "lucide-react";
-import { format } from "date-fns";
+import { formatDateDisplay, parseDateValue } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 
 interface Filter {
@@ -71,13 +71,13 @@ export default function ReportFilters({ filters, values, onChange, onClear }: Re
                   data-testid={`filter-${filter.key}`}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {values[filter.key] ? format(values[filter.key], "PPP") : "Pick a date"}
+                  {values[filter.key] ? formatDateDisplay(values[filter.key]) : "Pick a date"}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
                 <Calendar
                   mode="single"
-                  selected={values[filter.key]}
+                  selected={parseDateValue(values[filter.key])}
                   onSelect={(date) => onChange(filter.key, date)}
                   initialFocus
                 />

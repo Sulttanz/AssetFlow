@@ -1,6 +1,8 @@
 import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatDateDisplay, formatDateTime } from "./date-utils";
+import { formatExportValue } from "@shared/date-format";
 
 // Excel Export Utility
 export async function exportToExcel(
@@ -29,7 +31,7 @@ export async function exportToExcel(
 
   // Add data rows
   data.forEach(item => {
-    worksheet.addRow(item);
+    worksheet.addRow(Object.fromEntries(Object.entries(item).map(([key, value]) => [key, formatExportValue(value)])));
   });
 
   // Auto-filter
@@ -64,12 +66,12 @@ export function exportToPDF(
   
   // Add date
   doc.setFontSize(10);
-  doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+  doc.text(`Generated: ${formatDateTime(new Date())}`, 14, 22);
 
   // Add table
   autoTable(doc, {
     head: [columns],
-    body: data,
+    body: data.map(row => row.map(value => formatExportValue(value))),
     startY: 30,
     theme: 'striped',
     headStyles: { fillColor: [74, 85, 104] },
@@ -81,11 +83,7 @@ export function exportToPDF(
 
 // Format date for display
 export function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
+  return formatDateDisplay(date);
 }
 
 // Format currency

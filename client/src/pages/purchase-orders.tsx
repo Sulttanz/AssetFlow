@@ -1,7 +1,7 @@
+import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, PackageCheck, Layers, Copy } from "lucide-react";
-import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -583,7 +583,7 @@ export default function PurchaseOrders() {
     poNumber: generatePONumber(),
     vendorId: "",
     reference: "",
-    orderDate: new Date().toISOString().split("T")[0],
+    orderDate: appInputDate(new Date()),
     departmentId: "none",
     status: "pending" as const,
     notes: "",
@@ -644,7 +644,7 @@ export default function PurchaseOrders() {
       poNumber: generatePONumber(),
       vendorId: order.vendorId || "",
       reference: order.reference || "",
-      orderDate: new Date().toISOString().split("T")[0],
+      orderDate: appInputDate(new Date()),
       departmentId: order.departmentId || "none",
       status: "pending" as const,
       notes: order.notes || "",
@@ -918,7 +918,7 @@ export default function PurchaseOrders() {
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {format(new Date(order.orderDate), "MMM d, yyyy")}
+                          {appFormatDate(order.orderDate)}
                         </p>
                       </div>
                     </div>

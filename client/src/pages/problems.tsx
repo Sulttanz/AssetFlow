@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -18,7 +19,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Switch } from "@/components/ui/switch";
 import { AlertTriangle, Plus, Search, Pencil, Trash2, Link2, Unlink, ShieldAlert } from "lucide-react";
-import { format } from "date-fns";
 import type { TicketWithDetails } from "@shared/schema";
 
 interface ProblemWithDetails {
@@ -197,7 +197,7 @@ export default function Problems() {
                       </TableCell>
                       <TableCell><Badge className={PRIORITY_COLORS[p.priority] ?? ""}>{p.priority}</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">{p.linkedTickets?.length ?? 0}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{p.createdAt ? format(new Date(p.createdAt), "MMM d, yyyy") : "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{p.createdAt ? appFormatDate(p.createdAt) : "—"}</TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button>

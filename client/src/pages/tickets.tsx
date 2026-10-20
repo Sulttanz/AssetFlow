@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,7 +19,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTicketSchema, TICKET_PRIORITY_MATRIX, TICKET_RESOLUTION_CODES, type TicketWithDetails, type TicketCommentWithAuthor, type UserWithDetails, type Asset, type Department, type DropdownOption } from "@shared/schema";
 import { Ticket, Search, Send, Plus, Upload, FileText, Download, X } from "lucide-react";
-import { format } from "date-fns";
 import {
   Pagination,
   PaginationContent,
@@ -502,7 +502,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                             userLabel(ticket.assignedTo)
                           )}
                         </TableCell>}
-                        <TableCell>{ticket.createdAt ? format(new Date(ticket.createdAt), "MMM d, yyyy") : "-"}</TableCell>
+                        <TableCell>{ticket.createdAt ? appFormatDate(ticket.createdAt) : "-"}</TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => setSelectedTicket(ticket)}>
                             View
@@ -926,7 +926,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     ) : (
                       <div className="mt-1 text-sm">
                         {selectedTicket.dueDate
-                          ? format(new Date(`${selectedTicket.dueDate.slice(0, 10)}T00:00:00`), "MMM d, yyyy")
+                          ? appFormatDate(selectedTicket.dueDate.slice(0, 10))
                           : "-"}
                       </div>
                     )}
@@ -1001,12 +1001,12 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
                     <div>
                       <span className="text-muted-foreground">Response Due: </span>
-                      <span>{selectedTicket.slaResponseDueAt ? format(new Date(selectedTicket.slaResponseDueAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                      <span>{selectedTicket.slaResponseDueAt ? appFormatDateTime(selectedTicket.slaResponseDueAt) : "-"}</span>
                       {selectedTicket.firstRespondedAt && <Badge className="ml-2 bg-green-100 text-green-800">Responded</Badge>}
                     </div>
                     <div>
                       <span className="text-muted-foreground">Resolution Due: </span>
-                      <span>{selectedTicket.slaResolutionDueAt ? format(new Date(selectedTicket.slaResolutionDueAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                      <span>{selectedTicket.slaResolutionDueAt ? appFormatDateTime(selectedTicket.slaResolutionDueAt) : "-"}</span>
                       {selectedTicket.slaResolutionDueAt && selectedTicket.status !== "resolved" && selectedTicket.status !== "closed" && (
                         new Date(selectedTicket.slaResolutionDueAt) < new Date() ? (
                           <Badge className="ml-2 bg-red-100 text-red-800">Breached</Badge>
@@ -1024,7 +1024,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     </div>
                     <div>
                       <span className="text-muted-foreground">Resolved At: </span>
-                      <span>{selectedTicket.resolvedAt ? format(new Date(selectedTicket.resolvedAt), "MMM d, yyyy HH:mm") : "-"}</span>
+                      <span>{selectedTicket.resolvedAt ? appFormatDateTime(selectedTicket.resolvedAt) : "-"}</span>
                     </div>
                   </div>
                 </div>
@@ -1074,7 +1074,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                               {att.description && <p className="text-xs text-muted-foreground truncate">{att.description}</p>}
                               <p className="text-xs text-muted-foreground">
                                 {att.fileSize ? `${(att.fileSize / 1024).toFixed(1)} KB · ` : ""}
-                                {att.uploadedAt ? new Date(att.uploadedAt).toLocaleDateString() : ""}
+                                {att.uploadedAt ? appFormatDate(att.uploadedAt) : ""}
                               </p>
                             </div>
                           </div>
@@ -1117,7 +1117,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                                 <span className="text-amber-700 font-semibold">(internal note)</span>
                               )}
                             </span>
-                            <span>{c.createdAt ? format(new Date(c.createdAt), "MMM d, yyyy h:mm a") : ""}</span>
+                            <span>{c.createdAt ? appFormatDateTime(c.createdAt) : ""}</span>
                           </div>
                           <p className="whitespace-pre-wrap">{c.message}</p>
                         </div>

@@ -1,8 +1,8 @@
+import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { format } from "date-fns";
 import Changes from "./changes";
 import { queryClient } from "@/lib/queryClient";
 
@@ -403,9 +403,9 @@ describe("change detail CAB approvals", () => {
     expect(within(timeline).getByText("Testing attempt 2 started")).toBeTruthy();
     for (const stage of stages) {
       const previous = stage.attempts![0];
-      expect(timeline.textContent).toContain(format(new Date(previous.startedAt!), "MMM d, yyyy h:mm a"));
-      expect(timeline.textContent).toContain(format(new Date(previous.completedAt!), "MMM d, yyyy h:mm a"));
-      expect(timeline.textContent).toContain(format(new Date(stage.startedAt!), "MMM d, yyyy h:mm a"));
+      expect(timeline.textContent).toContain(appFormatDateTime(previous.startedAt!));
+      expect(timeline.textContent).toContain(appFormatDateTime(previous.completedAt!));
+      expect(timeline.textContent).toContain(appFormatDateTime(stage.startedAt!));
     }
   });
 
@@ -463,7 +463,7 @@ describe("change detail CAB approvals", () => {
       "CAB approver assigned: Current Reviewer",
     ]);
     const removal = within(panel).getByText("CAB approver removed: Former Reviewer by Morgan Manager").parentElement!;
-    expect(within(removal).getByText(new RegExp(format(new Date(decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+    expect(within(removal).getByText(new RegExp(appFormatDateTime(decidedAt)))).toBeTruthy();
     expect(within(panel).queryByRole("button")).toBeNull();
     expect(screen.getByRole("tab", { name: "Approvals (1)" })).toBeTruthy();
   });
@@ -497,11 +497,11 @@ describe("change detail CAB approvals", () => {
 
     const approvalEvent = within(panel).getByText("CAB approved: Current Reviewer").parentElement!;
     expect(within(approvalEvent).getByText("Reviewed and approved")).toBeTruthy();
-    expect(within(approvalEvent).getByText(new RegExp(format(new Date(approved.decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+    expect(within(approvalEvent).getByText(new RegExp(appFormatDateTime(approved.decidedAt)))).toBeTruthy();
 
     const rejectionEvent = within(panel).getByText("CAB rejected: Former Reviewer").parentElement!;
     expect(within(rejectionEvent).getByText("Needs rollback")).toBeTruthy();
-    expect(within(rejectionEvent).getByText(new RegExp(format(new Date(rejected.decidedAt), "MMM d, yyyy h:mm a")))).toBeTruthy();
+    expect(within(rejectionEvent).getByText(new RegExp(appFormatDateTime(rejected.decidedAt)))).toBeTruthy();
     expect(within(panel).queryByRole("button")).toBeNull();
   });
 
@@ -515,8 +515,8 @@ describe("change detail CAB approvals", () => {
     const { user, panel } = await openApprovals([], ["carol"], [removed]);
     const history = within(panel).getByRole("region", { name: "Removed CAB assignments" });
     expect(within(history).getByText("Former Reviewer")).toBeTruthy();
-    expect(within(history).getByText(`Assigned ${format(new Date(assignedAt), "MMM d, yyyy h:mm a")}`)).toBeTruthy();
-    expect(within(history).getByText(`Removed ${format(new Date(decidedAt), "MMM d, yyyy h:mm a")} by Morgan Manager`)).toBeTruthy();
+    expect(within(history).getByText(`Assigned ${appFormatDateTime(assignedAt)}`)).toBeTruthy();
+    expect(within(history).getByText(`Removed ${appFormatDateTime(decidedAt)} by Morgan Manager`)).toBeTruthy();
     expect(within(history).queryByRole("button")).toBeNull();
     expect(screen.getByRole("tab", { name: "Approvals (0)" })).toBeTruthy();
     expect(within(panel).getByText("No approvers added yet.")).toBeTruthy();
@@ -566,10 +566,10 @@ describe("change detail CAB approvals", () => {
       approval("Rejected", "rejected", "erin", "Needs rollback"),
     ]);
     for (const [name, badge, comment, timestamp] of [
-      ["Pending", "Pending", "No comment yet.", `Assigned ${format(new Date(assignedAt), "MMM d, yyyy h:mm a")}`],
-      ["Legacy", "Pending", "No comment yet.", `Assigned ${format(new Date(assignedAt), "MMM d, yyyy h:mm a")}`],
-      ["Approved", "Approved", "Looks safe", `Decided ${format(new Date(decidedAt), "MMM d, yyyy h:mm a")}`],
-      ["Rejected", "Rejected", "Needs rollback", `Decided ${format(new Date(decidedAt), "MMM d, yyyy h:mm a")}`],
+      ["Pending", "Pending", "No comment yet.", `Assigned ${appFormatDateTime(assignedAt)}`],
+      ["Legacy", "Pending", "No comment yet.", `Assigned ${appFormatDateTime(assignedAt)}`],
+      ["Approved", "Approved", "Looks safe", `Decided ${appFormatDateTime(decidedAt)}`],
+      ["Rejected", "Rejected", "Needs rollback", `Decided ${appFormatDateTime(decidedAt)}`],
     ]) {
       const row = within(panel).getByText(`${name} Reviewer`).closest(".rounded-md")!;
       expect(within(row as HTMLElement).getByText(badge)).toBeTruthy();

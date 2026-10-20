@@ -1,3 +1,4 @@
+import { toDateInputValue as appInputDate, formatDateDisplay } from "@/lib/date-utils";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -109,7 +110,7 @@ export default function Maintenance() {
       assetId: "",
       maintenanceType: "preventive",
       frequency: "quarterly",
-      nextDue: new Date().toISOString().split('T')[0],
+      nextDue: appInputDate(new Date()),
       estimatedCost: "0",
       priority: "medium",
       description: "",
@@ -122,7 +123,7 @@ export default function Maintenance() {
     defaultValues: {
       assetId: "",
       scheduleId: "",
-      maintenanceDate: new Date().toISOString().split('T')[0],
+      maintenanceDate: appInputDate(new Date()),
       maintenanceType: "preventive",
       performedBy: "",
       cost: "0",
@@ -350,7 +351,7 @@ export default function Maintenance() {
     recordCreateForm.reset({
       assetId: schedule.assetId,
       maintenanceType: schedule.maintenanceType,
-      maintenanceDate: new Date().toISOString().split('T')[0],
+      maintenanceDate: appInputDate(new Date()),
       scheduleId: schedule.id,
       performedBy: "",
       cost: schedule.estimatedCost || "0",
@@ -1105,7 +1106,7 @@ export default function Maintenance() {
                     <CardContent className="space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium">Date:</span>
-                        <span className="text-sm">{record.maintenanceDate}</span>
+                        <span className="text-sm">{formatDateDisplay(record.maintenanceDate)}</span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium">Performed By:</span>
@@ -1138,7 +1139,7 @@ export default function Maintenance() {
                       {record.nextMaintenanceDate && (
                         <div className="flex justify-between items-center">
                           <span className="text-sm font-medium">Next Due:</span>
-                          <span className="text-sm">{record.nextMaintenanceDate}</span>
+                          <span className="text-sm">{formatDateDisplay(record.nextMaintenanceDate)}</span>
                         </div>
                       )}
                     </CardContent>

@@ -104,7 +104,7 @@ describe("asset spreadsheet compliance round-trip", () => {
     expect(exportedSheet.getRow(1).getCell(21).value).toBe("Compliance Status");
     expect(exportedSheet.getRow(1).getCell(30).value).toBe("Next Audit Date");
     expect(exportedSheet.getRow(2).getCell(21).value).toBe("under-review");
-    expect(exportedSheet.getRow(2).getCell(30).value).toBe("2027-06-15");
+    expect(exportedSheet.getRow(2).getCell(30).value).toBe("15-06-2027");
 
     saved = [];
     expect((await importWorkbook(exported)).imported.assets).toBe(1);

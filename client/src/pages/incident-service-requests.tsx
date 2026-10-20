@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { type Asset, type Incident, type ServiceRequest } from "@shared/schema";
@@ -39,15 +40,11 @@ function QueuePills<T extends string>({ label, value, options, onChange }: {
 }
 
 function formatRequestDate(value: string | Date | null | undefined, dateOnly = false): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(dateOnly ? `${value}T00:00:00` : value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
+  return appFormatDate(value);
 }
 
 function formatRequestTimestamp(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+  return appFormatDateTime(value);
 }
 
 function matchesSmartSearch(query: string, values: unknown[]): boolean {
@@ -180,14 +177,14 @@ export function IncidentsPage() {
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.incidentNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell><Badge className={row.priority === "P1" ? "border-red-200 bg-red-100 text-red-800" : row.priority === "P2" ? "border-orange-200 bg-orange-100 text-orange-800" : row.priority === "P3" ? "border-amber-200 bg-amber-100 text-amber-800" : "border-blue-200 bg-blue-100 text-blue-800"}>{row.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline">{row.status}</Badge></TableCell><TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell>
-            <TableCell><span className={overdue ? "font-medium text-destructive" : ""}>{due ? `${overdue ? "Overdue · " : ""}${due.toLocaleString()}` : "—"}</span></TableCell><TableCell>{row.creatorName ?? "—"}</TableCell>
+            <TableCell><span className={overdue ? "font-medium text-destructive" : ""}>{due ? `${overdue ? "Overdue · " : ""}${appFormatDateTime(due)}` : "—"}</span></TableCell><TableCell>{row.creatorName ?? "—"}</TableCell>
           </TableRow>;
         })}</TableBody>
       </Table>}
     </Card>
     <Sheet open={Boolean(selected)} onOpenChange={open => { if (!open) setSelectedId(null); }}><SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
-      {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.incidentNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{selected.priority} priority · Opened {selected.createdAt ? new Date(selected.createdAt).toLocaleString() : "date unavailable"}</SheetDescription></SheetHeader>
-        <div className="mt-6 grid gap-6"><section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Description</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><p className="mt-3 text-sm text-muted-foreground">Resolution due: {selected.resolveDueAt ? new Date(selected.resolveDueAt).toLocaleString() : "—"}</p></section>
+      {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.incidentNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{selected.priority} priority · Opened {selected.createdAt ? appFormatDateTime(selected.createdAt) : "date unavailable"}</SheetDescription></SheetHeader>
+        <div className="mt-6 grid gap-6"><section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Description</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><p className="mt-3 text-sm text-muted-foreground">Resolution due: {selected.resolveDueAt ? appFormatDateTime(selected.resolveDueAt) : "—"}</p></section>
           {user?.permissions?.includes("ticket_manage") && <>
             <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssignmentGroup} onChange={event => setIncidentAssignmentGroup(event.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
               <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
@@ -198,7 +195,7 @@ export function IncidentsPage() {
                <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status || (["Resolved", "Closed"].includes(status) && !resolutionNotes.trim()) || (status === "Resolved" && !resolutionCode)}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code and note are required to resolve; a closure note is required to close.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
             </section>
           </>}
-          <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {new Date(entry.createdAt).toLocaleString()}</p></div>)}</div></section>
+          <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>
         </div>
       </>}
     </SheetContent></Sheet>
@@ -363,7 +360,7 @@ export function ServiceRequestsPage() {
               {selected.fulfillmentStage === "Ready for Delivery" && <><label className="grid gap-1 text-sm">Inventory asset<select className="h-10 rounded-md border bg-background px-3 text-sm" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}><option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name}</option>)}</select></label><Button onClick={() => updateStage.mutate({ id: selected.id, stage: "Completed", assetId: selectedAssetId })} disabled={updateStage.isPending}>Complete request</Button></>}
             </section>}
           </>}
-          <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {new Date(entry.createdAt).toLocaleString()}</p></div>)}</div></section>
+          <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>
         </div>
       </>}
     </SheetContent></Sheet>

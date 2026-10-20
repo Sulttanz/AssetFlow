@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -220,7 +221,7 @@ export default function UsersPage() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground" data-testid={`text-created-${user.id}`}>
-                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString("en-GB") : "N/A"}
+                      {user.createdAt ? appFormatDate(user.createdAt) : "N/A"}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -370,13 +371,7 @@ export default function UsersPage() {
                 <div>
                   <label className="font-medium text-muted-foreground">Created</label>
                   <div className="text-sm" data-testid="view-created">
-                    {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString("en-GB", {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }) : "N/A"}
+                    {selectedUser.createdAt ? appFormatDate(selectedUser.createdAt) : "N/A"}
                   </div>
                 </div>
               </div>

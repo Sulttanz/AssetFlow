@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -16,7 +17,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { BookOpen, Plus, Search, Pencil, Trash2, ThumbsUp, ThumbsDown, Eye, Star, SendHorizonal, CheckCircle2, XCircle, Clock } from "lucide-react";
-import { format } from "date-fns";
 
 interface KbArticle {
   id: string; title: string; content: string; category: string;
@@ -222,7 +222,7 @@ export default function KnowledgeBase() {
                       <TableCell><Badge className={STATUS_COLORS[a.status] ?? ""}>{a.status}</Badge></TableCell>
                       <TableCell className="text-muted-foreground text-sm">{a.views ?? 0}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{a.helpfulCount ?? 0} / {(a.helpfulCount ?? 0) + (a.notHelpfulCount ?? 0)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{a.updatedAt ? format(new Date(a.updatedAt), "MMM d, yyyy") : "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{a.updatedAt ? appFormatDate(a.updatedAt) : "—"}</TableCell>
                       <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           {a.status === "draft" && (

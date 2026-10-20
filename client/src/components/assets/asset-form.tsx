@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1892,7 +1893,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                                 {att.description && <p className="text-xs text-muted-foreground truncate">{att.description}</p>}
                                 <p className="text-xs text-muted-foreground">
                                   {att.fileSize ? `${(att.fileSize / 1024).toFixed(1)} KB · ` : ""}{att.fileType || "Unknown type"}
-                                  {att.uploadedAt ? ` · ${new Date(att.uploadedAt).toLocaleDateString()}` : ""}
+                                  {att.uploadedAt ? ` · ${appFormatDate(att.uploadedAt)}` : ""}
                                 </p>
                               </div>
                             </div>

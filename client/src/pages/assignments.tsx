@@ -1,3 +1,4 @@
+import { formatDateDisplay } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -265,8 +266,8 @@ export default function Assignments() {
                           </div>
                         </TableCell>
                         <TableCell>{assignment.employee.department}</TableCell>
-                        <TableCell>{assignment.assignedDate}</TableCell>
-                        <TableCell>{assignment.returnedDate || "-"}</TableCell>
+                        <TableCell>{formatDateDisplay(assignment.assignedDate)}</TableCell>
+                        <TableCell>{formatDateDisplay(assignment.returnedDate)}</TableCell>
                         <TableCell>{getStatusBadge(assignment)}</TableCell>
                         <TableCell>{assignment.notes || "-"}</TableCell>
                         <TableCell>

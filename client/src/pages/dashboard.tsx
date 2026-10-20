@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,7 +46,6 @@ import {
 } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { Link } from "wouter";
 import { useModules } from "@/hooks/use-modules";
 import { Ticket } from "lucide-react";
@@ -508,7 +508,7 @@ export default function Dashboard() {
                       <TableRow key={assignment.id}>
                         <TableCell className="font-medium">{assignment.assetName}</TableCell>
                         <TableCell>{assignment.employeeName}</TableCell>
-                        <TableCell>{format(new Date(assignment.assignedDate), "MMM d, yyyy")}</TableCell>
+                        <TableCell>{appFormatDate(assignment.assignedDate)}</TableCell>
                       </TableRow>
                     ))}
                     {(!assignments || assignments.length === 0) && (
@@ -544,7 +544,7 @@ export default function Dashboard() {
                       <TableRow key={m.id}>
                         <TableCell className="font-medium">{m.assetName || "Asset"}</TableCell>
                         <TableCell className="capitalize">{m.maintenanceType}</TableCell>
-                        <TableCell>{format(new Date(m.nextDue), "MMM d, yyyy")}</TableCell>
+                        <TableCell>{appFormatDate(m.nextDue)}</TableCell>
                       </TableRow>
                     ))}
                     {(!maintenance || maintenance.length === 0) && (

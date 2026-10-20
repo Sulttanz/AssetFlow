@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -29,7 +30,7 @@ const blankRisk: RiskForm = {
 };
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 const personName = (person?: Person | null) => person ? `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim() || person.username || "Unassigned" : "Unassigned";
-const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—";
+const dateLabel = (value?: string | null) => value ? appFormatDate(value) : "—";
 const statusLabel = (value = "identified") => value.replaceAll("_", " ");
 
 function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {

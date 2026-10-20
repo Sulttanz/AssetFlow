@@ -1,3 +1,4 @@
+import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { FileText, User, Calendar, Activity, RefreshCw } from "lucide-react";
-import { format } from "date-fns";
 import type { AuditLog } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
 import {
@@ -196,7 +196,7 @@ export default function AuditLogs() {
                       {paginatedLogs.map((log) => (
                         <TableRow key={log.id} data-testid={`audit-log-${log.id}`}>
                           <TableCell className="font-mono text-xs w-[135px]">
-                            {log.timestamp ? format(new Date(log.timestamp), "MMM dd, yyyy HH:mm:ss") : "-"}
+                            {log.timestamp ? appFormatDateTime(log.timestamp) : "-"}
                           </TableCell>
                           <TableCell className="w-[75px]">{getActionBadge(log.action)}</TableCell>
                           <TableCell className="w-[95px]">

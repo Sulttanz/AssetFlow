@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { getAssetExpiryStatus } from "@/lib/asset-expiry";
+import { formatDateDisplay } from "@/lib/date-utils";
 
 type ExpiringAsset = {
   licenseExpiryDate?: string | null;
@@ -28,7 +29,7 @@ export default function AssetExpiryBadges({ asset }: { asset: ExpiringAsset }) {
   if (!dates.length) return <span className="text-xs text-muted-foreground">No expiry dates recorded</span>;
   return <div className="flex flex-wrap gap-1.5">
     {dates.map(({ id, label, status }) => (
-      <Badge key={id} variant="outline" className={accents[status.tone]} title={`${label}: ${status.date}`}>
+      <Badge key={id} variant="outline" className={accents[status.tone]} title={`${label}: ${formatDateDisplay(status.date)}`}>
         {label}: {status.text}
       </Badge>
     ))}

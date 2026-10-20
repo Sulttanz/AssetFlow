@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -26,7 +27,7 @@ import {
   Rocket, AlertTriangle, CheckCheck, SkipForward, Timer, Calendar, User,
   Building2, ArrowRight, Info, Loader2, Bell
 } from "lucide-react";
-import { format, formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
+import { formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
 import { useAuth, useHasPermission } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -330,7 +331,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                 <Calendar className="h-3 w-3 text-muted-foreground" />
                 {due ? (
                   <span className={cn(isOverdue ? "text-red-700 font-semibold" : "text-muted-foreground")}>
-                    Due {format(due, "MMM d, yyyy")}
+                    Due {appFormatDate(due)}
                     {!completedAt && (isOverdue
                       ? ` · ${formatDistanceToNow(due)} overdue`
                       : ` · ${formatDistanceToNow(due, { addSuffix: true })}`)}
@@ -567,7 +568,7 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
                     <div className="flex-1 min-w-0 pt-0.5">
                       <p className="text-sm font-medium">{ev.label}</p>
                       <p className="text-xs text-muted-foreground">
-                        {format(new Date(ev.ts!), "MMM d, yyyy h:mm a")} · {formatDistanceToNow(new Date(ev.ts!), { addSuffix: true })}
+                        {appFormatDateTime(ev.ts!)} · {formatDistanceToNow(new Date(ev.ts!), { addSuffix: true })}
                       </p>
                       {ev.comment && <p className="mt-1 text-xs text-muted-foreground whitespace-pre-wrap">{ev.comment}</p>}
                     </div>
@@ -1070,7 +1071,7 @@ export default function Changes() {
                           </div>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{userLabel(c.assignedTo)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{c.scheduledStart ? format(new Date(c.scheduledStart), "MMM d") : "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{c.scheduledStart ? appFormatDate(c.scheduledStart) : "—"}</TableCell>
                         <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                           <div className="flex justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={(e) => openEdit(c, e)}><Pencil className="h-4 w-4" /></Button>
@@ -1154,15 +1155,15 @@ export default function Changes() {
                   <p className="text-sm flex items-center gap-1">
                     <UserCog className="h-3.5 w-3.5 text-muted-foreground" />
                     {userLabel(currentChange?.assignedTo)}
-                    {currentChange?.assignedAt && <span className="text-muted-foreground text-xs ml-1">· since {format(new Date(currentChange.assignedAt), "MMM d")}</span>}
+                    {currentChange?.assignedAt && <span className="text-muted-foreground text-xs ml-1">· since {appFormatDate(currentChange.assignedAt)}</span>}
                   </p>
                 </div>
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Department</p><p className="text-sm flex items-center gap-1"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.department?.name ?? "—"}</p></div>
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Priority</p><p className="text-sm capitalize">{currentChange?.priority}</p></div>
-                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Scheduled Start</p><p className="text-sm flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.scheduledStart ? format(new Date(currentChange.scheduledStart), "MMM d, yyyy") : "—"}</p></div>
-                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Scheduled End</p><p className="text-sm flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.scheduledEnd ? format(new Date(currentChange.scheduledEnd), "MMM d, yyyy") : "—"}</p></div>
-                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual Start</p><p className="text-sm flex items-center gap-1"><Play className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualStart ? format(new Date(currentChange.actualStart), "MMM d, yyyy h:mm a") : "—"}</p></div>
-                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual End</p><p className="text-sm flex items-center gap-1"><Square className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualEnd ? format(new Date(currentChange.actualEnd), "MMM d, yyyy h:mm a") : "—"}</p></div>
+                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Scheduled Start</p><p className="text-sm flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.scheduledStart ? appFormatDate(currentChange.scheduledStart) : "—"}</p></div>
+                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Scheduled End</p><p className="text-sm flex items-center gap-1"><Calendar className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.scheduledEnd ? appFormatDate(currentChange.scheduledEnd) : "—"}</p></div>
+                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual Start</p><p className="text-sm flex items-center gap-1"><Play className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualStart ? appFormatDateTime(currentChange.actualStart) : "—"}</p></div>
+                <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Actual End</p><p className="text-sm flex items-center gap-1"><Square className="h-3.5 w-3.5 text-muted-foreground" />{currentChange?.actualEnd ? appFormatDateTime(currentChange.actualEnd) : "—"}</p></div>
               </div>
               {/* CAB Info */}
               {currentChange?.cabRequired && (
@@ -1173,7 +1174,7 @@ export default function Changes() {
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <p className="text-xs text-muted-foreground">CAB Meeting Scheduled</p>
-                      <p className="font-medium">{currentChange.cabScheduledFor ? format(new Date(currentChange.cabScheduledFor), "MMM d, yyyy") : "Not yet scheduled"}</p>
+                      <p className="font-medium">{currentChange.cabScheduledFor ? appFormatDate(currentChange.cabScheduledFor) : "Not yet scheduled"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Approvals</p>
@@ -1256,8 +1257,8 @@ export default function Changes() {
                       {a.approverId && a.approver?.isActive === false && isPending && <p className="text-xs text-amber-800">This account is disabled, so this pending vote cannot be cast and is blocking CAB approval. A change manager must remove this assignment and add an active approver.</p>}
                       <p className="text-xs text-muted-foreground mt-1">
                         {a.decidedAt
-                          ? `Decided ${format(new Date(a.decidedAt), "MMM d, yyyy h:mm a")}`
-                          : `Assigned ${format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}`}
+                          ? `Decided ${appFormatDateTime(a.decidedAt)}`
+                          : `Assigned ${appFormatDateTime(a.createdAt)}`}
                       </p>
                       <p className={cn("text-xs mt-2 whitespace-pre-wrap", a.comments ? "text-foreground" : "text-muted-foreground italic")}>
                         {a.comments || (isPending ? "No comment yet." : "No comment provided.")}
@@ -1339,10 +1340,10 @@ export default function Changes() {
                         <Badge variant="secondary">Removed</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Assigned {format(new Date(a.createdAt), "MMM d, yyyy h:mm a")}
+                        Assigned {appFormatDateTime(a.createdAt)}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Removed {format(new Date(a.removedAt!), "MMM d, yyyy h:mm a")} by{" "}
+                        Removed {appFormatDateTime(a.removedAt!)} by{" "}
                         {a.removedByLabel || (a.removedBy ? userLabel(a.removedBy) : "Deleted account")}
                       </p>
                     </div>

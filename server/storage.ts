@@ -3975,14 +3975,14 @@ export class DatabaseStorage implements IStorage {
 
   async getDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
     return await db.select().from(dropdownOptions).where(
-      and(eq(dropdownOptions.category, category), eq(dropdownOptions.isActive, true))
+      and(sql`lower(btrim(${dropdownOptions.category})) = lower(btrim(${category}))`, eq(dropdownOptions.isActive, true))
     ).orderBy(dropdownOptions.displayOrder);
   }
 
   // Admin view by category — returns all options regardless of isActive
   async getAllDropdownOptionsByCategory(category: string): Promise<DropdownOption[]> {
     return await db.select().from(dropdownOptions)
-      .where(eq(dropdownOptions.category, category))
+      .where(sql`lower(btrim(${dropdownOptions.category})) = lower(btrim(${category}))`)
       .orderBy(dropdownOptions.displayOrder);
   }
 

@@ -1,3 +1,4 @@
+import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -17,7 +18,7 @@ import { Settings, Save, RotateCcw, Info, Trash2, AlertTriangle, RefreshCw } fro
 const systemSettingsSchema = z.object({
   assetIdPrefix: z.string().min(1, "Asset ID prefix is required").max(10, "Prefix must be 10 characters or less"),
   assetIdStartingNumber: z.number().int().min(1, "Starting number must be at least 1"),
-  dateFormat: z.enum(["DD-MM-YYYY", "MM-DD-YYYY", "YYYY-MM-DD"])
+  dateFormat: z.literal("DD-MM-YYYY")
 });
 
 type SystemSettingsFormData = z.infer<typeof systemSettingsSchema>;
@@ -25,7 +26,7 @@ type SystemSettingsFormData = z.infer<typeof systemSettingsSchema>;
 interface SystemSettings {
   assetIdPrefix: string;
   assetIdStartingNumber: number;
-  dateFormat: "DD-MM-YYYY" | "MM-DD-YYYY" | "YYYY-MM-DD";
+  dateFormat: "DD-MM-YYYY";
 }
 
 export default function SystemSettings() {
@@ -114,7 +115,7 @@ export default function SystemSettings() {
     onSuccess: (data) => {
       toast({
         title: "Data Cleared Successfully",
-        description: `All system data has been cleared by ${data.clearedBy} at ${new Date(data.clearedAt).toLocaleString()}.`,
+        description: `All system data has been cleared by ${data.clearedBy} at ${appFormatDateTime(data.clearedAt)}.`,
       });
       setClearDataPassword("");
       setIsAlertOpen(false);
@@ -276,8 +277,6 @@ export default function SystemSettings() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="DD-MM-YYYY">DD-MM-YYYY (31-12-2024)</SelectItem>
-                        <SelectItem value="MM-DD-YYYY">MM-DD-YYYY (12-31-2024)</SelectItem>
-                        <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (2024-12-31)</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormDescription>
@@ -328,7 +327,7 @@ export default function SystemSettings() {
         <CardContent className="space-y-3">
           <div className="grid gap-2 text-sm sm:grid-cols-2">
             <p><span className="font-medium">Current version:</span> {isVersionLoading ? "Loading…" : versionInfo?.version ?? "Unavailable"}</p>
-            <p><span className="font-medium">Build timestamp:</span> {versionInfo?.buildTimestamp ? new Date(versionInfo.buildTimestamp).toLocaleString() : "Unavailable"}</p>
+            <p><span className="font-medium">Build timestamp:</span> {versionInfo?.buildTimestamp ? appFormatDateTime(versionInfo.buildTimestamp) : "Unavailable"}</p>
             <p className="sm:col-span-2">
               <span className="font-medium">Active modules:</span>{" "}
               {versionInfo?.activeModules?.length ? versionInfo.activeModules.join(", ") : "None"}

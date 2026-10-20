@@ -18,55 +18,10 @@ const DateInput = forwardRef<HTMLInputElement, DateInputProps>(
     const [displayValue, setDisplayValue] = useState("");
 
     // Update internal values when external value changes
-    useEffect(() => {      
-      if (value && value.trim() !== "") {
-        let isoValue = "";
-        let displayText = "";
-        
-        // Always convert to DD-MM-YYYY for display, regardless of input format
-        if (value.includes("-")) {
-          const parts = value.split("-");
-          
-          if (parts.length === 3) {
-            if (parts[0].length === 4) {
-              // YYYY-MM-DD format from database - convert to DD-MM-YYYY for display
-              isoValue = value;
-              displayText = convertFromISODate(value);
-            } else if (parts[0].length === 2) {
-              // DD-MM-YYYY format - convert to ISO for internal use
-              isoValue = convertToISODate(value);
-              displayText = value; // Already in DD-MM-YYYY format
-            } else {
-              // Fallback - try to parse and convert
-              isoValue = convertToISODate(value) || value;
-              displayText = formatDateDisplay(value);
-            }
-          } else {
-            // Fallback for unexpected format
-            isoValue = convertToISODate(value) || value;
-            displayText = formatDateDisplay(value);
-          }
-        } else {
-          // No dashes - try to parse and convert
-          isoValue = convertToISODate(value) || value;
-          displayText = formatDateDisplay(value);
-        }
-        
-        // Final safety check - ensure displayText is always in DD-MM-YYYY format
-        if (displayText && displayText.includes("-")) {
-          const displayParts = displayText.split("-");
-          if (displayParts.length === 3 && displayParts[0].length === 4) {
-            // If displayText is still YYYY-MM-DD, convert it
-            displayText = convertFromISODate(displayText);
-          }
-        }
-        
-        setInternalValue(isoValue);
-        setDisplayValue(displayText);
-      } else {
-        setInternalValue("");
-        setDisplayValue("");
-      }
+    useEffect(() => {
+      const isoValue = convertToISODate(value);
+      setInternalValue(isoValue);
+      setDisplayValue(isoValue ? formatDateDisplay(isoValue) : "");
     }, [value]);
 
     const handleFocus = () => {

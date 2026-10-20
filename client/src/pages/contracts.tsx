@@ -1,10 +1,11 @@
+import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Plus, FileSignature, Edit2, Trash2, Calendar, DollarSign, 
   Building2, User, FileText, AlertTriangle, Search, Briefcase, Tag
 } from "lucide-react";
-import { format, addDays, isBefore } from "date-fns";
+import { addDays, isBefore } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -84,7 +85,7 @@ export default function ContractsPage() {
       contractType: "service",
       vendorId: "",
       assetId: "",
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: appInputDate(new Date()),
       endDate: "",
       value: "0",
       status: "active",
@@ -131,8 +132,8 @@ export default function ContractsPage() {
     setEditingContract(contract);
     editForm.reset({
       ...contract,
-      startDate: contract.startDate ? new Date(contract.startDate).toISOString().split('T')[0] : "",
-      endDate: contract.endDate ? new Date(contract.endDate).toISOString().split('T')[0] : "",
+      startDate: contract.startDate ? appInputDate(contract.startDate) : "",
+      endDate: contract.endDate ? appInputDate(contract.endDate) : "",
       value: contract.value?.toString() || "0",
     });
   };
@@ -506,17 +507,17 @@ export default function ContractsPage() {
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Calendar className="w-4 h-4" />
-                      <span>{contract.startDate ? format(new Date(contract.startDate), "MMM d, yyyy") : "N/A"}</span>
+                      <span>{contract.startDate ? appFormatDate(contract.startDate) : "N/A"}</span>
                     </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Calendar className="w-4 h-4" />
                       <div>
                         <span className={expiringSoon ? "text-red-500 font-bold" : ""}>
-                          {contract.endDate ? format(new Date(contract.endDate), "MMM d, yyyy") : "No Expiry"}
+                          {contract.endDate ? appFormatDate(contract.endDate) : "No Expiry"}
                         </span>
                         {(contract as any).renewalDate && (
                           <p className={`text-xs mt-0.5 ${isRenewalDue((contract as any).renewalDate) ? "text-yellow-600 font-medium" : "text-muted-foreground"}`}>
-                            Renewal: {format(new Date((contract as any).renewalDate), "MMM d, yyyy")}
+                            Renewal: {appFormatDate((contract as any).renewalDate)}
                           </p>
                         )}
                       </div>

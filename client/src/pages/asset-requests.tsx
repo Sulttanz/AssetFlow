@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,7 +20,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertAssetRequestSchema, type AssetRequest, type Employee, type Asset } from "@shared/schema";
 import { ClipboardList, CheckCircle2, XCircle, PackageCheck, Search } from "lucide-react";
-import { format } from "date-fns";
 import {
   Pagination,
   PaginationContent,
@@ -214,9 +214,9 @@ export default function AssetRequests() {
                           <TableCell>{getPriorityBadge(request.priority)}</TableCell>
                           <TableCell>{getStatusBadge(request.status)}</TableCell>
                           <TableCell>
-                            {request.neededByDate ? format(new Date(request.neededByDate), "MMM d, yyyy") : "-"}
+                            {request.neededByDate ? appFormatDate(request.neededByDate) : "-"}
                           </TableCell>
-                          <TableCell>{format(new Date(request.createdAt!), "MMM d, yyyy")}</TableCell>
+                          <TableCell>{appFormatDate(request.createdAt!)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               {request.status === "pending" && (

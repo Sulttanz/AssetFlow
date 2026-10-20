@@ -7,6 +7,7 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "test": "node scripts/run-full-vitest.mjs",
     "test:cab-schema-sync": "node scripts/run-cab-schema-sync-test.mjs",
+    "test:dropdown-integrity": "node --import tsx scripts/test-dropdown-integrity.mjs",
     "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "audit:security": "npm audit --audit-level=high",
     "build": "npm run audit:security && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --define:process.env.BUILD_TIMESTAMP=\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\"",

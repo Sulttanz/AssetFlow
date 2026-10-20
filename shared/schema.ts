@@ -554,7 +554,10 @@ export const dropdownOptions = pgTable("dropdown_options", {
   displayOrder: integer("display_order").default(0),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
-});
+}, table => [
+  uniqueIndex("dropdown_options_category_value_ci_unique")
+    .on(sql`lower(btrim(${table.category}))`, sql`lower(btrim(${table.value}))`),
+]);
 
 // System Settings
 export const settings = pgTable("settings", {
@@ -862,7 +865,11 @@ export type TicketWithDetails = Ticket & {
 // ────────────────────────────────────────────────────────────────────────────
 
 // Dropdown Options Insert Schema
-export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions, {
+  category: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(255),
+  label: z.string().trim().min(1).max(255),
+}).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });

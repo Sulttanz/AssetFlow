@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Employee } from "@shared/schema";
@@ -58,7 +59,7 @@ export default function SoftwareSeatAllocations({ assetId, onUsageChange }: {
       <TableBody>
         {allocations.map(row => <TableRow key={row.id}>
           <TableCell>{row.employee.firstName} {row.employee.lastName}<div className="text-xs text-muted-foreground">{row.employee.email}</div></TableCell>
-          <TableCell>{new Date(row.allocatedAt).toLocaleDateString()}</TableCell>
+          <TableCell>{appFormatDate(row.allocatedAt)}</TableCell>
           <TableCell className="text-right"><Button type="button" size="sm" variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate({ allocationId: row.id })}>Release</Button></TableCell>
         </TableRow>)}
         {!allocations.length && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">{isLoading ? "Loading allocations…" : "No employees allocated"}</TableCell></TableRow>}

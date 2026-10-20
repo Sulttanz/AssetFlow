@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,6 @@ import { FileText, Download, TrendingUp, TrendingDown, Package, Users, Wrench, D
 import { Link } from "wouter";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#ffc658', '#ff7c7c'];
 
@@ -422,8 +422,8 @@ export default function Reports() {
                           <TableCell className="font-medium">{assignment.assetTag}</TableCell>
                           <TableCell>{assignment.assetType}</TableCell>
                           <TableCell>{assignment.employeeName}</TableCell>
-                          <TableCell>{format(new Date(assignment.assignedDate), 'MMM dd, yyyy')}</TableCell>
-                          <TableCell>{assignment.returnedDate ? format(new Date(assignment.returnedDate), 'MMM dd, yyyy') : 'N/A'}</TableCell>
+                          <TableCell>{appFormatDate(assignment.assignedDate)}</TableCell>
+                          <TableCell>{assignment.returnedDate ? appFormatDate(assignment.returnedDate) : 'N/A'}</TableCell>
                           <TableCell>
                             <Badge variant={assignment.status === 'active' ? 'default' : 'secondary'}>
                               {assignment.status}
@@ -772,7 +772,7 @@ export default function Reports() {
                           <TableCell>{asset.assetType}</TableCell>
                           <TableCell>{asset.manufacturer}</TableCell>
                           <TableCell>{asset.model}</TableCell>
-                          <TableCell>{format(new Date(asset.warrantyEndDate), 'MMM dd, yyyy')}</TableCell>
+                          <TableCell>{appFormatDate(asset.warrantyEndDate)}</TableCell>
                           <TableCell>
                             <Badge variant={asset.daysRemaining < 30 ? 'destructive' : 'secondary'}>
                               {asset.daysRemaining} days

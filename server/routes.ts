@@ -1,4 +1,7 @@
 import type { Express } from "express";
+import { ensureDropdownIntegrity } from "./dropdown-integrity";
+import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
+import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
@@ -1789,7 +1792,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = {
         assetIdPrefix: allSettings.find(s => s.key === 'asset_id_prefix')?.value || "AST",
         assetIdStartingNumber: parseInt(allSettings.find(s => s.key === 'asset_id_starting_number')?.value || "1000"),
-        dateFormat: allSettings.find(s => s.key === 'date_format')?.value || "DD-MM-YYYY"
+        dateFormat: "DD-MM-YYYY"
       };
       
       res.json(settings);
@@ -1803,7 +1806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = z.object({
         assetIdPrefix: z.string().min(1).max(10),
         assetIdStartingNumber: z.number().int().min(1),
-        dateFormat: z.enum(["DD-MM-YYYY", "MM-DD-YYYY", "YYYY-MM-DD"])
+        dateFormat: z.literal("DD-MM-YYYY")
       }).parse(req.body);
       
       const userId = (req.user as any)?.id;
@@ -5127,7 +5130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       sheet.columns = assetSpreadsheetColumns;
       for (const asset of assets) {
         sheet.addRow({
-          ...asset,
+          ...Object.fromEntries(Object.entries(asset).map(([key, value]) => [key, formatExportValue(value)])),
           locationName: asset.locationId ? locationNames.get(asset.locationId) ?? '' : '',
           departmentName: asset.departmentId ? departmentNames.get(asset.departmentId) ?? '' : '',
           dataTypes: asset.dataClassificationHandled,
@@ -5254,6 +5257,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let assetsImported = 0;
       let employeesImported = 0;
       let assignmentsImported = 0;
+      const convertDate = (value: unknown): string | undefined => {
+        if (value == null || value === "") return undefined;
+        const result = toSpreadsheetDateInput(value);
+        if (!result) throw new Error("Invalid date. Use DD-MM-YYYY, YYYY-MM-DD, or an Excel date cell.");
+        return result;
+      };
 
       // Import Assets
       const assetsSheet = workbook.getWorksheet('Assets');
@@ -5348,20 +5357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               departmentId = departmentMap.get(deptName);
             }
             
-            // Helper function to convert dates
-            const convertDate = (value: any) => {
-              if (!value) return undefined;
-              try {
-                // Excel serial dates count days from 1899-12-30; JS numeric dates count milliseconds.
-                const date = typeof value === 'number'
-                  ? new Date(Date.UTC(1899, 11, 30) + value * 86400000)
-                  : new Date(value as any);
-                return date.toISOString().split('T')[0];
-              } catch {
-                return undefined;
-              }
-            };
-            const nextAuditDate = convertDate(assetData.nextAuditDate);
+            const nextAuditDate = toSpreadsheetDateInput(assetData.nextAuditDate) || undefined;
             if (assetData.nextAuditDate != null && assetData.nextAuditDate !== '' && !nextAuditDate) {
               throw new Error(`Invalid Next Audit Date for ${assetData.name || assetData.serialNumber}`);
             }
@@ -5462,7 +5458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               department: empData.department?.toString() || undefined,
               position: empData.position?.toString() || '',
               phone: empData.phone?.toString() || undefined,
-              startDate: empData.startDate ? new Date(empData.startDate as any).toISOString().split('T')[0] : undefined,
+              startDate: convertDate(empData.startDate),
               salary: empData.salary ? empData.salary.toString() : undefined,
             });
             
@@ -5512,8 +5508,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const assignment = await storage.createAssignment({
               assetId: asset.id,
               employeeId: employee.id,
-              assignedDate: assignData.assignedDate ? new Date(assignData.assignedDate as any).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-              returnedDate: assignData.returnedDate ? new Date(assignData.returnedDate as any).toISOString().split('T')[0] : undefined,
+              assignedDate: convertDate(assignData.assignedDate) ?? toDateInputValue(new Date()),
+              returnedDate: convertDate(assignData.returnedDate),
             });
             
             await logAudit(req.user?.id, 'CREATE', 'assignments', assignment.id, `${asset.name} to ${employee.firstName} ${employee.lastName}`, null, assignment, req);
@@ -5575,8 +5571,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertDropdownOptionSchema.parse(req.body);
       // Duplicate check: same value + category must be unique
-      const existing = await storage.getDropdownOptionsByCategory(validatedData.category);
-      const duplicate = existing.find(o => o.value.toLowerCase() === validatedData.value.toLowerCase());
+      const existing = await storage.getAllDropdownOptions();
+      const duplicate = existing.find(o => dropdownIdentity(o.category, o.value) === dropdownIdentity(validatedData.category, validatedData.value));
       if (duplicate) {
         return res.status(409).json({ message: `A "${duplicate.label}" option with value "${duplicate.value}" already exists in this category.` });
       }
@@ -5586,7 +5582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
       }
-      if (error?.code === "23505") {
+      if ((error?.code ?? error?.cause?.code) === "23505") {
         return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
       }
       res.status(500).json({ message: "Failed to create dropdown option" });
@@ -5596,15 +5592,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/dropdowns/options/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
       const validatedData = insertDropdownOptionSchema.partial().parse(req.body);
+      const existing = await storage.getAllDropdownOptions();
+      const current = existing.find(option => option.id === req.params.id);
+      if (!current) return res.status(404).json({ message: "Dropdown option not found" });
+      const category = validatedData.category ?? current.category;
+      const value = validatedData.value ?? current.value;
+      if (existing.some(option => option.id !== current.id && dropdownIdentity(option.category, option.value) === dropdownIdentity(category, value))) {
+        return res.status(409).json({ message: "A dropdown option with this value already exists in this category, including inactive options." });
+      }
       const option = await storage.updateDropdownOption(req.params.id, validatedData);
       if (!option) {
         return res.status(404).json({ message: "Dropdown option not found" });
       }
       res.json(option);
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
       }
+      if ((error?.code ?? error?.cause?.code) === "23505") return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
       res.status(500).json({ message: "Failed to update dropdown option" });
     }
   });
@@ -5624,33 +5629,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete duplicate dropdown options — keep oldest per (category, value), remove the rest
   app.post("/api/dropdowns/cleanup-duplicates", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
-      const { category } = req.body as { category?: string };
-      const allOptions = category
-        ? await storage.getAllDropdownOptionsByCategory(category)
-        : await storage.getAllDropdownOptions();
-
-      // Group by category+value (case-insensitive)
-      const groups = new Map<string, typeof allOptions>();
-      for (const opt of allOptions) {
-        const key = `${opt.category}::${opt.value.toLowerCase()}`;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(opt);
-      }
-
-      // For each group with more than 1 entry, keep the oldest, delete the rest
-      const toDelete: string[] = [];
-      groups.forEach(group => {
-        if (group.length <= 1) return;
-        group.sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
-        toDelete.push(...group.slice(1).map(o => o.id));
-      });
-
-      for (const id of toDelete) {
-        await storage.deleteDropdownOption(id);
-      }
-
-      res.json({ deleted: toDelete.length, ids: toDelete });
+      const { category } = z.object({ category: z.string().trim().min(1).optional() }).parse(req.body ?? {});
+      const result = await ensureDropdownIntegrity(category);
+      await logAudit(req.user?.id, "DELETE", "dropdown_options", "cleanup", "Archived and removed duplicate lookup options", null, result, req);
+      res.json(result);
     } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid category" });
       res.status(500).json({ message: "Failed to clean up duplicates" });
     }
   });
@@ -5715,8 +5699,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get existing dropdown options to avoid duplicates
-      const existingOptions = await storage.getDropdownOptions();
-      const existingKeys = new Set(existingOptions.map(opt => `${opt.category}:${opt.value}`));
+      const existingOptions = await storage.getAllDropdownOptions();
+      const existingKeys = new Set(existingOptions.map(opt => dropdownIdentity(opt.category, opt.value)));
 
       let created = 0;
       let skipped = 0;
@@ -5726,19 +5710,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let order = 0;
         for (const value of Array.from(values)) {
           if (value && value.trim()) {
-            const key = `${category}:${value}`;
+            const normalizedValue = normalizeLookupKey(value).replace(/\s+/g, '-');
+            const key = dropdownIdentity(category, normalizedValue);
             if (!existingKeys.has(key)) {
               try {
                 await storage.createDropdownOption({
                   category: category,
-                  value: value.toLowerCase().replace(/\s+/g, '-'),
+                  value: normalizedValue,
                   label: value,
                   displayOrder: order,
                   isActive: true,
                 });
                 created++;
                 existingKeys.add(key);
-              } catch (e) {
+              } catch (e: any) {
+                if ((e?.code ?? e?.cause?.code) !== "23505") throw e;
                 skipped++;
               }
             } else {
@@ -5875,8 +5861,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           await storage.createDropdownOption(option);
           created++;
-        } catch (e) {
-          // Skip if already exists
+        } catch (e: any) {
+          if ((e?.code ?? e?.cause?.code) !== "23505") throw e;
         }
       }
 

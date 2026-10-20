@@ -1,3 +1,4 @@
+import { formatDateDisplay } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -171,7 +172,7 @@ export default function Employees() {
                         <TableCell>{employee.phone || "-"}</TableCell>
                         <TableCell>{employee.mobile || "-"}</TableCell>
                         <TableCell className="text-muted-foreground">
-                          {employee.startDate || "-"}
+                          {formatDateDisplay(employee.startDate)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">

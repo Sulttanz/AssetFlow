@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -22,8 +23,7 @@ type ActivityRow = { id: string; ticket: string; title: string; type: string; st
 
 function dateLabel(value?: string | null) {
   if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return appFormatDate(value);
 }
 
 function shortStatus(value?: string | null) {

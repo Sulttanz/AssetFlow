@@ -1,10 +1,10 @@
+import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Trash2, History, Plus, Search, CheckCircle2, AlertCircle, FileText,
   Building2, Calendar, User, MoreVertical
 } from "lucide-react";
-import { format } from "date-fns";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -172,7 +172,7 @@ export default function AssetDisposalPage() {
   const form = useForm<DisposalFormData>({
     resolver: zodResolver(disposalFormSchema),
     defaultValues: {
-      disposalDate: new Date().toISOString().split("T")[0],
+      disposalDate: appInputDate(new Date()),
       disposalMethod: "recycle",
       reason: "",
       dataDestructionConfirmed: false,
@@ -186,7 +186,7 @@ export default function AssetDisposalPage() {
   const handleProcessDisposal = (asset: Asset) => {
     setSelectedAsset(asset);
     form.reset({
-      disposalDate: new Date().toISOString().split("T")[0],
+      disposalDate: appInputDate(new Date()),
       disposalMethod: "recycle",
       reason: "",
       dataDestructionConfirmed: false,
@@ -366,7 +366,7 @@ export default function AssetDisposalPage() {
                               {asset?.assetTag && <div className="text-xs text-muted-foreground">{asset.assetTag}</div>}
                             </TableCell>
                             <TableCell>{getMethodBadge(record.disposalMethod)}</TableCell>
-                            <TableCell>{format(new Date(record.disposalDate), "MMM d, yyyy")}</TableCell>
+                            <TableCell>{appFormatDate(record.disposalDate)}</TableCell>
                             <TableCell>
                               {record.dataDestructionConfirmed
                                 ? <Badge className="bg-green-100 text-green-800">Confirmed</Badge>

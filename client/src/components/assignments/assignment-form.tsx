@@ -1,3 +1,4 @@
+import { toDateInputValue as appInputDate } from "@/lib/date-utils";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -81,7 +82,7 @@ export default function AssignmentForm({ assignment, onSuccess, onCancel }: Assi
     defaultValues: {
       assetId: assignment?.assetId || "",
       employeeId: assignment?.employeeId || "",
-      assignedDate: assignment?.assignedDate || new Date().toISOString().split('T')[0],
+      assignedDate: assignment?.assignedDate || appInputDate(new Date()),
       returnedDate: (assignment?.returnedDate as string | undefined) || "",
       notes: (assignment?.notes as string | undefined) || "",
     },

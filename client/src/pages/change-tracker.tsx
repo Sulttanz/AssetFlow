@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -41,7 +42,7 @@ const blankRisk: RiskForm = {
 const closedStates = new Set(["completed", "cancelled", "rejected", "failed", "closed"]);
 const statusLabel = (value = "draft") => value.replaceAll("_", " ");
 const personName = (person?: Person | null) => person ? `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim() || person.username || "Unassigned" : "Unassigned";
-const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+const dateLabel = (value?: string | null) => value ? appFormatDate(value) : "—";
 const riskTone = (value?: string) => value === "critical" || value === "high" ? "text-rose-700 bg-rose-50 border-rose-200" : value === "medium" ? "text-amber-700 bg-amber-50 border-amber-200" : "text-teal-700 bg-teal-50 border-teal-200";
 const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 

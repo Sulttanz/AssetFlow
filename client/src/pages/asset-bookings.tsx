@@ -1,3 +1,4 @@
+import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
@@ -12,7 +13,7 @@ import {
   XCircle, 
   History 
 } from "lucide-react";
-import { format, startOfDay, isSameDay } from "date-fns";
+import { startOfDay, isSameDay } from "date-fns";
 import { DayPicker } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -162,8 +163,8 @@ export default function AssetBookingsPage() {
     defaultValues: {
       assetId: "",
       requestedBy: "",
-      startDate: format(new Date(), "yyyy-MM-dd"),
-      endDate: format(new Date(), "yyyy-MM-dd"),
+      startDate: appInputDate(new Date()),
+      endDate: appInputDate(new Date()),
       purpose: "",
       status: "pending",
       notes: ""
@@ -183,8 +184,8 @@ export default function AssetBookingsPage() {
     form.reset({
       assetId: booking.assetId,
       requestedBy: booking.requestedBy ?? undefined,
-      startDate: format(new Date(booking.startDate), "yyyy-MM-dd"),
-      endDate: format(new Date(booking.endDate), "yyyy-MM-dd"),
+      startDate: appInputDate(booking.startDate),
+      endDate: appInputDate(booking.endDate),
       purpose: booking.purpose,
       status: booking.status,
       notes: booking.notes ?? undefined
@@ -197,8 +198,8 @@ export default function AssetBookingsPage() {
     form.reset({
       assetId: "",
       requestedBy: "",
-      startDate: format(new Date(), "yyyy-MM-dd"),
-      endDate: format(new Date(), "yyyy-MM-dd"),
+      startDate: appInputDate(new Date()),
+      endDate: appInputDate(new Date()),
       purpose: "",
       status: "pending",
       notes: ""
@@ -293,8 +294,8 @@ export default function AssetBookingsPage() {
                           </td>
                           <td className="p-3">
                             <div className="text-xs">
-                              {format(new Date(booking.startDate), "MMM d, yyyy")} - 
-                              {format(new Date(booking.endDate), "MMM d, yyyy")}
+                              {appFormatDate(booking.startDate)} - 
+                              {appFormatDate(booking.endDate)}
                             </div>
                           </td>
                           <td className="p-3 max-w-xs truncate">{booking.purpose}</td>
@@ -379,7 +380,7 @@ export default function AssetBookingsPage() {
                 <div className="col-span-2 space-y-4">
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">
-                      Bookings for {selectedDate ? format(selectedDate, "MMMM d, yyyy") : "Selected Date"}
+                      Bookings for {selectedDate ? appFormatDate(selectedDate) : "Selected Date"}
                     </h3>
                   </div>
                   {bookingsOnSelectedDate.length === 0 ? (
@@ -407,7 +408,7 @@ export default function AssetBookingsPage() {
                               <div className="mt-4 flex gap-4 text-sm">
                                 <div className="flex items-center text-muted-foreground">
                                   <Clock className="w-4 h-4 mr-1" />
-                                  {format(new Date(booking.startDate), "MMM d")} - {format(new Date(booking.endDate), "MMM d")}
+                                  {appFormatDate(booking.startDate)} - {appFormatDate(booking.endDate)}
                                 </div>
                                 <div className="flex items-center text-muted-foreground">
                                   <Plus className="w-4 h-4 mr-1 rotate-45" />

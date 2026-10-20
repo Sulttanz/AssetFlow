@@ -1,3 +1,4 @@
+import { formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -192,7 +193,7 @@ export default function RolesPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground" data-testid={`text-created-${role.id}`}>
-                      {role.createdAt ? new Date(role.createdAt).toLocaleDateString("en-GB") : "N/A"}
+                      {role.createdAt ? appFormatDate(role.createdAt) : "N/A"}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -305,13 +306,7 @@ export default function RolesPage() {
                 <div>
                   <label className="font-medium text-muted-foreground">Created</label>
                   <div className="mt-1" data-testid="view-created">
-                    {selectedRole.createdAt ? new Date(selectedRole.createdAt).toLocaleString("en-GB", {
-                      day: '2-digit',
-                      month: '2-digit', 
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }) : "N/A"}
+                    {selectedRole.createdAt ? appFormatDateTime(selectedRole.createdAt) : "N/A"}
                   </div>
                 </div>
               </div>

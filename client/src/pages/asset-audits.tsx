@@ -1,3 +1,4 @@
+import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -19,7 +20,6 @@ import {
   ArrowRight,
   Loader2
 } from "lucide-react";
-import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -191,7 +191,7 @@ export default function AssetAudits() {
     })),
     defaultValues: {
       name: "",
-      startDate: format(new Date(), "yyyy-MM-dd"),
+      startDate: appInputDate(new Date()),
       locationId: "",
       departmentId: "",
       notes: "",
@@ -267,7 +267,7 @@ export default function AssetAudits() {
     if (!selectedSession) return;
     updateSessionMutation.mutate({
       id: selectedSession.id,
-      data: { status: "completed", endDate: format(new Date(), "yyyy-MM-dd") }
+      data: { status: "completed", endDate: appInputDate(new Date()) }
     });
   };
 
@@ -410,7 +410,7 @@ export default function AssetAudits() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {format(new Date(session.startDate), "MMM d, yyyy")}</span>
+                        <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {appFormatDate(session.startDate)}</span>
                         {session.locationId && <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {locations.find(l => l.id === session.locationId)?.name}</span>}
                       </div>
                     </div>
@@ -459,7 +459,7 @@ export default function AssetAudits() {
                     <Badge className={statusColors[selectedSession?.status as keyof typeof statusColors]}>
                       {selectedSession?.status}
                     </Badge>
-                    <span>Started: {selectedSession && format(new Date(selectedSession.startDate), "MMM d, yyyy")}</span>
+                    <span>Started: {selectedSession && appFormatDate(selectedSession.startDate)}</span>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -513,7 +513,7 @@ export default function AssetAudits() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {item.verifiedAt ? format(new Date(item.verifiedAt), "MMM d, HH:mm") : "-"}
+                          {item.verifiedAt ? appFormatDateTime(item.verifiedAt) : "-"}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => handleVerifyClick(item)}>
