@@ -74,12 +74,7 @@ vi.mock("./auth", () => (
       req.isAuthenticated = () => !!userId
 ;
 
-      if (userId) req.user = 
-{
- id: userId 
-}
- as express.Request["user"]
-;
+      if (userId) req.user = { id: userId } as express.Request["user"];
 
       next()
 ;
@@ -267,10 +262,8 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
   beforeEach(() => 
 {
 
-    // Vitest restores spies between tests
-;
- the route's module gate must not
-    // consult the application's system_settings table in this tiny schema.
+    // Vitest restores spies between tests; keep the route's module gate enabled
+    // independently of system_settings values in the isolated test schema.
     vi.spyOn(storage, "getModuleSetting").mockResolvedValue(undefined)
 ;
 

@@ -108,30 +108,23 @@ describe("CAB change routes", () => {
   it("publishes an ITSM-enabled signal after a successful enable update", async () => {
     notificationQuery.mockClear();
 
-    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
-      headers: { "x-test-user": "alice" },
+    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
+      method: "PUT",
+      headers: { "x-test-user": "alice", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
     });
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
-    expect(store.getChange).toHaveBeenCalledWith("missing-change");
+    expect(response.status).toBe(200);
+    expect(store.updateModuleSetting).toHaveBeenCalledWith("itsm", true, "alice");
+    expect(notificationQuery).toHaveBeenCalled();
   });
 
-  it("returns 403 rather than a mock error for an unrelated reader without staff access", async () => {
-    store.getChange.mockResolvedValue({ id: "change-1", requestedById: "another-user" });
-    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
-      headers: { "x-test-user": "alice" },
-    });
-
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ message: "Change not found or no longer available" });
-    expect(store.getChange).toHaveBeenCalledWith("missing-change");
-  });
-
-  it("returns 403 rather than a mock error for an unrelated reader without staff access", async () => {
-    store.getChange.mockResolvedValue({ id: "change-1", requestedById: "another-user" });
-    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
-      headers: { "x-test-user": "alice" },
+  it("does not publish an enabled signal when ITSM is disabled", async () => {
+    store.updateModuleSetting.mockResolvedValue({ moduleKey: "itsm", enabled: false });
+    const response = await fetch(`${baseUrl}/api/module-settings/itsm`, {
+      method: "PUT",
+      headers: { "x-test-user": "alice", "content-type": "application/json" },
+      body: JSON.stringify({ enabled: false }),
     });
 
     expect(response.status).toBe(200);
@@ -254,7 +247,7 @@ describe("CAB change routes", () => {
   it("returns a neutral 404 when a CAB alert target is no longer available", async () => {
     store.getChange.mockResolvedValueOnce(undefined);
 
-    const response = await fetch(`${baseUrl}/api/changes/change-1`, {
+    const response = await fetch(`${baseUrl}/api/changes/missing-change`, {
       headers: { "x-test-user": "alice" },
     });
 

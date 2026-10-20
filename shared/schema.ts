@@ -222,12 +222,33 @@ export const assets = pgTable("assets", {
   licenseKey: text("license_key"),
   usedSeats: integer("used_seats").default(0),
 
+  // Cloud subscriptions and SaaS recurring spend
+  cloudProvider: text("cloud_provider"),
+  tenantAccountId: text("tenant_account_id"),
+  billingCycle: text("billing_cycle"), // monthly, annual
+  recurringCost: decimal("recurring_cost", { precision: 12, scale: 2 }),
+  autoRenewal: boolean("auto_renewal").notNull().default(false),
+
   // Legacy fields for backward compatibility
   status: text("status").notNull().default("available"), // available, assigned, maintenance, retired
   nextMaintenanceDate: date("next_maintenance_date"),
   lastMaintenanceDate: date("last_maintenance_date"),
 });
 
+
+export const softwareLicenseAllocations = pgTable("software_license_allocations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  employeeId: varchar("employee_id").notNull().references(() => employees.id, { onDelete: "restrict" }),
+  allocatedAt: timestamp("allocated_at").notNull().defaultNow(),
+  releasedAt: timestamp("released_at"),
+}, table => [
+  index("software_license_allocations_asset_idx").on(table.assetId),
+  uniqueIndex("software_license_allocations_active_employee_idx")
+    .on(table.assetId, table.employeeId).where(sql`${table.releasedAt} IS NULL`),
+]);
+
+export type SoftwareLicenseAllocation = typeof softwareLicenseAllocations.$inferSelect;
 
 export const assignments = pgTable("assignments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -846,7 +867,12 @@ export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions).om
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
-export const insertAssetSchema = createInsertSchema(assets).omit({ id: true });
+export const insertAssetSchema = createInsertSchema(assets, {
+  licenseQuantity: z.number().int().nonnegative().nullable().optional(),
+  usedSeats: z.number().int().nonnegative().nullable().optional(),
+  recurringCost: z.string().regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter a non-negative cost with up to two decimal places").nullable().optional(),
+  billingCycle: z.enum(["monthly", "annual"]).nullable().optional(),
+}).omit({ id: true });
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });

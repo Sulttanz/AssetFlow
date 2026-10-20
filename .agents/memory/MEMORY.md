@@ -24,3 +24,4 @@
 - [Standalone ITSM risk management](change-risk-management.md) — risk records and their lifecycle are independent of Change Management.
 - [Wouter route reset in tests](wouter-test-route-reset.md) — tests that redirect through Wouter must reset browser history after cleanup to isolate later cases.
 - [Task suggestion timing](task-suggestion-timing.md) — hold suggested follow-up tasks until the user's main project tasks are complete, then ask whether to proceed.
+- [Software seat accounting](software-seat-accounting.md) — legacy used-seat totals can contain unnamed occupants; allocating employees must not reset that usage.

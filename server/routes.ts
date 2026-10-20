@@ -13,13 +13,14 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users, employees, assets,
+  assetAttachments, ticketAttachments, risks, changes, users, employees, assets, contracts, softwareLicenseAllocations,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, isNull } from "drizzle-orm";
+import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
 import { cabApprovalsGranted } from "./cab-gate";
@@ -2128,7 +2129,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/assets", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
       const assets = await storage.getAssetsWithAssignments();
-      res.json(assets);
+      const linked = assets.length ? await db.select({
+        id: contracts.id, name: contracts.name, assetId: contracts.assetId, endDate: contracts.endDate,
+      }).from(contracts).where(inArray(contracts.assetId, assets.map(asset => asset.id))) : [];
+      res.json(assets.map(asset => ({ ...asset, linkedContracts: linked.filter(contract => contract.assetId === asset.id) })));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch assets" });
     }
@@ -2140,7 +2144,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!asset) {
         return res.status(404).json({ message: "Asset not found" });
       }
-      res.json(asset);
+      const linkedContracts = await db.select({
+        id: contracts.id, name: contracts.name, endDate: contracts.endDate,
+      }).from(contracts).where(eq(contracts.assetId, asset.id));
+      res.json({ ...asset, linkedContracts });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch asset" });
     }
@@ -2213,7 +2220,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get old asset for audit log
       const oldAsset = await storage.getAsset(req.params.id);
       
-      const asset = await storage.updateAsset(req.params.id, validatedData);
+      const asset = await updateAssetWithLicenseChecks(req.params.id, validatedData);
       if (!asset) {
         return res.status(404).json({ message: "Asset not found" });
       }
@@ -2223,6 +2230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(asset);
     } catch (error: any) {
+      if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
       }
@@ -2259,6 +2267,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Asset deletion error:", error);
       res.status(500).json({ message: "Failed to delete asset" });
+    }
+  });
+
+  app.get("/api/assets/:id/license-allocations", requireAuth, requireModule("asset_management"), async (req, res) => {
+    try {
+      if (!(await storage.getAsset(req.params.id))) return res.status(404).json({ message: "Asset not found" });
+      const allocations = await db.select({
+        id: softwareLicenseAllocations.id, employeeId: softwareLicenseAllocations.employeeId,
+        allocatedAt: softwareLicenseAllocations.allocatedAt, employee: {
+          firstName: employees.firstName, lastName: employees.lastName, email: employees.email,
+        },
+      }).from(softwareLicenseAllocations).innerJoin(employees, eq(employees.id, softwareLicenseAllocations.employeeId))
+        .where(and(eq(softwareLicenseAllocations.assetId, req.params.id), isNull(softwareLicenseAllocations.releasedAt)));
+      res.json(allocations);
+    } catch { res.status(500).json({ message: "Failed to fetch seat allocations" }); }
+  });
+
+  app.post("/api/assets/:id/license-allocations", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const { employeeId } = z.object({ employeeId: z.string().min(1) }).parse(req.body);
+      const result = await allocateSoftwareSeat(req.params.id, employeeId);
+      await logAudit(req.user?.id, "CREATE", "software_license_allocations", result.allocation.id, `Seat for ${employeeId}`, null, result, req);
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Employee is required" });
+      res.status(500).json({ message: "Failed to allocate seat" });
+    }
+  });
+
+  app.post("/api/assets/:id/license-allocations/:allocationId/release", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const result = await releaseSoftwareSeat(req.params.id, req.params.allocationId);
+      await logAudit(req.user?.id, "UPDATE", "software_license_allocations", result.allocation.id, "Software seat released", null, result, req);
+      res.json(result);
+    } catch (error) {
+      if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to release seat" });
     }
   });
 

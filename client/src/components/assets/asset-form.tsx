@@ -25,6 +25,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { insertAssetSchema, type Asset, type Location, type AssetRelationship, type DropdownOption } from "@shared/schema";
 import { z } from "zod";
 import { convertToISODate } from "@/lib/date-utils";
+import AssetExpiryBadges from "./asset-expiry-badges";
+import SoftwareSeatAllocations from "./software-seat-allocations";
 
 const formSchema = insertAssetSchema.extend({
   // Basic fields
@@ -86,14 +88,17 @@ const formSchema = insertAssetSchema.extend({
   // Software License Tracking
   licenseKey: z.string().optional(),
   usedSeats: z.string().optional(),
+  licenseQuantity: z.string().optional(),
+  licenseType: z.string().optional(),
+  licenseExpiryDate: z.string().optional(),
+  cloudProvider: z.string().optional(),
+  tenantAccountId: z.string().optional(),
+  billingCycle: z.string().optional(),
+  recurringCost: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
-type AssetSubmitData = Omit<FormData, "licenseQuantity" | "usefulLifeYears" | "usedSeats"> & {
-  licenseQuantity?: number;
-  usefulLifeYears?: number;
-  usedSeats?: number;
-};
+type AssetSubmitData = z.infer<typeof insertAssetSchema>;
 
 function DepreciationPanel({ bookValue, price, accumulated, pctDep, yearsOwned, schedule, currentYear }: {
   bookValue: number; price: number; accumulated: number; pctDep: number; yearsOwned: number;
@@ -418,6 +423,14 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       // Software License Tracking
       licenseKey: (asset as any)?.licenseKey ?? "",
       usedSeats: (asset as any)?.usedSeats?.toString() ?? "",
+      licenseQuantity: asset?.licenseQuantity?.toString() ?? "",
+      licenseType: asset?.licenseType ?? "",
+      licenseExpiryDate: asset?.licenseExpiryDate ?? "",
+      cloudProvider: asset?.cloudProvider ?? "",
+      tenantAccountId: asset?.tenantAccountId ?? "",
+      billingCycle: asset?.billingCycle ?? "monthly",
+      recurringCost: asset?.recurringCost ?? "",
+      autoRenewal: asset?.autoRenewal ?? false,
       primaryVendorId: (asset as any)?.primaryVendorId ?? "",
     },
   });
@@ -598,7 +611,14 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       residualValue: processNumericField(data.residualValue),
       // License tracking
       licenseKey: data.licenseKey || undefined,
+      licenseType: data.licenseType || null,
+      licenseExpiryDate: processDateField(data.licenseExpiryDate) || null,
       usedSeats: data.usedSeats !== "" && data.usedSeats !== undefined ? Number(data.usedSeats) : undefined,
+      cloudProvider: data.cloudProvider || null,
+      tenantAccountId: data.tenantAccountId || null,
+      billingCycle: data.billingCycle === "annual" ? "annual" as const : "monthly" as const,
+      recurringCost: processNumericField(data.recurringCost) || null,
+      autoRenewal: data.autoRenewal ?? false,
       annualBudgetAllocation: processNumericField(data.annualBudgetAllocation),
       yearToDateSpend: processNumericField(data.yearToDateSpend),
       remainingBudget: processNumericField(data.remainingBudget),
@@ -608,8 +628,6 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       budgetOverage: processNumericField(data.budgetOverage),
       nextYearBudgetRequest: processNumericField(data.nextYearBudgetRequest),
     };
-
-    console.log("Submitting asset data:", processedData);
 
     if (isEdit) {
       updateMutation.mutate(processedData);
@@ -637,6 +655,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
 
           {/* Basic Information Tab */}
           <TabsContent value="basic" className="space-y-6">
+            <div className="rounded-lg border p-3 space-y-2">
+              <h4 className="text-sm font-medium">Expiry &amp; coverage status</h4>
+              <AssetExpiryBadges asset={{ ...asset, warrantyExpiry: form.watch("warrantyExpiry"), licenseExpiryDate: form.watch("licenseExpiryDate") }} />
+              <p className="text-xs text-muted-foreground">Red: expired or under 30 days · Yellow: 30–60 days · Green: over 60 days</p>
+            </div>
             <Card>
               <CardHeader>
                 <CardTitle>Basic Asset Information</CardTitle>
@@ -712,6 +735,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                                 <SelectItem value="storage">Storage Device</SelectItem>
                               </>
                             )}
+                            {!assetTypes.some(type => type.value === "cloud_service") && <SelectItem value="cloud_service">Cloud Service / SaaS</SelectItem>}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -1512,6 +1536,17 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                     )}
                   />
                   <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="licenseType" render={({ field }) => (
+                      <FormItem><FormLabel>License Type</FormLabel><Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Select license model" /></SelectTrigger></FormControl>
+                        <SelectContent>{["Per-User", "Per-Device", "Concurrent", "Subscription"].map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                      </Select><FormMessage /></FormItem>
+                    )} />
+                    <FormField control={form.control} name="licenseExpiryDate" render={({ field }) => (
+                      <FormItem><FormLabel>License Expiry Date</FormLabel><FormControl><DateInput {...field} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="licenseQuantity"
@@ -1552,9 +1587,41 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       </div>
                     );
                   })()}
+                  {asset?.id ? <SoftwareSeatAllocations assetId={asset.id} onUsageChange={used => form.setValue("usedSeats", String(used))} />
+                    : <p className="text-sm text-muted-foreground">Save this software asset to allocate seats to employees.</p>}
                 </CardContent>
               </Card>
             )}
+
+          {/* Cloud subscription costs are recorded per billing cycle. */}
+          {form.watch("type") === "cloud_service" && (
+            <div className="rounded-lg border p-4 space-y-4">
+              <h3 className="font-semibold">Cloud Subscription &amp; SaaS FinOps</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <FormField control={form.control} name="cloudProvider" render={({ field }) => (
+                  <FormItem><FormLabel>Cloud Provider</FormLabel><FormControl><Input placeholder="AWS, Azure, Google Cloud, Microsoft 365…" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={form.control} name="tenantAccountId" render={({ field }) => (
+                  <FormItem><FormLabel>Tenant / Subscription / Account ID</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={form.control} name="billingCycle" render={({ field }) => (
+                  <FormItem><FormLabel>Billing Cycle</FormLabel><Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Billing cycle" /></SelectTrigger></FormControl>
+                    <SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="annual">Annual</SelectItem></SelectContent>
+                  </Select><FormMessage /></FormItem>
+                )} />
+                <FormField control={form.control} name="recurringCost" render={({ field }) => (
+                  <FormItem><FormLabel>Recurring Cost (per billing cycle)</FormLabel><FormControl><Input type="number" min="0" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
+                )} />
+              </div>
+              <FormField control={form.control} name="autoRenewal" render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-md border p-3"><FormLabel>Automatic Renewal</FormLabel>
+                  <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl><FormMessage />
+                </FormItem>
+              )} />
+              {Number(form.watch("recurringCost")) > 0 && <p className="text-sm text-muted-foreground">Annualized recurring cost: {(Number(form.watch("recurringCost")) * (form.watch("billingCycle") === "annual" ? 1 : 12)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+            </div>
+          )}
           </TabsContent>
 
           {/* Lifecycle Management Tab */}

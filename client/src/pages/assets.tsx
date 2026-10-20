@@ -13,6 +13,7 @@ import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
 import AssetQRModal from "@/components/assets/asset-qr-modal";
+import AssetExpiryBadges from "@/components/assets/asset-expiry-badges";
 import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode, X, RefreshCw } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { Department, Location } from "@shared/schema";
@@ -304,6 +305,7 @@ export default function Assets() {
                   <SelectItem value="monitor">Monitor</SelectItem>
                   <SelectItem value="phone">Phone</SelectItem>
                   <SelectItem value="software">Software</SelectItem>
+                  <SelectItem value="cloud_service">Cloud Service / SaaS</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -407,6 +409,7 @@ export default function Assets() {
                       <TableHead>Classification</TableHead>
                       <TableHead>Compliance</TableHead>
                       <TableHead>Risk Level</TableHead>
+                      <TableHead>Expiry / Coverage</TableHead>
                       <TableHead>Assigned To</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -430,7 +433,7 @@ export default function Assets() {
                         <TableCell>
                           <div className="flex items-center space-x-2">
                             <span>{getTypeIcon(asset.type)}</span>
-                            <span className="capitalize">{asset.type}</span>
+                            <span className="capitalize">{asset.type === "cloud_service" ? "Cloud Service / SaaS" : asset.type}</span>
                           </div>
                         </TableCell>
                         <TableCell>{getStatusBadge(asset.status)}</TableCell>
@@ -443,6 +446,7 @@ export default function Assets() {
                         <TableCell>
                           {getRiskBadge((asset as any).riskAssessmentScore || "")}
                         </TableCell>
+                        <TableCell className="min-w-[220px]"><AssetExpiryBadges asset={asset} /></TableCell>
                         <TableCell>
                           {asset.assignedTo ? `${asset.assignedTo.firstName} ${asset.assignedTo.lastName}` : "-"}
                         </TableCell>
@@ -485,7 +489,7 @@ export default function Assets() {
                       </TableRow>
                     )) || (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8">
+                        <TableCell colSpan={11} className="text-center py-8">
                           <div className="text-muted-foreground">
                             <Package className="mx-auto h-12 w-12 mb-4" />
                             <p>No assets found</p>
