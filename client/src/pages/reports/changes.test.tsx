@@ -302,8 +302,8 @@ describe("change report page", () => {
     render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
 
     expect(await screen.findByText("Before range")).toBeTruthy();
-    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-02");
-    await user.type(screen.getByLabelText("Scheduled start through"), "2026-10-03");
+    await user.type(screen.getByLabelText("Scheduled start from"), "02-10-2026");
+    await user.type(screen.getByLabelText("Scheduled start through"), "03-10-2026");
 
     expect(await screen.findByText("Start boundary")).toBeTruthy();
     expect(screen.queryByText("Before range")).toBeNull();
@@ -320,7 +320,7 @@ describe("change report page", () => {
 
     await user.clear(screen.getByLabelText("Scheduled start through"));
     await user.clear(screen.getByLabelText("Scheduled start from"));
-    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-05");
+    await user.type(screen.getByLabelText("Scheduled start from"), "05-10-2026");
     await waitFor(() => expect(screen.getByText("No changes match your filters.")).toBeTruthy());
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(await screen.findByText("Before range")).toBeTruthy();
@@ -352,8 +352,8 @@ describe("change report page", () => {
       await user.click(screen.getAllByRole("combobox")[index]);
       await user.click(screen.getByRole("option", { name: activeFilters[index] }));
     }
-    await user.type(screen.getByLabelText("Scheduled start from"), "2026-10-01");
-    await user.type(screen.getByLabelText("Scheduled start through"), "2026-10-03");
+    await user.type(screen.getByLabelText("Scheduled start from"), "01-10-2026");
+    await user.type(screen.getByLabelText("Scheduled start through"), "03-10-2026");
     expect(await screen.findByText("Export batch 1")).toBeTruthy();
     await waitFor(() => {
       expect(requests.some(url => {

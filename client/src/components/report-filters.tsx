@@ -71,7 +71,7 @@ export default function ReportFilters({ filters, values, onChange, onClear }: Re
                   data-testid={`filter-${filter.key}`}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {values[filter.key] ? formatDateDisplay(values[filter.key]) : "Pick a date"}
+                  {values[filter.key] ? formatDateDisplay(values[filter.key]) : "DD-MM-YYYY"}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0">
