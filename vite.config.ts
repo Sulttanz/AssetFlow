@@ -26,12 +26,40 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      exceljs: path.resolve(import.meta.dirname, "node_modules", "exceljs", "lib", "exceljs.browser.js"),
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("/node_modules/")) return undefined;
+          const packagePath = id.split("/node_modules/").pop() ?? "";
+
+          if (/^(react|react-dom|scheduler)(\/|$)/.test(packagePath)) return "vendor-react";
+          if (/^@tanstack\/react-query(\/|$)/.test(packagePath)) return "vendor-query";
+          if (/^(recharts|d3-[^/]+|victory-vendor)(\/|$)/.test(packagePath)) return "vendor-charts";
+          if (/^@radix-ui\//.test(packagePath) || /^@floating-ui\//.test(packagePath)) return "vendor-ui";
+          if (/^lucide-react(\/|$)/.test(packagePath)) return "vendor-icons";
+          if (/^jspdf-autotable(\/|$)/.test(packagePath)) return "vendor-pdf-table";
+          if (/^jspdf(\/|$)/.test(packagePath)) return "vendor-jspdf";
+          if (/^html2canvas(\/|$)/.test(packagePath)) return "vendor-html-canvas";
+          if (/^(canvg|svg2pdf\.js)(\/|$)/.test(packagePath)) return "vendor-pdf-render";
+          const excelJsFolder = packagePath.match(/^exceljs\/lib\/([^/]+)/)?.[1];
+          if (excelJsFolder === "xlsx") return "vendor-exceljs-xlsx";
+          if (excelJsFolder === "csv") return "vendor-exceljs-csv";
+          if (excelJsFolder === "utils") return "vendor-exceljs-utils";
+          if (packagePath.startsWith("exceljs/lib/")) return "vendor-exceljs-core";
+          if (/^date-fns(\/|$)/.test(packagePath)) return "vendor-dates";
+          if (/^(zod|drizzle-orm|@hookform\/resolvers)(\/|$)/.test(packagePath)) return "vendor-data";
+
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     fs: {
