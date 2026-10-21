@@ -28,6 +28,9 @@ export const employeeAccessRights = pgTable("employee_access_rights", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   employeeId: varchar("employee_id").notNull().references(() => employees.id, { onDelete: "restrict" }),
   applicationName: text("application_name").notNull(),
+  accessType: text("access_type").notNull().default("application"),
+  catalogSource: text("catalog_source").notNull().default("legacy"),
+  catalogItemId: text("catalog_item_id"),
   privilegeLevel: text("privilege_level").notNull(),
   accountUsername: text("account_username"),
   grantDate: date("grant_date").notNull().default(sql`CURRENT_DATE`),
@@ -37,6 +40,7 @@ export const employeeAccessRights = pgTable("employee_access_rights", {
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 }, table => [
   index("employee_access_rights_employee_idx").on(table.employeeId, table.status),
+  index("employee_access_rights_catalog_idx").on(table.catalogSource, table.catalogItemId, table.status),
 ]);
 
 // Locations & Departments
@@ -984,6 +988,9 @@ export const insertEmployeeSchema = createInsertSchema(employees, {
 }).omit({ id: true });
 export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccessRights, {
   applicationName: z.string().trim().min(1).max(200),
+  accessType: z.enum(["application", "network_vpn", "server_remote_access", "cloud_tenant"]).default("application"),
+  catalogSource: z.enum(["asset", "dropdown", "legacy"]).default("legacy"),
+  catalogItemId: z.string().trim().min(1).max(200).nullable().optional(),
   privilegeLevel: z.string().trim().min(1).max(100),
   accountUsername: z.string().trim().max(200).nullable().optional(),
   status: z.enum(["active", "revoked"]).default("active"),

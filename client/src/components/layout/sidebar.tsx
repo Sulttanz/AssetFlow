@@ -93,6 +93,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
         { name: "Consumables", href: "/consumables", icon: Boxes, current: location === "/consumables" || location === "/inventory" },
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
+        { name: "Access Governance", href: "/access-governance", icon: Shield, current: location === "/access-governance", permission: "employee_update" },
         { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
         { name: "Asset Disposal", href: "/asset-disposal", icon: Trash2, current: location === "/asset-disposal" },
         { name: "Bookings", href: "/bookings", icon: CalendarRange, current: location === "/bookings" },

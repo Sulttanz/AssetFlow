@@ -5,17 +5,24 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Pencil, ShieldOff } from "lucide-react";
+import { SearchablePicker } from "@/components/access-governance/searchable-picker";
+import { ACCESS_TYPE_LABELS, type AccessType } from "@shared/access-governance";
+import { toDateInputValue } from "@/lib/date-utils";
 
 type AccessRight = {
   id: string;
   employeeId: string;
   applicationName: string;
+  accessType?: AccessType;
+  catalogSource?: "asset" | "dropdown" | "legacy";
+  catalogItemId?: string | null;
   privilegeLevel: string;
   accountUsername: string | null;
   grantDate: string;
@@ -24,22 +31,21 @@ type AccessRight = {
 };
 
 type AccessRightDraft = {
-  applicationName: string;
+  catalogKey: string;
   privilegeLevel: string;
   accountUsername: string;
   grantDate: string;
 };
 
 type DropdownOption = { id: string; value: string; label: string; isActive?: boolean };
-
-function todayInputDate() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function dateInputValue(value?: string | null) {
-  return value ? String(value).slice(0, 10) : todayInputDate();
-}
+type AccessCatalogItem = {
+  key: string;
+  id: string;
+  name: string;
+  label: string;
+  accessType: AccessType;
+  source: "asset" | "dropdown";
+};
 
 export default function EmployeeAccessEntitlements({
   employeeId,
@@ -52,22 +58,33 @@ export default function EmployeeAccessEntitlements({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AccessRight | null>(null);
   const [draft, setDraft] = useState<AccessRightDraft>({
-    applicationName: "",
+    catalogKey: "",
     privilegeLevel: "",
     accountUsername: "",
-    grantDate: todayInputDate(),
+    grantDate: toDateInputValue(new Date()),
   });
   const rightsKey = [`/api/employees/${employeeId}/access-rights`];
   const { data: rights = [], isLoading } = useQuery<AccessRight[]>({ queryKey: rightsKey });
+  const { data: catalogItems = [] } = useQuery<AccessCatalogItem[]>({
+    queryKey: ["/api/access-governance/catalog"],
+  });
   const { data: privilegeOptions = [] } = useQuery<DropdownOption[]>({
     queryKey: ["/api/dropdowns/options/access_privilege_level"],
   });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const selectedSystem = catalogItems.find(item => item.key === draft.catalogKey);
+      if (!editing && !selectedSystem) throw new Error("Select an access system from the catalog");
       const body = {
-        ...draft,
+        privilegeLevel: draft.privilegeLevel,
         accountUsername: draft.accountUsername.trim() || null,
+        grantDate: draft.grantDate,
+        ...(selectedSystem ? {
+          accessType: selectedSystem.accessType,
+          catalogSource: selectedSystem.source,
+          catalogItemId: selectedSystem.id,
+        } : {}),
       };
       if (editing) {
         return apiRequest("PUT", `/api/employees/${employeeId}/access-rights/${editing.id}`, body);
@@ -103,24 +120,26 @@ export default function EmployeeAccessEntitlements({
 
   const openNew = () => {
     setEditing(null);
-    setDraft({ applicationName: "", privilegeLevel: "", accountUsername: "", grantDate: todayInputDate() });
+    setDraft({ catalogKey: "", privilegeLevel: "", accountUsername: "", grantDate: toDateInputValue(new Date()) });
     setDialogOpen(true);
   };
 
   const openEdit = (right: AccessRight) => {
     setEditing(right);
     setDraft({
-      applicationName: right.applicationName,
+      catalogKey: right.catalogSource && right.catalogSource !== "legacy" && right.catalogItemId
+        ? `${right.catalogSource}:${right.catalogItemId}`
+        : "",
       privilegeLevel: right.privilegeLevel,
       accountUsername: right.accountUsername ?? "",
-      grantDate: dateInputValue(right.grantDate),
+      grantDate: String(right.grantDate ?? "").slice(0, 10),
     });
     setDialogOpen(true);
   };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!draft.applicationName.trim() || !draft.privilegeLevel || !draft.grantDate) {
+    if ((!editing && !draft.catalogKey) || !draft.privilegeLevel || !draft.grantDate) {
       toast({ title: "Complete the required entitlement fields", variant: "destructive" });
       return;
     }
@@ -131,10 +150,10 @@ export default function EmployeeAccessEntitlements({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-semibold">Application Access</h3>
-          <p className="text-sm text-muted-foreground">Track granted accounts and retain a revocation history.</p>
+          <h3 className="font-semibold">Access Entitlements</h3>
+          <p className="text-sm text-muted-foreground">Track system access and retain a revocation history.</p>
         </div>
-        <Button onClick={openNew} disabled={employeeStatus === "disabled" || privilegeOptions.length === 0}>
+        <Button onClick={openNew} disabled={employeeStatus === "disabled" || privilegeOptions.length === 0 || catalogItems.length === 0}>
           <Plus className="mr-2 h-4 w-4" /> Grant Access
         </Button>
       </div>
@@ -147,12 +166,16 @@ export default function EmployeeAccessEntitlements({
       {privilegeOptions.length === 0 && employeeStatus !== "disabled" && (
         <p className="text-sm text-muted-foreground">Add active values to the Access Privilege Level dropdown before granting access.</p>
       )}
+      {catalogItems.length === 0 && employeeStatus !== "disabled" && (
+        <p className="text-sm text-muted-foreground">Add active access systems in System Dropdowns or register application, server, and cloud assets first.</p>
+      )}
 
       <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Application / System</TableHead>
+              <TableHead>System</TableHead>
+              <TableHead>Access Type</TableHead>
               <TableHead>Privilege</TableHead>
               <TableHead>Account Username</TableHead>
               <TableHead>Grant Date</TableHead>
@@ -162,12 +185,13 @@ export default function EmployeeAccessEntitlements({
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading access records…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">Loading access records…</TableCell></TableRow>
             ) : rights.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No application access has been recorded.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No access has been recorded.</TableCell></TableRow>
             ) : rights.map(right => (
               <TableRow key={right.id}>
                 <TableCell className="font-medium">{right.applicationName}</TableCell>
+                <TableCell><Badge variant="outline">{ACCESS_TYPE_LABELS[right.accessType ?? "application"]}</Badge></TableCell>
                 <TableCell>{privilegeOptions.find(option => option.value === right.privilegeLevel)?.label ?? right.privilegeLevel}</TableCell>
                 <TableCell>{right.accountUsername || "—"}</TableCell>
                 <TableCell>{formatDateDisplay(right.grantDate)}</TableCell>
@@ -199,11 +223,30 @@ export default function EmployeeAccessEntitlements({
           <DialogHeader><DialogTitle>{editing ? "Edit Access Entitlement" : "Grant Application Access"}</DialogTitle></DialogHeader>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="access-application">Application / System</Label>
-              <Input id="access-application" value={draft.applicationName} maxLength={200} onChange={event => setDraft({ ...draft, applicationName: event.target.value })} required />
+              <Label>System / Application</Label>
+              <SearchablePicker
+                value={draft.catalogKey}
+                onChange={catalogKey => {
+                  const selected = catalogItems.find(item => item.key === catalogKey);
+                  const defaultPrivilege = selected && !draft.privilegeLevel
+                    ? privilegeOptions.find(option => option.isActive !== false)?.value ?? ""
+                    : draft.privilegeLevel;
+                  setDraft(current => ({ ...current, catalogKey, privilegeLevel: defaultPrivilege }));
+                }}
+                options={catalogItems.map(item => ({
+                  value: item.key,
+                  label: item.label,
+                  description: ACCESS_TYPE_LABELS[item.accessType],
+                }))}
+                placeholder="Select a system from the catalog"
+                searchPlaceholder="Search applications, servers, VPNs…"
+              />
+              {editing?.catalogSource === "legacy" && !draft.catalogKey && (
+                <p className="text-xs text-muted-foreground">This historical entitlement is not linked to the catalog. Choose a catalog system to relink it, or edit only its access details.</p>
+              )}
             </div>
             <div className="space-y-2">
-              <Label>Privilege Level</Label>
+              <Label>Privilege Level · {draft.catalogKey ? ACCESS_TYPE_LABELS[catalogItems.find(item => item.key === draft.catalogKey)?.accessType ?? "application"] : "Select system type"}</Label>
               <Select value={draft.privilegeLevel} onValueChange={privilegeLevel => setDraft({ ...draft, privilegeLevel })}>
                 <SelectTrigger><SelectValue placeholder="Select privilege" /></SelectTrigger>
                 <SelectContent>
@@ -219,7 +262,7 @@ export default function EmployeeAccessEntitlements({
             </div>
             <div className="space-y-2">
               <Label htmlFor="access-grant-date">Grant Date</Label>
-              <Input id="access-grant-date" type="date" value={draft.grantDate} onChange={event => setDraft({ ...draft, grantDate: event.target.value })} required />
+              <CalendarDateField id="access-grant-date" value={draft.grantDate} onChange={event => setDraft({ ...draft, grantDate: event.target.value })} required />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

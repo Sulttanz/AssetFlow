@@ -10,6 +10,7 @@ import AuthPage from "@/pages/auth-page";
 import Dashboard from "@/pages/dashboard";
 import Assets from "@/pages/assets";
 import Employees from "@/pages/employees";
+import AccessGovernance from "@/pages/access-governance";
 import Assignments from "@/pages/assignments";
 import Locations from "@/pages/locations";
 import Departments from "@/pages/departments";
@@ -95,6 +96,7 @@ function Router() {
                   <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" />
                   <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" />
+                  <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredPermission="employee_update" />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />

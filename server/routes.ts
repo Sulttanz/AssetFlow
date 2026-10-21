@@ -24,7 +24,13 @@ import {
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql, or, ilike, desc } from "drizzle-orm";
+import {
+  ACCESS_DROPDOWN_CATEGORIES,
+  ACCESS_TYPES,
+  classifyAccessAsset,
+  type AccessType,
+} from "@shared/access-governance";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
@@ -2819,11 +2825,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!option) throw Object.assign(new Error("Select an active privilege level from System Dropdowns"), { status: 400 });
   };
 
+  const getAccessSystemCatalog = async (executor: any) => {
+    const [assetRows, systemOptions] = await Promise.all([
+      executor.select({
+        id: assets.id,
+        name: assets.name,
+        assetTag: assets.assetTag,
+        type: assets.type,
+        category: assets.category,
+        status: assets.status,
+        lifecycleStatus: assets.lifecycleStatus,
+      }).from(assets),
+      executor.select({
+        id: dropdownOptions.id,
+        category: dropdownOptions.category,
+        value: dropdownOptions.value,
+        label: dropdownOptions.label,
+      }).from(dropdownOptions).where(eq(dropdownOptions.isActive, true)),
+    ]);
+    const catalog: Array<{
+      key: string;
+      id: string;
+      name: string;
+      label: string;
+      accessType: AccessType;
+      source: "asset" | "dropdown";
+    }> = [];
+    const seen = new Set<string>();
+    const add = (item: Omit<(typeof catalog)[number], "key">) => {
+      const duplicateKey = `${item.accessType}:${normalizeLookupKey(item.name)}`;
+      if (!item.name.trim() || seen.has(duplicateKey)) return;
+      seen.add(duplicateKey);
+      catalog.push({ ...item, key: `${item.source}:${item.id}` });
+    };
+
+    for (const option of systemOptions) {
+      const accessType = ACCESS_DROPDOWN_CATEGORIES[normalizeLookupKey(option.category)];
+      if (!accessType) continue;
+      add({
+        id: option.id,
+        name: option.label.trim(),
+        label: option.label.trim(),
+        accessType,
+        source: "dropdown",
+      });
+    }
+
+    for (const asset of assetRows) {
+      const accessType = classifyAccessAsset(asset.type, asset.category);
+      const inactiveStatuses = new Set(["inactive", "disabled", "retired", "disposed", "decommissioned"]);
+      if (!accessType || inactiveStatuses.has(normalizeLookupKey(asset.status)) ||
+        inactiveStatuses.has(normalizeLookupKey(asset.lifecycleStatus))) continue;
+      const name = String(asset.name ?? "").trim();
+      const label = asset.assetTag ? `${name} · ${asset.assetTag}` : name;
+      add({ id: asset.id, name, label, accessType, source: "asset" });
+    }
+
+    return catalog.sort((left, right) =>
+      left.accessType.localeCompare(right.accessType) || left.label.localeCompare(right.label),
+    );
+  };
+
+  const resolveAccessSystem = async (
+    executor: any,
+    selection: { catalogSource: "asset" | "dropdown"; catalogItemId: string; accessType: AccessType },
+  ) => {
+    const item = (await getAccessSystemCatalog(executor)).find(candidate =>
+      candidate.source === selection.catalogSource &&
+      candidate.id === selection.catalogItemId &&
+      candidate.accessType === selection.accessType,
+    );
+    if (!item) throw Object.assign(new Error("Select an active system from the access catalog"), { status: 400 });
+    return item;
+  };
+
   const accessRightBodySchema = z.object({
-    applicationName: z.string().trim().min(1).max(200),
-    privilegeLevel: z.string().trim().min(1).max(100),
+    catalogSource: z.enum(["asset", "dropdown"]).optional(),
+    catalogItemId: z.string().trim().min(1).max(200).optional(),
+    accessType: z.enum(ACCESS_TYPES).optional(),
+    privilegeLevel: z.string().trim().min(1).max(100).optional(),
     accountUsername: z.string().trim().max(200).nullable().optional(),
     grantDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  });
+  const createAccessRightBodySchema = accessRightBodySchema.extend({
+    catalogSource: z.enum(["asset", "dropdown"]),
+    catalogItemId: z.string().trim().min(1).max(200),
+    accessType: z.enum(ACCESS_TYPES),
+    privilegeLevel: z.string().trim().min(1).max(100),
   });
 
   // Employees routes
@@ -2921,6 +3009,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/access-governance/catalog", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (_req, res) => {
+    try {
+      res.json(await getAccessSystemCatalog(db));
+    } catch {
+      res.status(500).json({ message: "Failed to load access system catalog" });
+    }
+  });
+
+  app.get("/api/access-governance", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const parsed = z.object({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.enum(["20", "50"]).default("20").transform(Number),
+        employeeId: z.string().trim().min(1).optional(),
+        accessType: z.enum(ACCESS_TYPES).optional(),
+        status: z.enum(["all", "active", "revoked"]).default("all"),
+        search: z.string().trim().max(120).optional(),
+        catalogSource: z.enum(["asset", "dropdown", "legacy"]).optional(),
+        catalogItemId: z.string().trim().min(1).optional(),
+      }).safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid access governance filters", errors: parsed.error.errors });
+      const filters = parsed.data;
+      if (Boolean(filters.catalogSource) !== Boolean(filters.catalogItemId)) {
+        return res.status(400).json({ message: "Select both catalog source and system ID" });
+      }
+
+      const conditions: any[] = [];
+      if (filters.employeeId) conditions.push(eq(employeeAccessRights.employeeId, filters.employeeId));
+      if (filters.accessType) conditions.push(eq(employeeAccessRights.accessType, filters.accessType));
+      if (filters.status !== "all") conditions.push(eq(employeeAccessRights.status, filters.status));
+      if (filters.catalogSource) {
+        conditions.push(and(
+          eq(employeeAccessRights.catalogSource, filters.catalogSource),
+          eq(employeeAccessRights.catalogItemId, filters.catalogItemId!),
+        ));
+      }
+      if (filters.search) {
+        const search = `%${filters.search.replace(/[%_]/g, "\\$&")}%`;
+        conditions.push(or(
+          ilike(employeeAccessRights.applicationName, search),
+          ilike(employeeAccessRights.accountUsername, search),
+          ilike(employees.firstName, search),
+          ilike(employees.lastName, search),
+          ilike(employees.employeeId, search),
+          ilike(employees.email, search),
+        ));
+      }
+      const where = conditions.length ? and(...conditions) : undefined;
+      const [{ total = 0 } = {}] = await db.select({
+        total: sql<number>`count(*)::int`,
+      }).from(employeeAccessRights).innerJoin(employees, eq(employees.id, employeeAccessRights.employeeId)).where(where);
+      const records = await db.select({
+        id: employeeAccessRights.id,
+        employeeId: employeeAccessRights.employeeId,
+        applicationName: employeeAccessRights.applicationName,
+        accessType: employeeAccessRights.accessType,
+        catalogSource: employeeAccessRights.catalogSource,
+        catalogItemId: employeeAccessRights.catalogItemId,
+        privilegeLevel: employeeAccessRights.privilegeLevel,
+        accountUsername: employeeAccessRights.accountUsername,
+        grantDate: employeeAccessRights.grantDate,
+        status: employeeAccessRights.status,
+        revokedAt: employeeAccessRights.revokedAt,
+        employee: {
+          id: employees.id,
+          employeeId: employees.employeeId,
+          firstName: employees.firstName,
+          lastName: employees.lastName,
+          email: employees.email,
+          department: employees.department,
+          status: employees.status,
+        },
+      }).from(employeeAccessRights).innerJoin(employees, eq(employees.id, employeeAccessRights.employeeId))
+        .where(where)
+        .orderBy(desc(employeeAccessRights.grantDate), desc(employeeAccessRights.createdAt))
+        .limit(filters.pageSize)
+        .offset((filters.page - 1) * filters.pageSize);
+
+      res.json({ records, total, page: filters.page, pageSize: filters.pageSize });
+    } catch {
+      res.status(500).json({ message: "Failed to load access governance records" });
+    }
+  });
+
   app.get("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
       if (!(await storage.getEmployee(req.params.id))) return res.status(404).json({ message: "Employee not found" });
@@ -2933,16 +3105,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
-      const input = accessRightBodySchema.parse(req.body);
+      const input = createAccessRightBodySchema.parse(req.body);
       const row = await db.transaction(async tx => {
         const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
           .where(eq(employees.id, req.params.id)).for("update");
         if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
         if (employee.status !== "active") throw Object.assign(new Error("Access cannot be granted to a disabled employee"), { status: 409 });
+        const catalogItem = await resolveAccessSystem(tx, input);
         await validatePrivilegeLevel(tx, input.privilegeLevel);
         const [created] = await tx.insert(employeeAccessRights).values({
           employeeId: employee.id,
-          applicationName: input.applicationName,
+          applicationName: catalogItem.name,
+          accessType: catalogItem.accessType,
+          catalogSource: catalogItem.source,
+          catalogItemId: catalogItem.id,
           privilegeLevel: input.privilegeLevel,
           accountUsername: input.accountUsername || null,
           grantDate: input.grantDate,
@@ -2961,7 +3137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/employees/:id/access-rights/:rightId", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
-      const input = accessRightBodySchema.partial().parse(req.body);
+      const input = accessRightBodySchema.parse(req.body);
       const result = await db.transaction(async tx => {
         const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
           .where(eq(employees.id, req.params.id)).for("update");
@@ -2973,8 +3149,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )).for("update");
         if (!current) throw Object.assign(new Error("Access entitlement not found"), { status: 404 });
         if (current.status !== "active") throw Object.assign(new Error("Revoked entitlements are historical records and cannot be edited"), { status: 409 });
-        if (input.privilegeLevel) await validatePrivilegeLevel(tx, input.privilegeLevel);
-        const [updated] = await tx.update(employeeAccessRights).set({ ...input, updatedAt: new Date() })
+        const changes: Record<string, unknown> = { updatedAt: new Date() };
+        if (input.privilegeLevel !== undefined) {
+          await validatePrivilegeLevel(tx, input.privilegeLevel);
+          changes.privilegeLevel = input.privilegeLevel;
+        }
+        if (input.accountUsername !== undefined) changes.accountUsername = input.accountUsername || null;
+        if (input.grantDate !== undefined) changes.grantDate = input.grantDate;
+        const hasCatalogSelection = input.catalogSource !== undefined || input.catalogItemId !== undefined || input.accessType !== undefined;
+        if (hasCatalogSelection) {
+          if (!input.catalogSource || !input.catalogItemId || !input.accessType) {
+            throw Object.assign(new Error("Select a complete catalog system and access type"), { status: 400 });
+          }
+          const catalogItem = await resolveAccessSystem(tx, {
+            catalogSource: input.catalogSource,
+            catalogItemId: input.catalogItemId,
+            accessType: input.accessType,
+          });
+          changes.applicationName = catalogItem.name;
+          changes.accessType = catalogItem.accessType;
+          changes.catalogSource = catalogItem.source;
+          changes.catalogItemId = catalogItem.id;
+        }
+        if (Object.keys(changes).length === 1) throw Object.assign(new Error("No access entitlement changes were provided"), { status: 400 });
+        const [updated] = await tx.update(employeeAccessRights).set(changes)
           .where(eq(employeeAccessRights.id, current.id)).returning();
         return { current, updated };
       });
