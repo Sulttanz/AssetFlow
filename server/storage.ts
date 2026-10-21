@@ -31,6 +31,7 @@ import {
   tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, incidents, serviceRequests, catalogItems, changes, changeApprovals,
   TICKET_PRIORITY_MATRIX, TICKET_SLA_HOURS,
 } from "@shared/schema";
+import { advanceMaintenanceDueDate } from "@shared/maintenance-utils";
 import { MODULE_REGISTRY } from "@shared/modules";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -192,6 +193,10 @@ export interface IStorage {
   getMaintenanceRecordsWithDetails(): Promise<MaintenanceRecordWithDetails[]>;
   getMaintenanceRecord(id: string): Promise<MaintenanceRecord | undefined>;
   createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord>;
+  createMaintenanceRecordWithScheduleAdvance(
+    record: InsertMaintenanceRecord,
+    advanceSchedule: boolean,
+  ): Promise<{ record: MaintenanceRecord; previousSchedule?: MaintenanceSchedule; schedule?: MaintenanceSchedule }>;
   updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord | undefined>;
   deleteMaintenanceRecord(id: string): Promise<boolean>;
   getMaintenanceRecordsByAsset(assetId: string): Promise<MaintenanceRecord[]>;
@@ -1563,6 +1568,8 @@ export class MemStorage implements IStorage {
       id,
       condition: record.condition ?? null,
       description: record.description ?? null,
+      estimatedCost: record.estimatedCost ?? null,
+      scheduledDate: record.scheduledDate ?? null,
       nextMaintenanceDate: record.nextMaintenanceDate ?? null,
       notes: record.notes ?? null,
       scheduleId: record.scheduleId ?? null,
@@ -1572,6 +1579,36 @@ export class MemStorage implements IStorage {
     };
     this.maintenanceRecords.set(id, newRecord);
     return newRecord;
+  }
+
+  async createMaintenanceRecordWithScheduleAdvance(
+    record: InsertMaintenanceRecord,
+    advanceSchedule: boolean,
+  ): Promise<{ record: MaintenanceRecord; previousSchedule?: MaintenanceSchedule; schedule?: MaintenanceSchedule }> {
+    const previousSchedule = record.scheduleId ? this.maintenanceSchedules.get(record.scheduleId) : undefined;
+    if (record.scheduleId && !previousSchedule) throw new Error("Maintenance schedule not found.");
+    if (previousSchedule && previousSchedule.assetId !== record.assetId) {
+      throw new Error("The selected schedule belongs to a different asset.");
+    }
+    if (advanceSchedule && previousSchedule) {
+      if (previousSchedule.isActive !== "true") throw new Error("This schedule is already completed.");
+      if (!record.scheduledDate || record.scheduledDate !== previousSchedule.nextDue) {
+        throw new Error("This schedule has advanced since the log was opened. Refresh and try again.");
+      }
+    }
+    const savedRecord = await this.createMaintenanceRecord({
+      ...record,
+      estimatedCost: previousSchedule?.estimatedCost ?? record.estimatedCost,
+      scheduledDate: previousSchedule?.nextDue ?? record.scheduledDate,
+    });
+    let schedule = previousSchedule;
+    if (advanceSchedule && previousSchedule?.isActive === "true") {
+      const nextDue = advanceMaintenanceDueDate(previousSchedule.nextDue, previousSchedule.frequency, record.maintenanceDate);
+      schedule = await this.updateMaintenanceSchedule(previousSchedule.id, nextDue
+        ? { nextDue }
+        : { isActive: "false" });
+    }
+    return { record: savedRecord, previousSchedule, schedule };
   }
 
   async updateMaintenanceRecord(id: string, updateData: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord | undefined> {
@@ -3211,6 +3248,42 @@ export class DatabaseStorage implements IStorage {
   async createMaintenanceRecord(record: InsertMaintenanceRecord): Promise<MaintenanceRecord> {
     const result = await db.insert(maintenanceRecords).values(record).returning();
     return result[0];
+  }
+
+  async createMaintenanceRecordWithScheduleAdvance(
+    record: InsertMaintenanceRecord,
+    advanceSchedule: boolean,
+  ): Promise<{ record: MaintenanceRecord; previousSchedule?: MaintenanceSchedule; schedule?: MaintenanceSchedule }> {
+    return db.transaction(async (tx) => {
+      const previousSchedule = record.scheduleId
+        ? (await tx.select().from(maintenanceSchedules).where(eq(maintenanceSchedules.id, record.scheduleId)).for("update"))[0]
+        : undefined;
+      if (record.scheduleId && !previousSchedule) throw new Error("Maintenance schedule not found.");
+      if (previousSchedule && previousSchedule.assetId !== record.assetId) {
+        throw new Error("The selected schedule belongs to a different asset.");
+      }
+      if (advanceSchedule && previousSchedule) {
+        if (previousSchedule.isActive !== "true") throw new Error("This schedule is already completed.");
+        if (!record.scheduledDate || record.scheduledDate !== previousSchedule.nextDue) {
+          throw new Error("This schedule has advanced since the log was opened. Refresh and try again.");
+        }
+      }
+      const [savedRecord] = await tx.insert(maintenanceRecords).values({
+        ...record,
+        estimatedCost: previousSchedule?.estimatedCost ?? record.estimatedCost,
+        scheduledDate: previousSchedule?.nextDue ?? record.scheduledDate,
+      }).returning();
+      let schedule = previousSchedule;
+      if (advanceSchedule && previousSchedule?.isActive === "true") {
+        const nextDue = advanceMaintenanceDueDate(previousSchedule.nextDue, previousSchedule.frequency, record.maintenanceDate);
+        const [updatedSchedule] = await tx.update(maintenanceSchedules)
+          .set(nextDue ? { nextDue } : { isActive: "false" })
+          .where(eq(maintenanceSchedules.id, previousSchedule.id))
+          .returning();
+        schedule = updatedSchedule;
+      }
+      return { record: savedRecord, previousSchedule, schedule };
+    });
   }
 
   async updateMaintenanceRecord(id: string, record: Partial<InsertMaintenanceRecord>): Promise<MaintenanceRecord | undefined> {

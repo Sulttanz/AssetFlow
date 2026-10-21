@@ -449,6 +449,8 @@ export const maintenanceRecords = pgTable("maintenance_records", {
   maintenanceType: text("maintenance_type").notNull(),
   performedBy: text("performed_by").notNull(), // technician name or company
   cost: decimal("cost", { precision: 10, scale: 2 }),
+  estimatedCost: decimal("estimated_cost", { precision: 10, scale: 2 }),
+  scheduledDate: date("scheduled_date"),
   description: text("description"),
   workPerformed: text("work_performed"),
   partsReplaced: text("parts_replaced"),
@@ -888,6 +890,13 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });
 export const insertMaintenanceScheduleSchema = createInsertSchema(maintenanceSchedules).omit({ id: true });
 export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecords).omit({ id: true });
+const maintenanceMoneySchema = z.string().trim().min(1, "Required").regex(/^\d{1,8}(?:\.\d{1,2})?$/, "Enter a non-negative amount with up to 2 decimal places.");
+export const maintenanceRecordSubmissionSchema = insertMaintenanceRecordSchema.extend({
+  performedBy: z.string().trim().min(1, "Assigned technician or vendor is required."),
+  cost: maintenanceMoneySchema,
+  estimatedCost: maintenanceMoneySchema,
+  advanceSchedule: z.boolean().default(false),
+});
 
 // User Management Insert Schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });

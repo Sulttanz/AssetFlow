@@ -78,6 +78,7 @@ describe("on-prem startup migrations", () => {
     for (const name of [
       "20261020_incident_management.sql",
       "20261021_service_request_management.sql",
+      "20261025_maintenance_log_analytics.sql",
     ]) {
       const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
       expect(() => assertAdditiveMigration(migration, name)).not.toThrow();

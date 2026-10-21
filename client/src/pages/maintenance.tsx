@@ -4,10 +4,10 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { 
-  Trash2, Edit, Plus, Wrench, Calendar, Clock, 
+import {
+  Trash2, Edit, Plus, Wrench, Calendar, Clock,
   AlertTriangle, CheckCircle, Settings, ClipboardList,
-  Hammer, Zap
+  Hammer, Zap, Search, Download, BarChart3,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -43,19 +43,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
   insertMaintenanceScheduleSchema,
-  insertMaintenanceRecordSchema,
+  maintenanceRecordSubmissionSchema,
   type MaintenanceSchedule, 
   type MaintenanceRecord,
   type Asset,
   type InsertMaintenanceSchedule,
   type InsertMaintenanceRecord
 } from "@shared/schema";
+import { advanceMaintenanceDueDate, calculateMaintenanceAnalytics, maintenanceCsv, maintenanceItemMatches } from "@shared/maintenance-utils";
 
 // Form schemas
 const scheduleFormSchema = insertMaintenanceScheduleSchema.extend({});
-const recordFormSchema = insertMaintenanceRecordSchema.extend({
-  scheduleId: z.string().optional(),
-});
+const recordFormSchema = maintenanceRecordSubmissionSchema.extend({ scheduleId: z.string().optional() });
 
 type ScheduleFormData = z.infer<typeof scheduleFormSchema>;
 type RecordFormData = z.infer<typeof recordFormSchema>;
@@ -66,6 +65,7 @@ interface MaintenanceScheduleWithDetails extends MaintenanceSchedule {
     id: string;
     name: string;
     assetTag: string;
+    vendor?: string | null;
   };
 }
 
@@ -74,10 +74,15 @@ interface MaintenanceRecordWithDetails extends MaintenanceRecord {
     id: string;
     name: string;
     assetTag: string;
+    vendor?: string | null;
   };
   schedule?: {
     id: string;
     maintenanceType: string;
+    frequency?: string;
+    nextDue?: string;
+    isActive?: string | null;
+    priority?: string | null;
   };
 }
 
@@ -88,6 +93,11 @@ export default function Maintenance() {
   const [recordEditOpen, setRecordEditOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<MaintenanceScheduleWithDetails | null>(null);
   const [editingRecord, setEditingRecordWithDetails] = useState<MaintenanceRecordWithDetails | null>(null);
+  const [maintenanceSearch, setMaintenanceSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const { toast } = useToast();
 
   // Data fetching
@@ -126,7 +136,9 @@ export default function Maintenance() {
       maintenanceDate: appInputDate(new Date()),
       maintenanceType: "preventive",
       performedBy: "",
-      cost: "0",
+      cost: "",
+      estimatedCost: "",
+      advanceSchedule: false,
       description: "",
       workPerformed: "",
       partsReplaced: "",
@@ -143,6 +155,8 @@ export default function Maintenance() {
   const recordEditForm = useForm<RecordFormData>({
     resolver: zodResolver(recordFormSchema),
   });
+
+  const selectedCreateSchedule = schedules.find(schedule => schedule.id === recordCreateForm.watch("scheduleId"));
 
   // Schedule mutations
   const createScheduleMutation = useMutation({
@@ -222,6 +236,7 @@ export default function Maintenance() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-records"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/maintenance-schedules"] });
       setRecordCreateOpen(false);
       recordCreateForm.reset();
       toast({
@@ -243,6 +258,8 @@ export default function Maintenance() {
       apiRequest("PUT", `/api/maintenance-records/${id}`, {
         ...data,
         scheduleId: data.scheduleId === "" ? undefined : data.scheduleId,
+        scheduledDate: undefined,
+        advanceSchedule: undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/maintenance-records"] });
@@ -325,6 +342,9 @@ export default function Maintenance() {
       maintenanceType: record.maintenanceType,
       performedBy: record.performedBy,
       cost: record.cost || "0",
+      estimatedCost: record.estimatedCost || "",
+      advanceSchedule: false,
+      scheduledDate: record.scheduledDate || undefined,
       description: record.description || "",
       workPerformed: record.workPerformed || "",
       partsReplaced: record.partsReplaced || "",
@@ -353,8 +373,11 @@ export default function Maintenance() {
       maintenanceType: schedule.maintenanceType,
       maintenanceDate: appInputDate(new Date()),
       scheduleId: schedule.id,
+      scheduledDate: schedule.nextDue,
       performedBy: "",
-      cost: schedule.estimatedCost || "0",
+      cost: "",
+      estimatedCost: schedule.estimatedCost || "",
+      advanceSchedule: true,
       description: schedule.description || "",
       workPerformed: "",
       partsReplaced: "",
@@ -391,7 +414,75 @@ export default function Maintenance() {
   };
 
   const isOverdue = (dueDate: string) => {
-    return new Date(dueDate) < new Date();
+    return Boolean(dueDate) && dueDate < appInputDate(new Date());
+  };
+
+  const listFilters = { search: maintenanceSearch, type: typeFilter, status: statusFilter, priority: priorityFilter, overdueOnly };
+
+  const scheduleStatus = (schedule: MaintenanceScheduleWithDetails) =>
+    schedule.isActive !== "true" ? "completed" : isOverdue(schedule.nextDue) ? "overdue" : "active";
+
+  const filteredSchedules = schedules.filter(schedule => {
+    const asset = assets.find(item => item.id === schedule.assetId);
+    const linkedRecords = records.filter(record => record.scheduleId === schedule.id);
+    const vendor = asset?.vendor ?? schedule.asset?.vendor;
+    const technicianNames = linkedRecords.map(record => record.performedBy);
+    const status = scheduleStatus(schedule);
+    return maintenanceItemMatches(listFilters, {
+      searchableValues: [asset?.assetTag, asset?.name, getAssetName(schedule.assetId), vendor, schedule.description, ...technicianNames],
+      maintenanceType: schedule.maintenanceType,
+      status,
+      priority: schedule.priority ?? "medium",
+      overdue: status === "overdue",
+    });
+  });
+
+  const filteredRecords = records.filter(record => {
+    const asset = assets.find(item => item.id === record.assetId);
+    const recordSchedule = schedules.find(schedule => schedule.id === record.scheduleId);
+    const overdue = Boolean(recordSchedule && scheduleStatus(recordSchedule) === "overdue");
+    const status = recordSchedule ? scheduleStatus(recordSchedule) : "completed";
+    return maintenanceItemMatches(listFilters, {
+      searchableValues: [
+        asset?.assetTag, asset?.name, getAssetName(record.assetId), asset?.vendor,
+        record.performedBy, record.description, record.workPerformed, record.partsReplaced, record.notes,
+      ],
+      maintenanceType: record.maintenanceType,
+      status: "completed",
+      priority: recordSchedule?.priority ?? "",
+      overdue,
+    });
+  });
+
+  const maintenanceAnalytics = calculateMaintenanceAnalytics(records);
+  let recurrencePreview: string | null = null;
+  if (selectedCreateSchedule && selectedCreateSchedule.frequency !== "one-time") {
+    try {
+      recurrencePreview = advanceMaintenanceDueDate(
+        selectedCreateSchedule.nextDue,
+        selectedCreateSchedule.frequency,
+        recordCreateForm.watch("maintenanceDate") || appInputDate(new Date()),
+      );
+    } catch {
+      recurrencePreview = null;
+    }
+  }
+  const exportMaintenanceCsv = () => {
+    const csv = maintenanceCsv(records.map(record => {
+      const asset = assets.find(item => item.id === record.assetId) ?? record.asset;
+      return {
+        ...record,
+        assetName: asset?.name,
+        assetTag: asset?.assetTag,
+      };
+    }));
+    const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `maintenance-report-${appInputDate(new Date())}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Statistics
@@ -421,6 +512,70 @@ export default function Maintenance() {
           </p>
         </div>
       </div>
+
+      {/* Search and queue filters */}
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              aria-label="Search maintenance"
+              placeholder="Search asset tag, asset, technician/vendor, or description..."
+              value={maintenanceSearch}
+              onChange={event => setMaintenanceSearch(event.target.value)}
+              className="pl-9"
+              data-testid="input-maintenance-search"
+            />
+          </div>
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger aria-label="Filter by type" className="w-full lg:w-[160px]"><SelectValue placeholder="All types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="preventive">Preventative</SelectItem>
+              <SelectItem value="repair">Repair</SelectItem>
+              <SelectItem value="inspection">Inspection</SelectItem>
+              <SelectItem value="upgrade">Upgrade</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger aria-label="Filter by status" className="w-full lg:w-[150px]"><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="overdue">Overdue</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger aria-label="Filter by priority" className="w-full lg:w-[145px]"><SelectValue placeholder="All priorities" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priorities</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant={overdueOnly ? "destructive" : "outline"}
+            aria-pressed={overdueOnly}
+            onClick={() => setOverdueOnly(value => !value)}
+            data-testid="toggle-overdue-only"
+          >
+            <AlertTriangle className="mr-2 h-4 w-4" />
+            Overdue only
+          </Button>
+          {(maintenanceSearch || typeFilter !== "all" || statusFilter !== "all" || priorityFilter !== "all" || overdueOnly) && (
+            <Button type="button" variant="ghost" onClick={() => {
+              setMaintenanceSearch("");
+              setTypeFilter("all");
+              setStatusFilter("all");
+              setPriorityFilter("all");
+              setOverdueOnly(false);
+            }}>Clear</Button>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -480,6 +635,10 @@ export default function Maintenance() {
           <TabsTrigger value="records" data-testid="tab-records">
             <ClipboardList className="mr-2 h-4 w-4" />
             Records
+          </TabsTrigger>
+          <TabsTrigger value="analytics" data-testid="tab-maintenance-analytics">
+            <BarChart3 className="mr-2 h-4 w-4" />
+            Reports &amp; Analytics
           </TabsTrigger>
         </TabsList>
 
@@ -665,7 +824,7 @@ export default function Maintenance() {
 
           {/* Schedules Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {schedules.map((schedule) => (
+            {filteredSchedules.map((schedule) => (
               <Card key={schedule.id} className={`relative ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "border-red-500" : ""}`} data-testid={`card-schedule-${schedule.id}`}>
                 <CardHeader>
                   <div className="flex justify-between items-start">
@@ -702,7 +861,7 @@ export default function Maintenance() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Next Due:</span>
                     <span className={`text-sm ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "text-red-600 font-semibold" : ""}`}>
-                      {schedule.nextDue}
+                      {formatDateDisplay(schedule.nextDue)}
                     </span>
                   </div>
                   
@@ -728,7 +887,7 @@ export default function Maintenance() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">Status:</span>
                     <Badge variant={schedule.isActive === "true" ? "default" : "secondary"}>
-                      {schedule.isActive === "true" ? "Active" : "Inactive"}
+                      {scheduleStatus(schedule) === "overdue" ? "Overdue" : schedule.isActive === "true" ? "Active" : "Completed"}
                     </Badge>
                   </div>
 
@@ -760,13 +919,13 @@ export default function Maintenance() {
             ))}
           </div>
 
-          {schedules.length === 0 && (
+          {filteredSchedules.length === 0 && (
             <div className="text-center py-12">
               <Calendar className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-lg font-medium">No maintenance schedules found</h3>
-              <p className="mt-1 text-muted-foreground">
-                Get started by creating your first maintenance schedule.
-              </p>
+              <h3 className="mt-2 text-lg font-medium">
+                {schedules.length === 0 ? "No maintenance schedules found" : "No schedules match these filters"}
+              </h3>
+              {schedules.length === 0 && <p className="mt-1 text-muted-foreground">Get started by creating your first maintenance schedule.</p>}
             </div>
           )}
         </TabsContent>
@@ -860,9 +1019,9 @@ export default function Maintenance() {
                         name="performedBy"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Performed By</FormLabel>
+                            <FormLabel>Assigned Technician / Vendor</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder="Technician or company name" data-testid="input-performed-by" />
+                              <Input {...field} required placeholder="Technician or company name" data-testid="input-performed-by" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -870,15 +1029,65 @@ export default function Maintenance() {
                       />
                     </div>
 
+                    {selectedCreateSchedule && (
+                      <div className="rounded-md border bg-muted/30 p-3">
+                        <label className="flex cursor-pointer items-start gap-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 accent-primary"
+                            checked={recordCreateForm.watch("advanceSchedule")}
+                            onChange={event => recordCreateForm.setValue("advanceSchedule", event.target.checked, { shouldDirty: true })}
+                            data-testid="checkbox-advance-maintenance"
+                          />
+                          <span>
+                            <span className="block text-sm font-medium">Automatically advance this schedule</span>
+                            <span className="block text-xs text-muted-foreground">
+                              {selectedCreateSchedule.frequency === "one-time"
+                                ? "This is a one-time schedule; logging the work will mark it completed."
+                                : recurrencePreview
+                                  ? `Next due date will advance to ${formatDateDisplay(recurrencePreview)}.`
+                                  : `The next due date will advance based on its ${selectedCreateSchedule.frequency} frequency.`}
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    <FormField
+                      control={recordCreateForm.control}
+                      name="estimatedCost"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Estimated Cost</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              required
+                              readOnly={Boolean(selectedCreateSchedule?.estimatedCost)}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              placeholder="0.00"
+                              data-testid="input-estimated-cost-record"
+                            />
+                          </FormControl>
+                          {selectedCreateSchedule?.estimatedCost && (
+                            <p className="text-xs text-muted-foreground">From the linked schedule; retained with this maintenance record for reporting.</p>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <FormField
                         control={recordCreateForm.control}
                         name="cost"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Cost</FormLabel>
+                            <FormLabel>Actual Cost</FormLabel>
                             <FormControl>
-                              <Input {...field} value={field.value || ""} type="number" step="0.01" placeholder="0.00" data-testid="input-record-cost" />
+                              <Input {...field} required min="0" type="number" step="0.01" placeholder="0.00" data-testid="input-record-cost" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -994,7 +1203,7 @@ export default function Maintenance() {
                 </h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {schedules.map((schedule) => (
+                {filteredSchedules.map((schedule) => (
                   <Card
                     key={`sched-${schedule.id}`}
                     className={`relative border-dashed ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "border-red-400 bg-red-50/40 dark:bg-red-950/20" : "bg-muted/30"}`}
@@ -1017,7 +1226,7 @@ export default function Maintenance() {
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-medium">Next Due:</span>
                         <span className={`text-sm ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "text-red-600 font-semibold" : ""}`}>
-                          {schedule.nextDue}
+                          {formatDateDisplay(schedule.nextDue)}
                           {isOverdue(schedule.nextDue) && schedule.isActive === "true" && (
                             <span className="ml-1 text-red-500">⚠</span>
                           )}
@@ -1056,18 +1265,18 @@ export default function Maintenance() {
           )}
 
           {/* Completed Records */}
-          {(records.length > 0 || schedules.length === 0) && (
+          {(filteredRecords.length > 0 || filteredSchedules.length === 0) && (
             <div className="space-y-3">
               {schedules.length > 0 && (
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-muted-foreground" />
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                    Completed Records ({records.length})
+                    Completed Records ({filteredRecords.length})
                   </h3>
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {records.map((record) => (
+                {filteredRecords.map((record) => (
                   <Card key={record.id} className="relative" data-testid={`card-record-${record.id}`}>
                     <CardHeader>
                       <div className="flex justify-between items-start">
@@ -1112,10 +1321,16 @@ export default function Maintenance() {
                         <span className="text-sm font-medium">Performed By:</span>
                         <span className="text-sm">{record.performedBy}</span>
                       </div>
-                      {record.cost && (
+                  {record.estimatedCost && (
                         <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium">Cost:</span>
-                          <span className="text-sm">${parseFloat(record.cost).toLocaleString()}</span>
+                      <span className="text-sm font-medium">Estimated Cost:</span>
+                      <span className="text-sm">${parseFloat(record.estimatedCost).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {record.cost && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">Actual Cost:</span>
+                      <span className="text-sm">${parseFloat(record.cost).toLocaleString()}</span>
                         </div>
                       )}
                       <div className="flex justify-between items-center">
@@ -1146,7 +1361,7 @@ export default function Maintenance() {
                   </Card>
                 ))}
               </div>
-              {records.length === 0 && schedules.length === 0 && (
+              {filteredRecords.length === 0 && filteredSchedules.length === 0 && (
                 <div className="text-center py-12">
                   <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground" />
                   <h3 className="mt-2 text-lg font-medium">No maintenance records found</h3>
@@ -1155,7 +1370,7 @@ export default function Maintenance() {
                   </p>
                 </div>
               )}
-              {records.length === 0 && schedules.length > 0 && (
+              {filteredRecords.length === 0 && filteredSchedules.length > 0 && (
                 <div className="text-center py-8 rounded-lg border border-dashed">
                   <CheckCircle className="mx-auto h-8 w-8 text-muted-foreground opacity-40" />
                   <p className="mt-2 text-sm text-muted-foreground">No completed records yet.</p>
@@ -1164,6 +1379,61 @@ export default function Maintenance() {
               )}
             </div>
           )}
+        </TabsContent>
+        <TabsContent value="analytics" className="space-y-4" data-testid="maintenance-analytics">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-xl font-semibold">Maintenance Reports &amp; Analytics</h2>
+              <p className="text-sm text-muted-foreground">Lifetime actual and estimated costs, plus completion timeliness from logged scheduled work.</p>
+            </div>
+            <Button onClick={exportMaintenanceCsv} variant="outline" data-testid="button-export-maintenance-csv">
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Card>
+              <CardHeader><CardTitle className="text-sm font-medium">Total Actual Spend</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">${maintenanceAnalytics.totalSpend.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-sm font-medium">Estimated Budget</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">${maintenanceAnalytics.estimatedBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-sm font-medium">On-Time Completion</CardTitle></CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-700">{maintenanceAnalytics.onTimeRate}%</div>
+                <p className="text-xs text-muted-foreground">{maintenanceAnalytics.onTimeCount} on time of {maintenanceAnalytics.evaluatedCount} scheduled records</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-sm font-medium">Overdue Completion Rate</CardTitle></CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{maintenanceAnalytics.overdueRate}%</div>
+                <p className="text-xs text-muted-foreground">{maintenanceAnalytics.overdueCount} late scheduled records</p>
+              </CardContent>
+            </Card>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Spend vs. Estimated Budget</CardTitle>
+              <CardDescription>
+                {maintenanceAnalytics.totalSpend > maintenanceAnalytics.estimatedBudget
+                  ? `$${(maintenanceAnalytics.totalSpend - maintenanceAnalytics.estimatedBudget).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} over estimate`
+                  : `$${(maintenanceAnalytics.estimatedBudget - maintenanceAnalytics.totalSpend).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} under estimate`}
+                {" · "}{maintenanceAnalytics.completedCount} logged work records
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Cost totals include logged work; estimated amounts are captured with each record so later schedule edits do not change the historical comparison.
+              </p>
+              {maintenanceAnalytics.evaluatedCount === 0 && (
+                <p className="mt-2 text-sm text-muted-foreground">On-time and overdue rates will appear when scheduled maintenance is logged with its due-date snapshot.</p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -1320,7 +1590,7 @@ export default function Maintenance() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="true">Active</SelectItem>
-                        <SelectItem value="false">Inactive</SelectItem>
+                        <SelectItem value="false">Completed</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -1353,6 +1623,51 @@ export default function Maintenance() {
                 </Button>
                 <Button type="submit" disabled={updateScheduleMutation.isPending} data-testid="button-submit-edit-schedule">
                   {updateScheduleMutation.isPending ? "Updating..." : "Update Schedule"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={recordEditOpen} onOpenChange={setRecordEditOpen}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Maintenance Record</DialogTitle>
+            <DialogDescription>Update the work log and actual-versus-estimated costs.</DialogDescription>
+          </DialogHeader>
+          <Form {...recordEditForm}>
+            <form onSubmit={recordEditForm.handleSubmit(handleUpdateRecord)} className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField control={recordEditForm.control} name="maintenanceDate" render={({ field }) => (
+                  <FormItem><FormLabel>Maintenance Date</FormLabel><FormControl><Input {...field} required type="date" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={recordEditForm.control} name="performedBy" render={({ field }) => (
+                  <FormItem><FormLabel>Assigned Technician / Vendor</FormLabel><FormControl><Input {...field} required /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={recordEditForm.control} name="estimatedCost" render={({ field }) => (
+                  <FormItem><FormLabel>Estimated Cost</FormLabel><FormControl><Input {...field} required min="0" type="number" step="0.01" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={recordEditForm.control} name="cost" render={({ field }) => (
+                  <FormItem><FormLabel>Actual Cost</FormLabel><FormControl><Input {...field} required min="0" type="number" step="0.01" /></FormControl><FormMessage /></FormItem>
+                )} />
+                <FormField control={recordEditForm.control} name="nextMaintenanceDate" render={({ field }) => (
+                  <FormItem><FormLabel>Next Maintenance Date (Optional)</FormLabel><FormControl><Input {...field} value={field.value ?? ""} type="date" /></FormControl><FormMessage /></FormItem>
+                )} />
+              </div>
+              <FormField control={recordEditForm.control} name="workPerformed" render={({ field }) => (
+                <FormItem><FormLabel>Work Performed</FormLabel><FormControl><Textarea {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={recordEditForm.control} name="description" render={({ field }) => (
+                <FormItem><FormLabel>Description (Optional)</FormLabel><FormControl><Textarea {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={recordEditForm.control} name="notes" render={({ field }) => (
+                <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea {...field} value={field.value ?? ""} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setRecordEditOpen(false)}>Cancel</Button>
+                <Button type="submit" disabled={updateRecordMutation.isPending}>
+                  {updateRecordMutation.isPending ? "Updating..." : "Save Changes"}
                 </Button>
               </div>
             </form>

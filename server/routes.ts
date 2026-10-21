@@ -12,7 +12,7 @@ import {
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
-  insertMaintenanceRecordSchema, insertUserSchema, insertRoleSchema,
+  insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
@@ -3642,16 +3642,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/maintenance-records", requireAuth, requirePermission('maintenance_create'), async (req, res) => {
     try {
-      const validatedData = insertMaintenanceRecordSchema.parse(req.body);
-      const record = await storage.createMaintenanceRecord(validatedData);
+      const { advanceSchedule, ...recordInput } = maintenanceRecordSubmissionSchema.parse(req.body);
+      const { record, previousSchedule, schedule } = await storage.createMaintenanceRecordWithScheduleAdvance(recordInput, advanceSchedule);
       
       // Log audit
-      await logAudit(req.user?.id, 'CREATE', 'maintenance_records', record.id, `Maintenance Record #${record.id}`, null, { assetId: record.assetId, maintenanceDate: record.maintenanceDate, maintenanceType: record.maintenanceType }, req);
+      await logAudit(req.user?.id, 'CREATE', 'maintenance_records', record.id, `Maintenance Record #${record.id}`, null, record, req);
+      if (previousSchedule && schedule &&
+          (previousSchedule.nextDue !== schedule.nextDue || previousSchedule.isActive !== schedule.isActive)) {
+        await logAudit(req.user?.id, 'UPDATE', 'maintenance_schedules', schedule.id, `Maintenance Schedule #${schedule.id}`, previousSchedule, schedule, req);
+      }
       
       res.status(201).json(record);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid maintenance record data", errors: error.errors });
+      }
+      if (error instanceof Error && error.message === "Maintenance schedule not found.") {
+        return res.status(404).json({ message: error.message });
+      }
+      if (error instanceof Error && error.message === "The selected schedule belongs to a different asset.") {
+        return res.status(400).json({ message: error.message });
+      }
+      if (error instanceof Error && (error.message === "This schedule is already completed." || error.message.startsWith("This schedule has advanced"))) {
+        return res.status(409).json({ message: error.message });
       }
       res.status(500).json({ message: "Failed to create maintenance record" });
     }
