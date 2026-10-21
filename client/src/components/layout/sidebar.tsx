@@ -54,11 +54,18 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
-import { isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
+import { isPersonaApiAllowed, isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const { data: catalogAccess } = useQuery<{ canManage: boolean; canApprove: boolean }>({
+    queryKey: ["/api/service-catalog/options", user?.id],
+    queryFn: async () => (await apiRequest("GET", "/api/service-catalog/options")).json(),
+    enabled: Boolean(user?.id) && isPersonaApiAllowed(user?.roles?.map(role => role.name) ?? [], user?.permissions ?? [], "/service-catalog/options", "GET"),
+  });
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const permissions = user?.permissions ?? [];
   const personaRoles = personaRolesForUser(user);
@@ -82,6 +89,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: personaRoles.includes("end_user") ? "My Tickets" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.includes("end_user") },
+        { name: "Approval Queue", href: "/service-catalog?tab=approvals", icon: ClipboardCheck, current: location.startsWith("/service-catalog") && location.includes("tab=approvals"), visible: Boolean(catalogAccess?.canApprove) },
         { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: personaRoles.includes("end_user") || (!personaScoped && !isItsmStaff) },
       ]
     },
@@ -230,6 +238,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
   const isItemAllowed = (item: any) => {
     if (!hasPermission(item.permission) || item.visible === false) return false;
+    if (item.name === "Approval Queue") return Boolean(catalogAccess?.canApprove);
     if (!personaScoped) return true;
     if (item.hasSubmenu) {
       return isPersonaPageAllowed(roleNames, permissions, item.href) ||

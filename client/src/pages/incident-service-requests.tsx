@@ -17,6 +17,22 @@ import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { TicketKnowledgeLinks } from "@/components/knowledge-base/ticket-knowledge-links";
 import { canManageKnowledge } from "@shared/kb-governance";
 import { AlertTriangle, CheckCircle2, Ticket, UserX } from "lucide-react";
+import { checkedResponse } from "@/components/service-catalog/types";
+import { Link } from "wouter";
+import { serviceApprovalRoles } from "@shared/service-catalog";
+import type { CatalogField } from "@shared/service-catalog";
+
+type CatalogApprovalDetail = {
+  id: string;
+  ticketId: string;
+  approverRole: string;
+  status: string;
+  comments: string;
+  decidedAt: string | null;
+  approverName: string | null;
+  customFieldValues: Record<string, unknown> | null;
+  catalogSchemaSnapshot: CatalogField[] | null;
+} | null;
 
 type QueueScope = "mine" | "assigned" | "all";
 type LifecycleFilter = "all" | "active" | "pending" | "closed";
@@ -277,6 +293,13 @@ export function ServiceRequestsPage() {
     closed: requests.filter(row => ["completed", "rejected", "closed", "cancelled"].includes((row.fulfillmentStage ?? row.fulfillmentStatus).toLowerCase())).length,
   };
   const selected = requests.find(request => request.id === selectedId);
+  const selectedRequesterId = selected?.requesterId;
+  const canReadSelectedDetail = Boolean(selected && (canViewAll || selectedRequesterId === user?.id));
+  const { data: catalogApproval, isLoading: catalogApprovalLoading, isError: catalogApprovalError, refetch: retryCatalogApproval } = useQuery<CatalogApprovalDetail>({
+    queryKey: ["/api/service-requests", selectedId, "catalog-approval", user?.id],
+    queryFn: async () => checkedResponse<CatalogApprovalDetail>(await apiRequest("GET", `/api/service-requests/${selectedId}/catalog-approval`)),
+    enabled: Boolean(selectedId && canReadSelectedDetail),
+  });
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/service-requests", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
   });
@@ -333,6 +356,7 @@ export function ServiceRequestsPage() {
     onError: (error: Error) => toast({ title: "Could not close request", description: error.message, variant: "destructive" }),
   });
   const manager = user?.permissions?.includes("ticket_manage");
+  const canApproveCatalog = serviceApprovalRoles(user).length > 0;
   return <div className="space-y-5 p-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><Header title="Request Tracker" description="Track request stages, approvals, and asset fulfillment." showAddButton={false} showSearch={false} /></div>
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{requestMetrics.map(({ label, count, icon: Icon, color }) => <Card key={label} className="overflow-hidden border-l-4" style={{ borderLeftColor: color }}><CardContent className="flex items-center justify-between gap-3 p-4"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{count}</p></div><Icon aria-hidden="true" className="h-5 w-5 shrink-0" style={{ color }} /></CardContent></Card>)}</div>
@@ -372,6 +396,20 @@ export function ServiceRequestsPage() {
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.requestNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{(selected as any).catalogItemName ?? "General request"} · Requested by {(selected as any).requesterName ?? "Unknown"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6">
           <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Request date:</span> {formatRequestTimestamp(selected.createdAt)}</p><p><span className="text-muted-foreground">Target completion:</span> {formatRequestDate(selected.targetFulfillmentDate, true)}</p><p><span className="text-muted-foreground">Completed:</span> {formatRequestTimestamp(selected.completedAt)}</p><p><span className="text-muted-foreground">Project:</span> {(selected as any).projectName ?? "—"}</p><p><span className="text-muted-foreground">Cost:</span> {Number(selected.cost).toFixed(2)}</p><p><span className="text-muted-foreground">Requested by:</span> {(selected as any).requesterName ?? "—"}</p><p><span className="text-muted-foreground">Asset:</span> {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p></div></section>
+          {canReadSelectedDetail && <section className="rounded-lg border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-semibold">Submitted service details</h3><p className="mt-1 text-sm text-muted-foreground">Structured answers included with this request.</p></div>
+              {catalogApproval && <Badge variant="outline">{catalogApproval.status}</Badge>}
+            </div>
+            {catalogApprovalLoading ? <div className="mt-4 h-14 animate-pulse rounded-lg bg-muted/40" />
+              : catalogApprovalError ? <p className="mt-3 text-sm text-muted-foreground">Request details could not be loaded. <button className="font-medium text-primary underline" onClick={() => void retryCatalogApproval()}>Try again</button></p>
+                : Object.keys(selected.customFieldValues ?? {}).length > 0 ? <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">{Object.entries(selected.customFieldValues).map(([key, value]) => {
+                  const field = selected.catalogSchemaSnapshot?.find(candidate => candidate.key === key);
+                  const displayValue = field?.type === "date" && typeof value === "string" ? appFormatDate(value) : typeof value === "boolean" ? value ? "Yes" : "No" : String(value ?? "—");
+                  return <div key={key} className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">{field?.label ?? key}</dt><dd className="mt-1 break-words text-sm">{displayValue}</dd></div>;
+                })}</dl>
+                  : <p className="mt-3 text-sm text-muted-foreground">{catalogApproval ? "No structured answers were submitted." : "This request has no catalog approval requirement."}</p>}
+            {catalogApproval && <div className="mt-4 border-t pt-3"><h4 className="text-sm font-semibold">Approval history</h4><div className="mt-2 grid gap-1 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Approver role:</span> {catalogApproval.approverRole}</p><p><span className="text-muted-foreground">Decision:</span> {catalogApproval.status}</p><p><span className="text-muted-foreground">Reviewed by:</span> {catalogApproval.approverName ?? "Not recorded"}</p><p><span className="text-muted-foreground">Decision date:</span> {catalogApproval.decidedAt ? formatRequestTimestamp(catalogApproval.decidedAt) : "Awaiting decision"}</p></div>{catalogApproval.comments && <blockquote className="mt-3 rounded-md bg-muted/30 p-3 text-sm leading-5">“{catalogApproval.comments}”</blockquote>}</div>}
+          </section>}
            {consumableStockOptions.dispatch && <section className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm dark:border-green-900 dark:bg-green-950/30">
              <h3 className="font-semibold text-green-900 dark:text-green-100">Consumable dispatch record</h3>
              <p className="mt-2">{consumableStockOptions.dispatch.quantity} × {consumableStockOptions.dispatch.consumableName} · {consumableStockOptions.dispatch.warehouseName}</p>
@@ -384,7 +422,8 @@ export function ServiceRequestsPage() {
               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>
              {!["Completed", "Rejected", "Cancelled"].includes(selected.fulfillmentStage ?? selected.fulfillmentStatus) && <section className="grid gap-3"><h3 className="font-semibold">Close request</h3><label className="grid gap-1 text-sm">Closure note (required)<Textarea value={closureNote} onChange={event => setClosureNote(event.target.value)} placeholder="Explain why this request is cancelled." /></label><Button variant="destructive" onClick={() => closeRequest.mutate({ id: selected.id })} disabled={!closureNote.trim() || closeRequest.isPending}>Close as cancelled</Button></section>}
-            {selected.approvalStatus === "pending" && <section className="flex gap-2"><Button onClick={() => reviewRequest.mutate({ id: selected.id, decision: "approved" })} disabled={reviewRequest.isPending}>Approve</Button><Button variant="destructive" onClick={() => reviewRequest.mutate({ id: selected.id, decision: "rejected" })} disabled={reviewRequest.isPending}>Reject</Button></section>}
+            {selected.approvalStatus === "pending" && selected.serviceCatalogItemId && <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/20"><div><h3 className="font-semibold">Approval required</h3><p className="mt-1 text-sm text-muted-foreground">Fulfillment remains on hold until an authorized approver records a decision.</p></div>{canApproveCatalog ? <Button asChild><Link href="/service-catalog?tab=approvals">Review approval</Link></Button> : <Badge variant="outline">Pending approval</Badge>}</section>}
+            {selected.approvalStatus === "pending" && !selected.serviceCatalogItemId && <section className="flex gap-2"><Button onClick={() => reviewRequest.mutate({ id: selected.id, decision: "approved" })} disabled={reviewRequest.isPending}>Approve</Button><Button variant="destructive" onClick={() => reviewRequest.mutate({ id: selected.id, decision: "rejected" })} disabled={reviewRequest.isPending}>Reject</Button></section>}
             {selected.approvalStatus === "approved" && <section className="grid gap-3"><h3 className="font-semibold">Fulfillment</h3>
               {(selected.fulfillmentStage === "Approved" || selected.fulfillmentStage === "Submitted") && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "In Procurement" })} disabled={updateStage.isPending}>Start procurement</Button>}
               {selected.fulfillmentStage === "In Procurement" && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "Ready for Delivery" })} disabled={updateStage.isPending}>Mark ready for delivery</Button>}

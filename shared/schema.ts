@@ -2,6 +2,7 @@ import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { catalogFieldSchema, type CatalogField } from "./service-catalog";
 
 // Core tables first to avoid circular dependencies
 export const employees = pgTable("employees", {
@@ -1510,6 +1511,28 @@ export const insertCatalogItemSchema = createInsertSchema(catalogItems).omit({ i
 export type CatalogItem = typeof catalogItems.$inferSelect;
 export type InsertCatalogItem = z.infer<typeof insertCatalogItemSchema>;
 
+// Governed catalog extension. The shared ID preserves legacy stock/fulfillment links.
+export const serviceCatalogItems = pgTable("service_catalog_items", {
+  id: varchar("id").primaryKey().references(() => catalogItems.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  category: text("category").notNull(),
+  description: text("description"),
+  icon: text("icon"),
+  slaHours: integer("sla_hours").notNull().default(24),
+  requiresApproval: boolean("requires_approval").notNull().default(false),
+  approverRole: text("approver_role"),
+  customFieldsSchema: jsonb("custom_fields_schema").$type<CatalogField[]>().notNull().default(sql`'[]'::jsonb`),
+  status: text("status").notNull().default("Active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  index("service_catalog_items_status_category_idx").on(table.status, table.category),
+  check("service_catalog_items_valid_status", sql`${table.status} IN ('Active', 'Inactive')`),
+  check("service_catalog_items_positive_sla", sql`${table.slaHours} > 0`),
+  check("service_catalog_items_approver_check", sql`NOT ${table.requiresApproval} OR ${table.approverRole} IN ('Manager', 'IT Director') AND ${table.approverRole} IS NOT NULL`),
+]);
+export type ServiceCatalogItem = typeof serviceCatalogItems.$inferSelect;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Change Management
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1595,6 +1618,7 @@ export const serviceRequests = pgTable("service_requests", {
   title: text("title").notNull(),
   description: text("description").notNull(),
   catalogItemId: varchar("catalog_item_id").references(() => catalogItems.id, { onDelete: "set null" }),
+  serviceCatalogItemId: varchar("service_catalog_item_id").references(() => serviceCatalogItems.id, { onDelete: "restrict" }),
   requesterId: varchar("requester_id").notNull().references(() => users.id),
   creatorId: varchar("creator_id").references(() => users.id, { onDelete: "set null" }),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
@@ -1605,6 +1629,8 @@ export const serviceRequests = pgTable("service_requests", {
   approvalStatus: text("approval_status").notNull().default("pending"),
   cost: real("cost").notNull().default(0),
   requestedQuantity: integer("requested_quantity").notNull().default(1),
+  customFieldValues: jsonb("custom_field_values").$type<Record<string, string | number | boolean>>().notNull().default(sql`'{}'::jsonb`),
+  catalogSchemaSnapshot: jsonb("catalog_schema_snapshot").$type<CatalogField[]>().notNull().default(sql`'[]'::jsonb`),
   fulfilledAssetId: varchar("fulfilled_asset_id").references(() => assets.id, { onDelete: "set null" }),
   targetFulfillmentDate: date("target_fulfillment_date"),
   fulfillmentDueAt: timestamp("fulfillment_due_at"),
@@ -1629,6 +1655,23 @@ export const serviceRequestActivities = pgTable("service_request_activities", {
   createdAt: timestamp("created_at").default(sql`now()`),
 }, table => [index("service_request_activities_request_created_idx").on(table.serviceRequestId, table.createdAt)]);
 
+export const serviceRequestsApprovals = pgTable("service_requests_approvals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").notNull().references(() => serviceRequests.id, { onDelete: "restrict" }),
+  approverId: varchar("approver_id").references(() => users.id, { onDelete: "set null" }),
+  approverRole: text("approver_role").notNull(),
+  status: text("status").notNull().default("Pending"),
+  comments: text("comments"),
+  decidedAt: timestamp("decided_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => [
+  uniqueIndex("service_requests_approvals_ticket_unique").on(table.ticketId),
+  index("service_requests_approvals_pending_role_idx").on(table.status, table.approverRole, table.createdAt),
+  check("service_requests_approvals_valid_role", sql`${table.approverRole} IN ('Manager', 'IT Director')`),
+  check("service_requests_approvals_valid_status", sql`${table.status} IN ('Pending', 'Approved', 'Rejected')`),
+  check("service_requests_approvals_decision_note", sql`${table.status} = 'Pending' OR (${table.decidedAt} IS NOT NULL AND length(trim(${table.comments})) >= 5 AND ${table.comments} IS NOT NULL)`),
+]);
+
 export const kbTicketLinks = pgTable("kb_ticket_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   articleId: varchar("article_id").notNull().references(() => kbArticles.id, { onDelete: "restrict" }),
@@ -1645,6 +1688,8 @@ export const kbTicketLinks = pgTable("kb_ticket_links", {
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {
+  catalogSchemaSnapshot: z.array(catalogFieldSchema),
+  customFieldValues: z.record(z.union([z.string(), z.number(), z.boolean()])),
   requestedQuantity: z.number().int().min(1).max(10000).default(1),
 }).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });
 export type Incident = typeof incidents.$inferSelect;

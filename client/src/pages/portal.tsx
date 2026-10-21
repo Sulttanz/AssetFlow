@@ -10,10 +10,11 @@ import { ArticleDetailDialog } from "@/components/knowledge-base/article-detail-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { checkedResponse } from "@/components/service-catalog/types";
 
 type CatalogItem = {
-  id: string; name: string; description?: string | null; category?: string;
-  fulfillmentTeam?: string | null; slaHours?: number | null; approvalRequired?: boolean; isActive?: boolean;
+  id: string; title: string; description?: string | null; category?: string;
+  slaHours?: number | null; requiresApproval?: boolean; status?: string;
 };
 type Article = { id: string; title: string; summary?: string | null; content?: string | null; excerpt?: string | null; category?: string | null; updatedAt?: string | null };
 type Incident = { id: string; incidentNumber: string; title: string; status: string; creatorId?: string | null; requesterId?: string | null; createdAt?: string | null; responseDueAt?: string | null; resolveDueAt?: string | null };
@@ -53,8 +54,12 @@ export default function PortalPage() {
     enabled: Boolean(user?.id) && queryTerm.length > 0,
   });
   const catalogQuery = useQuery<CatalogItem[]>({
-    queryKey: ["/api/catalog/items?activeOnly=true"],
-    queryFn: getQueryFn({ on401: "throw" }),
+    queryKey: ["/api/service-catalog/items", user?.id],
+    queryFn: async () => checkedResponse<CatalogItem[]>(await apiRequest("GET", "/api/service-catalog/items")),
+    enabled: Boolean(user?.id) && queryTerm.length > 0,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
   });
   const incidentsQuery = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
   const requestsQuery = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
@@ -63,11 +68,11 @@ export default function PortalPage() {
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  const catalog = (catalogQuery.data ?? []).filter(item => item.isActive !== false);
+  const catalog = (catalogQuery.data ?? []).filter(item => item.status === "Active");
   const matchingCatalog = useMemo(() => {
     if (!queryTerm) return [];
     const term = queryTerm.toLowerCase();
-    return catalog.filter(item => `${item.name} ${item.description ?? ""} ${item.category ?? ""}`.toLowerCase().includes(term)).slice(0, 4);
+    return catalog.filter(item => `${item.title} ${item.description ?? ""} ${item.category ?? ""}`.toLowerCase().includes(term)).slice(0, 4);
   }, [catalog, queryTerm]);
   const rows: ActivityRow[] = useMemo(() => [
     ...(incidentsQuery.data ?? []).filter(row => row.creatorId === user?.id || row.requesterId === user?.id).map(row => ({ id: row.id, ticket: row.incidentNumber, title: row.title, type: "Incident", status: row.status, createdAt: row.createdAt, target: row.resolveDueAt ?? row.responseDueAt })),
@@ -122,8 +127,8 @@ export default function PortalPage() {
             <Link href="/knowledge-base" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Browse all articles <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
           <SearchResults title="Services and equipment" icon={<Laptop className="h-4 w-4" />} loading={catalogQuery.isLoading} error={catalogQuery.isError} retry={() => void catalogQuery.refetch()} empty={!catalogQuery.isLoading && !catalogQuery.isError && matchingCatalog.length === 0} emptyLabel="No catalog items match this search.">
-            {matchingCatalog.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 hover:bg-[#f0f6f3]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#294a4a]">{item.name}</span><span className="mt-1 block truncate text-xs text-[#738785]">{item.description || item.category || "Available service"}</span></span><Button asChild size="sm" className="shrink-0 rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]"><Link href={`/service-requests/new?catalogItemId=${encodeURIComponent(item.id)}`}>Request <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>)}
-            <Link href="/service-requests/new" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Make a general request <ArrowRight className="h-3.5 w-3.5" /></Link>
+             {matchingCatalog.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 hover:bg-[#f0f6f3]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#294a4a]">{item.title}</span><span className="mt-1 block truncate text-xs text-[#738785]">{item.description || item.category || "Available service"}</span></span><Button asChild size="sm" className="shrink-0 rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]"><Link href={`/service-catalog?item=${encodeURIComponent(item.id)}`}>Request <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>)}
+             <Link href="/service-catalog" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Browse all services <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
         </div>}
         {!queryTerm && <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#809391]"><span>Popular:</span>{["VPN access", "password reset", "new equipment"].map(term => <button key={term} className="rounded-full border border-[#dce7e2] bg-white px-2.5 py-1 text-[#54716e] hover:border-[#9ebdb4] hover:bg-[#f1f7f3]" onClick={() => setSearch(term)}>{term}</button>)}</div>}

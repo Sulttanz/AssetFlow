@@ -30,3 +30,4 @@
 - [Legacy catalog metadata](legacy-catalog-metadata.md) — optional legacy metadata can be null despite stricter current form contracts; one source must not break a combined catalog.
 - [Spreadsheet bundle boundary](spreadsheet-bundle-boundary.md) — keep ExcelJS table-report generation on the server; its browser bundle cannot be safely split.
 - [Knowledge publication boundary](knowledge-publication-boundary.md) — “public” means authenticated employee access; legacy publication and old revisions must not expose internal content.
+- [Structured service catalog](structured-service-catalog.md) — preserve legacy stock/history links; capture submitted forms and approval policies instead of reinterpreting them after configuration changes.

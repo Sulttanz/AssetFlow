@@ -43,6 +43,8 @@ import { cabApprovalsGranted } from "./cab-gate";
 import { compareAppVersions } from "./startup-migrations";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
 import { registerKnowledgeRoutes } from "./knowledge-governance";
+import { catalogMutationError, catalogRequestHandler, isStructuredCatalogItem, loadCatalogViewer, registerServiceCatalogRoutes, syncLegacyCatalogItem } from "./service-catalog";
+import { serviceApprovalRoles } from "@shared/service-catalog";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -124,6 +126,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/changes",
     "/problems",
     "/catalog",
+    "/service-catalog",
     "/knowledge-base",
     "/kb",
     "/kb-articles",
@@ -1310,7 +1313,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getServiceRequests();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
-      const visible = canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id);
+      const catalogViewer = await loadCatalogViewer(req);
+      const canReviewCatalog = serviceApprovalRoles(catalogViewer).length > 0;
+      const visible = (canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id))
+        .filter(row => !row.serviceCatalogItemId || row.fulfillmentStage !== "Pending Approval" ||
+          row.requesterId === req.user.id || canReviewCatalog);
       const [projectRows, userRows, catalogRows, employeeRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
@@ -1434,10 +1441,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/service-requests", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
+      if (await isStructuredCatalogItem(req.body.catalogItemId)) {
+        return res.status(400).json({ message: "Submit this service through the Service Catalog so its form and approval policy are validated" });
+      }
       const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
       const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
-      const parsed = insertServiceRequestSchema.parse({ ...req.body, creatorId: req.user.id, requesterId, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
+      const parsed = insertServiceRequestSchema.parse({ ...req.body, serviceCatalogItemId: null, customFieldValues: {}, catalogSchemaSnapshot: [], creatorId: req.user.id, requesterId, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
       if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
@@ -1473,6 +1483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { decision } = z.object({ decision: z.enum(["approved", "rejected"]) }).parse(req.body);
       const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if (existing.serviceCatalogItemId) return res.status(409).json({ message: "Use Pending Approvals in the Service Catalog to record a role-authorized decision and audit note" });
       if (existing.approvalStatus !== "pending") return res.status(409).json({ message: "This request has already been reviewed" });
       const stage = decision === "approved" ? "Approved" : "Rejected";
       const updated = await storage.updateServiceRequest(existing.id, { approvalStatus: decision, fulfillmentStage: stage });
@@ -1515,6 +1526,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).parse(req.body);
       const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!existing) return res.status(404).json({ message: "Service request not found" });
+      const catalogGuard = catalogMutationError(existing, { fulfillmentStage: stage, fulfilledAssetId });
+      if (catalogGuard) return res.status(409).json({ message: catalogGuard });
       if (["In Procurement", "Ready for Delivery", "Completed"].includes(stage) && existing.approvalStatus !== "approved") {
         return res.status(409).json({ message: "The request must be approved before fulfillment can proceed" });
       }
@@ -1623,7 +1636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/service-requests/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
-      const parsed = insertServiceRequestSchema.partial().omit({ requesterId: true, completedAt: true }).parse(req.body);
+      const parsed = insertServiceRequestSchema.partial().omit({ requesterId: true, creatorId: true, completedAt: true, serviceCatalogItemId: true, customFieldValues: true, catalogSchemaSnapshot: true }).parse(req.body);
       if (parsed.cost !== undefined && (!Number.isFinite(parsed.cost) || parsed.cost < 0)) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.fulfillmentStatus && !["Submitted", "Approved", "Fulfilling", "Completed", "Rejected"].includes(parsed.fulfillmentStatus)) {
         return res.status(400).json({ message: "Invalid fulfillment status" });
@@ -1636,6 +1649,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!existing) return res.status(404).json({ message: "Service request not found" });
+      const catalogGuard = catalogMutationError(existing, parsed);
+      if (catalogGuard) return res.status(409).json({ message: catalogGuard });
       if ((parsed.fulfillmentStatus === "Completed" || parsed.fulfillmentStage === "Completed") && existing.catalogItemId) {
         const [catalogItem] = await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, existing.catalogItemId));
         if (catalogItem?.consumableId) return res.status(409).json({ message: "Use Fulfill / Deliver to deduct stock before completing this request" });
@@ -8007,6 +8022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Knowledge Base ───────────────────────────────────────────────────────
   registerKnowledgeRoutes(app, requireAuth);
+  registerServiceCatalogRoutes(app, requireAuth);
 
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -8080,6 +8096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const input = insertCatalogItemSchema.parse({ ...req.body, consumableId: req.body.consumableId || null });
       const item = await storage.createCatalogItem(input);
+      await syncLegacyCatalogItem(item.id);
       res.status(201).json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.errors });
@@ -8089,6 +8106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
     try {
+      if (await isStructuredCatalogItem(req.params.id)) return res.status(409).json({ message: "Edit this service in the structured Service Catalog" });
       const input = insertCatalogItemSchema.partial().parse({ ...req.body, ...(req.body.consumableId !== undefined ? { consumableId: req.body.consumableId || null } : {}) });
       const item = await storage.updateCatalogItem(req.params.id, input);
       if (!item) return res.status(404).json({ message: "Item not found" });
@@ -8101,6 +8119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
     try {
+      if (await isStructuredCatalogItem(req.params.id)) return res.status(409).json({ message: "Set the service to Inactive in the Service Catalog to preserve its request history" });
       const deleted = await storage.deleteCatalogItem(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Item not found" });
       res.json({ success: true });
@@ -8110,6 +8129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Catalog self-service: create ticket from catalog item
   app.post("/api/catalog/items/:id/request", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
+      if (await isStructuredCatalogItem(req.params.id)) return catalogRequestHandler(req, res, () => {});
       const user = req.user as any;
       const item = await storage.getCatalogItem(req.params.id);
       if (!item || !item.isActive) return res.status(404).json({ message: "Catalog item not found" });

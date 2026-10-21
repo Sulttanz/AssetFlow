@@ -10,6 +10,9 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+import { validateCatalogValues } from "@shared/service-catalog";
+import type { CatalogItem as StructuredCatalogItem } from "@/components/service-catalog/types";
+import { DynamicField } from "@/components/service-catalog/dynamic-fields";
 
 type CatalogItem = {
   id: string;
@@ -32,6 +35,7 @@ type RequestPayload = {
   cost: number;
   requestedQuantity: number;
   requesterId?: string;
+  fieldValues?: Record<string, string | number | boolean>;
 };
 
 const inputClass = "h-11 rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]";
@@ -54,6 +58,8 @@ export default function NewServiceRequestPage() {
   const staffIntake = canAccessItsmWorkbench(user);
   const initialCatalogId = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("catalogItemId") ?? "";
   const [catalogItemId, setCatalogItemId] = useState(initialCatalogId);
+  const [fieldValues, setFieldValues] = useState<Record<string, string | number | boolean>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
   const [titleEdited, setTitleEdited] = useState(false);
   const [description, setDescription] = useState("");
@@ -76,6 +82,11 @@ export default function NewServiceRequestPage() {
   });
   const catalogItems = (catalogQuery.data ?? []).filter(item => item.isActive !== false);
   const selectedItem = catalogItems.find(item => item.id === catalogItemId);
+  const structuredItem = useQuery<StructuredCatalogItem>({
+    queryKey: ["/api/service-catalog/items", catalogItemId, user?.id],
+    queryFn: async () => (await apiRequest("GET", `/api/service-catalog/items/${encodeURIComponent(catalogItemId)}`)).json(),
+    enabled: Boolean(catalogItemId && user?.id),
+  });
 
   useEffect(() => {
     if (selectedItem && !titleEdited && !title) setTitle(selectedItem.name);
@@ -83,7 +94,11 @@ export default function NewServiceRequestPage() {
 
   const createRequest = useMutation({
     mutationFn: async (payload: RequestPayload) => {
-      const created = await (await apiRequest("POST", "/api/service-requests", payload)).json() as CreatedRequest;
+      const { catalogItemId: itemId, ...catalogPayload } = payload;
+      const result = await (await apiRequest("POST",
+        itemId ? `/api/service-catalog/items/${encodeURIComponent(itemId)}/request` : "/api/service-requests",
+        itemId ? catalogPayload : payload)).json();
+      const created = (itemId ? result.request : result) as CreatedRequest;
       if (!created?.id) throw new Error("The request was created, but the server did not return its identifier. Contact support before submitting again.");
       if (files.length) {
         const failures: string[] = [];
@@ -138,6 +153,22 @@ export default function NewServiceRequestPage() {
       toast({ title: "Check the estimated cost", description: "Enter a valid amount of zero or more.", variant: "destructive" });
       return;
     }
+    let submittedValues: Record<string, string | number | boolean> = {};
+    if (catalogItemId) {
+      if (!structuredItem.data || structuredItem.isFetching || structuredItem.isError) {
+        toast({ title: "Service form unavailable", description: "Wait for the service questions to load, or retry loading them.", variant: "destructive" });
+        return;
+      }
+      try {
+        submittedValues = validateCatalogValues(structuredItem.data.customFieldsSchema, fieldValues);
+        setFieldErrors({});
+      } catch (error) {
+        const issues = (error as { issues?: { path: (string | number)[]; message: string }[] }).issues ?? [];
+        setFieldErrors(Object.fromEntries(issues.map(issue => [String(issue.path[1]), issue.message])));
+        toast({ title: "Complete the service questions", description: "Review the required service-specific answers.", variant: "destructive" });
+        return;
+      }
+    }
     setPartialFailure("");
     createRequest.mutate({
       title: cleanTitle,
@@ -148,6 +179,7 @@ export default function NewServiceRequestPage() {
       cost: numericCost,
       requestedQuantity: selectedItem?.consumableId ? Math.max(1, Math.floor(Number(requestedQuantity))) : 1,
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
+      ...(catalogItemId ? { fieldValues: submittedValues } : {}),
     });
   }
 
@@ -180,6 +212,8 @@ export default function NewServiceRequestPage() {
             </Field>}
             <Field label="Service or catalog item" hint="Choose a service, or leave this as a general request.">
               <select className={selectClass} value={catalogItemId} onChange={event => {
+                setFieldValues({});
+                setFieldErrors({});
                 const nextId = event.target.value;
                 setCatalogItemId(nextId);
                 const item = catalogItems.find(candidate => candidate.id === nextId);
@@ -206,6 +240,13 @@ export default function NewServiceRequestPage() {
             <Field label="Request description" hint="Include quantity, access level, business need, or other details that will help fulfillment.">
               <Textarea required rows={6} maxLength={8000} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the service or item you need and any important requirements." className={textAreaClass} />
             </Field>
+            {catalogItemId && <section className="grid gap-4 rounded-xl border border-[#d8e2e2] p-4">
+              <h3 className="font-semibold">Service-specific questions</h3>
+              {structuredItem.isLoading ? <p role="status" className="text-sm text-muted-foreground">Loading service questions…</p>
+                : structuredItem.isError ? <p role="alert" className="text-sm text-destructive">Service questions could not load. <button type="button" className="underline" onClick={() => void structuredItem.refetch()}>Retry</button></p>
+                  : structuredItem.data?.customFieldsSchema.length ? structuredItem.data.customFieldsSchema.map(field => <DynamicField key={field.key} field={field} value={fieldValues[field.key]} error={fieldErrors[field.key]} onChange={value => setFieldValues(current => ({ ...current, [field.key]: value }))} />)
+                    : <p className="text-sm text-muted-foreground">No additional questions are required for this service.</p>}
+            </section>}
             {selectedItem?.consumableId && <Field label="Quantity requested" hint="The fulfillment team will reserve and deduct this quantity from warehouse stock.">
               <Input type="number" min="1" max="10000" step="1" required value={requestedQuantity} onChange={event => setRequestedQuantity(event.target.value)} className={inputClass} />
             </Field>}

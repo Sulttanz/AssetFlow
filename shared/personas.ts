@@ -91,7 +91,7 @@ export function isPersonaPageAllowed(
       if (matchesPath(path, "/changes/new")) return false;
       return [
         "/dashboard", "/changes", "/applications", "/servers", "/purchase-orders",
-        "/budgets", "/contracts", "/employees",
+        "/budgets", "/contracts", "/employees", "/service-catalog",
       ].some(prefix => matchesPath(path, prefix));
     }
     return ["/assets", "/access-governance", "/audit-logs"].some(prefix => matchesPath(path, prefix));
@@ -109,6 +109,9 @@ function isReadMethod(method: string): boolean {
 
 function isTicketApiAllowed(path: string, method: string): boolean {
   const upperMethod = method.toUpperCase();
+  if (path === "/service-catalog/options" || /^\/service-catalog\/items(?:\/[^/]+)?$/.test(path)) return isReadMethod(upperMethod);
+  if (/^\/service-catalog\/items\/[^/]+\/request$/.test(path)) return upperMethod === "POST";
+  if (/^\/service-requests\/[^/]+\/catalog-approval$/.test(path)) return isReadMethod(upperMethod);
   if (["/incidents", "/service-requests"].includes(path)) return ["GET", "POST"].includes(upperMethod);
   if (matchesPath(path, "/catalog/items")) {
     return upperMethod === "GET" || (upperMethod === "POST" && /\/request$/.test(path));
@@ -130,7 +133,7 @@ function isTicketApiAllowed(path: string, method: string): boolean {
 }
 
 const IT_AGENT_API_PREFIXES = [
-  "/incidents", "/service-requests", "/tickets", "/problems", "/catalog",
+  "/incidents", "/service-requests", "/tickets", "/problems", "/catalog", "/service-catalog",
   "/knowledge-base", "/kb", "/kb-articles", "/assets", "/assignments", "/maintenance",
   "/maintenance-schedules", "/maintenance-records", "/asset-bookings",
   "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
@@ -174,6 +177,9 @@ export function isPersonaApiAllowed(
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "cab_member") {
+      if (["/service-catalog/options", "/service-catalog/items"].includes(apiPath)) return isReadMethod(upperMethod);
+      if (apiPath === "/service-catalog/approvals") return isReadMethod(upperMethod);
+      if (/^\/service-catalog\/approvals\/[^/]+\/decision$/.test(apiPath)) return upperMethod === "POST";
       return apiPath === "/dashboard/executive" || [
         "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
         "/contracts", "/employees", "/cmdb",

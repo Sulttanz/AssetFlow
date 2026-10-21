@@ -1,370 +1,143 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowRight, BriefcaseBusiness, Clock3, Layers3, Plus, Search, ShieldCheck, ShoppingBag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useLocation } from "wouter";
-import { ShoppingCart, Plus, Search, Pencil, Trash2, Laptop, Shield, Wifi, User, Building, Package, CheckCircle2 } from "lucide-react";
+import { ApprovalQueue, type ApprovalRow } from "@/components/service-catalog/approval-queue";
+import { CatalogItemEditor } from "@/components/service-catalog/catalog-item-editor";
+import { ServiceRequestDialog } from "@/components/service-catalog/service-request-dialog";
+import { CatalogItem, CatalogOptions, checkedResponse } from "@/components/service-catalog/types";
+import { isPersonaApiAllowed } from "@shared/personas";
 
-interface CatalogItem {
-  id: string; name: string; description: string | null; category: string;
-  consumableId?: string | null;
-  icon: string | null; fulfillmentTeam: string | null; slaHours: number | null;
-  approvalRequired: boolean; isActive: boolean; displayOrder: number;
-  createdAt: string; updatedAt: string;
-}
-
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  hardware: Laptop, software: Package, access: Shield, network: Wifi,
-  facilities: Building, hr: User, other: Package,
-};
-const CATEGORIES = ["hardware","software","access","network","facilities","hr","other"];
-
-const formSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  category: z.string().min(1, "Category is required"),
-  fulfillmentTeam: z.string().optional(),
-  slaHours: z.coerce.number().optional(),
-  approvalRequired: z.boolean().default(false),
-  consumableId: z.string().optional(),
-  isActive: z.boolean().default(true),
-  displayOrder: z.coerce.number().default(0),
-});
-type FormData = z.infer<typeof formSchema>;
-
-const requestFormSchema = z.object({ description: z.string().optional() });
-type RequestFormData = z.infer<typeof requestFormSchema>;
+type TabValue = "services" | "manage" | "approvals";
 
 export default function ServiceCatalog() {
-  const [, navigate] = useLocation();
-  const { toast } = useToast();
   const { user } = useAuth();
-  const canManageCatalog = !!user?.permissions?.includes("system_admin");
-  const [activeTab, setActiveTab] = useState<"storefront"|"admin">("storefront");
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
-  const [filterCat, setFilterCat] = useState("all");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
+  const [category, setCategory] = useState("all");
+  const [tab, setTab] = useState<TabValue>("services");
   const [requestItem, setRequestItem] = useState<CatalogItem | null>(null);
-  const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+  const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
 
-  const { data: items = [], isLoading } = useQuery<CatalogItem[]>({ queryKey: ["/api/catalog/items"] });
-  const { data: stockItems = [] } = useQuery<{ id: string; name: string; category: string; modelPartNumber: string | null; quantityInStock: number; warehouseName: string | null }[]>({ queryKey: ["/api/consumables"] });
+  const optionsQuery = useQuery<CatalogOptions>({
+    queryKey: ["/api/service-catalog/options", user?.id],
+    queryFn: async () => checkedResponse<CatalogOptions>(await apiRequest("GET", "/api/service-catalog/options")),
+    enabled: Boolean(user?.id),
+  });
+  const options = optionsQuery.data;
+  const canManage = Boolean(options?.canManage);
+  const canApprove = Boolean(options?.canApprove);
+  const canRequest = isPersonaApiAllowed(user?.roles?.map(role => role.name) ?? [], user?.permissions ?? [], "/service-catalog/items/item/request", "POST");
+  const itemsQuery = useQuery<CatalogItem[]>({
+    queryKey: ["/api/service-catalog/items", user?.id, Boolean(options?.canManage)],
+    queryFn: async () => checkedResponse<CatalogItem[]>(await apiRequest("GET", `/api/service-catalog/items${options?.canManage ? "?includeInactive=true" : ""}`)),
+    enabled: Boolean(options),
+  });
+  const approvalsQuery = useQuery<ApprovalRow[]>({
+    queryKey: ["/api/service-catalog/approvals", user?.id],
+    queryFn: async () => checkedResponse<ApprovalRow[]>(await apiRequest("GET", "/api/service-catalog/approvals")),
+    enabled: Boolean(options?.canApprove),
+  });
+  const items = itemsQuery.data ?? [];
+  const activeItems = items.filter(item => item.status === "Active");
+  const filteredItems = useMemo(() => activeItems.filter(item => {
+    const term = search.trim().toLocaleLowerCase();
+    return (!term || `${item.title} ${item.description ?? ""} ${item.category}`.toLocaleLowerCase().includes(term)) &&
+      (category === "all" || item.category === category);
+  }), [activeItems, search, category]);
+  const grouped = useMemo(() => {
+    const groups = new Map<string, CatalogItem[]>();
+    for (const item of filteredItems) groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
+    return Array.from(groups.entries()).sort((a, b) => (options?.categories.findIndex(entry => entry.value === a[0]) ?? 999) - (options?.categories.findIndex(entry => entry.value === b[0]) ?? 999));
+  }, [filteredItems, options?.categories]);
 
-  const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
-    defaultValues: { name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0, consumableId: "" },
+  const saveItem = useMutation({
+    mutationFn: async (payload: Omit<CatalogItem, "id" | "createdAt" | "updatedAt">) => checkedResponse<CatalogItem>(await apiRequest(editingItem ? "PUT" : "POST", editingItem ? `/api/service-catalog/items/${editingItem.id}` : "/api/service-catalog/items", payload)),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/service-catalog/items", user?.id] });
+      toast({ title: editingItem ? "Service updated" : "Service created", description: "Catalog changes are now available." });
+      setEditorOpen(false);
+      setEditingItem(null);
+    },
+    onError: (error: Error) => toast({ title: "Could not save service", description: error.message, variant: "destructive" }),
   });
 
-  const reqForm = useForm<RequestFormData>({ resolver: zodResolver(requestFormSchema), defaultValues: { description: "" } });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: FormData) => (await apiRequest("POST", "/api/catalog/items", data)).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/catalog/items"] }); toast({ title: "Item Created" }); setDialogOpen(false); form.reset(); },
-    onError: () => toast({ title: "Error", description: "Failed to create catalog item", variant: "destructive" }),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: FormData }) => (await apiRequest("PUT", `/api/catalog/items/${id}`, data)).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/catalog/items"] }); toast({ title: "Item Updated" }); setDialogOpen(false); setEditingItem(null); form.reset(); },
-    onError: () => toast({ title: "Error", description: "Failed to update catalog item", variant: "destructive" }),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => (await apiRequest("DELETE", `/api/catalog/items/${id}`)).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/catalog/items"] }); toast({ title: "Item Deleted" }); },
-  });
-
-  const requestMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: RequestFormData }) => (await apiRequest("POST", `/api/catalog/items/${id}/request`, data)).json(),
-    onSuccess: (ticket) => { setRequestItem(null); reqForm.reset(); setRequestSuccess(ticket.ticketNumber); },
-    onError: () => toast({ title: "Error", description: "Failed to submit request", variant: "destructive" }),
-  });
-
-  const active = items.filter(i => i.isActive);
-  const filtered = active.filter(i => {
-    const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.description || "").toLowerCase().includes(search.toLowerCase());
-    const matchCat = filterCat === "all" || i.category === filterCat;
-    return matchSearch && matchCat;
-  });
-
-  const grouped = CATEGORIES.reduce((acc, cat) => {
-    const catItems = filtered.filter(i => i.category === cat);
-    if (catItems.length > 0) acc[cat] = catItems;
-    return acc;
-  }, {} as Record<string, CatalogItem[]>);
-
-  function openCreate() {
-    setEditingItem(null);
-    form.reset({ name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0, consumableId: "" });
-    setDialogOpen(true);
-  }
-
-  function openEdit(i: CatalogItem) {
-    setEditingItem(i);
-    form.reset({ name: i.name, description: i.description ?? "", category: i.category, fulfillmentTeam: i.fulfillmentTeam ?? "", slaHours: i.slaHours ?? undefined, approvalRequired: i.approvalRequired, isActive: i.isActive, displayOrder: i.displayOrder, consumableId: i.consumableId ?? "" });
-    setDialogOpen(true);
-  }
-
-  function onSubmit(data: FormData) {
-    const payload = { ...data, description: data.description || null, fulfillmentTeam: data.fulfillmentTeam || null, slaHours: data.slaHours ?? null, consumableId: data.consumableId || null };
-    if (editingItem) updateMutation.mutate({ id: editingItem.id, data: payload as any });
-    else createMutation.mutate(payload as any);
-  }
-
-  function requestCatalogItem(item: CatalogItem) {
-    if (item.consumableId) {
-      navigate(`/service-requests/new?catalogItemId=${encodeURIComponent(item.id)}`);
-      return;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "approvals" && canApprove) setTab("approvals");
+    const selected = params.get("item");
+    const catalogItems = itemsQuery.data ?? [];
+    if (!selected || !catalogItems.length || !canRequest) return;
+    const match = catalogItems.find(item => item.id === selected && item.status === "Active");
+    if (match) {
+      setRequestItem(match);
+      params.delete("item");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState(null, "", next);
     }
-    setRequestItem(item);
-  }
+  }, [itemsQuery.data, canApprove, canRequest]);
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ShoppingCart className="h-6 w-6 text-purple-600" />
-          <div>
-            <h1 className="text-xl font-semibold">Service Catalog</h1>
-            <p className="text-sm text-muted-foreground">Browse and request IT services and resources</p>
+  if (optionsQuery.isLoading) return <main className="min-h-[70dvh] space-y-5 p-4 sm:p-7"><div className="h-28 animate-pulse rounded-2xl bg-muted/40" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map(index => <div key={index} className="h-48 animate-pulse rounded-xl bg-muted/40" />)}</div></main>;
+  if (optionsQuery.isError || !options) return <main className="p-6"><Card><CardContent className="p-10 text-center"><h1 className="text-lg font-semibold">Service catalog unavailable</h1><p className="mt-1 text-sm text-muted-foreground">We could not confirm your catalog access.</p><Button className="mt-4" variant="outline" onClick={() => void optionsQuery.refetch()}>Try again</Button></CardContent></Card></main>;
+
+  return <main className="min-h-[100dvh] bg-background p-4 text-foreground sm:p-7">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="relative overflow-hidden rounded-2xl border bg-card px-5 py-6 sm:px-8 sm:py-8">
+        <div className="absolute -right-10 -top-16 h-56 w-56 rounded-full bg-primary/5" aria-hidden="true" />
+        <div className="relative flex flex-wrap items-end justify-between gap-5">
+          <div className="max-w-2xl">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-primary"><ShoppingBag className="h-4 w-4" /> Employee services</div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Service Catalog</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">Choose a governed service. The right questions and approval path are built into every request.</p>
           </div>
+          {canManage && tab === "manage" && <Button onClick={() => { setEditingItem(null); setEditorOpen(true); }}><Plus className="mr-2 h-4 w-4" />Create service</Button>}
         </div>
-        {canManageCatalog && activeTab === "admin" && <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Item</Button>}
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-auto">
-        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)} className="h-full flex flex-col">
-          <div className="px-6 pt-4 border-b">
-            <TabsList>
-              <TabsTrigger value="storefront">Service Storefront</TabsTrigger>
-               {canManageCatalog && <TabsTrigger value="admin">Admin / Manage</TabsTrigger>}
-            </TabsList>
+      <Tabs value={tab} onValueChange={value => setTab(value as TabValue)}>
+        <TabsList className="h-auto flex-wrap justify-start">
+          <TabsTrigger value="services">Browse services</TabsTrigger>
+          {canManage && <TabsTrigger value="manage">Catalog management</TabsTrigger>}
+          {canApprove && <TabsTrigger value="approvals">Pending approvals{(approvalsQuery.data?.length ?? 0) > 0 && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px]">{approvalsQuery.data?.length}</span>}</TabsTrigger>}
+        </TabsList>
+        <TabsContent value="services" className="mt-5 space-y-6">
+          <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search services" placeholder="Search by service or outcome…" className="pl-9" value={search} onChange={event => setSearch(event.target.value)} /></div>
+            <select aria-label="Filter by category" className="h-10 rounded-md border bg-background px-3 text-sm sm:w-56" value={category} onChange={event => setCategory(event.target.value)}>
+              <option value="all">All categories</option>{options.categories.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
           </div>
-
-          {/* Storefront */}
-          <TabsContent value="storefront" className="flex-1 overflow-auto p-6 space-y-6 mt-0">
-            {requestSuccess && (
-              <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800">
-                <CheckCircle2 className="h-5 w-5 shrink-0" />
-                <span className="text-sm">Your request has been submitted as ticket <strong>{requestSuccess}</strong>. You can track it in the Tickets section.</span>
-                <Button variant="ghost" size="sm" className="ml-auto text-green-800" onClick={() => setRequestSuccess(null)}>Dismiss</Button>
-              </div>
-            )}
-            <div className="flex gap-3">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search services…" className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
-              </div>
-              <Select value={filterCat} onValueChange={setFilterCat}>
-                <SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {CATEGORIES.map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            {isLoading ? <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p> : Object.keys(grouped).length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground">
-                <ShoppingCart className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No services available yet.</p>
-              </div>
-            ) : Object.entries(grouped).map(([cat, catItems]) => {
-              const Icon = CATEGORY_ICONS[cat] ?? Package;
-              return (
-                <div key={cat}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="text-sm font-semibold capitalize text-muted-foreground uppercase tracking-wide">{cat}</h2>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {catItems.map(item => (
-                      <Card key={item.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => requestCatalogItem(item)}>
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-base">{item.name}</CardTitle>
-                          {item.description && <CardDescription className="text-sm line-clamp-2">{item.description}</CardDescription>}
-                        </CardHeader>
-                        <CardContent className="pt-0">
-                          <div className="flex items-center justify-between">
-                            <div className="flex gap-2 flex-wrap">
-                              {item.slaHours && <Badge variant="outline" className="text-xs">{item.slaHours}h SLA</Badge>}
-                              {item.approvalRequired && <Badge variant="secondary" className="text-xs">Approval needed</Badge>}
-                              {item.fulfillmentTeam && <Badge variant="outline" className="text-xs">{item.fulfillmentTeam}</Badge>}
-                            </div>
-                             <Button size="sm" onClick={e => { e.stopPropagation(); requestCatalogItem(item); }}>Request</Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </TabsContent>
-
-          {/* Admin */}
-          <TabsContent value="admin" className="flex-1 overflow-auto p-6 mt-0">
-            <Card>
-              <CardContent className="pt-0">
-                {isLoading ? <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p> : items.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    <ShoppingCart className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm">No catalog items yet.</p>
-                  {canManageCatalog && <Button variant="outline" size="sm" className="mt-3" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Add first item</Button>}
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>SLA</TableHead>
-                        <TableHead>Approval</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {items.map(i => (
-                        <TableRow key={i.id}>
-                          <TableCell className="font-medium">{i.name}</TableCell>
-                          <TableCell><Badge variant="outline" className="capitalize">{i.category}</Badge></TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{i.slaHours ? `${i.slaHours}h` : "—"}</TableCell>
-                          <TableCell>{i.approvalRequired ? <Badge variant="secondary">Required</Badge> : <span className="text-muted-foreground text-sm">No</span>}</TableCell>
-                          <TableCell><Badge variant={i.isActive ? "default" : "secondary"}>{i.isActive ? "Active" : "Inactive"}</Badge></TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => openEdit(i)}><Pencil className="h-4 w-4" /></Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader><AlertDialogTitle>Delete Item</AlertDialogTitle><AlertDialogDescription>Delete "{i.name}" from the catalog?</AlertDialogDescription></AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => deleteMutation.mutate(i.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      {/* Request Dialog */}
-      <Dialog open={!!requestItem} onOpenChange={open => { if (!open) { setRequestItem(null); reqForm.reset(); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Request: {requestItem?.name}</DialogTitle>
-            <DialogDescription>{requestItem?.description}</DialogDescription>
-          </DialogHeader>
-          {requestItem?.approvalRequired && (
-            <div className="text-sm bg-yellow-50 border border-yellow-200 rounded-md p-3 text-yellow-800">
-              ⚠️ This request requires manager approval before it can be fulfilled.
-            </div>
-          )}
-          <Form {...reqForm}>
-            <form onSubmit={reqForm.handleSubmit(data => requestItem && requestMutation.mutate({ id: requestItem.id, data }))} className="space-y-4">
-              <FormField control={reqForm.control} name="description" render={({ field }) => (
-                <FormItem><FormLabel>Additional details <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
-                  <FormControl><Textarea placeholder="Any additional context for your request…" className="min-h-[80px]" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setRequestItem(null)}>Cancel</Button>
-                <Button type="submit" disabled={requestMutation.isPending}>Submit Request</Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Admin Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditingItem(null); form.reset(); } }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editingItem ? "Edit Catalog Item" : "Add Catalog Item"}</DialogTitle></DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="name" render={({ field }) => (
-                <FormItem><FormLabel>Name</FormLabel><FormControl><Input placeholder="e.g. New Laptop Request" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={form.control} name="description" render={({ field }) => (
-                <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea placeholder="What does this service provide?" className="min-h-[60px]" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="category" render={({ field }) => (
-                  <FormItem><FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c} className="capitalize">{c}</SelectItem>)}</SelectContent>
-                    </Select><FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="fulfillmentTeam" render={({ field }) => (
-                  <FormItem><FormLabel>Fulfillment Team</FormLabel><FormControl><Input placeholder="e.g. IT Helpdesk" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-              </div>
-              <FormField control={form.control} name="consumableId" render={({ field }) => (
-                <FormItem><FormLabel>Linked consumable (optional)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || "__none__"}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Not a stock item" /></SelectTrigger></FormControl>
-                    <SelectContent><SelectItem value="__none__">Not a stock item</SelectItem>{stockItems.map(item => <SelectItem key={item.id} value={item.id}>{item.name}{item.modelPartNumber ? ` · ${item.modelPartNumber}` : ""} — {item.quantityInStock} in stock{item.warehouseName ? ` at ${item.warehouseName}` : ""}</SelectItem>)}</SelectContent>
-                  </Select><FormDescription>When linked, service requests will require stock fulfillment from a warehouse.</FormDescription><FormMessage />
-                </FormItem>
-              )} />
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="slaHours" render={({ field }) => (
-                  <FormItem><FormLabel>SLA (hours)</FormLabel><FormControl><Input type="number" placeholder="e.g. 48" {...field} /></FormControl><FormDescription>Leave blank for no SLA</FormDescription><FormMessage /></FormItem>
-                )} />
-                <FormField control={form.control} name="displayOrder" render={({ field }) => (
-                  <FormItem><FormLabel>Display Order</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
-                )} />
-              </div>
-              <div className="flex gap-6">
-                <FormField control={form.control} name="approvalRequired" render={({ field }) => (
-                  <FormItem className="flex items-center gap-3 space-y-0">
-                    <FormControl><input type="checkbox" checked={field.value} onChange={field.onChange} className="h-4 w-4 rounded border-gray-300" /></FormControl>
-                    <FormLabel className="font-normal cursor-pointer">Requires approval</FormLabel>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="isActive" render={({ field }) => (
-                  <FormItem className="flex items-center gap-3 space-y-0">
-                    <FormControl><input type="checkbox" checked={field.value} onChange={field.onChange} className="h-4 w-4 rounded border-gray-300" /></FormControl>
-                    <FormLabel className="font-normal cursor-pointer">Active</FormLabel>
-                  </FormItem>
-                )} />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>{editingItem ? "Save Changes" : "Create Item"}</Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
+          {itemsQuery.isLoading ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(index => <div key={index} className="h-48 animate-pulse rounded-xl border bg-card" />)}</div>
+            : itemsQuery.isError ? <Card><CardContent className="p-10 text-center"><p className="font-semibold">Services could not be loaded</p><p className="mt-1 text-sm text-muted-foreground">Your catalog is unchanged. Try again.</p><Button variant="outline" className="mt-4" onClick={() => void itemsQuery.refetch()}>Retry</Button></CardContent></Card>
+            : grouped.length === 0 ? <div className="rounded-xl border border-dashed bg-card px-5 py-14 text-center"><Layers3 className="mx-auto h-8 w-8 text-muted-foreground" /><h2 className="mt-3 font-semibold">No matching services</h2><p className="mt-1 text-sm text-muted-foreground">{search || category !== "all" ? "Try another search or category." : "There are no active services available right now."}</p>{(search || category !== "all") && <Button variant="link" onClick={() => { setSearch(""); setCategory("all"); }}>Clear filters</Button>}</div>
+            : grouped.map(([cat, catItems]) => <section key={cat}>
+              <div className="mb-3 flex items-center gap-2"><BriefcaseBusiness className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold uppercase tracking-[.12em] text-muted-foreground">{options.categories.find(entry => entry.value === cat)?.label ?? cat}</h2><span className="text-xs text-muted-foreground">{catItems.length}</span></div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{catItems.map(item => <Card key={item.id} className="group flex flex-col transition-transform hover:-translate-y-0.5 hover:shadow-md">
+                <CardContent className="flex flex-1 flex-col p-5">
+                  <div className="flex items-start justify-between gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Layers3 className="h-5 w-5" /></div><Badge variant="outline">{options.categories.find(entry => entry.value === item.category)?.label ?? item.category}</Badge></div>
+                  <h3 className="mt-4 text-lg font-semibold tracking-tight">{item.title}</h3><p className="mt-1 line-clamp-3 min-h-[3.75rem] text-sm leading-5 text-muted-foreground">{item.description || "A governed service request routed to the appropriate fulfillment team."}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">{item.requiresApproval && <Badge variant="secondary" className="gap-1"><ShieldCheck className="h-3 w-3" />{item.approverRole} approval</Badge>}{item.slaHours != null && <Badge variant="outline" className="gap-1"><Clock3 className="h-3 w-3" />{item.slaHours}h target</Badge>}{item.customFieldsSchema.length > 0 && <Badge variant="outline">{item.customFieldsSchema.length} questions</Badge>}</div>
+                  <Button className="mt-5 w-full justify-between" disabled={!canRequest} onClick={() => setRequestItem(item)}>Request this service<ArrowRight className="h-4 w-4" /></Button>
+                </CardContent>
+              </Card>)}</div>
+            </section>)}
+        </TabsContent>
+        {canManage && <TabsContent value="manage" className="mt-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Governed service definitions</h2><p className="text-sm text-muted-foreground">Control availability, questions, service targets, and approval gates.</p></div><Button onClick={() => { setEditingItem(null); setEditorOpen(true); }}><Plus className="mr-2 h-4 w-4" />Create service</Button></div>
+          {itemsQuery.isLoading ? <div className="h-36 animate-pulse rounded-xl border bg-card" /> : itemsQuery.isError ? <Card><CardContent className="p-8 text-center"><p>Catalog records could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void itemsQuery.refetch()}>Retry</Button></CardContent></Card> : items.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center"><p className="font-semibold">No service definitions yet</p><p className="mt-1 text-sm text-muted-foreground">Create the first governed service.</p><Button className="mt-4" onClick={() => { setEditingItem(null); setEditorOpen(true); }}>Create service</Button></div> : <div className="grid gap-3">{items.map(item => <Card key={item.id}><CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.title}</h3><Badge variant={item.status === "Active" ? "default" : "secondary"}>{item.status}</Badge><Badge variant="outline">{options.categories.find(entry => entry.value === item.category)?.label ?? item.category}</Badge></div><p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.description || "No description provided."}</p><p className="mt-2 text-xs text-muted-foreground">{item.customFieldsSchema.length} form questions · {item.requiresApproval ? `Approval: ${item.approverRole ?? "role not set"}` : "No approval gate"} · {item.slaHours != null ? `${item.slaHours}h target` : "No SLA target"}</p></div><Button variant="outline" className="shrink-0" onClick={() => { setEditingItem(item); setEditorOpen(true); }}>Edit service</Button></CardContent></Card>)}</div>}
+        </TabsContent>}
+        {canApprove && <TabsContent value="approvals" className="mt-5 space-y-4"><div><h2 className="text-xl font-semibold">Approval decisions</h2><p className="text-sm text-muted-foreground">Review the submitted details and record a reason before fulfillment begins.</p></div><ApprovalQueue rows={approvalsQuery.data ?? []} loading={approvalsQuery.isLoading} error={approvalsQuery.isError} retry={() => void approvalsQuery.refetch()} /></TabsContent>}
+      </Tabs>
     </div>
-  );
+    <ServiceRequestDialog item={requestItem} onClose={() => setRequestItem(null)} />
+    {canManage && <CatalogItemEditor open={editorOpen} item={editingItem} options={options} onClose={() => { setEditorOpen(false); setEditingItem(null); }} onSave={payload => saveItem.mutate(payload)} saving={saveItem.isPending} />}
+  </main>;
 }

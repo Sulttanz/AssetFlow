@@ -1929,6 +1929,9 @@ export class MemStorage implements IStorage {
       id: randomUUID(),
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
       catalogItemId: input.catalogItemId ?? null,
+      serviceCatalogItemId: input.serviceCatalogItemId ?? null,
+      customFieldValues: input.customFieldValues ?? {},
+      catalogSchemaSnapshot: input.catalogSchemaSnapshot ?? [],
       creatorId: input.creatorId ?? null,
       requesterId: input.requesterId,
       projectId: input.projectId ?? null,
@@ -3868,8 +3871,14 @@ export class DatabaseStorage implements IStorage {
   }
   async updateServiceRequest(id: string, input: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
     return db.transaction(async tx => {
-      const existing = (await tx.select().from(serviceRequests).where(eq(serviceRequests.id, id)))[0];
+      const existing = (await tx.select().from(serviceRequests).where(eq(serviceRequests.id, id)).for("update"))[0];
       if (!existing) return undefined;
+      // Recheck under the same parent lock used by approval decisions. A stale
+      // generic edit must not overwrite a decision committed after its route check.
+      const { catalogMutationError } = await import("@shared/service-catalog");
+      const cancelling = input.fulfillmentStage === "Cancelled" && Boolean(input.closureNote?.trim()) && input.approvalStatus === undefined;
+      const catalogGuard = cancelling ? null : catalogMutationError(existing, input);
+      if (catalogGuard) throw new Error(catalogGuard);
       const stage = input.fulfillmentStage ?? ({
         Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement",
         Completed: "Completed", Rejected: "Rejected",

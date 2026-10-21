@@ -31,6 +31,7 @@ const categories = [
   { value: "access_cloud_tenant", label: "Access Systems — Cloud Tenants" },
   { value: "application_category", label: "Application Category" },
   { value: "kb_category", label: "Knowledge Base Category" },
+  { value: "service_category", label: "Service Catalog Category" },
   { value: "os_platform", label: "Operating System Platform" },
   { value: "configuration_document_type", label: "Configuration Document Type" },
   { value: "criticality", label: "Criticality" },
