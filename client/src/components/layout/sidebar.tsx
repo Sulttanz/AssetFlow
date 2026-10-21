@@ -191,7 +191,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "User Management", href: "/users", icon: Shield, current: location === "/users" },
         { name: "Roles", href: "/roles", icon: Key, current: location === "/roles" },
         { name: "Permissions", href: "/permissions", icon: Lock, current: location === "/permissions" },
-        { name: "Dropdowns", href: "/dropdowns", icon: Settings, current: location === "/dropdowns" },
+        { name: "Dropdowns", href: "/system/dropdowns", icon: Settings, current: location === "/system/dropdowns" || location === "/dropdowns" },
         { name: "Audit Logs", href: "/audit-logs", icon: FileText, current: location === "/audit-logs" },
         { name: "System Settings", href: "/system-settings", icon: Settings, current: location === "/system-settings" },
         { name: "SLA Policies", href: "/sla-policies", icon: Clock, current: location === "/sla-policies" },

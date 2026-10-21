@@ -99,6 +99,7 @@ function Router() {
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
+                  <ProtectedRoute path="/system/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
                   <ProtectedRoute path="/audit-logs" component={AuditLogs} />
                   <ProtectedRoute path="/assignments" component={Assignments} requiredModule="asset_management" />

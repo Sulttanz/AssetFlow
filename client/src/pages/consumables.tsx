@@ -20,16 +20,16 @@ type Consumable = {
   vendorId: string | null; createdAt: string; warehouseName: string | null; warehouseCode: string | null; warehouseIsActive: boolean; vendorName: string | null;
 };
 type Options = { locations: WarehouseLocation[]; vendors: { id: string; name: string }[]; users: { id: string; name: string; email: string }[] };
+type DropdownCategory = { id: string; value: string; label: string; isActive: boolean | null; displayOrder: number | null };
 type ConsumableDraft = {
   name: string; category: string; modelPartNumber: string; quantityInStock: string;
   minReorderLevel: string; warehouseLocationId: string; storageRoom: string; unitCost: string; vendorId: string;
 };
 
 const emptyDraft: ConsumableDraft = {
-  name: "", category: "Peripherals", modelPartNumber: "", quantityInStock: "0",
+  name: "", category: "", modelPartNumber: "", quantityInStock: "0",
   minReorderLevel: "0", warehouseLocationId: "", storageRoom: "", unitCost: "0.00", vendorId: "",
 };
-const categories = ["Toner", "Peripherals", "Cables", "Adapters", "Batteries", "Paper", "Other"];
 
 function InventoryDialog({ open, onOpenChange, title, description, children }: {
   open: boolean; onOpenChange: (open: boolean) => void; title: string; description: string; children: React.ReactNode;
@@ -63,10 +63,21 @@ export default function ConsumablesPage() {
   const itemsQuery = useQuery<Consumable[]>({ queryKey: ["/api/consumables"], queryFn: getQueryFn({ on401: "throw" }) });
   const optionsQuery = useQuery<Options>({ queryKey: ["/api/consumables/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const locationsQuery = useQuery<WarehouseLocation[]>({ queryKey: ["/api/warehouse-locations"], queryFn: getQueryFn({ on401: "throw" }) });
+  const categoriesQuery = useQuery<DropdownCategory[]>({ queryKey: ["/api/dropdowns/options/consumable_category"], queryFn: getQueryFn({ on401: "throw" }) });
   const items = itemsQuery.data ?? [];
   const options = optionsQuery.data ?? { locations: [], vendors: [], users: [] };
   const warehouses = locationsQuery.data ?? [];
   const activeWarehouses = options.locations;
+  const activeCategories = (categoriesQuery.data ?? []).filter(category => category.isActive);
+  const filterCategories = useMemo(() => {
+    const byValue = new Map<string, { value: string; label: string }>();
+    activeCategories.forEach(category => byValue.set(category.value.trim().toLocaleLowerCase(), { value: category.value, label: category.label }));
+    items.forEach(item => {
+      const key = item.category.trim().toLocaleLowerCase();
+      if (!byValue.has(key)) byValue.set(key, { value: item.category, label: item.category });
+    });
+    return Array.from(byValue.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [activeCategories, items]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase();
@@ -74,7 +85,7 @@ export default function ConsumablesPage() {
       const matchesSearch = !q || [item.name, item.category, item.modelPartNumber, item.warehouseName, item.storageRoom, item.vendorName]
         .some(value => value?.toLocaleLowerCase().includes(q));
       return matchesSearch
-        && (categoryFilter === "all" || item.category === categoryFilter)
+        && (categoryFilter === "all" || item.category.trim().toLocaleLowerCase() === categoryFilter.trim().toLocaleLowerCase())
         && (!lowOnly || item.quantityInStock <= item.minReorderLevel);
     });
   }, [items, search, categoryFilter, lowOnly]);
@@ -152,7 +163,7 @@ export default function ConsumablesPage() {
 
   function openCreate() {
     setEditing(null);
-    setDraft({ ...emptyDraft, warehouseLocationId: activeWarehouses[0]?.id ?? "" });
+    setDraft({ ...emptyDraft, category: activeCategories[0]?.value ?? "", warehouseLocationId: activeWarehouses[0]?.id ?? "" });
     setItemDialog(true);
   }
   function openEdit(item: Consumable) {
@@ -179,8 +190,8 @@ export default function ConsumablesPage() {
     setLocationDialog(true);
   }
 
-  if (itemsQuery.isLoading || optionsQuery.isLoading || locationsQuery.isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading consumables inventory…</div>;
-  if (itemsQuery.isError || optionsQuery.isError || locationsQuery.isError) return <div className="p-8"><p className="text-sm text-destructive">Inventory data could not be loaded.</p><Button className="mt-3" variant="outline" onClick={() => { void itemsQuery.refetch(); void optionsQuery.refetch(); void locationsQuery.refetch(); }}>Retry</Button></div>;
+  if (itemsQuery.isLoading || optionsQuery.isLoading || locationsQuery.isLoading || categoriesQuery.isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading consumables inventory…</div>;
+  if (itemsQuery.isError || optionsQuery.isError || locationsQuery.isError || categoriesQuery.isError) return <div className="p-8"><p className="text-sm text-destructive">Inventory data could not be loaded.</p><Button className="mt-3" variant="outline" onClick={() => { void itemsQuery.refetch(); void optionsQuery.refetch(); void locationsQuery.refetch(); void categoriesQuery.refetch(); }}>Retry</Button></div>;
 
   return <main className="space-y-5 p-4 md:p-8" data-testid="consumables-page">
     <header className="flex flex-wrap items-start justify-between gap-3">
@@ -204,7 +215,7 @@ export default function ConsumablesPage() {
       </section>
       <section className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1 sm:max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search name, part number, vendor, or location" aria-label="Search consumables" /></div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}><SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{Array.from(new Set([...categories, ...items.map(item => item.category)])).map(category => <SelectItem key={category} value={category}>{category}</SelectItem>)}</SelectContent></Select>
+         <Select value={categoryFilter} onValueChange={setCategoryFilter}><SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{filterCategories.map(category => <SelectItem key={category.value} value={category.value}>{category.label}</SelectItem>)}</SelectContent></Select>
         <Button variant={lowOnly ? "default" : "outline"} onClick={() => setLowOnly(value => !value)} aria-pressed={lowOnly}><AlertTriangle className="mr-2 h-4 w-4" />Low stock ({lowStockCount})</Button>
       </section>
       <Card className="overflow-hidden">
@@ -245,7 +256,7 @@ export default function ConsumablesPage() {
       <form className="grid gap-4" onSubmit={event => { event.preventDefault(); saveItem.mutate(draft); }}>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-sm">Name<Input required maxLength={180} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
-          <label className="grid gap-1.5 text-sm">Category<Select value={draft.category} onValueChange={category => setDraft({ ...draft, category })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{categories.map(category => <SelectItem key={category} value={category}>{category}</SelectItem>)}</SelectContent></Select></label>
+           <label className="grid gap-1.5 text-sm">Category<Select value={draft.category} onValueChange={category => setDraft({ ...draft, category })}><SelectTrigger><SelectValue placeholder="Choose a system category" /></SelectTrigger><SelectContent>{activeCategories.map(category => <SelectItem key={category.id} value={category.value}>{category.label}</SelectItem>)}{editing && draft.category && !activeCategories.some(category => category.value.trim().toLocaleLowerCase() === draft.category.trim().toLocaleLowerCase()) && <SelectItem value={draft.category}>{draft.category} (inactive / legacy)</SelectItem>}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Model / part number<Input value={draft.modelPartNumber} onChange={event => setDraft({ ...draft, modelPartNumber: event.target.value })} /></label>
           <label className="grid gap-1.5 text-sm">Warehouse location<Select value={draft.warehouseLocationId} onValueChange={warehouseLocationId => setDraft({ ...draft, warehouseLocationId })}><SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger><SelectContent>{activeWarehouses.map(location => <SelectItem key={location.id} value={location.id}>{location.name} ({location.code})</SelectItem>)}{editing && !editing.warehouseIsActive && <SelectItem value={editing.warehouseLocationId}>{editing.warehouseName ?? "Current location"} (Disabled · existing stock)</SelectItem>}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Storage room / shelf<Input value={draft.storageRoom} onChange={event => setDraft({ ...draft, storageRoom: event.target.value })} /></label>
@@ -256,7 +267,7 @@ export default function ConsumablesPage() {
         </div>
         {editing && <p className="text-xs text-muted-foreground">Use Issue / Transfer for stock changes so every quantity movement is recorded.</p>}
         {!warehouses.length && <p className="text-sm text-destructive">Add a warehouse location before creating inventory.</p>}
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setItemDialog(false)}>Cancel</Button><Button type="submit" disabled={!draft.warehouseLocationId || saveItem.isPending}>{saveItem.isPending ? "Saving…" : editing ? "Save changes" : "Add to inventory"}</Button></div>
+         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setItemDialog(false)}>Cancel</Button><Button type="submit" disabled={!draft.category || !draft.warehouseLocationId || saveItem.isPending}>{saveItem.isPending ? "Saving…" : editing ? "Save changes" : "Add to inventory"}</Button></div>
       </form>
     </InventoryDialog>
 

@@ -76,6 +76,7 @@ function PurchaseOrderForm({
   departments,
   warehouses,
   consumables,
+  consumableCategories,
 }: {
   form: any;
   onSubmit: (data: PurchaseOrderFormData) => void;
@@ -84,6 +85,7 @@ function PurchaseOrderForm({
   departments: Department[];
   warehouses: { id: string; name: string; code: string }[];
   consumables: { id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[];
+  consumableCategories: { id: string; value: string; label: string }[];
 }) {
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -315,7 +317,10 @@ function PurchaseOrderForm({
                     </FormItem>
                   )} />
                   <FormField control={form.control} name={`items.${index}.consumableCategory`} render={({ field }) => (
-                    <FormItem><FormLabel>Category</FormLabel><FormControl><Input {...field} placeholder="Toner, peripherals, cables…" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Category</FormLabel><Select value={field.value || "__none__"} onValueChange={value => field.onChange(value === "__none__" ? "" : value)}>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger></FormControl>
+                      <SelectContent><SelectItem value="__none__">No category</SelectItem>{consumableCategories.map(category => <SelectItem key={category.id} value={category.value}>{category.label}</SelectItem>)}{field.value && !consumableCategories.some(category => category.value.trim().toLocaleLowerCase() === field.value.trim().toLocaleLowerCase()) && <SelectItem value={field.value}>{field.value} (inactive / legacy)</SelectItem>}</SelectContent>
+                    </Select><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name={`items.${index}.modelPartNumber`} render={({ field }) => (
                     <FormItem><FormLabel>Model / part number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
@@ -518,6 +523,8 @@ export default function PurchaseOrders() {
   const { data: warehouseLocations = [] } = useQuery<{ id: string; name: string; code: string; isActive: boolean }[]>({ queryKey: ["/api/warehouse-locations"] });
   const warehouses = warehouseLocations.filter(location => location.isActive);
   const { data: consumables = [] } = useQuery<{ id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[]>({ queryKey: ["/api/consumables"] });
+  const { data: categoryOptions = [] } = useQuery<{ id: string; value: string; label: string; isActive: boolean | null }[]>({ queryKey: ["/api/dropdowns/options/consumable_category"] });
+  const consumableCategories = categoryOptions.filter(option => option.isActive);
 
   const filteredOrders = useMemo(() => {
     let result = orders;
@@ -866,6 +873,7 @@ export default function PurchaseOrders() {
                 departments={departments}
                 warehouses={warehouses}
                 consumables={consumables}
+                consumableCategories={consumableCategories}
               />
             </DialogContent>
           </Dialog>
@@ -1227,6 +1235,7 @@ export default function PurchaseOrders() {
             departments={departments}
             warehouses={warehouses}
             consumables={consumables}
+            consumableCategories={consumableCategories}
           />
         </DialogContent>
       </Dialog>

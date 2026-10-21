@@ -6303,6 +6303,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dropdowns/seed", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
       const defaultOptions = [
+        // Consumable inventory categories
+        { category: "consumable_category", value: "Toner", label: "Toner", displayOrder: 0 },
+        { category: "consumable_category", value: "Peripherals", label: "Peripherals", displayOrder: 1 },
+        { category: "consumable_category", value: "Cables", label: "Cables", displayOrder: 2 },
+        { category: "consumable_category", value: "Adapters", label: "Adapters", displayOrder: 3 },
+        { category: "consumable_category", value: "Batteries", label: "Batteries", displayOrder: 4 },
+        { category: "consumable_category", value: "Paper", label: "Paper", displayOrder: 5 },
+        { category: "consumable_category", value: "Other", label: "Other", displayOrder: 6 },
         // Asset Types
         { category: "assetType", value: "laptop", label: "Laptop", displayOrder: 0 },
         { category: "assetType", value: "desktop", label: "Desktop", displayOrder: 1 },
