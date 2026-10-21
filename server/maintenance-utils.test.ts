@@ -5,6 +5,7 @@ import {
   calculateMaintenanceAnalytics,
   maintenanceCsv,
   maintenanceItemMatches,
+  paginateMaintenanceItems,
 } from "@shared/maintenance-utils";
 
 describe("maintenance schedule and report utilities", () => {
@@ -41,6 +42,22 @@ describe("maintenance schedule and report utilities", () => {
       { search: "", type: "preventive", status: "active", priority: "high", overdueOnly: false },
       item,
     )).toBe(false);
+  });
+
+  it("paginates maintenance schedules, clamps an outdated page, and reports empty ranges", () => {
+    const schedules = Array.from({ length: 85 }, (_, index) => index + 1);
+    expect(paginateMaintenanceItems(schedules, 1, 20)).toMatchObject({
+      items: schedules.slice(0, 20), startItem: 1, endItem: 20, totalPages: 5,
+    });
+    expect(paginateMaintenanceItems(schedules, 5, 20)).toMatchObject({
+      items: schedules.slice(80), startItem: 81, endItem: 85, page: 5,
+    });
+    expect(paginateMaintenanceItems(schedules.slice(0, 4), 5, 20)).toMatchObject({
+      items: [1, 2, 3, 4], startItem: 1, endItem: 4, page: 1,
+    });
+    expect(paginateMaintenanceItems([], 1, 50)).toMatchObject({
+      items: [], startItem: 0, endItem: 0, totalCount: 0,
+    });
   });
 
   it("compares actual and estimated costs and reports on-time versus late completions", () => {

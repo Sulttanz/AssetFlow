@@ -67,6 +67,22 @@ export interface MaintenanceSearchableItem {
   overdue: boolean;
 }
 
+export function paginateMaintenanceItems<T>(items: T[], requestedPage: number, pageSize: number) {
+  const totalCount = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const page = Math.min(Math.max(1, requestedPage), totalPages);
+  const startIndex = (page - 1) * pageSize;
+  return {
+    items: items.slice(startIndex, startIndex + pageSize),
+    page,
+    pageSize,
+    totalCount,
+    totalPages,
+    startItem: totalCount === 0 ? 0 : startIndex + 1,
+    endItem: Math.min(startIndex + pageSize, totalCount),
+  };
+}
+
 export function maintenanceItemMatches(filters: MaintenanceListFilters, item: MaintenanceSearchableItem): boolean {
   const query = filters.search.trim().toLowerCase();
   return (!query || item.searchableValues.some(value => String(value ?? "").toLowerCase().includes(query))) &&

@@ -1,5 +1,5 @@
 import { toDateInputValue as appInputDate, formatDateDisplay } from "@/lib/date-utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -39,6 +39,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
@@ -50,7 +53,13 @@ import {
   type InsertMaintenanceSchedule,
   type InsertMaintenanceRecord
 } from "@shared/schema";
-import { advanceMaintenanceDueDate, calculateMaintenanceAnalytics, maintenanceCsv, maintenanceItemMatches } from "@shared/maintenance-utils";
+import {
+  advanceMaintenanceDueDate,
+  calculateMaintenanceAnalytics,
+  maintenanceCsv,
+  maintenanceItemMatches,
+  paginateMaintenanceItems,
+} from "@shared/maintenance-utils";
 
 // Form schemas
 const scheduleFormSchema = insertMaintenanceScheduleSchema.extend({});
@@ -98,6 +107,11 @@ export default function Maintenance() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [schedulePage, setSchedulePage] = useState(1);
+  const [schedulePageSize, setSchedulePageSize] = useState(20);
+  useEffect(() => {
+    setSchedulePage(1);
+  }, [maintenanceSearch, typeFilter, statusFilter, priorityFilter, overdueOnly, schedulePageSize]);
   const { toast } = useToast();
 
   // Data fetching
@@ -436,6 +450,7 @@ export default function Maintenance() {
       overdue: status === "overdue",
     });
   });
+  const schedulePagination = paginateMaintenanceItems(filteredSchedules, schedulePage, schedulePageSize);
 
   const filteredRecords = records.filter(record => {
     const asset = assets.find(item => item.id === record.assetId);
@@ -822,112 +837,157 @@ export default function Maintenance() {
             </Dialog>
           </div>
 
-          {/* Schedules Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredSchedules.map((schedule) => (
-              <Card key={schedule.id} className={`relative ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "border-red-500" : ""}`} data-testid={`card-schedule-${schedule.id}`}>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle className="text-lg flex items-center">
-                        <Wrench className="mr-2 h-5 w-5" />
-                        {schedule.maintenanceType}
-                      </CardTitle>
-                      <CardDescription>
-                        {getAssetName(schedule.assetId)}
-                      </CardDescription>
-                    </div>
-                    <div className="flex space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditSchedule(schedule)}
-                        data-testid={`button-edit-schedule-${schedule.id}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteSchedule(schedule.id)}
-                        data-testid={`button-delete-schedule-${schedule.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Next Due:</span>
-                    <span className={`text-sm ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "text-red-600 font-semibold" : ""}`}>
-                      {formatDateDisplay(schedule.nextDue)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Frequency:</span>
-                    <span className="text-sm capitalize">{schedule.frequency}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Priority:</span>
-                    <Badge variant={getPriorityColor(schedule.priority || "medium")}>
-                      {schedule.priority || "medium"}
-                    </Badge>
-                  </div>
-
-                  {schedule.estimatedCost && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Est. Cost:</span>
-                      <span className="text-sm">${parseFloat(schedule.estimatedCost).toLocaleString()}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Status:</span>
-                    <Badge variant={schedule.isActive === "true" ? "default" : "secondary"}>
-                      {scheduleStatus(schedule) === "overdue" ? "Overdue" : schedule.isActive === "true" ? "Active" : "Completed"}
-                    </Badge>
-                  </div>
-
-                  {schedule.description && (
-                    <div className="text-sm">
-                      <span className="font-medium">Description:</span>
-                      <p className="mt-1 text-muted-foreground">{schedule.description}</p>
-                    </div>
-                  )}
-
-                  {isOverdue(schedule.nextDue) && schedule.isActive === "true" && (
-                    <div className="flex items-center text-red-600 text-sm font-medium">
-                      <AlertTriangle className="mr-1 h-4 w-4" />
-                      Overdue
-                    </div>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full mt-2"
-                    onClick={() => handleLogFromSchedule(schedule)}
-                    data-testid={`button-log-schedule-${schedule.id}`}
-                  >
-                    <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
-                    Log Maintenance
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="rounded-md border">
+            <Table data-testid="maintenance-schedules-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Asset Name &amp; Tag</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Next Due Date</TableHead>
+                  <TableHead>Frequency</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Est. Cost</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {schedulesLoading ? (
+                  <TableRow><TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Loading maintenance schedules…</TableCell></TableRow>
+                ) : schedulePagination.items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="py-10 text-center">
+                      <Calendar className="mx-auto h-8 w-8 text-muted-foreground" />
+                      <p className="mt-2 font-medium">{schedules.length === 0 ? "No maintenance schedules found" : "No schedules match these filters"}</p>
+                      {schedules.length === 0 && <p className="mt-1 text-sm text-muted-foreground">Create a schedule to start tracking planned maintenance.</p>}
+                    </TableCell>
+                  </TableRow>
+                ) : schedulePagination.items.map((schedule) => {
+                  const asset = assets.find(item => item.id === schedule.assetId) ?? schedule.asset;
+                  const status = scheduleStatus(schedule);
+                  const overdue = status === "overdue";
+                  const priority = schedule.priority || "medium";
+                  return (
+                    <TableRow key={schedule.id} data-testid={`row-schedule-${schedule.id}`}>
+                      <TableCell className="min-w-[180px]">
+                        <div className="font-medium">{asset?.name ?? getAssetName(schedule.assetId)}</div>
+                        <div className="text-xs text-muted-foreground">{asset?.assetTag ?? "—"}</div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap capitalize">
+                        {schedule.maintenanceType === "preventive" ? "Preventative" : schedule.maintenanceType}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <div className={`flex items-center gap-1.5 ${overdue ? "font-medium text-red-600" : ""}`}>
+                          {overdue && (
+                            <span role="img" aria-label="Overdue" title="Overdue">
+                              <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                            </span>
+                          )}
+                          <span>{formatDateDisplay(schedule.nextDue)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap capitalize">{schedule.frequency.replace("-", " ")}</TableCell>
+                      <TableCell>
+                        <Badge variant={getPriorityColor(priority)} className="capitalize">{priority}</Badge>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {schedule.estimatedCost ? `$${parseFloat(schedule.estimatedCost).toLocaleString()}` : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={overdue ? "destructive" : status === "completed" ? "secondary" : "default"}>
+                          {status === "completed" ? "Completed" : status === "overdue" ? "Overdue" : "Active"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[240px]">
+                        <span className="block truncate" title={schedule.description || ""}>{schedule.description || "—"}</span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 whitespace-nowrap px-2"
+                            onClick={() => handleLogFromSchedule(schedule)}
+                            data-testid={`button-log-schedule-${schedule.id}`}
+                          >
+                            <CheckCircle className="mr-1.5 h-4 w-4 text-green-600" />
+                            Log Maintenance
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Edit schedule for ${asset?.name ?? "asset"}`}
+                            onClick={() => handleEditSchedule(schedule)}
+                            data-testid={`button-edit-schedule-${schedule.id}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Delete schedule for ${asset?.name ?? "asset"}`}
+                            onClick={() => handleDeleteSchedule(schedule.id)}
+                            data-testid={`button-delete-schedule-${schedule.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </div>
 
-          {filteredSchedules.length === 0 && (
-            <div className="text-center py-12">
-              <Calendar className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-lg font-medium">
-                {schedules.length === 0 ? "No maintenance schedules found" : "No schedules match these filters"}
-              </h3>
-              {schedules.length === 0 && <p className="mt-1 text-muted-foreground">Get started by creating your first maintenance schedule.</p>}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                Showing {schedulePagination.startItem}–{schedulePagination.endItem} of {schedulePagination.totalCount} schedules
+              </span>
+              <div className="flex items-center gap-2">
+                <label htmlFor="maintenance-schedule-page-size" className="text-sm text-muted-foreground">Rows per page</label>
+                <Select
+                  value={String(schedulePageSize)}
+                  onValueChange={value => setSchedulePageSize(Number(value))}
+                >
+                  <SelectTrigger id="maintenance-schedule-page-size" className="h-8 w-[76px]" data-testid="select-schedule-page-size">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-sm text-muted-foreground">
+                Page {schedulePagination.page} of {schedulePagination.totalPages}
+              </span>
             </div>
-          )}
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSchedulePage(Math.max(1, schedulePagination.page - 1))}
+                disabled={schedulePagination.page <= 1}
+                data-testid="button-schedule-previous"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSchedulePage(Math.min(schedulePagination.totalPages, schedulePagination.page + 1))}
+                disabled={schedulePagination.page >= schedulePagination.totalPages}
+                data-testid="button-schedule-next"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </TabsContent>
 
         {/* Records Tab */}
