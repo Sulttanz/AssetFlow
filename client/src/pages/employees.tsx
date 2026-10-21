@@ -176,18 +176,22 @@ export default function Employees() {
                 <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow className="h-9">
-                      <TableHead className="w-[9%] px-2 py-2">Employee ID</TableHead>
-                      <TableHead className="w-[15%] px-2 py-2">Name</TableHead>
-                      <TableHead className="w-[23%] px-2 py-2">Email</TableHead>
-                      <TableHead className="w-[17%] px-2 py-2">Department</TableHead>
-                      <TableHead className="w-[11%] px-2 py-2">Status</TableHead>
-                      <TableHead className="w-[25%] px-2 py-2 text-right">Actions</TableHead>
+                      <TableHead className="w-[16%] px-2 py-2">Employee ID</TableHead>
+                      <TableHead className="w-[14%] px-2 py-2">Name</TableHead>
+                      <TableHead className="w-[21%] px-2 py-2">Email</TableHead>
+                      <TableHead className="w-[16%] px-2 py-2">Department</TableHead>
+                      <TableHead className="w-[10%] px-2 py-2">Status</TableHead>
+                      <TableHead className="w-[23%] px-2 py-2 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedEmployees.length > 0 ? paginatedEmployees.map((employee) => (
                       <TableRow key={employee.id} className="h-10" data-testid={`employee-row-${employee.id}`}>
-                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" data-testid={`employee-id-${employee.id}`} title={employee.employeeId ?? undefined}>
+                        <TableCell
+                          className={`px-2 py-1.5 text-xs font-medium ${String(employee.employeeId ?? "").length > 20 ? "break-all" : "whitespace-nowrap"}`}
+                          data-testid={`employee-id-${employee.id}`}
+                          title={employee.employeeId ?? undefined}
+                        >
                           {employee.employeeId || "-"}
                         </TableCell>
                         <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" title={`${employee.firstName} ${employee.lastName}`}>
