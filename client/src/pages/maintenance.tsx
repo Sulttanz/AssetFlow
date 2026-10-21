@@ -102,6 +102,7 @@ export default function Maintenance() {
   const [recordEditOpen, setRecordEditOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<MaintenanceScheduleWithDetails | null>(null);
   const [editingRecord, setEditingRecordWithDetails] = useState<MaintenanceRecordWithDetails | null>(null);
+  const [viewingRecord, setViewingRecord] = useState<MaintenanceRecordWithDetails | null>(null);
   const [maintenanceSearch, setMaintenanceSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -109,9 +110,12 @@ export default function Maintenance() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [schedulePage, setSchedulePage] = useState(1);
   const [schedulePageSize, setSchedulePageSize] = useState(20);
+  const [recordPage, setRecordPage] = useState(1);
+  const [recordPageSize, setRecordPageSize] = useState(20);
   useEffect(() => {
     setSchedulePage(1);
-  }, [maintenanceSearch, typeFilter, statusFilter, priorityFilter, overdueOnly, schedulePageSize]);
+    setRecordPage(1);
+  }, [maintenanceSearch, typeFilter, statusFilter, priorityFilter, overdueOnly, schedulePageSize, recordPageSize]);
   const { toast } = useToast();
 
   // Data fetching
@@ -436,7 +440,8 @@ export default function Maintenance() {
   const scheduleStatus = (schedule: MaintenanceScheduleWithDetails) =>
     schedule.isActive !== "true" ? "completed" : isOverdue(schedule.nextDue) ? "overdue" : "active";
 
-  const filteredSchedules = schedules.filter(schedule => {
+  const latestSchedules = [...schedules].sort((a, b) => b.nextDue.localeCompare(a.nextDue));
+  const filteredSchedules = latestSchedules.filter(schedule => {
     const asset = assets.find(item => item.id === schedule.assetId);
     const linkedRecords = records.filter(record => record.scheduleId === schedule.id);
     const vendor = asset?.vendor ?? schedule.asset?.vendor;
@@ -452,7 +457,9 @@ export default function Maintenance() {
   });
   const schedulePagination = paginateMaintenanceItems(filteredSchedules, schedulePage, schedulePageSize);
 
-  const filteredRecords = records.filter(record => {
+  const filteredRecords = [...records]
+    .sort((a, b) => b.maintenanceDate.localeCompare(a.maintenanceDate))
+    .filter(record => {
     const asset = assets.find(item => item.id === record.assetId);
     const recordSchedule = schedules.find(schedule => schedule.id === record.scheduleId);
     const overdue = Boolean(recordSchedule && scheduleStatus(recordSchedule) === "overdue");
@@ -467,7 +474,8 @@ export default function Maintenance() {
       priority: recordSchedule?.priority ?? "",
       overdue,
     });
-  });
+    });
+  const recordPagination = paginateMaintenanceItems(filteredRecords, recordPage, recordPageSize);
 
   const maintenanceAnalytics = calculateMaintenanceAnalytics(records);
   let recurrencePreview: string | null = null;
@@ -1253,109 +1261,80 @@ export default function Maintenance() {
             </Dialog>
           </div>
 
-          {/* Scheduled Maintenance from Schedules */}
-          {schedules.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                  Scheduled Maintenance ({schedules.length})
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredSchedules.map((schedule) => (
-                  <Card
-                    key={`sched-${schedule.id}`}
-                    className={`relative border-dashed ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "border-red-400 bg-red-50/40 dark:bg-red-950/20" : "bg-muted/30"}`}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle className="text-base flex items-center gap-2">
-                            <Wrench className="h-4 w-4" />
-                            {schedule.maintenanceType}
-                            <Badge variant="outline" className="text-xs ml-1 border-amber-400 text-amber-700 dark:text-amber-400">
-                              Scheduled
-                            </Badge>
-                          </CardTitle>
-                          <CardDescription>{getAssetName(schedule.assetId)}</CardDescription>
+          <div className="rounded-md border">
+            <Table data-testid="maintenance-records-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Asset Name &amp; Tag</TableHead>
+                  <TableHead>Completion Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Technician / Vendor</TableHead>
+                  <TableHead>Estimated vs. Actual Cost</TableHead>
+                  <TableHead>Status / Outcome</TableHead>
+                  <TableHead>Work Summary / Notes</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recordsLoading ? (
+                  <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">Loading maintenance records…</TableCell></TableRow>
+                ) : recordPagination.items.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="py-10 text-center">
+                      <ClipboardList className="mx-auto h-8 w-8 text-muted-foreground" />
+                      <p className="mt-2 font-medium">{records.length === 0 ? "No maintenance records found" : "No records match these filters"}</p>
+                      {records.length === 0 && <p className="mt-1 text-sm text-muted-foreground">Create a record or log maintenance from the Schedules tab.</p>}
+                    </TableCell>
+                  </TableRow>
+                ) : recordPagination.items.map((record) => {
+                  const asset = assets.find(item => item.id === record.assetId) ?? record.asset;
+                  const summary = record.workPerformed || record.notes || record.description || record.partsReplaced || "—";
+                  const condition = record.condition || "good";
+                  return (
+                    <TableRow key={record.id} data-testid={`row-record-${record.id}`}>
+                      <TableCell className="min-w-[170px]">
+                        <div className="font-medium">{asset?.name ?? getAssetName(record.assetId)}</div>
+                        <div className="text-xs text-muted-foreground">{asset?.assetTag ?? "—"}</div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{formatDateDisplay(record.maintenanceDate)}</TableCell>
+                      <TableCell className="whitespace-nowrap capitalize">
+                        {record.maintenanceType === "preventive" ? "Preventative" : record.maintenanceType}
+                      </TableCell>
+                      <TableCell className="min-w-[140px]">{record.performedBy || "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <div className="text-xs text-muted-foreground">
+                          Est. {record.estimatedCost ? `$${parseFloat(record.estimatedCost).toLocaleString()}` : "—"}
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-2 pt-0">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Next Due:</span>
-                        <span className={`text-sm ${isOverdue(schedule.nextDue) && schedule.isActive === "true" ? "text-red-600 font-semibold" : ""}`}>
-                          {formatDateDisplay(schedule.nextDue)}
-                          {isOverdue(schedule.nextDue) && schedule.isActive === "true" && (
-                            <span className="ml-1 text-red-500">⚠</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Frequency:</span>
-                        <span className="text-sm capitalize">{schedule.frequency}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Priority:</span>
-                        <Badge variant={getPriorityColor(schedule.priority || "medium")} className="text-xs">
-                          {schedule.priority || "medium"}
-                        </Badge>
-                      </div>
-                      {schedule.estimatedCost && parseFloat(schedule.estimatedCost) > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium">Est. Cost:</span>
-                          <span className="text-sm">${parseFloat(schedule.estimatedCost).toLocaleString()}</span>
+                        <div className="font-medium">
+                          Actual {record.cost ? `$${parseFloat(record.cost).toLocaleString()}` : "—"}
                         </div>
-                      )}
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="w-full mt-1"
-                        onClick={() => handleLogFromSchedule(schedule)}
-                      >
-                        <CheckCircle className="mr-2 h-3 w-3" />
-                        Log Completion
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Completed Records */}
-          {(filteredRecords.length > 0 || filteredSchedules.length === 0) && (
-            <div className="space-y-3">
-              {schedules.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                    Completed Records ({filteredRecords.length})
-                  </h3>
-                </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredRecords.map((record) => (
-                  <Card key={record.id} className="relative" data-testid={`card-record-${record.id}`}>
-                    <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle className="text-lg flex items-center gap-2">
-                            <Hammer className="mr-2 h-5 w-5" />
-                            {record.maintenanceType}
-                            <Badge variant="outline" className="text-xs border-green-500 text-green-700 dark:text-green-400">
-                              Completed
-                            </Badge>
-                          </CardTitle>
-                          <CardDescription>
-                            {getAssetName(record.assetId)}
-                          </CardDescription>
+                      </TableCell>
+                      <TableCell className="min-w-[145px]">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400">Completed</Badge>
+                          <Badge variant={getConditionColor(condition)} className="capitalize">{condition}</Badge>
                         </div>
-                        <div className="flex space-x-1">
+                      </TableCell>
+                      <TableCell className="max-w-[260px]">
+                        <span className="block truncate" title={summary}>{summary}</span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="h-8 px-2"
+                            aria-label={`View maintenance record for ${asset?.name ?? "asset"}`}
+                            onClick={() => setViewingRecord(record)}
+                            data-testid={`button-view-record-${record.id}`}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Edit maintenance record for ${asset?.name ?? "asset"}`}
                             onClick={() => handleEditRecord(record)}
                             data-testid={`button-edit-record-${record.id}`}
                           >
@@ -1363,82 +1342,63 @@ export default function Maintenance() {
                           </Button>
                           <Button
                             variant="ghost"
-                            size="sm"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Delete maintenance record for ${asset?.name ?? "asset"}`}
                             onClick={() => handleDeleteRecord(record.id)}
                             data-testid={`button-delete-record-${record.id}`}
                           >
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Date:</span>
-                        <span className="text-sm">{formatDateDisplay(record.maintenanceDate)}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Performed By:</span>
-                        <span className="text-sm">{record.performedBy}</span>
-                      </div>
-                  {record.estimatedCost && (
-                        <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Estimated Cost:</span>
-                      <span className="text-sm">${parseFloat(record.estimatedCost).toLocaleString()}</span>
-                    </div>
-                  )}
-                  {record.cost && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Actual Cost:</span>
-                      <span className="text-sm">${parseFloat(record.cost).toLocaleString()}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">Condition:</span>
-                        <Badge variant={getConditionColor(record.condition || "good")}>
-                          {record.condition || "good"}
-                        </Badge>
-                      </div>
-                      {record.workPerformed && (
-                        <div className="text-sm">
-                          <span className="font-medium">Work:</span>
-                          <p className="mt-1 text-muted-foreground">{record.workPerformed}</p>
-                        </div>
-                      )}
-                      {record.partsReplaced && (
-                        <div className="text-sm">
-                          <span className="font-medium">Parts Replaced:</span>
-                          <p className="mt-1 text-muted-foreground">{record.partsReplaced}</p>
-                        </div>
-                      )}
-                      {record.nextMaintenanceDate && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium">Next Due:</span>
-                          <span className="text-sm">{formatDateDisplay(record.nextMaintenanceDate)}</span>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                Showing {recordPagination.startItem}–{recordPagination.endItem} of {recordPagination.totalCount} records
+              </span>
+              <div className="flex items-center gap-2">
+                <label htmlFor="maintenance-record-page-size" className="text-sm text-muted-foreground">Rows per page</label>
+                <Select value={String(recordPageSize)} onValueChange={value => setRecordPageSize(Number(value))}>
+                  <SelectTrigger id="maintenance-record-page-size" className="h-8 w-[76px]" data-testid="select-record-page-size">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              {filteredRecords.length === 0 && filteredSchedules.length === 0 && (
-                <div className="text-center py-12">
-                  <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground" />
-                  <h3 className="mt-2 text-lg font-medium">No maintenance records found</h3>
-                  <p className="mt-1 text-muted-foreground">
-                    Create a maintenance schedule first, or log a record directly.
-                  </p>
-                </div>
-              )}
-              {filteredRecords.length === 0 && filteredSchedules.length > 0 && (
-                <div className="text-center py-8 rounded-lg border border-dashed">
-                  <CheckCircle className="mx-auto h-8 w-8 text-muted-foreground opacity-40" />
-                  <p className="mt-2 text-sm text-muted-foreground">No completed records yet.</p>
-                  <p className="text-xs text-muted-foreground">Click "Log Completion" on a scheduled item above to log completed work.</p>
-                </div>
-              )}
+              <span className="text-sm text-muted-foreground">Page {recordPagination.page} of {recordPagination.totalPages}</span>
             </div>
-          )}
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRecordPage(Math.max(1, recordPagination.page - 1))}
+                disabled={recordPagination.page <= 1}
+                data-testid="button-record-previous"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setRecordPage(Math.min(recordPagination.totalPages, recordPagination.page + 1))}
+                disabled={recordPagination.page >= recordPagination.totalPages}
+                data-testid="button-record-next"
+              >
+                Next
+              </Button>
+            </div>
+          </div>
         </TabsContent>
         <TabsContent value="analytics" className="space-y-4" data-testid="maintenance-analytics">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -1732,6 +1692,74 @@ export default function Maintenance() {
               </div>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(viewingRecord)} onOpenChange={open => !open && setViewingRecord(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Maintenance Record Details</DialogTitle>
+            <DialogDescription>Completion details, costs, and work notes.</DialogDescription>
+          </DialogHeader>
+          {viewingRecord && (
+            <div className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Asset</p>
+                  <p className="font-medium">{getAssetName(viewingRecord.assetId)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Completion Date</p>
+                  <p>{formatDateDisplay(viewingRecord.maintenanceDate)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Type</p>
+                  <p className="capitalize">{viewingRecord.maintenanceType === "preventive" ? "Preventative" : viewingRecord.maintenanceType}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Technician / Vendor</p>
+                  <p>{viewingRecord.performedBy || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Estimated Cost</p>
+                  <p>{viewingRecord.estimatedCost ? `$${parseFloat(viewingRecord.estimatedCost).toLocaleString()}` : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Actual Cost</p>
+                  <p>{viewingRecord.cost ? `$${parseFloat(viewingRecord.cost).toLocaleString()}` : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Status / Outcome</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400">Completed</Badge>
+                    <Badge variant={getConditionColor(viewingRecord.condition || "good")} className="capitalize">
+                      {viewingRecord.condition || "good"}
+                    </Badge>
+                  </div>
+                </div>
+                {viewingRecord.nextMaintenanceDate && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Next Maintenance Date</p>
+                    <p>{formatDateDisplay(viewingRecord.nextMaintenanceDate)}</p>
+                  </div>
+                )}
+              </div>
+              {[
+                ["Work Performed", viewingRecord.workPerformed],
+                ["Description", viewingRecord.description],
+                ["Parts Replaced", viewingRecord.partsReplaced],
+                ["Notes", viewingRecord.notes],
+              ].map(([label, value]) => value ? (
+                <section key={label}>
+                  <h3 className="text-sm font-medium">{label}</h3>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{value}</p>
+                </section>
+              ) : null)}
+              <div className="flex justify-end">
+                <Button type="button" variant="outline" onClick={() => setViewingRecord(null)}>Close</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
