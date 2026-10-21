@@ -1130,7 +1130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storageRoom: warehouseLocations.storageRoom,
       }).from(consumables)
         .innerJoin(warehouseLocations, eq(warehouseLocations.id, consumables.warehouseLocationId))
-        .where(eq(consumables.category, master.category));
+        .where(and(eq(consumables.category, master.category), eq(warehouseLocations.isActive, true)));
       const matching = stock.filter(item =>
         item.name.toLocaleLowerCase() === master.name.toLocaleLowerCase() &&
         (item.modelPartNumber ?? "").toLocaleLowerCase() === (master.modelPartNumber ?? "").toLocaleLowerCase()
@@ -1300,6 +1300,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await db.transaction(async tx => {
         const [request] = await tx.select().from(serviceRequests).where(eq(serviceRequests.id, req.params.id)).for("update");
         if (!request) throw Object.assign(new Error("Service request not found"), { status: 404 });
+        const [location] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(eq(warehouseLocations.id, warehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
+        if (!location) throw Object.assign(new Error("This warehouse is disabled or no longer available"), { status: 409 });
         if (request.fulfillmentStage !== "Ready for Delivery" || request.approvalStatus !== "approved") {
           throw Object.assign(new Error("The request must be approved and ready for delivery"), { status: 409 });
         }
@@ -3419,18 +3422,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/warehouse-locations/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  const updateWarehouseLocation = async (req: any, res: any) => {
     try {
       const input = insertWarehouseLocationSchema.partial().parse(req.body);
+      const [previous] = await db.select().from(warehouseLocations).where(eq(warehouseLocations.id, req.params.id));
+      if (!previous) return res.status(404).json({ message: "Warehouse location not found" });
       const [updated] = await db.update(warehouseLocations).set(input).where(eq(warehouseLocations.id, req.params.id)).returning();
       if (!updated) return res.status(404).json({ message: "Warehouse location not found" });
+      await logAudit(req.user?.id, "UPDATE", "warehouse_locations", updated.id, updated.name, previous, updated, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.errors });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
       res.status(500).json({ message: "Failed to update warehouse location" });
     }
+  };
+
+  app.patch("/api/warehouse-locations/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    await updateWarehouseLocation(req, res);
   });
+  app.put("/api/warehouse-locations/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), updateWarehouseLocation);
+  app.put("/api/warehouses/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), updateWarehouseLocation);
 
   app.get("/api/consumables/options", requireAuth, requireModule("asset_management"), async (_req, res) => {
     try {
@@ -3466,6 +3478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: consumables.updatedAt,
         warehouseName: warehouseLocations.name,
         warehouseCode: warehouseLocations.code,
+        warehouseIsActive: warehouseLocations.isActive,
         vendorName: vendors.name,
       }).from(consumables)
         .leftJoin(warehouseLocations, eq(warehouseLocations.id, consumables.warehouseLocationId))
@@ -3480,20 +3493,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/consumables", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
     try {
       const input = insertConsumableSchema.parse(req.body);
-      const [location] = await db.select({ id: warehouseLocations.id }).from(warehouseLocations).where(eq(warehouseLocations.id, input.warehouseLocationId));
-      if (!location) return res.status(400).json({ message: "Select a valid warehouse location" });
-      const [created] = await db.insert(consumables).values({ ...input, storageRoom: input.storageRoom || null }).returning();
-      await db.insert(consumableStockMovements).values({
-        consumableId: created.id,
-        movementType: "adjustment",
-        quantity: created.quantityInStock,
-        toWarehouseLocationId: created.warehouseLocationId,
-        actorId: req.user!.id,
-        notes: "Opening stock",
+      const created = await db.transaction(async tx => {
+        const [location] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(eq(warehouseLocations.id, input.warehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
+        if (!location) throw Object.assign(new Error("Select an active warehouse location"), { status: 400 });
+        const [item] = await tx.insert(consumables).values({ ...input, storageRoom: input.storageRoom || null }).returning();
+        await tx.insert(consumableStockMovements).values({
+          consumableId: item.id,
+          movementType: "adjustment",
+          quantity: item.quantityInStock,
+          toWarehouseLocationId: item.warehouseLocationId,
+          actorId: req.user!.id,
+          notes: "Opening stock",
+        });
+        return item;
       });
       res.status(201).json(created);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
       res.status(500).json({ message: "Failed to create consumable" });
     }
   });
@@ -3501,12 +3519,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/consumables/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
     try {
       const input = insertConsumableSchema.partial().omit({ quantityInStock: true }).parse(req.body);
-      const [updated] = await db.update(consumables).set({ ...input, updatedAt: new Date() })
-        .where(eq(consumables.id, req.params.id)).returning();
+      const updated = await db.transaction(async tx => {
+        const [current] = await tx.select({ id: consumables.id, warehouseLocationId: consumables.warehouseLocationId })
+          .from(consumables).where(eq(consumables.id, req.params.id)).for("update");
+        if (!current) return null;
+        if (input.warehouseLocationId && input.warehouseLocationId !== current.warehouseLocationId) {
+          const [activeLocation] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+            .where(and(eq(warehouseLocations.id, input.warehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
+          if (!activeLocation) throw Object.assign(new Error("New inventory cannot be assigned to a disabled warehouse"), { status: 400 });
+        }
+        const [item] = await tx.update(consumables).set({ ...input, updatedAt: new Date() })
+          .where(eq(consumables.id, req.params.id)).returning();
+        return item;
+      });
       if (!updated) return res.status(404).json({ message: "Consumable not found" });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
       res.status(500).json({ message: "Failed to update consumable" });
     }
   });
@@ -3521,6 +3551,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await db.transaction(async tx => {
         const [source] = await tx.select().from(consumables).where(eq(consumables.id, req.params.id)).for("update");
         if (!source) throw Object.assign(new Error("Consumable not found"), { status: 404 });
+        const [sourceLocation] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(eq(warehouseLocations.id, source.warehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
+        if (!sourceLocation) throw Object.assign(new Error("Stock movements are blocked for a disabled warehouse"), { status: 409 });
         if (source.quantityInStock < input.quantity) throw Object.assign(new Error("Not enough stock is available"), { status: 409 });
         if (input.movementType === "issue") {
           const [recipient] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, input.recipientUserId), eq(users.isActive, true)));
@@ -3538,7 +3571,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const [destination] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
-          .where(and(eq(warehouseLocations.id, input.toWarehouseLocationId), eq(warehouseLocations.isActive, true)));
+          .where(and(eq(warehouseLocations.id, input.toWarehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
         if (!destination) throw Object.assign(new Error("Select an active destination location"), { status: 400 });
         if (source.warehouseLocationId === input.toWarehouseLocationId) throw Object.assign(new Error("Choose a different destination location"), { status: 400 });
         const [updatedSource] = await tx.update(consumables).set({
@@ -3584,7 +3617,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const [item] = await db.select().from(consumables).where(eq(consumables.id, req.params.id));
       if (!item) return res.status(404).json({ message: "Consumable not found" });
-      const [location] = await db.select({ name: warehouseLocations.name }).from(warehouseLocations).where(eq(warehouseLocations.id, item.warehouseLocationId));
+      const [location] = await db.select({ name: warehouseLocations.name }).from(warehouseLocations)
+        .where(and(eq(warehouseLocations.id, item.warehouseLocationId), eq(warehouseLocations.isActive, true)));
+      if (!location) return res.status(400).json({ message: "Select an active warehouse before creating a draft purchase order" });
       const vendorName = item.vendorId ? (await storage.getVendor(item.vendorId))?.name ?? null : null;
       const shortage = Math.max(item.minReorderLevel * 2 - item.quantityInStock, 1);
       const po = await storage.createPurchaseOrder({
@@ -3651,6 +3686,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const itemInputs = z.array(lineSchema).parse(items ?? []);
       if (itemInputs.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
         return res.status(400).json({ message: "Consumable PO lines require a warehouse location" });
+      }
+      const requestedWarehouseIds = Array.from(new Set(itemInputs.filter(item => item.itemType === "consumable").map(item => item.warehouseLocationId!).filter(Boolean)));
+      if (requestedWarehouseIds.length) {
+        const activeWarehouses = await db.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(inArray(warehouseLocations.id, requestedWarehouseIds), eq(warehouseLocations.isActive, true)));
+        if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
       const validatedData = insertPurchaseOrderSchema.parse(purchaseOrderData);
       const purchaseOrder = await storage.createPurchaseOrder(validatedData);
@@ -3723,6 +3764,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })).parse(items);
       if (itemInputs?.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
         return res.status(400).json({ message: "Consumable PO lines require a warehouse location" });
+      }
+      const requestedWarehouseIds = Array.from(new Set((itemInputs ?? []).filter(item => item.itemType === "consumable").map(item => item.warehouseLocationId!).filter(Boolean)));
+      if (requestedWarehouseIds.length) {
+        const activeWarehouses = await db.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(inArray(warehouseLocations.id, requestedWarehouseIds), eq(warehouseLocations.isActive, true)));
+        if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
       const validatedData = insertPurchaseOrderSchema.partial().parse(purchaseOrderData);
       
@@ -3900,7 +3947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (item.itemType === "consumable") {
             const locationId = item.warehouseLocationId!;
             const [location] = await tx.select({ id: warehouseLocations.id, storageRoom: warehouseLocations.storageRoom })
-              .from(warehouseLocations).where(and(eq(warehouseLocations.id, locationId), eq(warehouseLocations.isActive, true)));
+              .from(warehouseLocations).where(and(eq(warehouseLocations.id, locationId), eq(warehouseLocations.isActive, true))).for("update");
             if (!location) throw Object.assign(new Error(`Warehouse location for "${item.description}" is unavailable`), { status: 400 });
             let target: any = null;
             if (item.consumableId) {

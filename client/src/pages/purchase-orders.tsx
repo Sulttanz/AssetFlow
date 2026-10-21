@@ -515,7 +515,8 @@ export default function PurchaseOrders() {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
   });
-  const { data: warehouses = [] } = useQuery<{ id: string; name: string; code: string }[]>({ queryKey: ["/api/warehouse-locations"] });
+  const { data: warehouseLocations = [] } = useQuery<{ id: string; name: string; code: string; isActive: boolean }[]>({ queryKey: ["/api/warehouse-locations"] });
+  const warehouses = warehouseLocations.filter(location => location.isActive);
   const { data: consumables = [] } = useQuery<{ id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[]>({ queryKey: ["/api/consumables"] });
 
   const filteredOrders = useMemo(() => {

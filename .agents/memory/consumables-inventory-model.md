@@ -14,3 +14,9 @@ PO receiving uses per-line receipt records and a transaction so retries cannot d
 **Why:** A purchase order may contain multiple asset and consumable lines, and repeating the receive action must not silently double the inventory.
 
 **How to apply:** Keep receipt markers and the associated stock/asset updates in the same database transaction; do not reprocess already-received lines.
+
+Disabling a warehouse preserves its inventory and dispatch history but blocks new stock assignment, issue, transfer, receipt, and service-request fulfillment. Enforce the active check in the transaction, not only in form options.
+
+**Why:** Existing audit records must remain readable, while stale browser state or direct API calls must not move stock into or out of a disabled location.
+
+**How to apply:** Keep disabled locations visible for historical records and editing/reactivation; filter them from new-operation choices and re-check status under a row lock when committing a stock movement.

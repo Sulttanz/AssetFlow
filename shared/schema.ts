@@ -391,6 +391,7 @@ export const warehouseLocations = pgTable("warehouse_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
+  site: text("site"),
   storageRoom: text("storage_room"),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),

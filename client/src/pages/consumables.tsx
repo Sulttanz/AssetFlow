@@ -13,11 +13,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-type WarehouseLocation = { id: string; name: string; code: string; storageRoom: string | null; description: string | null; isActive: boolean };
+type WarehouseLocation = { id: string; name: string; code: string; site: string | null; storageRoom: string | null; description: string | null; isActive: boolean };
 type Consumable = {
   id: string; name: string; category: string; modelPartNumber: string | null; quantityInStock: number;
   minReorderLevel: number; warehouseLocationId: string; storageRoom: string | null; unitCost: string;
-  vendorId: string | null; createdAt: string; warehouseName: string | null; warehouseCode: string | null; vendorName: string | null;
+  vendorId: string | null; createdAt: string; warehouseName: string | null; warehouseCode: string | null; warehouseIsActive: boolean; vendorName: string | null;
 };
 type Options = { locations: WarehouseLocation[]; vendors: { id: string; name: string }[]; users: { id: string; name: string; email: string }[] };
 type ConsumableDraft = {
@@ -57,13 +57,16 @@ export default function ConsumablesPage() {
   const [destination, setDestination] = useState("");
   const [movementNotes, setMovementNotes] = useState("");
   const [locationDialog, setLocationDialog] = useState(false);
-  const [locationDraft, setLocationDraft] = useState({ name: "", code: "", storageRoom: "", description: "" });
+  const [editingLocation, setEditingLocation] = useState<WarehouseLocation | null>(null);
+  const [locationDraft, setLocationDraft] = useState({ name: "", code: "", site: "", storageRoom: "", description: "", isActive: true });
 
   const itemsQuery = useQuery<Consumable[]>({ queryKey: ["/api/consumables"], queryFn: getQueryFn({ on401: "throw" }) });
   const optionsQuery = useQuery<Options>({ queryKey: ["/api/consumables/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const locationsQuery = useQuery<WarehouseLocation[]>({ queryKey: ["/api/warehouse-locations"], queryFn: getQueryFn({ on401: "throw" }) });
   const items = itemsQuery.data ?? [];
   const options = optionsQuery.data ?? { locations: [], vendors: [], users: [] };
-  const warehouses = options.locations;
+  const warehouses = locationsQuery.data ?? [];
+  const activeWarehouses = options.locations;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase();
@@ -107,16 +110,20 @@ export default function ConsumablesPage() {
   });
 
   const saveLocation = useMutation({
-    mutationFn: async () => apiRequest("POST", "/api/warehouse-locations", {
+    mutationFn: async () => apiRequest(editingLocation ? "PUT" : "POST", editingLocation ? `/api/warehouses/${editingLocation.id}` : "/api/warehouse-locations", {
       name: locationDraft.name.trim(), code: locationDraft.code.trim().toUpperCase(),
-      storageRoom: locationDraft.storageRoom.trim() || null, description: locationDraft.description.trim() || null, isActive: true,
+      site: locationDraft.site.trim() || null, storageRoom: locationDraft.storageRoom.trim() || null,
+      description: locationDraft.description.trim() || null, isActive: locationDraft.isActive,
     }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/consumables/options"] });
-      toast({ title: "Warehouse location added" }); setLocationDialog(false);
-      setLocationDraft({ name: "", code: "", storageRoom: "", description: "" });
+      await queryClient.invalidateQueries({ queryKey: ["/api/warehouse-locations"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
+      toast({ title: editingLocation ? "Warehouse location updated" : "Warehouse location added" }); setLocationDialog(false);
+      setEditingLocation(null);
+      setLocationDraft({ name: "", code: "", site: "", storageRoom: "", description: "", isActive: true });
     },
-    onError: (error: Error) => toast({ title: "Could not add location", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not save warehouse location", description: error.message, variant: "destructive" }),
   });
 
   const moveStock = useMutation({
@@ -145,7 +152,7 @@ export default function ConsumablesPage() {
 
   function openCreate() {
     setEditing(null);
-    setDraft({ ...emptyDraft, warehouseLocationId: warehouses[0]?.id ?? "" });
+    setDraft({ ...emptyDraft, warehouseLocationId: activeWarehouses[0]?.id ?? "" });
     setItemDialog(true);
   }
   function openEdit(item: Consumable) {
@@ -158,15 +165,28 @@ export default function ConsumablesPage() {
     });
     setItemDialog(true);
   }
+  function openLocationCreate() {
+    setEditingLocation(null);
+    setLocationDraft({ name: "", code: "", site: "", storageRoom: "", description: "", isActive: true });
+    setLocationDialog(true);
+  }
+  function openLocationEdit(location: WarehouseLocation) {
+    setEditingLocation(location);
+    setLocationDraft({
+      name: location.name, code: location.code, site: location.site ?? "",
+      storageRoom: location.storageRoom ?? "", description: location.description ?? "", isActive: location.isActive,
+    });
+    setLocationDialog(true);
+  }
 
-  if (itemsQuery.isLoading || optionsQuery.isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading consumables inventory…</div>;
-  if (itemsQuery.isError || optionsQuery.isError) return <div className="p-8"><p className="text-sm text-destructive">Inventory data could not be loaded.</p><Button className="mt-3" variant="outline" onClick={() => { void itemsQuery.refetch(); void optionsQuery.refetch(); }}>Retry</Button></div>;
+  if (itemsQuery.isLoading || optionsQuery.isLoading || locationsQuery.isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading consumables inventory…</div>;
+  if (itemsQuery.isError || optionsQuery.isError || locationsQuery.isError) return <div className="p-8"><p className="text-sm text-destructive">Inventory data could not be loaded.</p><Button className="mt-3" variant="outline" onClick={() => { void itemsQuery.refetch(); void optionsQuery.refetch(); void locationsQuery.refetch(); }}>Retry</Button></div>;
 
   return <main className="space-y-5 p-4 md:p-8" data-testid="consumables-page">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-2xl font-bold">Consumables Inventory</h1><p className="mt-1 text-sm text-muted-foreground">Track supply levels across warehouses, issue items, and prepare replenishment orders.</p></div>
       <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setLocationDialog(true)}><Warehouse className="mr-2 h-4 w-4" />Add location</Button>
+        <Button variant="outline" onClick={openLocationCreate}><Warehouse className="mr-2 h-4 w-4" />Add location</Button>
         {view === "inventory" && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Add consumable</Button>}
       </div>
     </header>
@@ -197,13 +217,13 @@ export default function ConsumablesPage() {
               <TableCell><Badge variant="outline">{item.category}</Badge></TableCell>
               <TableCell><span className="font-semibold">{item.quantityInStock}</span>{low && <Badge className="ml-2 bg-amber-100 text-amber-900 hover:bg-amber-100"><AlertTriangle className="mr-1 h-3 w-3" />Low stock</Badge>}</TableCell>
               <TableCell>{item.minReorderLevel}</TableCell>
-              <TableCell>{item.warehouseName ?? "—"}{(item.storageRoom || item.warehouseCode) && <div className="text-xs text-muted-foreground">{item.storageRoom || item.warehouseCode}</div>}</TableCell>
+              <TableCell>{item.warehouseName ?? "—"}{!item.warehouseIsActive && <Badge className="ml-2" variant="secondary">Disabled</Badge>}{(item.storageRoom || item.warehouseCode) && <div className="text-xs text-muted-foreground">{item.storageRoom || item.warehouseCode}</div>}</TableCell>
               <TableCell>{Number(item.unitCost).toFixed(2)}</TableCell>
               <TableCell>{item.vendorName ?? "—"}</TableCell>
               <TableCell>{formatDateDisplay(item.createdAt)}</TableCell>
               <TableCell><div className="flex justify-end gap-1">
-                <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("issue"); }}><Truck className="mr-1 h-3.5 w-3.5" />Issue / Transfer</Button>
-                {low && <Button size="icon" variant="outline" title="Create draft purchase order" aria-label={`Create draft purchase order for ${item.name}`} onClick={() => createDraftPO.mutate(item.id)} disabled={createDraftPO.isPending}><PackagePlus className="h-4 w-4" /></Button>}
+                <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("issue"); }} disabled={!item.warehouseIsActive} title={!item.warehouseIsActive ? "Reactivate the warehouse to move stock" : undefined}><Truck className="mr-1 h-3.5 w-3.5" />Issue / Transfer</Button>
+                {low && <Button size="icon" variant="outline" title={item.warehouseIsActive ? "Create draft purchase order" : "Reactivate the warehouse to create a replenishment order"} aria-label={`Create draft purchase order for ${item.name}`} onClick={() => createDraftPO.mutate(item.id)} disabled={createDraftPO.isPending || !item.warehouseIsActive}><PackagePlus className="h-4 w-4" /></Button>}
                 <Button size="icon" variant="ghost" title="Edit item" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /></Button>
               </div></TableCell>
             </TableRow>;
@@ -216,10 +236,10 @@ export default function ConsumablesPage() {
           </div>
         </footer>
       </Card>
-    </> : <Card className="overflow-hidden"><Table>
-      <TableHeader><TableRow><TableHead>Location</TableHead><TableHead>Code</TableHead><TableHead>Storage room</TableHead><TableHead>Description</TableHead><TableHead>Items stocked</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-      <TableBody>{warehouses.length ? warehouses.map(location => <TableRow key={location.id}><TableCell className="font-medium"><MapPin className="mr-2 inline h-4 w-4 text-muted-foreground" />{location.name}</TableCell><TableCell className="font-mono text-xs">{location.code}</TableCell><TableCell>{location.storageRoom || "—"}</TableCell><TableCell>{location.description || "—"}</TableCell><TableCell>{items.filter(item => item.warehouseLocationId === location.id).length}</TableCell><TableCell><Badge variant={location.isActive ? "default" : "secondary"}>{location.isActive ? "Active" : "Inactive"}</Badge></TableCell></TableRow>) : <TableRow><TableCell colSpan={6} className="h-28 text-center text-muted-foreground">No warehouse locations added yet.</TableCell></TableRow>}</TableBody>
-    </Table></Card>}
+    </> : <Card className="overflow-hidden"><div className="overflow-x-auto"><Table>
+      <TableHeader><TableRow><TableHead>Location</TableHead><TableHead>Code</TableHead><TableHead>Building / Site</TableHead><TableHead>Storage room</TableHead><TableHead>Description</TableHead><TableHead>Items stocked</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+      <TableBody>{warehouses.length ? warehouses.map(location => <TableRow key={location.id}><TableCell className="font-medium"><MapPin className="mr-2 inline h-4 w-4 text-muted-foreground" />{location.name}</TableCell><TableCell className="font-mono text-xs">{location.code}</TableCell><TableCell>{location.site || "—"}</TableCell><TableCell>{location.storageRoom || "—"}</TableCell><TableCell>{location.description || "—"}</TableCell><TableCell>{items.filter(item => item.warehouseLocationId === location.id).length}</TableCell><TableCell><Badge variant={location.isActive ? "default" : "secondary"}>{location.isActive ? "Active" : "Disabled"}</Badge></TableCell><TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => openLocationEdit(location)}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button></TableCell></TableRow>) : <TableRow><TableCell colSpan={8} className="h-28 text-center text-muted-foreground">No warehouse locations added yet.</TableCell></TableRow>}</TableBody>
+    </Table></div></Card>}
 
     <InventoryDialog open={itemDialog} onOpenChange={open => { setItemDialog(open); if (!open) setEditing(null); }} title={editing ? "Edit consumable" : "Add consumable"} description="Record a stock item and its warehouse-specific quantity.">
       <form className="grid gap-4" onSubmit={event => { event.preventDefault(); saveItem.mutate(draft); }}>
@@ -227,7 +247,7 @@ export default function ConsumablesPage() {
           <label className="grid gap-1.5 text-sm">Name<Input required maxLength={180} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
           <label className="grid gap-1.5 text-sm">Category<Select value={draft.category} onValueChange={category => setDraft({ ...draft, category })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{categories.map(category => <SelectItem key={category} value={category}>{category}</SelectItem>)}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Model / part number<Input value={draft.modelPartNumber} onChange={event => setDraft({ ...draft, modelPartNumber: event.target.value })} /></label>
-          <label className="grid gap-1.5 text-sm">Warehouse location<Select value={draft.warehouseLocationId} onValueChange={warehouseLocationId => setDraft({ ...draft, warehouseLocationId })}><SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger><SelectContent>{warehouses.map(location => <SelectItem key={location.id} value={location.id}>{location.name} ({location.code})</SelectItem>)}</SelectContent></Select></label>
+          <label className="grid gap-1.5 text-sm">Warehouse location<Select value={draft.warehouseLocationId} onValueChange={warehouseLocationId => setDraft({ ...draft, warehouseLocationId })}><SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger><SelectContent>{activeWarehouses.map(location => <SelectItem key={location.id} value={location.id}>{location.name} ({location.code})</SelectItem>)}{editing && !editing.warehouseIsActive && <SelectItem value={editing.warehouseLocationId}>{editing.warehouseName ?? "Current location"} (Disabled · existing stock)</SelectItem>}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Storage room / shelf<Input value={draft.storageRoom} onChange={event => setDraft({ ...draft, storageRoom: event.target.value })} /></label>
           <label className="grid gap-1.5 text-sm">Vendor<Select value={draft.vendorId || "__none__"} onValueChange={vendorId => setDraft({ ...draft, vendorId: vendorId === "__none__" ? "" : vendorId })}><SelectTrigger><SelectValue placeholder="Optional vendor" /></SelectTrigger><SelectContent><SelectItem value="__none__">No vendor</SelectItem>{options.vendors.map(vendor => <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>)}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Quantity in stock<Input type="number" min="0" step="1" required value={draft.quantityInStock} onChange={event => setDraft({ ...draft, quantityInStock: event.target.value })} disabled={Boolean(editing)} /></label>
@@ -246,18 +266,19 @@ export default function ConsumablesPage() {
         <label className="grid gap-1.5 text-sm">Quantity<Input type="number" min="1" max={movementItem.quantityInStock} step="1" value={movementQuantity} onChange={event => setMovementQuantity(event.target.value)} required /></label>
         {movementType === "issue"
           ? <label className="grid gap-1.5 text-sm">Employee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={movementRecipient} onChange={event => setMovementRecipient(event.target.value)} required><option value="">Select employee</option>{options.users.map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}</select></label>
-          : <label className="grid gap-1.5 text-sm">Destination warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={destination} onChange={event => setDestination(event.target.value)} required><option value="">Select destination</option>{warehouses.filter(location => location.id !== movementItem.warehouseLocationId).map(location => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select></label>}
+           : <label className="grid gap-1.5 text-sm">Destination warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={destination} onChange={event => setDestination(event.target.value)} required><option value="">Select destination</option>{activeWarehouses.filter(location => location.id !== movementItem.warehouseLocationId).map(location => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select></label>}
         <label className="grid gap-1.5 text-sm">Notes <Textarea maxLength={2000} value={movementNotes} onChange={event => setMovementNotes(event.target.value)} /></label>
         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setMovementItem(null)}>Cancel</Button><Button type="submit" disabled={moveStock.isPending || Number(movementQuantity) > movementItem.quantityInStock}>{moveStock.isPending ? "Saving…" : movementType === "issue" ? "Issue stock" : "Transfer stock"}<ArrowLeftRight className="ml-2 h-4 w-4" /></Button></div>
       </form>}
     </InventoryDialog>
 
-    <InventoryDialog open={locationDialog} onOpenChange={setLocationDialog} title="Add warehouse location" description="Create a warehouse or storage room for consumable inventory.">
+    <InventoryDialog open={locationDialog} onOpenChange={setLocationDialog} title={editingLocation ? "Edit warehouse location" : "Add warehouse location"} description="Disabled locations remain visible in history but cannot receive new stock, transfers, or fulfillment.">
       <form className="grid gap-4" onSubmit={event => { event.preventDefault(); saveLocation.mutate(); }}>
         <label className="grid gap-1.5 text-sm">Location name<Input required value={locationDraft.name} onChange={event => setLocationDraft({ ...locationDraft, name: event.target.value })} /></label>
-        <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-sm">Location code<Input required value={locationDraft.code} onChange={event => setLocationDraft({ ...locationDraft, code: event.target.value })} /></label><label className="grid gap-1.5 text-sm">Storage room<Input value={locationDraft.storageRoom} onChange={event => setLocationDraft({ ...locationDraft, storageRoom: event.target.value })} /></label></div>
+        <div className="grid gap-3 sm:grid-cols-2"><label className="grid gap-1.5 text-sm">Location code<Input required value={locationDraft.code} onChange={event => setLocationDraft({ ...locationDraft, code: event.target.value })} /></label><label className="grid gap-1.5 text-sm">Building / site<Input value={locationDraft.site} onChange={event => setLocationDraft({ ...locationDraft, site: event.target.value })} /></label><label className="grid gap-1.5 text-sm">Storage room<Input value={locationDraft.storageRoom} onChange={event => setLocationDraft({ ...locationDraft, storageRoom: event.target.value })} /></label><label className="grid gap-1.5 text-sm">Status<Select value={locationDraft.isActive ? "active" : "disabled"} onValueChange={value => setLocationDraft({ ...locationDraft, isActive: value === "active" })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="disabled">Disabled</SelectItem></SelectContent></Select></label></div>
         <label className="grid gap-1.5 text-sm">Description<Textarea value={locationDraft.description} onChange={event => setLocationDraft({ ...locationDraft, description: event.target.value })} /></label>
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocationDialog(false)}>Cancel</Button><Button type="submit" disabled={saveLocation.isPending}>{saveLocation.isPending ? "Saving…" : "Save location"}</Button></div>
+        {!locationDraft.isActive && <p className="text-xs text-amber-700 dark:text-amber-300">Existing stock and dispatch history will be preserved. Reactivate this location before making new stock movements.</p>}
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setLocationDialog(false)}>Cancel</Button><Button type="submit" disabled={saveLocation.isPending}>{saveLocation.isPending ? "Saving…" : editingLocation ? "Save changes" : "Save location"}</Button></div>
       </form>
     </InventoryDialog>
   </main>;
