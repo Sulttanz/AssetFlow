@@ -2889,6 +2889,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/employees/:id/reactivate", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const { reason } = z.object({ reason: z.string().trim().min(3).max(1000) }).parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [employee] = await tx.select().from(employees).where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        if (employee.status !== "disabled") throw Object.assign(new Error("Employee is already active"), { status: 409 });
+        const [updated] = await tx.update(employees).set({
+          status: "active",
+          offboardedDate: null,
+          offboardedReason: null,
+        }).where(eq(employees.id, employee.id)).returning();
+        return { previous: employee, employee: updated };
+      });
+      await logAudit(
+        req.user?.id,
+        "UPDATE",
+        "employees",
+        result.employee.id,
+        `${result.employee.firstName} ${result.employee.lastName} reactivated`,
+        result.previous,
+        { ...result.employee, reactivationReason: reason },
+        req,
+      );
+      res.json(result.employee);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a reactivation reason", errors: error.errors });
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to reactivate employee" });
+    }
+  });
+
   app.get("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
       if (!(await storage.getEmployee(req.params.id))) return res.status(404).json({ message: "Employee not found" });

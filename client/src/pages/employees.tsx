@@ -1,17 +1,21 @@
 import { formatDateDisplay } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import EmployeeOffboardingDialog from "@/components/employees/employee-offboarding-dialog";
-import { Eye, Edit, UserX, Users } from "lucide-react";
+import { Edit, KeyRound, UserCheck, UserX, Users } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { EmployeeWithDetails } from "@shared/schema";
 import {
   Pagination,
@@ -28,14 +32,38 @@ export default function Employees() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
   const [offboardingEmployee, setOffboardingEmployee] = useState<EmployeeWithDetails | null>(null);
+  const [reactivationEmployee, setReactivationEmployee] = useState<EmployeeWithDetails | null>(null);
+  const [reactivationReason, setReactivationReason] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isOffboardingOpen, setIsOffboardingOpen] = useState(false);
+  const [isReactivationOpen, setIsReactivationOpen] = useState(false);
   const [employeeFormTab, setEmployeeFormTab] = useState<"profile" | "access">("profile");
   const [employeeView, setEmployeeView] = useState<"active" | "disabled">("active");
   const [currentPage, setCurrentPage] = useState(1);
+  const { toast } = useToast();
 
   const { data: employees, isLoading } = useQuery<EmployeeWithDetails[]>({
     queryKey: ["/api/employees"],
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: async ({ employeeId, reason }: { employeeId: string; reason: string }) =>
+      apiRequest("POST", `/api/employees/${employeeId}/reactivate`, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
+      setIsReactivationOpen(false);
+      setReactivationEmployee(null);
+      setReactivationReason("");
+      setEmployeeView("active");
+      setCurrentPage(1);
+      toast({ title: "Employee reactivated", description: "Any associated application account must be enabled separately." });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not reactivate employee",
+      description: error.message,
+      variant: "destructive",
+    }),
   });
 
   const scopedEmployees = employees?.filter(employee =>
@@ -95,6 +123,12 @@ export default function Employees() {
     setIsOffboardingOpen(true);
   };
 
+  const handleReactivateEmployee = (employee: EmployeeWithDetails) => {
+    setReactivationEmployee(employee);
+    setReactivationReason("");
+    setIsReactivationOpen(true);
+  };
+
   const handleFormSuccess = () => {
     setIsFormOpen(false);
     setSelectedEmployee(null);
@@ -139,74 +173,64 @@ export default function Employees() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="w-full min-w-[1140px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Employee ID</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Position</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Mobile</TableHead>
-                      <TableHead>Start Date</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Offboarded</TableHead>
-                      <TableHead>Offboarding Reason</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="w-[90px]">Employee ID</TableHead>
+                      <TableHead className="w-[125px]">Name</TableHead>
+                      <TableHead className="w-[180px]">Email</TableHead>
+                      <TableHead className="w-[130px]">Department</TableHead>
+                      <TableHead className="w-[110px]">Location</TableHead>
+                      <TableHead className="w-[120px]">Position</TableHead>
+                      <TableHead className="w-[145px]">Status</TableHead>
+                      <TableHead className="w-[240px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedEmployees.length > 0 ? paginatedEmployees.map((employee) => (
                       <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`}>
-                        <TableCell className="font-medium" data-testid={`employee-id-${employee.id}`}>
+                        <TableCell className="truncate font-medium" data-testid={`employee-id-${employee.id}`} title={employee.employeeId ?? undefined}>
                           {employee.employeeId || "-"}
                         </TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="truncate font-medium" title={`${employee.firstName} ${employee.lastName}`}>
                           {employee.firstName} {employee.lastName}
                         </TableCell>
-                        <TableCell>{employee.email}</TableCell>
-                        <TableCell data-testid={`employee-department-${employee.id}`}>
+                        <TableCell className="truncate" title={employee.email}>{employee.email}</TableCell>
+                        <TableCell className="truncate" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
                           {employee.departmentDetails?.name || employee.department || "-"}
                         </TableCell>
-                        <TableCell data-testid={`employee-location-${employee.id}`}>
+                        <TableCell className="truncate" data-testid={`employee-location-${employee.id}`} title={employee.locationDetails?.name || undefined}>
                           {employee.locationDetails?.name || "-"}
                         </TableCell>
-                        <TableCell>{employee.position}</TableCell>
-                        <TableCell>{employee.phone || "-"}</TableCell>
-                        <TableCell>{employee.mobile || "-"}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDateDisplay(employee.startDate)}
-                        </TableCell>
+                        <TableCell className="truncate" title={employee.position}>{employee.position}</TableCell>
                         <TableCell>
                           <Badge variant={employee.status === "disabled" ? "secondary" : "default"}>
                             {employee.status === "disabled" ? "Disabled" : "Active"}
                           </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {employee.offboardedDate ? formatDateDisplay(employee.offboardedDate) : "—"}
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate" title={employee.offboardedReason ?? undefined}>
-                          {employee.offboardedReason || "—"}
+                          {employee.status === "disabled" && (
+                            <div className="mt-1 max-w-[135px] truncate text-xs text-muted-foreground" title={employee.offboardedReason ?? undefined}>
+                              {employee.offboardedDate ? `Since ${formatDateDisplay(employee.offboardedDate)}` : "Offboarded"}
+                              {employee.offboardedReason ? ` · ${employee.offboardedReason}` : ""}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleEditEmployee(employee)}
-                              data-testid={`view-employee-${employee.id}`}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                          <div className="flex flex-wrap justify-end gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
                               onClick={() => handleEditEmployee(employee)}
                               data-testid={`edit-employee-${employee.id}`}
                             >
-                              <Edit className="h-4 w-4" />
+                              <Edit className="mr-1 h-3.5 w-3.5" /> Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditEmployee(employee, "access")}
+                              data-testid={`manage-access-${employee.id}`}
+                            >
+                              <KeyRound className="mr-1 h-3.5 w-3.5" /> Manage Access
                             </Button>
                             {employee.status !== "disabled" && (
                               <Button
@@ -218,12 +242,22 @@ export default function Employees() {
                                 <UserX className="mr-1 h-4 w-4" /> Offboard
                               </Button>
                             )}
+                            {employee.status === "disabled" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleReactivateEmployee(employee)}
+                                data-testid={`reactivate-employee-${employee.id}`}
+                              >
+                                <UserCheck className="mr-1 h-4 w-4" /> Reactivate
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={13} className="text-center py-8">
+                        <TableCell colSpan={8} className="text-center py-8">
                           <div className="text-muted-foreground">
                             <Users className="mx-auto h-12 w-12 mb-4" />
                             <p>No employees found</p>
@@ -295,15 +329,61 @@ export default function Employees() {
           <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto" data-testid="employee-form-dialog">
             <DialogHeader>
               <DialogTitle>
-                {selectedEmployee ? "Edit Employee" : "Add New Employee"}
+                {selectedEmployee ? (employeeFormTab === "access" ? "Access Entitlements" : "Edit Employee") : "Add New Employee"}
               </DialogTitle>
             </DialogHeader>
             <EmployeeForm
+              key={`${selectedEmployee?.id ?? "new"}-${employeeFormTab}`}
               employee={selectedEmployee}
               initialTab={employeeFormTab}
               onSuccess={handleFormSuccess}
               onCancel={() => setIsFormOpen(false)}
             />
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={isReactivationOpen}
+          onOpenChange={open => {
+            setIsReactivationOpen(open);
+            if (!open) {
+              setReactivationEmployee(null);
+              setReactivationReason("");
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Reactivate {reactivationEmployee ? `${reactivationEmployee.firstName} ${reactivationEmployee.lastName}` : "Employee"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This returns the employee to the active roster and clears the current offboarding fields. The previous transition remains in the audit history. Any application account must be re-enabled separately.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="reactivation-reason">Reactivation Reason</Label>
+                <Textarea
+                  id="reactivation-reason"
+                  value={reactivationReason}
+                  onChange={event => setReactivationReason(event.target.value)}
+                  maxLength={1000}
+                  rows={3}
+                  placeholder="Record why this employee is returning"
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsReactivationOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => reactivationEmployee && reactivateMutation.mutate({
+                  employeeId: reactivationEmployee.id,
+                  reason: reactivationReason,
+                })}
+                disabled={!reactivationEmployee || reactivationReason.trim().length < 3 || reactivateMutation.isPending}
+              >
+                {reactivateMutation.isPending ? "Reactivating…" : "Reactivate Employee"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
         <EmployeeOffboardingDialog
