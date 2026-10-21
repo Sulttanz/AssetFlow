@@ -5,6 +5,7 @@ import { ACCESS_TYPE_LABELS, ACCESS_TYPES, type AccessType } from "@shared/acces
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import Header from "@/components/layout/header";
 import { SearchablePicker, type PickerOption } from "@/components/access-governance/searchable-picker";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,8 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 export default function AccessGovernance() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManageAccess = !!user?.permissions?.includes("employee_update");
   const [view, setView] = useState<ViewMode>("employee");
   const [employeeFilter, setEmployeeFilter] = useState("all");
   const [systemFilter, setSystemFilter] = useState("all");
@@ -387,7 +390,7 @@ export default function AccessGovernance() {
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1.5">
-                        {record.status === "active" && record.employee.status !== "disabled" && (
+                        {canManageAccess && record.status === "active" && record.employee.status !== "disabled" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -403,7 +406,7 @@ export default function AccessGovernance() {
                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit Privilege
                           </Button>
                         )}
-                        {record.status === "active" && record.expiryState !== "expiring" && (
+                        {canManageAccess && record.status === "active" && record.expiryState !== "expiring" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -415,7 +418,7 @@ export default function AccessGovernance() {
                             <ShieldOff className="mr-1 h-3.5 w-3.5" /> Revoke
                           </Button>
                         )}
-                        {(record.expiryState === "expiring" || record.expiryState === "expired") && (
+                        {canManageAccess && (record.expiryState === "expiring" || record.expiryState === "expired") && (
                           <>
                             {record.employee.status !== "disabled" && record.businessJustification !== "Legacy access record - justification pending review" && (
                               <Button
@@ -446,7 +449,9 @@ export default function AccessGovernance() {
                             )}
                           </>
                         )}
-                        {record.status !== "active" && record.expiryState !== "expired" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
+                        {!canManageAccess
+                          ? <span className="pr-2 text-xs text-muted-foreground">Read only</span>
+                          : record.status !== "active" && record.expiryState !== "expired" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
                       </div>
                     </TableCell>
                   </TableRow>

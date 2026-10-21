@@ -16,6 +16,7 @@ import EmployeeOffboardingDialog from "@/components/employees/employee-offboardi
 import { Edit, KeyRound, UserCheck, UserX, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import type { EmployeeWithDetails } from "@shared/schema";
 import {
   Pagination,
@@ -29,6 +30,9 @@ import {
 const ITEMS_PER_PAGE = 10;
 
 export default function Employees() {
+  const { user } = useAuth();
+  const canManageEmployees = !!user?.permissions?.includes("employee_update");
+  const canApproveOffboarding = canManageEmployees || !!user?.permissions?.includes("offboarding_approve");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
   const [offboardingEmployee, setOffboardingEmployee] = useState<EmployeeWithDetails | null>(null);
@@ -140,8 +144,9 @@ export default function Employees() {
       <Header
         title="Employees"
         description="Manage employee database and contact information"
-        onAddClick={handleAddEmployee}
+        onAddClick={canManageEmployees ? handleAddEmployee : undefined}
         addButtonText="Add Employee"
+        showAddButton={canManageEmployees}
         searchPlaceholder="Search employees..."
         onSearch={setSearchQuery}
       />
@@ -211,7 +216,7 @@ export default function Employees() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-1.5">
                           <div className="flex flex-nowrap items-center justify-end gap-1">
-                            <Button
+                            {canManageEmployees && <Button
                               variant="outline"
                               size="sm"
                               className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
@@ -221,8 +226,8 @@ export default function Employees() {
                               data-testid={`edit-employee-${employee.id}`}
                             >
                               <Edit className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Edit</span>
-                            </Button>
-                            <Button
+                            </Button>}
+                            {canManageEmployees && <Button
                               variant="outline"
                               size="sm"
                               className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
@@ -232,8 +237,8 @@ export default function Employees() {
                               data-testid={`manage-access-${employee.id}`}
                             >
                               <KeyRound className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Manage Access</span>
-                            </Button>
-                            {employee.status !== "disabled" && (
+                            </Button>}
+                            {employee.status !== "disabled" && canApproveOffboarding && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -246,7 +251,7 @@ export default function Employees() {
                                 <UserX className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Offboard</span>
                               </Button>
                             )}
-                            {employee.status === "disabled" && (
+                            {employee.status === "disabled" && canManageEmployees && (
                               <Button
                                 variant="outline"
                                 size="sm"

@@ -4,7 +4,7 @@ import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, requireAuth, requirePermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
+import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
@@ -34,6 +34,7 @@ import {
   classifyAccessAsset,
   type AccessType,
 } from "@shared/access-governance";
+import { getPersonaRoleKeys, isPersonaApiAllowed } from "@shared/personas";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
@@ -276,6 +277,105 @@ async function ensureItsmPermissions() {
   }
 }
 
+const PERSONA_PERMISSION_DEFINITIONS = [
+  { name: "asset_view", description: "View the asset inventory", resource: "assets", action: "view" },
+  { name: "my_assets_view", description: "View assets assigned to the signed-in employee", resource: "assets", action: "view_own" },
+  { name: "access_governance_view", description: "View access governance records without changing them", resource: "access_governance", action: "view" },
+  { name: "audit_view", description: "View system audit records", resource: "audit_logs", action: "view" },
+  { name: "cmdb_view", description: "View application and server configuration records", resource: "cmdb", action: "view" },
+  { name: "finance_view", description: "View financial management records", resource: "finance", action: "view" },
+  { name: "offboarding_approve", description: "Review and complete employee offboarding clearance", resource: "employees", action: "approve_offboarding" },
+  { name: "change_view_all", description: "View all change requests and CAB impact summaries", resource: "changes", action: "view" },
+  { name: "change_approve", description: "Approve or reject assigned change requests", resource: "changes", action: "approve" },
+  { name: "change_manage", description: "Manage change requests and CAB assignments", resource: "changes", action: "manage" },
+] as const;
+
+const PERSONA_ROLE_PERMISSIONS = {
+  end_user: ["my_assets_view"],
+  it_agent: [
+    "asset_view", "asset_create", "asset_update", "asset_delete",
+    "assignment_create", "assignment_update", "assignment_return",
+    "maintenance_create", "maintenance_update", "maintenance_delete",
+    "ticket_view_all", "ticket_manage", "user_view",
+  ],
+  cab_member: [
+    "change_view_all", "change_approve", "cmdb_view", "finance_view", "offboarding_approve",
+  ],
+  it_manager: [
+    "asset_view", "asset_create", "asset_update", "asset_delete",
+    "assignment_create", "assignment_update", "assignment_return",
+    "maintenance_create", "maintenance_update", "maintenance_delete",
+    "ticket_view_all", "ticket_manage", "user_view", "employee_update", "offboarding_approve",
+    "change_view_all", "change_approve", "change_manage", "cmdb_view", "finance_view",
+    "purchase_order_create", "purchase_order_update", "purchase_order_delete",
+    "budget_create", "budget_update", "budget_delete",
+  ],
+  auditor: ["asset_view", "access_governance_view", "audit_view"],
+} as const;
+
+async function ensurePersonaRoles() {
+  try {
+    const existingPermissions = await storage.getPermissions();
+    const permissionByName = new Map(existingPermissions.map(permission => [permission.name, permission]));
+    for (const definition of PERSONA_PERMISSION_DEFINITIONS) {
+      if (permissionByName.has(definition.name)) continue;
+      const created = await storage.createPermission(definition);
+      permissionByName.set(created.name, created);
+    }
+
+    const descriptions = {
+      end_user: "Employee self-service: service catalog, personal tickets, and assigned assets",
+      it_agent: "IT operations: incident, request, problem, and IT asset workbenches",
+      cab_member: "Change approval, CMDB impact, financial review, and offboarding clearance",
+      it_manager: "IT operations management, change governance, CMDB, financials, and offboarding",
+      auditor: "Read-only access governance, audit logs, and asset inventory",
+    } as const;
+    const rolesWithDetails = await storage.getRolesWithDetails();
+    const roleNames = new Set(rolesWithDetails.map(role => role.name.trim().toLowerCase()));
+    for (const key of ["end_user", "it_agent", "cab_member", "it_manager", "auditor"] as const) {
+      if (roleNames.has(key)) continue;
+      await storage.createRole({
+        name: key,
+        description: descriptions[key],
+        isSystemRole: true,
+      });
+    }
+
+    const allRoles = await storage.getRolesWithDetails();
+    for (const role of allRoles) {
+      const normalizedName = role.name.trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const personaKey = getPersonaRoleKeys([role.name])[0];
+      const isAdmin = ["system_administrator", "administrator", "admin"].includes(normalizedName);
+      const desiredNames = new Set<string>();
+
+      if (isAdmin) {
+        permissionByName.forEach(permission => desiredNames.add(permission.name));
+      } else if (personaKey) {
+        PERSONA_ROLE_PERMISSIONS[personaKey].forEach(name => desiredNames.add(name));
+      } else {
+        const existingPermissionNames = new Set((role.permissions || []).map(permission => permission.name));
+        if (["asset_create", "asset_update", "asset_delete", "compliance_view", "assignment_create", "assignment_update", "maintenance_create", "maintenance_update"].some(name => existingPermissionNames.has(name))) {
+          // Preserve existing asset roles while adding the explicit read permission.
+          desiredNames.add("asset_view");
+        }
+        if (["purchase_order_create", "purchase_order_update", "budget_create", "budget_update"].some(name => existingPermissionNames.has(name))) {
+          desiredNames.add("finance_view");
+        }
+      }
+
+      const granted = new Set((role.permissions || []).map(permission => permission.name));
+      await Promise.all(Array.from(desiredNames).map(async permissionName => {
+        const permission = permissionByName.get(permissionName);
+        if (permission && !granted.has(permissionName)) {
+          await storage.assignRolePermission(role.id, permission.id);
+        }
+      }));
+    }
+  } catch (error) {
+    console.error("Failed to ensure persona roles and permissions:", error);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   if (!employeeAccessExpiryInterval) {
     void expireDueEmployeeAccessRights();
@@ -286,16 +386,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
   await ensureItsmPermissions();
+  await ensurePersonaRoles();
 
-  // Apply module enforcement centrally as well as at route declarations, so
-  // newly added endpoints in an existing module namespace cannot bypass it.
+  // Apply persona and module enforcement centrally so API endpoints remain
+  // scoped even when an individual handler only has authentication middleware.
   app.use("/api", (req, res, next) => {
     const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
     const moduleKey = moduleForApiPath(apiPath);
-    if (!moduleKey) return next();
-    return requireAuth(req, res, () =>
-      checkModuleEnabled(moduleKey)(req, res, next)
-    );
+    const personaGuardedPaths = [
+      "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets",
+      "/cmdb", "/consumables",
+    ];
+    const requiresPersonaCheck = moduleKey !== undefined ||
+      personaGuardedPaths.some(prefix => apiPath === prefix || apiPath.startsWith(`${prefix}/`));
+    if (!requiresPersonaCheck) return next();
+    return requireAuth(req, res, () => {
+      void (async () => {
+        try {
+          const userId = (req.user as any)?.id;
+          const [userRoles, userPermissions] = await Promise.all([
+            storage.getUserRoles(userId),
+            storage.getUserPermissions(userId),
+          ]);
+          const roleNames = userRoles.map(role => role.name);
+          if (!isPersonaApiAllowed(roleNames, userPermissions, apiPath, req.method)) {
+            return res.status(403).json({ error: "This persona is not allowed to access this API" });
+          }
+          if (!moduleKey) return next();
+          return checkModuleEnabled(moduleKey)(req, res, next);
+        } catch (error) {
+          console.error("Failed to verify API persona access:", error);
+          return res.status(500).json({ error: "Failed to verify API access" });
+        }
+      })();
+    });
   });
 
   const createCabEventStreamHandler = (eventType: "cab" | "access") =>
@@ -328,9 +452,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const heartbeat = async () => {
         try {
-          const hasAccess = eventType === "access"
+          let hasAccess = eventType === "access"
             ? await cabStreamHasActiveAccount(req, userId)
             : await cabStreamHasAccess(req, userId);
+          if (hasAccess && eventType === "cab") {
+            const [userRoles, userPermissions] = await Promise.all([
+              storage.getUserRoles(userId),
+              storage.getUserPermissions(userId),
+            ]);
+            hasAccess = isPersonaApiAllowed(
+              userRoles.map(role => role.name),
+              userPermissions,
+              "/changes/events",
+              "GET",
+            );
+          }
           if (!hasAccess) {
             if (!closed) res.end();
             return;
@@ -574,7 +710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Contracts routes
-  app.get("/api/contracts", requireAuth, async (req, res) => {
+  app.get("/api/contracts", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin"), async (req, res) => {
     try {
       const contracts = await storage.getContracts();
       // Auto-expire contracts whose endDate has passed but are still marked active/pending
@@ -1512,7 +1648,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function canViewAllItsmRecords(userId: string): Promise<boolean> {
     const [perms, roles] = await Promise.all([storage.getUserPermissions(userId), storage.getUserRoles(userId)]);
     const elevatedRoleNames = new Set(["it staff", "it support staff", "manager", "system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
-    return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all"].includes(permission)) ||
+    return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all", "change_view_all", "change_approve"].includes(permission)) ||
       roles.some(role => elevatedRoleNames.has(role.name.trim().toLowerCase()));
   }
 
@@ -2131,6 +2267,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Asset Management Permissions
         { name: 'asset_create', description: 'Create new assets', resource: 'assets', action: 'create' },
+        { name: 'asset_view', description: 'View the asset inventory', resource: 'assets', action: 'view' },
+        { name: 'my_assets_view', description: 'View assets assigned to the signed-in employee', resource: 'assets', action: 'view_own' },
         { name: 'asset_update', description: 'Update existing assets', resource: 'assets', action: 'update' },
         { name: 'asset_delete', description: 'Delete assets', resource: 'assets', action: 'delete' },
         { name: 'compliance_view', description: 'View compliance information', resource: 'assets', action: 'view' },
@@ -2175,13 +2313,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { name: 'maintenance_create', description: 'Create maintenance schedules and records', resource: 'maintenance', action: 'create' },
         { name: 'maintenance_update', description: 'Update maintenance schedules and records', resource: 'maintenance', action: 'update' },
         { name: 'maintenance_delete', description: 'Delete maintenance schedules and records', resource: 'maintenance', action: 'delete' },
+        { name: 'access_governance_view', description: 'View access governance records without changing them', resource: 'access_governance', action: 'view' },
+        { name: 'audit_view', description: 'View system audit records', resource: 'audit_logs', action: 'view' },
+        { name: 'cmdb_view', description: 'View application and server configuration records', resource: 'cmdb', action: 'view' },
+        { name: 'finance_view', description: 'View financial management records', resource: 'finance', action: 'view' },
+        { name: 'offboarding_approve', description: 'Review and complete employee offboarding clearance', resource: 'employees', action: 'approve_offboarding' },
+        { name: 'change_view_all', description: 'View all change requests and CAB impact summaries', resource: 'changes', action: 'view' },
+        { name: 'change_approve', description: 'Approve or reject assigned change requests', resource: 'changes', action: 'approve' },
+        { name: 'change_manage', description: 'Manage change requests and CAB assignments', resource: 'changes', action: 'manage' },
       ];
 
       // Create all permissions
       const createdPermissions = new Map();
       const permissionList = Array.from(permissions);
+      const existingPermissionMap = new Map((await storage.getPermissions()).map(permission => [permission.name, permission]));
       for (const permissionData of permissionList) {
-        const permission = await storage.createPermission(permissionData);
+        const permission = existingPermissionMap.get(permissionData.name) ?? await storage.createPermission(permissionData);
         createdPermissions.set(permissionData.name, permission);
       }
 
@@ -2196,7 +2343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: 'IT Manager',
           description: 'IT operations management with most permissions except user management',
           permissions: [
-            'asset_create', 'asset_update', 'asset_delete', 'compliance_view',
+            'asset_view', 'asset_create', 'asset_update', 'asset_delete', 'compliance_view',
             'employee_create', 'employee_update', 'employee_delete',
             'assignment_create', 'assignment_update', 'assignment_delete', 'assignment_return',
             'location_create', 'location_update', 'location_delete',
@@ -2211,7 +2358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           name: 'Asset Manager',
           description: 'Asset and assignment management',
           permissions: [
-            'asset_create', 'asset_update', 'compliance_view',
+            'asset_view', 'asset_create', 'asset_update', 'compliance_view',
             'employee_create', 'employee_update',
             'assignment_create', 'assignment_update', 'assignment_return',
             'location_create', 'location_update',
@@ -2255,6 +2402,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Assign System Administrator role to admin user
       const adminRole = createdRoles.get('System Administrator');
       await storage.assignUserRole(adminUser.id, adminRole.id);
+
+      // The persona roles were provisioned before the initial seed data existed.
+      // Re-run the idempotent grant routine now that base permissions and roles exist.
+      await ensurePersonaRoles();
 
       // Create default system settings
       await storage.createSystemSetting({
@@ -2358,7 +2509,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // --------------------
 
   // Assets routes - all require authentication
-  app.get("/api/assets", requireAuth, requireModule('asset_management'), async (req, res) => {
+  app.get("/api/my/assets", requireAuth, requirePermission("my_assets_view"), async (req: any, res) => {
+    try {
+      const userEmail = req.user?.email;
+      if (!userEmail) return res.json([]);
+      const [employee] = await db.select({ id: employees.id })
+        .from(employees)
+        .where(sql`lower(${employees.email}) = lower(${userEmail})`)
+        .limit(1);
+      if (!employee) return res.json([]);
+
+      const assignedAssets = await db.select({
+        assignmentId: assignments.id,
+        assignedDate: assignments.assignedDate,
+        assetId: assets.id,
+        assetTag: assets.assetTag,
+        name: assets.name,
+        type: assets.type,
+        model: assets.model,
+        serialNumber: assets.serialNumber,
+        status: assets.status,
+      })
+        .from(assignments)
+        .innerJoin(assets, eq(assets.id, assignments.assetId))
+        .where(and(eq(assignments.employeeId, employee.id), isNull(assignments.returnedDate)))
+        .orderBy(desc(assignments.assignedDate), asc(assets.name));
+      res.json(assignedAssets);
+    } catch (error) {
+      console.error("Failed to load assigned assets for current user:", error);
+      res.status(500).json({ message: "Failed to load your assigned assets" });
+    }
+  });
+
+  app.get("/api/assets", requireAuth, requireModule('asset_management'), requireAnyPermission("asset_view", "asset_update", "asset_create", "assignment_create", "assignment_update", "maintenance_create", "maintenance_update", "compliance_view", "system_admin"), async (req, res) => {
     try {
       const assets = await storage.getAssetsWithAssignments();
       const linked = assets.length ? await db.select({
@@ -2370,7 +2553,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/assets/:id", requireAuth, async (req, res) => {
+  app.get("/api/assets/:id", requireAuth, requireAnyPermission("asset_view", "asset_update", "asset_create", "assignment_create", "assignment_update", "maintenance_create", "maintenance_update", "compliance_view", "system_admin"), async (req, res) => {
     try {
       const asset = await storage.getAsset(req.params.id);
       if (!asset) {
@@ -2640,7 +2823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/applications", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const parsed = cmdbPageFilters.extend({
         category: z.string().trim().max(120).optional(),
@@ -2725,7 +2908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applications/:id/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/applications/:id/servers", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const [application] = await db.select({ id: cmdbApplications.id }).from(cmdbApplications).where(eq(cmdbApplications.id, req.params.id));
       if (!application) return res.status(404).json({ message: "Application not found" });
@@ -2746,7 +2929,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/servers", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const parsed = cmdbPageFilters.extend({
         osPlatform: z.string().trim().max(120).optional(),
@@ -2831,7 +3014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/servers/:id/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/servers/:id/applications", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const [server] = await db.select({ id: servers.id }).from(servers).where(eq(servers.id, req.params.id));
       if (!server) return res.status(404).json({ message: "Server not found" });
@@ -3448,7 +3631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/employees/:id/offboarding-review", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+  app.get("/api/employees/:id/offboarding-review", requireAuth, requireModule("asset_management"), requireAnyPermission("employee_update", "offboarding_approve", "system_admin"), async (req, res) => {
     try {
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ message: "Employee not found" });
@@ -3458,7 +3641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/employees/:id/offboard", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+  app.post("/api/employees/:id/offboard", requireAuth, requireModule("asset_management"), requireAnyPermission("employee_update", "offboarding_approve", "system_admin"), async (req, res) => {
     try {
       const input = employeeOffboardingSubmissionSchema.parse(req.body);
       const result = await db.transaction(async tx => {
@@ -3556,7 +3739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/access-governance/catalog", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (_req, res) => {
+  app.get("/api/access-governance/catalog", requireAuth, requireModule("asset_management"), requireAnyPermission("employee_update", "access_governance_view", "system_admin"), async (_req, res) => {
     try {
       res.json(await getAccessSystemCatalog(db));
     } catch (error) {
@@ -3565,7 +3748,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/access-governance", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+  app.get("/api/access-governance", requireAuth, requireModule("asset_management"), requireAnyPermission("employee_update", "access_governance_view", "system_admin"), async (req, res) => {
     try {
       await expireDueEmployeeAccessRights();
       const parsed = z.object({
@@ -4770,7 +4953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/purchase-orders", requireAuth, async (req, res) => {
+  app.get("/api/purchase-orders", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin"), async (req, res) => {
     try {
       const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
       res.json(purchaseOrders);
@@ -5144,7 +5327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Budgets routes
-  app.get("/api/budgets", requireAuth, async (req, res) => {
+  app.get("/api/budgets", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin"), async (req, res) => {
     try {
       const budgets = await storage.getBudgets();
       res.json(budgets);
@@ -6622,7 +6805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ---- END SHORT-PATH REPORT ALIASES ----
 
   // Audit Logs API
-  app.get("/api/audit-logs", requireAuth, async (req, res) => {
+  app.get("/api/audit-logs", requireAuth, requireAnyPermission("audit_view", "system_admin"), async (req, res) => {
     try {
       // Set no-cache headers to prevent browser caching
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -8157,7 +8340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to fetch change" }); }
   });
 
-  app.post("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const user = req.user as any;
       const body = { ...req.body };
@@ -8196,7 +8379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.put("/api/changes/:id", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const oldChange = await storage.getChange(req.params.id);
       const body = { ...req.body };
@@ -8271,7 +8454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     catch { res.status(500).json({ message: "Failed to fetch approvals" }); }
   });
 
-  app.post("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const user = req.user as any;
 
@@ -8369,7 +8552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.put("/api/changes/:changeId/approvals/:approvalId", requireAuth, requireModule("itsm"), requireAnyPermission("change_approve", "change_manage", "system_admin"), async (req, res) => {
     try {
       const user = req.user as any;
       const VALID_DECISIONS = ["approved", "rejected"] as const;
@@ -8410,7 +8593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to fetch PIR" }); }
   });
 
-  app.post("/api/changes/:id/pir", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/pir", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const user = req.user as any;
       const ch = await storage.getChange(req.params.id);
@@ -8425,7 +8608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to create PIR" }); }
   });
 
-  app.put("/api/changes/:id/pir", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.put("/api/changes/:id/pir", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const pir = await storage.updateChangePIR(req.params.id, req.body);
       if (!pir) return res.status(404).json({ message: "PIR not found" });
@@ -8434,7 +8617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Change Workflow Actions ───────────────────────────────────────────────
-  app.post("/api/changes/:id/assign", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/assign", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const { assignedToId, departmentId } = req.body;
       const change = await storage.updateChange(req.params.id, {
@@ -8447,7 +8630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to assign change" }); }
   });
 
-  app.post("/api/changes/:id/submit", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/submit", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
@@ -8464,7 +8647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
   });
 
-  app.post("/api/changes/:id/start", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/start", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
@@ -8497,7 +8680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to start change" }); }
   });
 
-  app.post("/api/changes/:id/complete", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/complete", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
@@ -8507,7 +8690,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to complete change" }); }
   });
 
-  app.post("/api/changes/:id/cancel", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/cancel", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
@@ -8526,7 +8709,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     catch { res.status(500).json({ message: "Failed to fetch stages" }); }
   });
 
-  app.post("/api/changes/:id/stages/init", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.post("/api/changes/:id/stages/init", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const existing = await storage.getChangeStages(req.params.id);
       if (existing.length > 0) return res.json(existing);
@@ -8535,7 +8718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch { res.status(500).json({ message: "Failed to initialize stages" }); }
   });
 
-  app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), async (req, res) => {
+  app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
       const change = await storage.getChange(req.params.id);
       if (!change) return res.status(404).json({ message: "Change not found" });

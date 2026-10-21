@@ -204,6 +204,10 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
   allUsers: UserSummary[];
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManageChange = !!user?.permissions?.some((permission: string) =>
+    permission === "change_manage" || permission === "system_admin",
+  );
   const [completeDialog, setCompleteDialog] = useState<ChangeStage | null>(null);
   const [assignDialog, setAssignDialog]     = useState<ChangeStage | null>(null);
   const [stageNotes, setStageNotes]         = useState("");
@@ -339,10 +343,10 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                     ? <span className="font-medium text-foreground">{userLabel(stage.assignedTo)}</span>
                     : <span className="italic">No assignee</span>}
                 </div>
-                <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] gap-1 text-blue-700 hover:bg-blue-50"
+                {canManageChange && <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] gap-1 text-blue-700 hover:bg-blue-50"
                   onClick={() => { setAssignDialog(stage); setStageAssignee(stage.assignedToId ?? "__none__"); setStageDueDate(stage.dueDate ? stage.dueDate.split("T")[0] : ""); }}>
                   <UserCog className="h-3 w-3" />{stage.assignedToId ? "Reassign" : "Assign"}
-                </Button>
+                </Button>}
               </div>
 
               {/* Due date row */}
@@ -364,7 +368,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
               {stage.evidence && <p className="text-xs text-blue-700 bg-blue-50 rounded p-2">{stage.evidence}</p>}
 
               {/* Action buttons */}
-              <div className="flex gap-2 flex-wrap">
+              {canManageChange && <div className="flex gap-2 flex-wrap">
                 {canStart && (
                   <Button size="sm" variant="outline" className="h-7 gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
                     onClick={() => updateStageMutation.mutate({ stageId: stage.id, status: "in_progress" })}>
@@ -395,7 +399,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                     <SkipForward className="h-3 w-3" />Skip
                   </Button>
                 )}
-              </div>
+              </div>}
             </div>
           );
         })}
@@ -693,8 +697,9 @@ export default function Changes() {
     enabled: !!selectedChange,
     refetchInterval: 60_000,
   });
-  const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"] });
-  const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
+  const canManageChange = isAdmin || isChangeManager;
+  const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"], enabled: canManageChange });
+  const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -855,6 +860,7 @@ export default function Changes() {
 
   // Workflow action buttons based on status
   function WorkflowActions({ change }: { change: ChangeWithDetails }) {
+    if (!isAdmin && !isChangeManager) return null;
     const id = change.id;
     const noCabApprovers = !!change.cabRequired && (change.approvals?.length ?? 0) === 0;
     // CAB gate: cabRequired=true and not all approvals granted
@@ -972,7 +978,7 @@ export default function Changes() {
               ))}
             </PopoverContent>
           </Popover>
-          <Button asChild className="gap-2"><Link href="/changes/new"><Plus className="h-4 w-4" />Propose Change</Link></Button>
+          {(isAdmin || isChangeManager) && <Button asChild className="gap-2"><Link href="/changes/new"><Plus className="h-4 w-4" />Propose Change</Link></Button>}
         </div>
       </div>
 
@@ -1071,7 +1077,7 @@ export default function Changes() {
                 <div className="text-center py-10 text-muted-foreground">
                   <GitMerge className="h-10 w-10 mx-auto mb-3 opacity-30" />
                   <p className="text-sm">No changes found.</p>
-                  <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/changes/new"><Plus className="h-4 w-4 mr-1" />Propose a change</Link></Button>
+                  {(isAdmin || isChangeManager) && <Button asChild variant="outline" size="sm" className="mt-3"><Link href="/changes/new"><Plus className="h-4 w-4 mr-1" />Propose a change</Link></Button>}
                 </div>
               ) : (
                 <Table>
@@ -1108,7 +1114,7 @@ export default function Changes() {
                         <TableCell className="text-sm text-muted-foreground">{c.scheduledStart ? appFormatDate(c.scheduledStart) : "—"}</TableCell>
                         <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                           <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={(e) => openEdit(c, e)}><Pencil className="h-4 w-4" /></Button>
+                            {(isAdmin || isChangeManager) && <Button variant="ghost" size="icon" onClick={(e) => openEdit(c, e)}><Pencil className="h-4 w-4" /></Button>}
                             <AlertDialog>
                               <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
                               <AlertDialogContent>
@@ -1457,7 +1463,7 @@ export default function Changes() {
               {!["completed","cancelled"].includes(currentChange?.status ?? "") && (
                 <div className="space-y-3">
                   {/* Admin/manager: assign any user as approver */}
-                  {isAdmin && (
+                  {(isAdmin || isChangeManager) && (
                     <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/20">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assign Approver</p>
                       <div className="flex gap-2 items-center">
@@ -1488,7 +1494,7 @@ export default function Changes() {
                     </div>
                   )}
                   {/* Self-nomination */}
-                  {!myApproval && !currentChange?.removedApproverIds?.includes(user?.id ?? "") && (
+                  {(isAdmin || isChangeManager) && !myApproval && !currentChange?.removedApproverIds?.includes(user?.id ?? "") && (
                     <div>
                       <Button size="sm" variant="outline" className="gap-1" onClick={() => currentChange && addApproverMutation.mutate({ changeId: currentChange.id })}><UserCheck className="h-4 w-4" />Add myself as approver</Button>
                     </div>
@@ -1565,7 +1571,7 @@ export default function Changes() {
           </Tabs>
 
           <DialogFooter className="pt-2">
-            <Button variant="outline" onClick={() => { const c = currentChange!; setSelectedChange(null); openEdit(c); }}>Edit</Button>
+            {(isAdmin || isChangeManager) && <Button variant="outline" onClick={() => { const c = currentChange!; setSelectedChange(null); openEdit(c); }}>Edit</Button>}
             <Button variant="ghost" onClick={() => setSelectedChange(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>

@@ -54,10 +54,15 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+import { isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const roleNames = user?.roles?.map(role => role.name) ?? [];
+  const permissions = user?.permissions ?? [];
+  const personaRoles = personaRolesForUser(user);
+  const personaScoped = personaRoles.length > 0 && !isSystemAdministrator(user);
   const hasPermission = (permission?: string | string[]) =>
     !permission || (Array.isArray(permission)
       ? permission.some(p => user?.permissions?.includes(p))
@@ -75,9 +80,17 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Employee Support",
       moduleKey: "itsm",
       items: [
-        { name: "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: !isItsmStaff },
+        { name: personaRoles.includes("end_user") ? "My Tickets" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
+        { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.includes("end_user") },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: !personaScoped && !isItsmStaff },
       ]
+    },
+    {
+      title: "My Assets",
+      moduleKey: "asset_management",
+      items: [
+        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", permission: ["my_assets_view", "system_admin"] },
+      ],
     },
     {
       title: "Overview",
@@ -92,8 +105,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
         { name: "Consumables", href: "/consumables", icon: Boxes, current: location === "/consumables" || location === "/inventory" },
-        { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
-        { name: "Access Governance", href: "/access-governance", icon: Shield, current: location === "/access-governance", permission: "employee_update" },
+        { name: "Employees", href: "/employees", icon: Users, current: location === "/employees", permission: ["employee_update", "offboarding_approve", "system_admin"] },
+        { name: "Access Governance", href: "/access-governance", icon: Shield, current: location === "/access-governance", permission: ["employee_update", "access_governance_view", "system_admin"] },
         { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
         { name: "Asset Disposal", href: "/asset-disposal", icon: Trash2, current: location === "/asset-disposal" },
         { name: "Bookings", href: "/bookings", icon: CalendarRange, current: location === "/bookings" },
@@ -104,8 +117,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "CMDB & Infrastructure",
       moduleKey: "asset_management",
       items: [
-        { name: "Applications", href: "/applications", icon: Building2, current: location === "/applications", permission: "asset_update" },
-        { name: "Servers", href: "/servers", icon: Laptop, current: location === "/servers", permission: "asset_update" },
+        { name: "Applications", href: "/applications", icon: Building2, current: location === "/applications", permission: ["asset_update", "cmdb_view", "system_admin"] },
+        { name: "Servers", href: "/servers", icon: Laptop, current: location === "/servers", permission: ["asset_update", "cmdb_view", "system_admin"] },
       ]
     },
     {
@@ -215,6 +228,16 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     return activeSection ? { [activeSection.title]: true } : {};
   });
 
+  const isItemAllowed = (item: any) => {
+    if (!hasPermission(item.permission) || item.visible === false) return false;
+    if (!personaScoped) return true;
+    if (item.hasSubmenu) {
+      return isPersonaPageAllowed(roleNames, permissions, item.href) ||
+        item.submenu?.some((subitem: any) => isPersonaPageAllowed(roleNames, permissions, subitem.href));
+    }
+    return isPersonaPageAllowed(roleNames, permissions, item.href);
+  };
+
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Logo/Header */}
@@ -233,7 +256,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* Navigation Menu */}
       <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
         {navigationSections
-          .filter((section) => isItsmStaff || section.title === "Employee Support")
+          .map(section => ({ ...section, items: section.items.filter(isItemAllowed) }))
+          .filter((section) => section.items.length > 0)
+          .filter((section) => personaScoped || isItsmStaff || section.title === "Employee Support" || section.title === "My Assets")
           .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
           .map((section) => {
             const isSectionExpanded = expandedSections[section.title] ?? false;
@@ -255,7 +280,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 </button>
                 {isSectionExpanded && (
                   <div className="space-y-0.5">
-                    {section.items.filter((item: any) => hasPermission(item.permission) && item.visible !== false).map((item: any) => {
+                    {section.items.map((item: any) => {
                       const Icon = item.icon;
 
                       if (item.hasSubmenu) {
@@ -280,7 +305,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                             </button>
                             {isExpanded && item.submenu && (
                               <div className="ml-4 mt-0.5 space-y-0.5">
-                                {item.submenu.map((subitem: any) => (
+                                {item.submenu.filter((subitem: any) => !personaScoped || isPersonaPageAllowed(roleNames, permissions, subitem.href)).map((subitem: any) => (
                                   <Link
                                     key={subitem.name}
                                     href={subitem.href}

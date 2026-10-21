@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -48,6 +49,8 @@ const labelize = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, 
 
 export default function Servers() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManageCmdb = !!user?.permissions?.includes("asset_update");
   const [search, setSearch] = useState("");
   const [osPlatform, setOsPlatform] = useState("all");
   const [environment, setEnvironment] = useState("all");
@@ -78,7 +81,7 @@ export default function Servers() {
     },
   });
   const { data: platforms = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/os_platform"] });
-  const { data: applicationOptions = [] } = useQuery<ApplicationOption[]>({ queryKey: ["/api/cmdb/application-options"] });
+  const { data: applicationOptions = [] } = useQuery<ApplicationOption[]>({ queryKey: ["/api/cmdb/application-options"], enabled: canManageCmdb });
   const { data: hostedApplications, isFetching: hostedApplicationsLoading, isError: hostedApplicationsError } = useQuery<HostedApplication[]>({
     queryKey: ["/api/servers", editing?.id, "applications"],
     enabled: Boolean(formOpen && editing),
@@ -168,7 +171,7 @@ export default function Servers() {
           <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="online">Online</SelectItem><SelectItem value="maintenance">Maintenance</SelectItem><SelectItem value="offline">Offline</SelectItem></SelectContent>
         </Select>
-        <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Server</Button>
+        {canManageCmdb && <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Server</Button>}
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-card">
@@ -193,8 +196,8 @@ export default function Servers() {
                     <TableCell className="whitespace-nowrap">{formatDateDisplay(record.updatedAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setDocumentsFor(record)} aria-label={`Documents for ${record.hostname}`}><FileText className="mr-1 h-4 w-4" />Documents</Button>
-                        <Button variant="ghost" size="icon" onClick={() => startEdit(record)} aria-label={`Edit ${record.hostname}`}><Pencil className="h-4 w-4" /></Button>
+                        {canManageCmdb && <Button variant="ghost" size="sm" onClick={() => setDocumentsFor(record)} aria-label={`Documents for ${record.hostname}`}><FileText className="mr-1 h-4 w-4" />Documents</Button>}
+                        {canManageCmdb && <Button variant="ghost" size="icon" onClick={() => startEdit(record)} aria-label={`Edit ${record.hostname}`}><Pencil className="h-4 w-4" /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>

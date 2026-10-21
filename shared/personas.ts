@@ -1,0 +1,186 @@
+import type { PersonaRoleKey } from "./schema";
+
+export type PersonaUserLike = {
+  roles?: Array<{ name: string }> | null;
+  permissions?: readonly string[] | null;
+};
+
+const ROLE_ALIASES: Record<PersonaRoleKey, readonly string[]> = {
+  end_user: ["end_user", "end user", "employee"],
+  it_agent: ["it_agent", "it agent", "it staff", "it support staff", "helpdesk agent", "help desk agent"],
+  cab_member: ["cab_member", "cab member", "cab approver"],
+  it_manager: ["it_manager", "it manager", "it operations manager"],
+  auditor: ["auditor", "compliance auditor"],
+};
+
+const IT_AGENT_PAGE_PREFIXES = [
+  "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
+  "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits",
+  "/incidents", "/service-requests", "/problems", "/knowledge-base",
+  "/service-catalog", "/reports/tickets", "/reports/problems",
+];
+
+const MANAGER_PAGE_PREFIXES = [
+  ...IT_AGENT_PAGE_PREFIXES,
+  "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
+  "/contracts", "/employees", "/vendors", "/locations", "/departments",
+];
+
+function normalize(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function matchesPath(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+export function getPersonaRoleKeys(roleNames: readonly string[] = []): PersonaRoleKey[] {
+  const normalizedNames = new Set(roleNames.map(normalize));
+  return (Object.keys(ROLE_ALIASES) as PersonaRoleKey[]).filter(key =>
+    ROLE_ALIASES[key].some(alias => normalizedNames.has(normalize(alias))),
+  );
+}
+
+export function isSystemAdministrator(user: PersonaUserLike | null | undefined): boolean {
+  if (!user) return false;
+  return user.permissions?.includes("system_admin") === true ||
+    user.roles?.some(role => ["system_administrator", "administrator", "admin"].includes(normalize(role.name))) === true;
+}
+
+export function personaRolesForUser(user: PersonaUserLike | null | undefined): PersonaRoleKey[] {
+  return getPersonaRoleKeys(user?.roles?.map(role => role.name) ?? []);
+}
+
+export function getPersonaHomePath(roleNames: readonly string[] = [], permissions: readonly string[] = []): string {
+  if (permissions.includes("system_admin") || roleNames.some(name =>
+    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
+  )) return "/dashboard";
+  const personas = getPersonaRoleKeys(roleNames);
+  if (personas.includes("auditor")) return "/access-governance";
+  if (personas.includes("cab_member")) return "/changes";
+  if (personas.includes("it_manager") || personas.includes("it_agent")) return "/dashboard";
+  return "/portal";
+}
+
+export function isPersonaPageAllowed(
+  roleNames: readonly string[],
+  permissions: readonly string[],
+  requestedPath: string,
+): boolean {
+  if (permissions.includes("system_admin") || roleNames.some(name =>
+    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
+  )) return true;
+
+  const personas = getPersonaRoleKeys(roleNames);
+  if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
+  const path = requestedPath.split(/[?#]/, 1)[0] || "/";
+  if (path === "/") return true;
+
+  return personas.some(persona => {
+    if (persona === "end_user") {
+      return ["/portal", "/service-catalog", "/my-assets", "/incidents", "/service-requests"]
+        .some(prefix => matchesPath(path, prefix));
+    }
+    if (persona === "it_agent") {
+      return IT_AGENT_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
+    }
+    if (persona === "it_manager") {
+      return MANAGER_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
+    }
+    if (persona === "cab_member") {
+      if (matchesPath(path, "/changes/new")) return false;
+      return [
+        "/dashboard", "/changes", "/applications", "/servers", "/purchase-orders",
+        "/budgets", "/contracts", "/employees",
+      ].some(prefix => matchesPath(path, prefix));
+    }
+    return ["/assets", "/access-governance", "/audit-logs"].some(prefix => matchesPath(path, prefix));
+  });
+}
+
+const COMMON_API_PREFIXES = [
+  "/user", "/module-settings", "/modules", "/alerts", "/notifications",
+  "/system/status", "/system/modules", "/dropdowns/options",
+];
+
+function isReadMethod(method: string): boolean {
+  return ["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+}
+
+function isTicketApiAllowed(path: string, method: string): boolean {
+  const upperMethod = method.toUpperCase();
+  if (["/incidents", "/service-requests"].includes(path)) return ["GET", "POST"].includes(upperMethod);
+  if (matchesPath(path, "/catalog/items")) {
+    return upperMethod === "GET" || (upperMethod === "POST" && /\/request$/.test(path));
+  }
+  if (["/incidents/options", "/service-requests/options", "/catalog", "/knowledge-base", "/kb", "/kb-articles"].some(prefix => matchesPath(path, prefix))) {
+    return isReadMethod(upperMethod);
+  }
+  if (path === "/changes") return isReadMethod(upperMethod);
+  const root = ["/incidents", "/service-requests"].find(prefix => matchesPath(path, prefix));
+  if (root) {
+    const detail = new RegExp(`^${root}/(?!events$|projects$|options$)[^/]+$`).test(path);
+    const activity = new RegExp(`^${root}/(?!events$|projects$|options$)[^/]+/activity$`).test(path);
+    const attachment = new RegExp(`^${root}/[^/]+/attachments(?:/[^/]+)?$`).test(path);
+    if (attachment) return ["GET", "POST"].includes(upperMethod);
+    if (detail || activity) return isReadMethod(upperMethod);
+  }
+  if (["/tickets/my-requests", "/tickets/my-assigned"].includes(path)) return isReadMethod(upperMethod);
+  return false;
+}
+
+const IT_AGENT_API_PREFIXES = [
+  "/incidents", "/service-requests", "/tickets", "/problems", "/catalog",
+  "/knowledge-base", "/kb-articles", "/assets", "/assignments", "/maintenance",
+  "/maintenance-schedules", "/maintenance-records", "/asset-bookings",
+  "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
+  "/warehouses", "/inventory", "/vendors", "/locations", "/departments",
+];
+
+const MANAGER_API_PREFIXES = [
+  ...IT_AGENT_API_PREFIXES, "/changes", "/applications", "/servers",
+  "/purchase-orders", "/budgets", "/contracts", "/employees", "/vendors",
+  "/locations", "/departments",
+];
+
+export function isPersonaApiAllowed(
+  roleNames: readonly string[],
+  permissions: readonly string[],
+  path: string,
+  method: string,
+): boolean {
+  if (permissions.includes("system_admin") || roleNames.some(name =>
+    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
+  )) return true;
+  const personas = getPersonaRoleKeys(roleNames);
+  if (personas.length === 0) return true;
+  const apiPath = path.split("?", 1)[0] || "/";
+  const upperMethod = method.toUpperCase();
+
+  if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
+  return personas.some(persona => {
+    if (persona === "end_user") {
+      return (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+        (apiPath === "/consumables" && isReadMethod(upperMethod)) ||
+        isTicketApiAllowed(apiPath, upperMethod);
+    }
+    if (persona === "it_agent") {
+      if (apiPath === "/employees" && isReadMethod(upperMethod)) return true;
+      return IT_AGENT_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
+    }
+    if (persona === "it_manager") {
+      return (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
+        MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
+    }
+    if (persona === "cab_member") {
+      return [
+        "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
+        "/contracts", "/employees", "/cmdb",
+      ].some(prefix => matchesPath(apiPath, prefix));
+    }
+    if (!isReadMethod(upperMethod)) return false;
+    if (apiPath === "/access-governance" || apiPath === "/access-governance/catalog" || apiPath === "/audit-logs") return true;
+    if (apiPath === "/employees") return true;
+    return apiPath === "/assets" || /^\/assets\/[^/]+$/.test(apiPath);
+  });
+}

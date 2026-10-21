@@ -48,6 +48,7 @@ vi.mock("./auth", () => ({
   requireAuth: (req: express.Request, res: express.Response, next: express.NextFunction) =>
     req.isAuthenticated() ? next() : res.sendStatus(401),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  requireAnyPermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
 }));
 

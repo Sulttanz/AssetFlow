@@ -587,6 +587,17 @@ export const users = pgTable("users", {
   twoFactorSecret: text("two_factor_secret"),
 });
 
+// These are the standard workspace personas. The roles table remains text-based
+// so installations can keep their custom roles alongside the built-in personas.
+export const PERSONA_ROLE_KEYS = [
+  "end_user",
+  "it_agent",
+  "cab_member",
+  "it_manager",
+  "auditor",
+] as const;
+export type PersonaRoleKey = (typeof PERSONA_ROLE_KEYS)[number];
+
 export const roles = pgTable("roles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),

@@ -25,6 +25,7 @@ vi.mock("./auth", () => ({
   }),
   requireAuth: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  requireAnyPermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
 }));
 

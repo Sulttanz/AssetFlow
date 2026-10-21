@@ -6,6 +6,8 @@ import type { Server } from "node:http";
 const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
   getRolesWithDetails: vi.fn(),
+  getUserRoles: vi.fn(async () => []),
+  getUserPermissions: vi.fn(async () => []),
   getModuleSetting: vi.fn(),
   getTickets: vi.fn(),
   getAssets: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock("./auth", () => ({
   }),
   requireAuth: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  requireAnyPermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
 }));
 

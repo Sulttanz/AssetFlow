@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { ShoppingCart, Plus, Search, Pencil, Trash2, Laptop, Shield, Wifi, User, Building, Package, CheckCircle2 } from "lucide-react";
@@ -52,6 +53,8 @@ type RequestFormData = z.infer<typeof requestFormSchema>;
 export default function ServiceCatalog() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManageCatalog = !!user?.permissions?.includes("system_admin");
   const [activeTab, setActiveTab] = useState<"storefront"|"admin">("storefront");
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
@@ -142,7 +145,7 @@ export default function ServiceCatalog() {
             <p className="text-sm text-muted-foreground">Browse and request IT services and resources</p>
           </div>
         </div>
-        {activeTab === "admin" && <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Item</Button>}
+        {canManageCatalog && activeTab === "admin" && <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" />Add Item</Button>}
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -150,7 +153,7 @@ export default function ServiceCatalog() {
           <div className="px-6 pt-4 border-b">
             <TabsList>
               <TabsTrigger value="storefront">Service Storefront</TabsTrigger>
-              <TabsTrigger value="admin">Admin / Manage</TabsTrigger>
+               {canManageCatalog && <TabsTrigger value="admin">Admin / Manage</TabsTrigger>}
             </TabsList>
           </div>
 
@@ -222,7 +225,7 @@ export default function ServiceCatalog() {
                   <div className="text-center py-10 text-muted-foreground">
                     <ShoppingCart className="h-10 w-10 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">No catalog items yet.</p>
-                    <Button variant="outline" size="sm" className="mt-3" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Add first item</Button>
+                  {canManageCatalog && <Button variant="outline" size="sm" className="mt-3" onClick={openCreate}><Plus className="h-4 w-4 mr-1" />Add first item</Button>}
                   </div>
                 ) : (
                   <Table>

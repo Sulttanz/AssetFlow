@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -52,6 +53,8 @@ const labelize = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, 
 
 export default function Applications() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManageCmdb = !!user?.permissions?.includes("asset_update");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [hostingType, setHostingType] = useState("all");
@@ -82,7 +85,7 @@ export default function Applications() {
     },
   });
   const { data: categoryOptions = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/application_category"] });
-  const { data: employees = [] } = useQuery<EmployeeOption[]>({ queryKey: ["/api/employees"] });
+  const { data: employees = [] } = useQuery<EmployeeOption[]>({ queryKey: ["/api/employees"], enabled: canManageCmdb });
   const { data: hostedServers = [], isLoading: hostedServersLoading } = useQuery<HostedServer[]>({
     queryKey: ["/api/applications", detailsFor?.id, "servers"],
     enabled: Boolean(detailsFor),
@@ -161,7 +164,7 @@ export default function Applications() {
           <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="retired">Retired</SelectItem></SelectContent>
         </Select>
-        <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Application</Button>
+        {canManageCmdb && <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Application</Button>}
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-card">
@@ -188,8 +191,8 @@ export default function Applications() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => setDetailsFor(record)} aria-label={`View details for ${record.name}`}><Eye className="mr-1 h-4 w-4" />Details</Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDocumentsFor(record)} aria-label={`Documents for ${record.name}`}><FileText className="mr-1 h-4 w-4" />Documents</Button>
-                        <Button variant="ghost" size="icon" onClick={() => startEdit(record)} aria-label={`Edit ${record.name}`}><Pencil className="h-4 w-4" /></Button>
+                        {canManageCmdb && <Button variant="ghost" size="sm" onClick={() => setDocumentsFor(record)} aria-label={`Documents for ${record.name}`}><FileText className="mr-1 h-4 w-4" />Documents</Button>}
+                        {canManageCmdb && <Button variant="ghost" size="icon" onClick={() => startEdit(record)} aria-label={`Edit ${record.name}`}><Pencil className="h-4 w-4" /></Button>}
                       </div>
                     </TableCell>
                   </TableRow>

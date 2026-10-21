@@ -267,5 +267,22 @@ export function requirePermission(permission: string) {
   };
 }
 
+export function requireAnyPermission(...permissions: string[]) {
+  return async (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+
+    try {
+      const user = req.user as SelectUser;
+      const granted = await storage.getUserPermissions(user.id);
+      if (!permissions.some(permission => granted.includes(permission))) {
+        return res.status(403).json({ error: "Insufficient permissions" });
+      }
+      next();
+    } catch {
+      res.status(500).json({ error: "Permission check failed" });
+    }
+  };
+}
+
 // Export password utilities for initial setup
 export { hashPassword, comparePasswords };

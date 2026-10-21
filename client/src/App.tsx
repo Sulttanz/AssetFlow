@@ -65,16 +65,20 @@ import IncidentTracker from "@/pages/incident-tracker";
 import ServiceRequestTracker from "@/pages/service-request-tracker";
 import KpiDashboard from "@/pages/kpis";
 import PortalPage from "@/pages/portal";
+import MyAssignedAssets from "@/pages/my-assigned-assets";
 import NewIncidentPage from "@/pages/new-incident";
 import NewServiceRequestPage from "@/pages/new-service-request";
 import NewChangePage from "@/pages/new-change";
 import Sidebar from "@/components/layout/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+import { getPersonaHomePath } from "@shared/personas";
 
 function HomeRedirect() {
   const { user } = useAuth();
-  return <Redirect to={canAccessItsmWorkbench(user) ? "/dashboard" : "/portal"} />;
+  return <Redirect to={user
+    ? getPersonaHomePath(user.roles?.map(role => role.name) ?? [], user.permissions ?? [])
+    : canAccessItsmWorkbench(user) ? "/dashboard" : "/portal"} />;
 }
 
 function Router() {
@@ -96,26 +100,27 @@ function Router() {
                   <ProtectedRoute path="/" component={HomeRedirect} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
                   <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
-                  <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" />
-                  <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" />
-                  <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredPermission="employee_update" />
-                  <ProtectedRoute path="/applications" component={Applications} requiredModule="asset_management" requiredPermission="asset_update" />
-                  <ProtectedRoute path="/servers" component={Servers} requiredModule="asset_management" requiredPermission="asset_update" />
+                  <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "asset_create", "compliance_view"]} />
+                  <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredPermission="my_assets_view" />
+                  <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" requiredAnyPermission={["employee_update", "offboarding_approve", "system_admin"]} />
+                  <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredAnyPermission={["employee_update", "access_governance_view", "system_admin"]} />
+                  <ProtectedRoute path="/applications" component={Applications} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
+                  <ProtectedRoute path="/servers" component={Servers} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
-                  <ProtectedRoute path="/audit-logs" component={AuditLogs} />
+                  <ProtectedRoute path="/audit-logs" component={AuditLogs} requiredAnyPermission={["audit_view", "system_admin"]} />
                   <ProtectedRoute path="/assignments" component={Assignments} requiredModule="asset_management" />
                   <ProtectedRoute path="/locations" component={Locations} requiredModule="asset_management" />
                   <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
                   <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />
-                  <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" />
+                  <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/consumables" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />
-                  <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" />
+                  <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports" component={Reports} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
@@ -136,7 +141,7 @@ function Router() {
                   <ProtectedRoute path="/settings" component={Settings} />
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
                   <ProtectedRoute path="/bookings" component={AssetBookings} requiredModule="asset_management" />
-                  <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" />
+                  <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <ProtectedRoute path="/incidents/new" component={NewIncidentPage} requiredModule="itsm" />

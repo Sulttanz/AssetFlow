@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
@@ -30,6 +31,10 @@ import {
 const ITEMS_PER_PAGE = 10;
 
 export default function Assets() {
+  const { user } = useAuth();
+  const canManageAssets = !!user?.permissions?.some(permission =>
+    ["asset_update", "asset_create", "asset_delete", "system_admin"].includes(permission),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -50,8 +55,8 @@ export default function Assets() {
     queryKey: ["/api/assets"],
   });
 
-  const { data: departments } = useQuery<Department[]>({ queryKey: ["/api/departments"] });
-  const { data: locations } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
+  const { data: departments } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageAssets });
+  const { data: locations } = useQuery<Location[]>({ queryKey: ["/api/locations"], enabled: canManageAssets });
 
   const bulkUpdateMutation = useMutation({
     mutationFn: async (payload: { assetIds: string[]; updates: Record<string, string | null> }) => {
@@ -270,8 +275,9 @@ export default function Assets() {
       <Header
         title="Assets"
         description="Manage hardware and software assets"
-        onAddClick={handleAddAsset}
+        onAddClick={canManageAssets ? handleAddAsset : undefined}
         addButtonText="Add Asset"
+        showAddButton={canManageAssets}
         searchPlaceholder="Search by name, asset tag, model, serial..."
         onSearch={setSearchQuery}
       />
@@ -337,7 +343,7 @@ export default function Assets() {
             </div>
 
             {/* Bulk Action Toolbar */}
-            {selectedIds.size > 0 && (
+            {canManageAssets && selectedIds.size > 0 && (
               <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
                 <span className="text-sm font-medium text-primary">{selectedIds.size} selected</span>
                 <div className="flex flex-wrap items-center gap-2 flex-1">
@@ -395,13 +401,13 @@ export default function Assets() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10">
+                      {canManageAssets && <TableHead className="w-10">
                         <Checkbox
                           checked={paginatedAssets.length > 0 && selectedIds.size === paginatedAssets.length}
                           onCheckedChange={toggleSelectAll}
                           aria-label="Select all"
                         />
-                      </TableHead>
+                      </TableHead>}
                       <TableHead>Asset Tag</TableHead>
                       <TableHead>Asset Name</TableHead>
                       <TableHead>Type</TableHead>
@@ -417,13 +423,13 @@ export default function Assets() {
                   <TableBody>
                     {paginatedAssets?.map((asset) => (
                       <TableRow key={asset.id} data-testid={`asset-row-${asset.id}`} className={selectedIds.has(asset.id) ? "bg-primary/5" : ""}>
-                        <TableCell>
+                        {canManageAssets && <TableCell>
                           <Checkbox
                             checked={selectedIds.has(asset.id)}
                             onCheckedChange={() => toggleSelectOne(asset.id)}
                             aria-label={`Select ${asset.name}`}
                           />
-                        </TableCell>
+                        </TableCell>}
                         <TableCell>
                           <code className="bg-muted px-2 py-1 rounded text-xs font-mono">
                             {(asset as any).assetTag || asset.id.slice(0, 8).toUpperCase()}
@@ -460,30 +466,30 @@ export default function Assets() {
                             >
                               <QrCode className="h-4 w-4" />
                             </Button>
-                            <Button 
+                            {canManageAssets && <Button
                               variant="ghost" 
                               size="sm" 
                               onClick={() => handleEditAsset(asset)}
                               data-testid={`view-asset-${asset.id}`}
                             >
                               <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button 
+                            </Button>}
+                            {canManageAssets && <Button
                               variant="ghost" 
                               size="sm" 
                               onClick={() => handleEditAsset(asset)}
                               data-testid={`edit-asset-${asset.id}`}
                             >
                               <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button 
+                            </Button>}
+                            {user?.permissions?.includes("asset_delete") && <Button
                               variant="ghost" 
                               size="sm" 
                               onClick={() => handleDeleteAsset(asset.id)}
                               data-testid={`delete-asset-${asset.id}`}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            </Button>}
                           </div>
                         </TableCell>
                       </TableRow>
