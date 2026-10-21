@@ -46,5 +46,10 @@ describe("persona access policy", () => {
     expect(isPersonaApiAllowed(["cab_member"], [], "/changes/change-1/approvals/approval-1", "PUT")).toBe(true);
     expect(isPersonaApiAllowed(["it_manager"], [], "/budgets", "GET")).toBe(true);
     expect(isPersonaApiAllowed(["it_manager"], [], "/incidents", "PATCH")).toBe(true);
+    expect(isPersonaApiAllowed(["cab_member"], [], "/dashboard/executive", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["it_manager"], [], "/dashboard/executive", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["it_agent"], [], "/dashboard/executive", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/dashboard/executive", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["auditor"], [], "/dashboard/executive", "GET")).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
+  assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
@@ -394,7 +394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
     const moduleKey = moduleForApiPath(apiPath);
     const personaGuardedPaths = [
-      "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets",
+      "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/dashboard/executive",
       "/cmdb", "/consumables",
     ];
     const requiresPersonaCheck = moduleKey !== undefined ||
@@ -4291,6 +4291,205 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  app.get("/api/dashboard/executive", requireAuth, async (req, res) => {
+    try {
+      const [userRoles, userPermissions] = await Promise.all([
+        storage.getUserRoles(req.user!.id),
+        storage.getUserPermissions(req.user!.id),
+      ]);
+      const roleNames = userRoles.map(role => role.name.trim().toLowerCase().replace(/[\s-]+/g, "_"));
+      const isAdmin = userPermissions.includes("system_admin") ||
+        roleNames.some(name => ["admin", "administrator", "system_administrator"].includes(name));
+      const personaRoles = getPersonaRoleKeys(userRoles.map(role => role.name));
+      if (!isAdmin && !personaRoles.some(role => role === "it_manager" || role === "cab_member")) {
+        return res.status(403).json({ message: "Executive analytics are available to IT Managers, CAB Members, and administrators" });
+      }
+
+      const now = new Date();
+      const today = toDateInputValue(now);
+      const accessThroughDate = new Date(now);
+      accessThroughDate.setDate(accessThroughDate.getDate() + 30);
+      const accessThrough = toDateInputValue(accessThroughDate);
+      const contractThrough = new Date(now);
+      contractThrough.setDate(contractThrough.getDate() + 30);
+      const contractThroughDate = toDateInputValue(contractThrough);
+      const slaRiskThrough = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+
+      const [
+        identityCounts,
+        serverCounts,
+        activeApplications,
+        configurationFileCount,
+        incidentPriorityCounts,
+        resolutionSla,
+        pendingApprovalCount,
+        slaRiskCount,
+        financialCounts,
+        accessExpiryCounts,
+        criticalityCounts,
+        pendingOffboardingCount,
+        pendingOffboardings,
+        pendingApprovals,
+        expiredAccessItems,
+      ] = await Promise.all([
+        db.select({
+          activeEmployees: sql<number>`count(*) FILTER (WHERE ${employees.status} = 'active')::int`,
+        }).from(employees),
+        db.select({
+          total: sql<number>`count(*)::int`,
+          online: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'online')::int`,
+          maintenance: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'maintenance')::int`,
+          offline: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'offline')::int`,
+        }).from(servers),
+        db.select({ total: sql<number>`count(*)::int` }).from(cmdbApplications)
+          .where(sql`lower(${cmdbApplications.status}) = 'active'`),
+        db.select({ total: sql<number>`count(*)::int` }).from(configurationDocuments).where(sql`
+          lower(${configurationDocuments.documentType}) LIKE '%config%'
+          OR lower(${configurationDocuments.originalName}) ~ '\\.(conf|ini|txt)$'
+        `),
+        db.select({
+          P1: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P1' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
+          P2: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P2' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
+          P3: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P3' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
+          P4: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P4' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
+        }).from(incidents),
+        db.select({
+          withinSla: sql<number>`count(*) FILTER (WHERE ${incidents.resolvedAt} <= ${incidents.resolveDueAt})::int`,
+          breached: sql<number>`count(*) FILTER (WHERE ${incidents.resolvedAt} > ${incidents.resolveDueAt})::int`,
+        }).from(incidents).where(and(
+          sql`${incidents.resolvedAt} IS NOT NULL`,
+          sql`${incidents.resolveDueAt} IS NOT NULL`,
+        )),
+        db.select({ total: sql<number>`count(*)::int` }).from(changeApprovals).where(and(
+          isNull(changeApprovals.removedAt),
+          or(isNull(changeApprovals.decision), eq(changeApprovals.decision, "pending")),
+        )),
+        db.select({ total: sql<number>`count(*)::int` }).from(incidents).where(and(
+          sql`lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled')`,
+          sql`${incidents.resolveDueAt} IS NOT NULL AND ${incidents.resolveDueAt} <= ${slaRiskThrough}`,
+        )),
+        db.select({
+          hardwareAssetValuation: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) <> 'software' THEN COALESCE(${assets.currentBookValue}, ${assets.currentValue}, ${assets.purchasePrice}, 0) ELSE 0 END), 0)::float8`,
+          usedSeats: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) = 'software' THEN COALESCE(${assets.usedSeats}, 0) ELSE 0 END), 0)::float8`,
+          totalSeats: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) = 'software' THEN COALESCE(${assets.licenseQuantity}, 0) ELSE 0 END), 0)::float8`,
+        }).from(assets),
+        db.select({
+          valid: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'active' AND (${employeeAccessRights.expiresAt} IS NULL OR ${employeeAccessRights.expiresAt} > ${accessThrough}::date))::int`,
+          expiring: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${accessThrough}::date)::int`,
+          expired: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'expired' OR (${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date))::int`,
+        }).from(employeeAccessRights),
+        db.select({
+          P1: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P1')::int`,
+          P2: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P2')::int`,
+          P3: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P3')::int`,
+          P4: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P4')::int`,
+        }).from(cmdbApplications).where(sql`lower(${cmdbApplications.status}) = 'active'`),
+        db.select({ total: sql<number>`count(*)::int` }).from(employees).where(and(
+          eq(employees.status, "disabled"),
+          sql`(SELECT count(DISTINCT c.clearance_type)
+               FROM employee_offboarding_clearances c
+               WHERE c.employee_id = ${employees.id}
+                 AND c.offboarding_date = ${employees.offboardedDate}) < 3`,
+        )),
+        db.select({
+          id: employees.id,
+          title: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+          createdAt: employees.offboardedDate,
+        }).from(employees).where(and(
+          eq(employees.status, "disabled"),
+          sql`(SELECT count(DISTINCT c.clearance_type)
+               FROM employee_offboarding_clearances c
+               WHERE c.employee_id = ${employees.id}
+                 AND c.offboarding_date = ${employees.offboardedDate}) < 3`,
+        )).limit(8),
+        db.selectDistinct({
+          id: changes.id,
+          title: changes.title,
+          changeNumber: changes.changeNumber,
+          priority: changes.priority,
+          createdAt: changes.createdAt,
+        }).from(changeApprovals).innerJoin(changes, eq(changeApprovals.changeId, changes.id)).where(and(
+          isNull(changeApprovals.removedAt),
+          or(isNull(changeApprovals.decision), eq(changeApprovals.decision, "pending")),
+        )).orderBy(desc(changes.createdAt)).limit(8),
+        db.select({
+          id: employeeAccessRights.id,
+          systemName: employeeAccessRights.applicationName,
+          expiresAt: employeeAccessRights.expiresAt,
+          employeeName: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
+        }).from(employeeAccessRights).innerJoin(employees, eq(employeeAccessRights.employeeId, employees.id)).where(or(
+          eq(employeeAccessRights.status, "expired"),
+          and(
+            eq(employeeAccessRights.status, "active"),
+            sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date`,
+          ),
+        )).orderBy(asc(employeeAccessRights.expiresAt)).limit(8),
+      ]);
+
+      const [contractCount] = await db.select({ total: sql<number>`count(*)::int` })
+        .from(contracts).where(and(
+          eq(contracts.status, "active"),
+          sql`${contracts.endDate} IS NOT NULL AND ${contracts.endDate} >= ${today}::date AND ${contracts.endDate} <= ${contractThroughDate}::date`,
+        ));
+
+      const incidentsByPriority = incidentPriorityCounts[0] ?? { P1: 0, P2: 0, P3: 0, P4: 0 };
+      const seats = financialCounts[0] ?? { hardwareAssetValuation: 0, usedSeats: 0, totalSeats: 0 };
+      const attentionQueue = [
+        ...pendingOffboardings.map(item => ({
+          id: item.id, type: "offboarding", title: `Pending offboarding: ${item.title}`,
+          description: "Required clearance records are incomplete.", href: "/employees",
+          priority: "high", createdAt: item.createdAt,
+        })),
+        ...pendingApprovals.map(item => ({
+          id: item.id, type: "change_approval", title: `CAB approval: ${item.changeNumber}`,
+          description: item.title, href: "/changes", priority: item.priority ?? "medium", createdAt: item.createdAt,
+        })),
+        ...expiredAccessItems.map(item => ({
+          id: item.id, type: "expired_access", title: `Expired access: ${item.systemName}`,
+          description: `${item.employeeName} · expiry ${item.expiresAt ?? "expired"}`,
+          href: "/access-governance", priority: "critical", createdAt: item.expiresAt,
+        })),
+      ].sort((a, b) => {
+        const priorityOrder: Record<string, number> = { critical: 0, high: 1, P1: 0, P2: 1, medium: 2, P3: 3, low: 4, P4: 4 };
+        return (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3);
+      }).slice(0, 12);
+
+      res.json({
+        identity: {
+          activeEmployees: identityCounts[0]?.activeEmployees ?? 0,
+          pendingOffboardingClearances: pendingOffboardingCount[0]?.total ?? 0,
+          expiringAccessGrants: accessExpiryCounts[0]?.expiring ?? 0,
+          expiredAccessGrants: accessExpiryCounts[0]?.expired ?? 0,
+        },
+        infrastructure: {
+          totalServers: serverCounts[0]?.total ?? 0,
+          serversOnline: serverCounts[0]?.online ?? 0,
+          serversMaintenance: serverCounts[0]?.maintenance ?? 0,
+          serversOffline: serverCounts[0]?.offline ?? 0,
+          activeApplications: activeApplications[0]?.total ?? 0,
+          configurationFiles: configurationFileCount[0]?.total ?? 0,
+        },
+        serviceDesk: {
+          openIncidentsByPriority: incidentsByPriority,
+          pendingCabApprovals: pendingApprovalCount[0]?.total ?? 0,
+          slaBreachRiskCount: slaRiskCount[0]?.total ?? 0,
+          resolutionSla: resolutionSla[0] ?? { withinSla: 0, breached: 0 },
+        },
+        itam: {
+          hardwareAssetValuation: seats.hardwareAssetValuation,
+          softwareSeatUtilization: seats.totalSeats > 0 ? Math.min(100, Math.round((seats.usedSeats / seats.totalSeats) * 100)) : 0,
+          contractsExpiring30Days: contractCount?.total ?? 0,
+        },
+        accessExpiry: accessExpiryCounts[0] ?? { valid: 0, expiring: 0, expired: 0 },
+        applicationCriticality: criticalityCounts[0] ?? { P1: 0, P2: 0, P3: 0, P4: 0 },
+        attentionQueue,
+      });
+    } catch (error) {
+      console.error("Failed to build executive dashboard aggregates:", error);
+      res.status(500).json({ message: "Failed to fetch executive dashboard data" });
     }
   });
 

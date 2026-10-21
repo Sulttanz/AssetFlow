@@ -169,11 +169,12 @@ export function isPersonaApiAllowed(
       return IT_AGENT_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "it_manager") {
-      return (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
+      return apiPath === "/dashboard/executive" ||
+        (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "cab_member") {
-      return [
+      return apiPath === "/dashboard/executive" || [
         "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
         "/contracts", "/employees", "/cmdb",
       ].some(prefix => matchesPath(apiPath, prefix));
