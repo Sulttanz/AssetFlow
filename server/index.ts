@@ -41,6 +41,7 @@ process.on('SIGINT', () => {
 });
 
 const app = express();
+app.use("/api/report-exports/xlsx", express.json({ limit: "10mb" }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

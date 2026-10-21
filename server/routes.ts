@@ -6,6 +6,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
@@ -40,6 +41,7 @@ import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
 import { cabApprovalsGranted } from "./cab-gate";
 import { compareAppVersions } from "./startup-migrations";
+import { buildReportWorkbook, reportExportSchema } from "./report-export";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -387,6 +389,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   await ensureItsmPermissions();
   await ensurePersonaRoles();
+
+  // Format only the data supplied by an authenticated viewer; this endpoint
+  // does not query records or broaden the viewer's report access.
+  app.post("/api/report-exports/xlsx", requireAuth, rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many spreadsheet exports. Please try again in a minute." },
+  }), async (req, res) => {
+    try {
+      const input = reportExportSchema.parse(req.body);
+      const workbook = buildReportWorkbook(input);
+      const buffer = await workbook.xlsx.writeBuffer();
+      res.attachment(`${input.filename}.xlsx`);
+      res.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid spreadsheet export data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to generate Excel report" });
+    }
+  });
 
   // Apply persona and module enforcement centrally so API endpoints remain
   // scoped even when an individual handler only has authentication middleware.

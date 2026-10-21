@@ -1,4 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
+import { lazy, Suspense } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,72 +8,73 @@ import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
-import Dashboard from "@/pages/dashboard";
-import Assets from "@/pages/assets";
-import Employees from "@/pages/employees";
-import AccessGovernance from "@/pages/access-governance";
-import Applications from "@/pages/applications";
-import Servers from "@/pages/servers";
-import Assignments from "@/pages/assignments";
-import Locations from "@/pages/locations";
-import Departments from "@/pages/departments";
-import Vendors from "@/pages/vendors";
-import PurchaseOrders from "@/pages/purchase-orders";
-import Consumables from "@/pages/consumables";
-import Budgets from "@/pages/budgets";
-import Maintenance from "@/pages/maintenance";
-import Users from "@/pages/users";
-import Roles from "@/pages/roles";
-import Permissions from "@/pages/permissions";
-import SystemSettings from "@/pages/system-settings";
 import SystemInitialization from "@/pages/system-initialization";
-import AuditLogs from "@/pages/audit-logs";
-import DropdownManagement from "@/pages/dropdown-management";
-import Reports from "@/pages/reports";
-import AssetSummaryReport from "@/pages/reports/asset-summary";
-import LifecycleReport from "@/pages/reports/lifecycle";
-import HardwareInventoryReport from "@/pages/reports/hardware-inventory";
-import AssignmentsReport from "@/pages/reports/assignments";
-import MaintenanceReport from "@/pages/reports/maintenance";
-import PurchaseOrdersReport from "@/pages/reports/purchase-orders";
-import BudgetReport from "@/pages/reports/budget";
-import DepartmentReport from "@/pages/reports/department";
-import WarrantiesReport from "@/pages/reports/warranties";
-import VendorAnalysisReport from "@/pages/reports/vendor-analysis";
-import ReleasedAssetsReport from "@/pages/reports/released-assets";
-import DepreciationReport from "@/pages/reports/depreciation";
-import MissingDataReport from "@/pages/reports/missing-data";
-import AssignmentHistoryReport from "@/pages/reports/assignment-history";
-import ImportPage from "@/pages/import";
-import Settings from "@/pages/settings";
-import AssetDisposal from "@/pages/asset-disposal";
-import AssetBookings from "@/pages/asset-bookings";
-import Contracts from "@/pages/contracts";
-import AssetAudits from "@/pages/asset-audits";
-import AssetRequests from "@/pages/asset-requests";
-import TicketReport from "@/pages/reports/tickets";
-import ProblemsReport from "@/pages/reports/problems";
-import ChangesReport from "@/pages/reports/changes";
-import KnowledgeBaseReport from "@/pages/reports/knowledge-base";
-import SlaPolicies from "@/pages/sla-policies";
-import KnowledgeBase from "@/pages/knowledge-base";
-import Problems from "@/pages/problems";
-import ServiceCatalog from "@/pages/service-catalog";
-import Changes from "@/pages/changes";
-import ChangeTracker from "@/pages/change-tracker";
-import RiskManagement from "@/pages/risk-management";
-import IncidentTracker from "@/pages/incident-tracker";
-import ServiceRequestTracker from "@/pages/service-request-tracker";
-import KpiDashboard from "@/pages/kpis";
-import PortalPage from "@/pages/portal";
-import MyAssignedAssets from "@/pages/my-assigned-assets";
-import NewIncidentPage from "@/pages/new-incident";
-import NewServiceRequestPage from "@/pages/new-service-request";
-import NewChangePage from "@/pages/new-change";
 import Sidebar from "@/components/layout/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { getPersonaHomePath } from "@shared/personas";
+
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Assets = lazy(() => import("@/pages/assets"));
+const Employees = lazy(() => import("@/pages/employees"));
+const AccessGovernance = lazy(() => import("@/pages/access-governance"));
+const Applications = lazy(() => import("@/pages/applications"));
+const Servers = lazy(() => import("@/pages/servers"));
+const Assignments = lazy(() => import("@/pages/assignments"));
+const Locations = lazy(() => import("@/pages/locations"));
+const Departments = lazy(() => import("@/pages/departments"));
+const Vendors = lazy(() => import("@/pages/vendors"));
+const PurchaseOrders = lazy(() => import("@/pages/purchase-orders"));
+const Consumables = lazy(() => import("@/pages/consumables"));
+const Budgets = lazy(() => import("@/pages/budgets"));
+const Maintenance = lazy(() => import("@/pages/maintenance"));
+const Users = lazy(() => import("@/pages/users"));
+const Roles = lazy(() => import("@/pages/roles"));
+const Permissions = lazy(() => import("@/pages/permissions"));
+const SystemSettings = lazy(() => import("@/pages/system-settings"));
+const AuditLogs = lazy(() => import("@/pages/audit-logs"));
+const DropdownManagement = lazy(() => import("@/pages/dropdown-management"));
+const Reports = lazy(() => import("@/pages/reports"));
+const AssetSummaryReport = lazy(() => import("@/pages/reports/asset-summary"));
+const LifecycleReport = lazy(() => import("@/pages/reports/lifecycle"));
+const HardwareInventoryReport = lazy(() => import("@/pages/reports/hardware-inventory"));
+const AssignmentsReport = lazy(() => import("@/pages/reports/assignments"));
+const MaintenanceReport = lazy(() => import("@/pages/reports/maintenance"));
+const PurchaseOrdersReport = lazy(() => import("@/pages/reports/purchase-orders"));
+const BudgetReport = lazy(() => import("@/pages/reports/budget"));
+const DepartmentReport = lazy(() => import("@/pages/reports/department"));
+const WarrantiesReport = lazy(() => import("@/pages/reports/warranties"));
+const VendorAnalysisReport = lazy(() => import("@/pages/reports/vendor-analysis"));
+const ReleasedAssetsReport = lazy(() => import("@/pages/reports/released-assets"));
+const DepreciationReport = lazy(() => import("@/pages/reports/depreciation"));
+const MissingDataReport = lazy(() => import("@/pages/reports/missing-data"));
+const AssignmentHistoryReport = lazy(() => import("@/pages/reports/assignment-history"));
+const ImportPage = lazy(() => import("@/pages/import"));
+const Settings = lazy(() => import("@/pages/settings"));
+const AssetDisposal = lazy(() => import("@/pages/asset-disposal"));
+const AssetBookings = lazy(() => import("@/pages/asset-bookings"));
+const Contracts = lazy(() => import("@/pages/contracts"));
+const AssetAudits = lazy(() => import("@/pages/asset-audits"));
+const AssetRequests = lazy(() => import("@/pages/asset-requests"));
+const TicketReport = lazy(() => import("@/pages/reports/tickets"));
+const ProblemsReport = lazy(() => import("@/pages/reports/problems"));
+const ChangesReport = lazy(() => import("@/pages/reports/changes"));
+const KnowledgeBaseReport = lazy(() => import("@/pages/reports/knowledge-base"));
+const SlaPolicies = lazy(() => import("@/pages/sla-policies"));
+const KnowledgeBase = lazy(() => import("@/pages/knowledge-base"));
+const Problems = lazy(() => import("@/pages/problems"));
+const ServiceCatalog = lazy(() => import("@/pages/service-catalog"));
+const Changes = lazy(() => import("@/pages/changes"));
+const ChangeTracker = lazy(() => import("@/pages/change-tracker"));
+const RiskManagement = lazy(() => import("@/pages/risk-management"));
+const IncidentTracker = lazy(() => import("@/pages/incident-tracker"));
+const ServiceRequestTracker = lazy(() => import("@/pages/service-request-tracker"));
+const KpiDashboard = lazy(() => import("@/pages/kpis"));
+const PortalPage = lazy(() => import("@/pages/portal"));
+const MyAssignedAssets = lazy(() => import("@/pages/my-assigned-assets"));
+const NewIncidentPage = lazy(() => import("@/pages/new-incident"));
+const NewServiceRequestPage = lazy(() => import("@/pages/new-service-request"));
+const NewChangePage = lazy(() => import("@/pages/new-change"));
 
 function HomeRedirect() {
   const { user } = useAuth();
@@ -96,6 +98,7 @@ function Router() {
             <div className="flex min-h-[100dvh] bg-background overflow-x-hidden">
               <Sidebar />
               <div className="flex-1 overflow-auto pt-14 md:pt-0">
+                <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground" role="status">Loading workspace…</div>}>
                 <Switch>
                   <ProtectedRoute path="/" component={HomeRedirect} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
@@ -166,6 +169,7 @@ function Router() {
                   <ProtectedRoute path="/kpis" component={KpiDashboard} />
                   <Route component={NotFound} />
                 </Switch>
+                </Suspense>
               </div>
             </div>
           );

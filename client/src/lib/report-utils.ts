@@ -1,4 +1,3 @@
-import ExcelJS from 'exceljs';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatDateDisplay, formatDateTime } from "./date-utils";
@@ -10,39 +9,24 @@ export async function exportToExcel(
   columns: { header: string; key: string; width?: number }[],
   filename: string
 ) {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Report');
-
-  // Add columns
-  worksheet.columns = columns.map(col => ({
-    header: col.header,
-    key: col.key,
-    width: col.width || 15,
-  }));
-
-  // Style header row
-  worksheet.getRow(1).font = { bold: true };
-  worksheet.getRow(1).fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF4A5568' }
-  };
-  worksheet.getRow(1).font = { color: { argb: 'FFFFFFFF' }, bold: true };
-
-  // Add data rows
-  data.forEach(item => {
-    worksheet.addRow(Object.fromEntries(Object.entries(item).map(([key, value]) => [key, formatExportValue(value)])));
+  const response = await fetch("/api/report-exports/xlsx", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      data: data.map(item => Object.fromEntries(columns.map(column => [
+        column.key,
+        formatExportValue(item[column.key]),
+      ]))),
+      columns,
+      filename,
+    }),
   });
-
-  // Auto-filter
-  worksheet.autoFilter = {
-    from: 'A1',
-    to: String.fromCharCode(64 + columns.length) + '1'
-  };
-
-  // Generate file
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.message ?? "Failed to generate Excel report");
+  }
+  const blob = await response.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
