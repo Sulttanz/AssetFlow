@@ -11,6 +11,8 @@ import Dashboard from "@/pages/dashboard";
 import Assets from "@/pages/assets";
 import Employees from "@/pages/employees";
 import AccessGovernance from "@/pages/access-governance";
+import Applications from "@/pages/applications";
+import Servers from "@/pages/servers";
 import Assignments from "@/pages/assignments";
 import Locations from "@/pages/locations";
 import Departments from "@/pages/departments";
@@ -97,6 +99,8 @@ function Router() {
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" />
                   <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" />
                   <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredPermission="employee_update" />
+                  <ProtectedRoute path="/applications" component={Applications} requiredModule="asset_management" requiredPermission="asset_update" />
+                  <ProtectedRoute path="/servers" component={Servers} requiredModule="asset_management" requiredPermission="asset_update" />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />

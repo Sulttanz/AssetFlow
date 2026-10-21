@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -639,6 +639,41 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+export const cmdbApplications = pgTable("cmdb_applications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  vendor: text("vendor"),
+  businessOwner: varchar("business_owner").references(() => employees.id, { onDelete: "set null" }),
+  technicalOwner: varchar("technical_owner").references(() => employees.id, { onDelete: "set null" }),
+  hostingType: text("hosting_type").notNull(),
+  criticalityRating: text("criticality_rating").notNull().default("P3"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("cmdb_applications_name_ci_unique").on(sql`lower(btrim(${table.name}))`),
+  index("cmdb_applications_category_status_idx").on(table.category, table.status),
+]);
+export type CmdbApplication = typeof cmdbApplications.$inferSelect;
+
+export const servers = pgTable("servers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  hostname: text("hostname").notNull(),
+  ipAddress: text("ip_address"),
+  osPlatform: text("os_platform").notNull(),
+  environment: text("environment").notNull(),
+  cpuRamSpecs: text("cpu_ram_specs"),
+  location: text("location"),
+  status: text("status").notNull().default("online"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("servers_hostname_ci_unique").on(sql`lower(btrim(${table.hostname}))`),
+  index("servers_environment_status_idx").on(table.environment, table.status),
+]);
+export type Server = typeof servers.$inferSelect;
+
 // Dropdown Options - Manage all dropdown values
 export const dropdownOptions = pgTable("dropdown_options", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -794,6 +829,32 @@ export const assetAttachments = pgTable("asset_attachments", {
   uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   uploadedAt: timestamp("uploaded_at").default(sql`now()`),
 });
+
+export const configurationDocuments = pgTable("configuration_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: varchar("application_id").references(() => cmdbApplications.id, { onDelete: "restrict" }),
+  serverId: varchar("server_id").references(() => servers.id, { onDelete: "restrict" }),
+  documentType: text("document_type").notNull(),
+  version: integer("version").notNull().default(1),
+  originalName: text("original_name").notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  filePath: text("file_path").notNull(),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").notNull().default(sql`now()`),
+}, table => [
+  check("configuration_documents_one_parent_check", sql`num_nonnulls(${table.applicationId}, ${table.serverId}) = 1`),
+  index("configuration_documents_application_idx").on(table.applicationId, table.uploadedAt),
+  index("configuration_documents_server_idx").on(table.serverId, table.uploadedAt),
+  uniqueIndex("configuration_documents_app_version_unique")
+    .on(table.applicationId, sql`lower(btrim(${table.originalName}))`, table.documentType, table.version)
+    .where(sql`${table.applicationId} IS NOT NULL`),
+  uniqueIndex("configuration_documents_server_version_unique")
+    .on(table.serverId, sql`lower(btrim(${table.originalName}))`, table.documentType, table.version)
+    .where(sql`${table.serverId} IS NOT NULL`),
+]);
+export type ConfigurationDocument = typeof configurationDocuments.$inferSelect;
 
 export const insertAssetAttachmentSchema = createInsertSchema(assetAttachments).omit({ id: true, uploadedAt: true });
 export type InsertAssetAttachment = z.infer<typeof insertAssetAttachmentSchema>;
@@ -983,13 +1044,38 @@ export const insertAssetSchema = createInsertSchema(assets, {
   recurringCost: z.string().regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter a non-negative cost with up to two decimal places").nullable().optional(),
   billingCycle: z.enum(["monthly", "annual"]).nullable().optional(),
 }).omit({ id: true });
+export const insertCmdbApplicationSchema = createInsertSchema(cmdbApplications, {
+  name: z.string().trim().min(1).max(200),
+  category: z.string().trim().min(1).max(120),
+  vendor: z.string().trim().max(200).nullable().optional(),
+  hostingType: z.enum(["saas", "on_prem", "hybrid"]),
+  criticalityRating: z.enum(["P1", "P2", "P3", "P4"]),
+  status: z.enum(["active", "inactive", "retired"]),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCmdbApplication = z.infer<typeof insertCmdbApplicationSchema>;
+export const insertServerSchema = createInsertSchema(servers, {
+  hostname: z.string().trim().min(1).max(255),
+  ipAddress: z.string().trim().max(100).nullable().optional(),
+  osPlatform: z.string().trim().min(1).max(120),
+  environment: z.enum(["production", "staging", "development"]),
+  cpuRamSpecs: z.string().trim().max(1000).nullable().optional(),
+  location: z.string().trim().max(255).nullable().optional(),
+  status: z.enum(["online", "maintenance", "offline"]),
+}).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertServer = z.infer<typeof insertServerSchema>;
+export const insertConfigurationDocumentSchema = createInsertSchema(configurationDocuments, {
+  documentType: z.string().trim().min(1).max(120),
+  version: z.number().int().positive(),
+  originalName: z.string().trim().min(1).max(255),
+  fileName: z.string().trim().min(1).max(255),
+}).omit({ id: true, uploadedAt: true });
 export const insertEmployeeSchema = createInsertSchema(employees, {
   status: z.enum(["active", "disabled"]).default("active"),
 }).omit({ id: true });
 export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccessRights, {
   applicationName: z.string().trim().min(1).max(200),
   accessType: z.enum(["application", "network_vpn", "server_remote_access", "cloud_tenant"]).default("application"),
-  catalogSource: z.enum(["asset", "dropdown", "legacy"]).default("legacy"),
+  catalogSource: z.enum(["application", "server", "asset", "dropdown", "legacy"]).default("legacy"),
   catalogItemId: z.string().trim().min(1).max(200).nullable().optional(),
   privilegeLevel: z.string().trim().min(1).max(100),
   accountUsername: z.string().trim().max(200).nullable().optional(),

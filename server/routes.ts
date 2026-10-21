@@ -19,7 +19,8 @@ import {
   assetAttachments, ticketAttachments, risks, changes, users, employees, employeeAccessRights, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
-  insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems
+  insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
+  cmdbApplications, servers, configurationDocuments, insertCmdbApplicationSchema, insertServerSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -2514,6 +2515,180 @@ export async function registerRoutes(app: Express): Promise<Server> {
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   });
 
+  const hasActiveDropdownValue = async (category: string, value: string) => {
+    const normalizedCategory = normalizeLookupKey(category);
+    const normalizedValue = normalizeLookupKey(value);
+    const [option] = await db.select({ id: dropdownOptions.id }).from(dropdownOptions).where(and(
+      sql`lower(btrim(${dropdownOptions.category})) = ${normalizedCategory}`,
+      sql`lower(btrim(${dropdownOptions.value})) = ${normalizedValue}`,
+      eq(dropdownOptions.isActive, true),
+    )).limit(1);
+    return Boolean(option);
+  };
+
+  const cmdbPageFilters = z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.enum(["20", "50"]).default("20").transform(Number),
+    search: z.string().trim().max(120).optional(),
+  });
+
+  app.get("/api/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const parsed = cmdbPageFilters.extend({
+        category: z.string().trim().max(120).optional(),
+        hostingType: z.enum(["all", "saas", "on_prem", "hybrid"]).default("all"),
+        status: z.enum(["all", "active", "inactive", "retired"]).default("all"),
+      }).safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid application filters", errors: parsed.error.errors });
+      const { page, pageSize, search, category, hostingType, status } = parsed.data;
+      const conditions = [];
+      if (category) conditions.push(eq(cmdbApplications.category, category));
+      if (hostingType !== "all") conditions.push(eq(cmdbApplications.hostingType, hostingType));
+      if (status !== "all") conditions.push(eq(cmdbApplications.status, status));
+      if (search) {
+        const term = `%${search}%`;
+        conditions.push(or(
+          ilike(cmdbApplications.name, term),
+          ilike(cmdbApplications.category, term),
+          ilike(cmdbApplications.vendor, term),
+          sql`EXISTS (SELECT 1 FROM employees e WHERE e.id = ${cmdbApplications.businessOwner} AND concat_ws(' ', e.first_name, e.last_name) ILIKE ${term})`,
+          sql`EXISTS (SELECT 1 FROM employees e WHERE e.id = ${cmdbApplications.technicalOwner} AND concat_ws(' ', e.first_name, e.last_name) ILIKE ${term})`,
+        )!);
+      }
+      const where = conditions.length ? and(...conditions)! : sql`true`;
+      const [data, [{ total }]] = await Promise.all([
+        db.select({
+          id: cmdbApplications.id,
+          name: cmdbApplications.name,
+          category: cmdbApplications.category,
+          vendor: cmdbApplications.vendor,
+          businessOwner: cmdbApplications.businessOwner,
+          businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
+          technicalOwner: cmdbApplications.technicalOwner,
+          technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+          hostingType: cmdbApplications.hostingType,
+          criticalityRating: cmdbApplications.criticalityRating,
+          status: cmdbApplications.status,
+          createdAt: cmdbApplications.createdAt,
+          updatedAt: cmdbApplications.updatedAt,
+        }).from(cmdbApplications).where(where)
+          .orderBy(desc(cmdbApplications.updatedAt), desc(cmdbApplications.name))
+          .limit(pageSize).offset((page - 1) * pageSize),
+        db.select({ total: sql<number>`count(*)::int` }).from(cmdbApplications).where(where),
+      ]);
+      res.json({ data, total, page, pageSize });
+    } catch {
+      res.status(500).json({ message: "Failed to load applications" });
+    }
+  });
+
+  app.post("/api/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+    try {
+      const input = insertCmdbApplicationSchema.parse(req.body);
+      if (!(await hasActiveDropdownValue("application_category", input.category))) {
+        return res.status(400).json({ message: "Select an active application category from System Dropdowns" });
+      }
+      const [row] = await db.insert(cmdbApplications).values(input).returning();
+      await logAudit(req.user?.id, "CREATE", "cmdb_applications", row.id, row.name, null, row, req);
+      res.status(201).json(row);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.errors });
+      if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
+      res.status(500).json({ message: "Failed to create application" });
+    }
+  });
+
+  app.put("/api/applications/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const input = insertCmdbApplicationSchema.partial().parse(req.body);
+      if (input.category && !(await hasActiveDropdownValue("application_category", input.category))) {
+        return res.status(400).json({ message: "Select an active application category from System Dropdowns" });
+      }
+      const [previous] = await db.select().from(cmdbApplications).where(eq(cmdbApplications.id, req.params.id));
+      if (!previous) return res.status(404).json({ message: "Application not found" });
+      const [row] = await db.update(cmdbApplications).set({ ...input, updatedAt: new Date() })
+        .where(eq(cmdbApplications.id, req.params.id)).returning();
+      await logAudit(req.user?.id, "UPDATE", "cmdb_applications", row.id, row.name, previous, row, req);
+      res.json(row);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.errors });
+      if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
+      res.status(500).json({ message: "Failed to update application" });
+    }
+  });
+
+  app.get("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const parsed = cmdbPageFilters.extend({
+        osPlatform: z.string().trim().max(120).optional(),
+        environment: z.enum(["all", "production", "staging", "development"]).default("all"),
+        status: z.enum(["all", "online", "maintenance", "offline"]).default("all"),
+      }).safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid server filters", errors: parsed.error.errors });
+      const { page, pageSize, search, osPlatform, environment, status } = parsed.data;
+      const conditions = [];
+      if (osPlatform) conditions.push(eq(servers.osPlatform, osPlatform));
+      if (environment !== "all") conditions.push(eq(servers.environment, environment));
+      if (status !== "all") conditions.push(eq(servers.status, status));
+      if (search) {
+        const term = `%${search}%`;
+        conditions.push(or(
+          ilike(servers.hostname, term),
+          ilike(servers.ipAddress, term),
+          ilike(servers.osPlatform, term),
+          ilike(servers.environment, term),
+          ilike(servers.cpuRamSpecs, term),
+          ilike(servers.location, term),
+        )!);
+      }
+      const where = conditions.length ? and(...conditions)! : sql`true`;
+      const [data, [{ total }]] = await Promise.all([
+        db.select().from(servers).where(where)
+          .orderBy(desc(servers.updatedAt), desc(servers.hostname))
+          .limit(pageSize).offset((page - 1) * pageSize),
+        db.select({ total: sql<number>`count(*)::int` }).from(servers).where(where),
+      ]);
+      res.json({ data, total, page, pageSize });
+    } catch {
+      res.status(500).json({ message: "Failed to load servers" });
+    }
+  });
+
+  app.post("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+    try {
+      const input = insertServerSchema.parse(req.body);
+      if (!(await hasActiveDropdownValue("os_platform", input.osPlatform))) {
+        return res.status(400).json({ message: "Select an active OS platform from System Dropdowns" });
+      }
+      const [row] = await db.insert(servers).values(input).returning();
+      await logAudit(req.user?.id, "CREATE", "servers", row.id, row.hostname, null, row, req);
+      res.status(201).json(row);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.errors });
+      if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
+      res.status(500).json({ message: "Failed to create server" });
+    }
+  });
+
+  app.put("/api/servers/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const input = insertServerSchema.partial().parse(req.body);
+      if (input.osPlatform && !(await hasActiveDropdownValue("os_platform", input.osPlatform))) {
+        return res.status(400).json({ message: "Select an active OS platform from System Dropdowns" });
+      }
+      const [previous] = await db.select().from(servers).where(eq(servers.id, req.params.id));
+      if (!previous) return res.status(404).json({ message: "Server not found" });
+      const [row] = await db.update(servers).set({ ...input, updatedAt: new Date() })
+        .where(eq(servers.id, req.params.id)).returning();
+      await logAudit(req.user?.id, "UPDATE", "servers", row.id, row.hostname, previous, row, req);
+      res.json(row);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.errors });
+      if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
+      res.status(500).json({ message: "Failed to update server" });
+    }
+  });
+
   app.get("/api/service-requests/:id/attachments", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
@@ -2647,6 +2822,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Delete attachment error:", error);
       res.status(500).json({ message: "Failed to delete attachment" });
     }
+  });
+
+  const configurationDocumentParentExists = async (parentType: "application" | "server", id: string, executor: any = db) => {
+    const [parent] = parentType === "application"
+      ? await executor.select({ id: cmdbApplications.id }).from(cmdbApplications).where(eq(cmdbApplications.id, id)).limit(1)
+      : await executor.select({ id: servers.id }).from(servers).where(eq(servers.id, id)).limit(1);
+    return Boolean(parent);
+  };
+
+  const listConfigurationDocuments = async (parentType: "application" | "server", id: string, res: any) => {
+    if (!(await configurationDocumentParentExists(parentType, id))) {
+      return res.status(404).json({ message: `${parentType === "application" ? "Application" : "Server"} not found` });
+    }
+    const parentFilter = parentType === "application"
+      ? eq(configurationDocuments.applicationId, id)
+      : eq(configurationDocuments.serverId, id);
+    const rows = await db.select({
+      id: configurationDocuments.id,
+      applicationId: configurationDocuments.applicationId,
+      serverId: configurationDocuments.serverId,
+      documentType: configurationDocuments.documentType,
+      version: configurationDocuments.version,
+      originalName: configurationDocuments.originalName,
+      fileType: configurationDocuments.fileType,
+      fileSize: configurationDocuments.fileSize,
+      uploadedBy: configurationDocuments.uploadedBy,
+      uploadedByName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM users WHERE id = ${configurationDocuments.uploadedBy})`,
+      uploadedAt: configurationDocuments.uploadedAt,
+    }).from(configurationDocuments).where(parentFilter)
+      .orderBy(desc(configurationDocuments.uploadedAt), desc(configurationDocuments.version));
+    return res.json(rows);
+  };
+
+  const uploadConfigurationDocument = async (parentType: "application" | "server", id: string, req: any, res: any) => {
+    if (!req.file) return res.status(400).json({ message: "Choose a file to upload" });
+    try {
+      const documentType = String(req.body.documentType ?? "").trim();
+      if (!documentType || !(await hasActiveDropdownValue("configuration_document_type", documentType))) {
+        const fs = await import("fs");
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(400).json({ message: "Select an active document type from System Dropdowns" });
+      }
+      if (!(await configurationDocumentParentExists(parentType, id))) {
+        const fs = await import("fs");
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ message: `${parentType === "application" ? "Application" : "Server"} not found` });
+      }
+      const row = await db.transaction(async tx => {
+        if (parentType === "application") {
+          await tx.select({ id: cmdbApplications.id }).from(cmdbApplications)
+            .where(eq(cmdbApplications.id, id)).for("update");
+        } else {
+          await tx.select({ id: servers.id }).from(servers)
+            .where(eq(servers.id, id)).for("update");
+        }
+        const parentFilter = parentType === "application"
+          ? eq(configurationDocuments.applicationId, id)
+          : eq(configurationDocuments.serverId, id);
+        const [latest] = await tx.select({ version: configurationDocuments.version })
+          .from(configurationDocuments).where(and(
+            parentFilter,
+            sql`lower(btrim(${configurationDocuments.originalName})) = ${normalizeLookupKey(req.file.originalname)}`,
+            eq(configurationDocuments.documentType, documentType),
+          )).orderBy(desc(configurationDocuments.version)).limit(1);
+        const [created] = await tx.insert(configurationDocuments).values({
+          applicationId: parentType === "application" ? id : null,
+          serverId: parentType === "server" ? id : null,
+          documentType,
+          version: (latest?.version ?? 0) + 1,
+          originalName: req.file.originalname,
+          fileName: req.file.filename,
+          fileType: req.file.mimetype,
+          fileSize: req.file.size,
+          filePath: req.file.path,
+          uploadedBy: req.user?.id ?? null,
+        }).returning();
+        return created;
+      });
+      await logAudit(
+        req.user?.id,
+        "CREATE",
+        "configuration_documents",
+        row.id,
+        `${parentType}:${id} ${row.originalName} v${row.version}`,
+        null,
+        { ...row, filePath: undefined },
+        req,
+      );
+      const { filePath: _filePath, fileName: _fileName, ...safeRow } = row;
+      return res.status(201).json(safeRow);
+    } catch (error: any) {
+      const fs = await import("fs");
+      try { fs.unlinkSync(req.file.path); } catch {}
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document metadata", errors: error.errors });
+      if (error?.code === "23505") return res.status(409).json({ message: "A newer version was uploaded at the same time. Please retry." });
+      return res.status(500).json({ message: "Failed to upload configuration document" });
+    }
+  };
+
+  const downloadConfigurationDocument = async (
+    parentType: "application" | "server",
+    id: string,
+    documentId: string,
+    res: any,
+  ) => {
+    const parentFilter = parentType === "application"
+      ? eq(configurationDocuments.applicationId, id)
+      : eq(configurationDocuments.serverId, id);
+    const [document] = await db.select().from(configurationDocuments).where(and(
+      parentFilter,
+      eq(configurationDocuments.id, documentId),
+    )).limit(1);
+    if (!document) return res.status(404).json({ message: "Configuration document not found" });
+    return res.download(document.filePath, document.originalName);
+  };
+
+  app.get("/api/applications/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try { await listConfigurationDocuments("application", req.params.id, res); }
+    catch { res.status(500).json({ message: "Failed to load application documents" }); }
+  });
+  app.post("/api/applications/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
+    await uploadConfigurationDocument("application", req.params.id, req, res);
+  });
+  app.get("/api/applications/:id/documents/:documentId", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try { await downloadConfigurationDocument("application", req.params.id, req.params.documentId, res); }
+    catch { res.status(500).json({ message: "Failed to download application document" }); }
+  });
+  app.get("/api/servers/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try { await listConfigurationDocuments("server", req.params.id, res); }
+    catch { res.status(500).json({ message: "Failed to load server documents" }); }
+  });
+  app.post("/api/servers/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
+    await uploadConfigurationDocument("server", req.params.id, req, res);
+  });
+  app.get("/api/servers/:id/documents/:documentId", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try { await downloadConfigurationDocument("server", req.params.id, req.params.documentId, res); }
+    catch { res.status(500).json({ message: "Failed to download server document" }); }
   });
 
   // Ticket Attachments
@@ -2826,7 +3138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const getAccessSystemCatalog = async (executor: any) => {
-    const [assetRows, systemOptions] = await Promise.all([
+    const [assetRows, systemOptions, applicationRows, serverRows] = await Promise.all([
       executor.select({
         id: assets.id,
         name: assets.name,
@@ -2842,6 +3154,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         value: dropdownOptions.value,
         label: dropdownOptions.label,
       }).from(dropdownOptions).where(eq(dropdownOptions.isActive, true)),
+      executor.select({
+        id: cmdbApplications.id,
+        name: cmdbApplications.name,
+        vendor: cmdbApplications.vendor,
+        status: cmdbApplications.status,
+      }).from(cmdbApplications),
+      executor.select({
+        id: servers.id,
+        hostname: servers.hostname,
+        status: servers.status,
+      }).from(servers),
     ]);
     const catalog: Array<{
       key: string;
@@ -2849,7 +3172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       name: string;
       label: string;
       accessType: AccessType;
-      source: "asset" | "dropdown";
+      source: "application" | "server" | "asset" | "dropdown";
     }> = [];
     const seen = new Set<string>();
     const add = (item: Omit<(typeof catalog)[number], "key">) => {
@@ -2871,6 +3194,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
+    for (const application of applicationRows) {
+      if (normalizeLookupKey(application.status) !== "active") continue;
+      add({
+        id: application.id,
+        name: application.name,
+        label: application.vendor ? `${application.name} · ${application.vendor}` : application.name,
+        accessType: "application",
+        source: "application",
+      });
+    }
+
+    for (const server of serverRows) {
+      if (normalizeLookupKey(server.status) === "offline") continue;
+      add({
+        id: server.id,
+        name: server.hostname,
+        label: server.hostname,
+        accessType: "server_remote_access",
+        source: "server",
+      });
+    }
+
     for (const asset of assetRows) {
       const accessType = classifyAccessAsset(asset.type, asset.category);
       const inactiveStatuses = new Set(["inactive", "disabled", "retired", "disposed", "decommissioned"]);
@@ -2888,7 +3233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const resolveAccessSystem = async (
     executor: any,
-    selection: { catalogSource: "asset" | "dropdown"; catalogItemId: string; accessType: AccessType },
+    selection: { catalogSource: "application" | "server" | "asset" | "dropdown"; catalogItemId: string; accessType: AccessType },
   ) => {
     const item = (await getAccessSystemCatalog(executor)).find(candidate =>
       candidate.source === selection.catalogSource &&
@@ -2900,7 +3245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const accessRightBodySchema = z.object({
-    catalogSource: z.enum(["asset", "dropdown"]).optional(),
+    catalogSource: z.enum(["application", "server", "asset", "dropdown"]).optional(),
     catalogItemId: z.string().trim().min(1).max(200).optional(),
     accessType: z.enum(ACCESS_TYPES).optional(),
     privilegeLevel: z.string().trim().min(1).max(100).optional(),
@@ -2908,7 +3253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     grantDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   });
   const createAccessRightBodySchema = accessRightBodySchema.extend({
-    catalogSource: z.enum(["asset", "dropdown"]),
+    catalogSource: z.enum(["application", "server", "asset", "dropdown"]),
     catalogItemId: z.string().trim().min(1).max(200),
     accessType: z.enum(ACCESS_TYPES),
     privilegeLevel: z.string().trim().min(1).max(100),
@@ -3026,7 +3371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         accessType: z.enum(ACCESS_TYPES).optional(),
         status: z.enum(["all", "active", "revoked"]).default("all"),
         search: z.string().trim().max(120).optional(),
-        catalogSource: z.enum(["asset", "dropdown", "legacy"]).optional(),
+        catalogSource: z.enum(["application", "server", "asset", "dropdown", "legacy"]).optional(),
         catalogItemId: z.string().trim().min(1).optional(),
       }).safeParse(req.query);
       if (!parsed.success) return res.status(400).json({ message: "Invalid access governance filters", errors: parsed.error.errors });

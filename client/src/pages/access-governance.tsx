@@ -42,7 +42,7 @@ type AccessCatalogItem = {
   name: string;
   label: string;
   accessType: AccessType;
-  source: "asset" | "dropdown";
+  source: "application" | "server" | "asset" | "dropdown";
 };
 
 type AccessRecord = {
@@ -50,7 +50,7 @@ type AccessRecord = {
   employeeId: string;
   applicationName: string;
   accessType: AccessType;
-  catalogSource: "asset" | "dropdown" | "legacy";
+  catalogSource: "application" | "server" | "asset" | "dropdown" | "legacy";
   catalogItemId: string | null;
   privilegeLevel: string;
   accountUsername: string | null;

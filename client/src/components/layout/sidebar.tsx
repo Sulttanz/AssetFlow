@@ -101,6 +101,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       ]
     },
     {
+      title: "CMDB & Infrastructure",
+      moduleKey: "asset_management",
+      items: [
+        { name: "Applications", href: "/applications", icon: Building2, current: location === "/applications", permission: "asset_update" },
+        { name: "Servers", href: "/servers", icon: Laptop, current: location === "/servers", permission: "asset_update" },
+      ]
+    },
+    {
       title: "Organization",
       items: [
         { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
