@@ -5,12 +5,14 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { ChangeImpactSelector } from "@/components/cmdb/change-impact-selector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
+import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -63,6 +65,21 @@ interface ChangeWithDetails {
   removedApprovals?: ChangeApproval[];
   removedApproverIds: string[];
   stages?: ChangeStage[];
+  impactAnalysis?: {
+    selectedApplicationIds: string[];
+    selectedServerIds: string[];
+    applications: Array<{
+      id: string; name: string; category: string; criticalityRating: string;
+      businessOwnerId: string | null; businessOwnerName: string | null;
+      technicalOwnerId: string | null; technicalOwnerName: string | null;
+      affectedThrough: string[];
+    }>;
+    servers: Array<{
+      id: string; hostname: string; ipAddress: string | null; environment: string; status: string;
+      osPlatform: string; location: string | null; affectedThrough: string[];
+    }>;
+    affectedOwners: Array<{ id: string; name: string; role: "Business Owner" | "Technical Owner"; applications: string[] }>;
+  };
   createdAt: string; updatedAt: string;
 }
 interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; isActive: boolean | null; }
@@ -152,6 +169,8 @@ const formSchema = z.object({
   departmentId: z.string().optional(),
   cabRequired: z.boolean().optional(),
   cabScheduledFor: z.string().optional(),
+  targetApplicationIds: z.array(z.string()).default([]),
+  targetServerIds: z.array(z.string()).default([]),
 });
 type FormData = z.infer<typeof formSchema>;
 
@@ -679,7 +698,7 @@ export default function Changes() {
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "" },
+    defaultValues: { title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", targetApplicationIds: [], targetServerIds: [] },
   });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -778,19 +797,32 @@ export default function Changes() {
   });
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-  function openEdit(c: ChangeWithDetails, e?: React.MouseEvent) {
+  async function openEdit(c: ChangeWithDetails, e?: React.MouseEvent) {
     e?.stopPropagation();
-    setEditingChange(c);
+    let detailedChange = c;
+    if (!c.impactAnalysis) {
+      try {
+        const response = await apiRequest("GET", `/api/changes/${encodeURIComponent(c.id)}`);
+        if (!response.ok) throw new Error("Failed to load change details");
+        detailedChange = await response.json();
+      } catch {
+        toast({ title: "Could not load change impact links", description: "The edit form was not opened so existing CMDB targets cannot be lost.", variant: "destructive" });
+        return;
+      }
+    }
+    setEditingChange(detailedChange);
     form.reset({
-      title: c.title, description: c.description ?? "", type: c.type as FormData["type"],
-      status: c.status as FormData["status"],
-      priority: c.priority, risk: c.risk ?? "low", impact: c.impact ?? "",
-      implementationPlan: c.implementationPlan ?? "", rollbackPlan: c.rollbackPlan ?? "", testPlan: c.testPlan ?? "",
-      scheduledStart: c.scheduledStart ? c.scheduledStart.split("T")[0] : "",
-      scheduledEnd: c.scheduledEnd ? c.scheduledEnd.split("T")[0] : "",
-      assignedToId: c.assignedToId ?? "", departmentId: c.departmentId ?? "",
-      cabRequired: c.cabRequired ?? (["normal","emergency"].includes(c.type)),
-      cabScheduledFor: c.cabScheduledFor ? c.cabScheduledFor.split("T")[0] : "",
+      title: detailedChange.title, description: detailedChange.description ?? "", type: detailedChange.type as FormData["type"],
+      status: detailedChange.status as FormData["status"],
+      priority: detailedChange.priority, risk: detailedChange.risk ?? "low", impact: detailedChange.impact ?? "",
+      implementationPlan: detailedChange.implementationPlan ?? "", rollbackPlan: detailedChange.rollbackPlan ?? "", testPlan: detailedChange.testPlan ?? "",
+      scheduledStart: detailedChange.scheduledStart ? detailedChange.scheduledStart.split("T")[0] : "",
+      scheduledEnd: detailedChange.scheduledEnd ? detailedChange.scheduledEnd.split("T")[0] : "",
+      assignedToId: detailedChange.assignedToId ?? "", departmentId: detailedChange.departmentId ?? "",
+      cabRequired: detailedChange.cabRequired ?? (["normal","emergency"].includes(detailedChange.type)),
+      cabScheduledFor: detailedChange.cabScheduledFor ? detailedChange.cabScheduledFor.split("T")[0] : "",
+      targetApplicationIds: detailedChange.impactAnalysis?.selectedApplicationIds ?? [],
+      targetServerIds: detailedChange.impactAnalysis?.selectedServerIds ?? [],
     });
     setDialogOpen(true);
   }
@@ -804,6 +836,8 @@ export default function Changes() {
       assignedToId: data.assignedToId || null, departmentId: data.departmentId || null,
       cabRequired: data.cabRequired ?? false,
       cabScheduledFor: data.cabScheduledFor || null,
+      targetApplicationIds: data.targetApplicationIds,
+      targetServerIds: data.targetServerIds,
     };
     if (editingChange) updateMutation.mutate({ id: editingChange.id, data: payload });
   }
@@ -1124,6 +1158,7 @@ export default function Changes() {
           <Tabs value={detailTab} onValueChange={setDetailTab}>
             <TabsList className="mb-2">
               <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="impact">Impact & Blast Radius</TabsTrigger>
               <TabsTrigger value="plans">Plans</TabsTrigger>
               <TabsTrigger value="environment">
                 Environment
@@ -1211,6 +1246,74 @@ export default function Changes() {
                     </div>
                   )}
                 </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="impact" className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Affected applications</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.applications.length ?? 0}</p></div>
+                <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Infrastructure servers</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.servers.length ?? 0}</p></div>
+                <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">System owners</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.affectedOwners.length ?? 0}</p></div>
+              </div>
+              {!currentChange?.impactAnalysis?.applications.length && !currentChange?.impactAnalysis?.servers.length ? (
+                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No CMDB targets are linked to this change yet. Edit the request to select affected applications or servers.
+                </div>
+              ) : (
+                <>
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-semibold">Affected business applications</h3>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <Table>
+                        <TableHeader><TableRow><TableHead>Application</TableHead><TableHead>Criticality</TableHead><TableHead>Business Owner</TableHead><TableHead>Technical Owner</TableHead><TableHead>Impact path</TableHead></TableRow></TableHeader>
+                        <TableBody>
+                          {(currentChange?.impactAnalysis?.applications ?? []).map(application => (
+                            <TableRow key={application.id}>
+                              <TableCell><span className="font-medium">{application.name}</span><span className="block text-xs text-muted-foreground">{application.category}</span></TableCell>
+                              <TableCell><Badge variant="outline">{application.criticalityRating}</Badge></TableCell>
+                              <TableCell>{application.businessOwnerName || "Unassigned"}</TableCell>
+                              <TableCell>{application.technicalOwnerName || "Unassigned"}</TableCell>
+                              <TableCell className="max-w-[220px] text-xs text-muted-foreground">{application.affectedThrough.join(", ")}</TableCell>
+                            </TableRow>
+                          ))}
+                          {currentChange?.impactAnalysis?.applications.length === 0 && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No applications are mapped to these server targets.</TableCell></TableRow>}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </section>
+                  <section className="space-y-2">
+                    <h3 className="text-sm font-semibold">Infrastructure blast radius</h3>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <Table>
+                        <TableHeader><TableRow><TableHead>Server</TableHead><TableHead>IP</TableHead><TableHead>Environment</TableHead><TableHead>Status</TableHead><TableHead>Impact path</TableHead></TableRow></TableHeader>
+                        <TableBody>
+                          {(currentChange?.impactAnalysis?.servers ?? []).map(server => (
+                            <TableRow key={server.id}>
+                              <TableCell className="font-medium">{server.hostname}</TableCell>
+                              <TableCell className="font-mono text-xs">{server.ipAddress || "—"}</TableCell>
+                              <TableCell>{server.environment}</TableCell>
+                              <TableCell><Badge variant={server.status === "online" ? "default" : "secondary"}>{server.status}</Badge></TableCell>
+                              <TableCell className="max-w-[240px] text-xs text-muted-foreground">{server.affectedThrough.join(", ")}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </section>
+                  {(currentChange?.impactAnalysis?.affectedOwners.length ?? 0) > 0 && (
+                    <section className="space-y-2">
+                      <h3 className="text-sm font-semibold">Owners to notify</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {currentChange?.impactAnalysis?.affectedOwners.map(owner => (
+                          <div key={`${owner.id}:${owner.role}`} className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
+                            <span className="font-medium">{owner.name}</span><Badge variant="secondary" className="ml-2">{owner.role}</Badge>
+                            <span className="mt-1 block text-xs text-muted-foreground">{owner.applications.join(", ")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
             </TabsContent>
 
@@ -1635,12 +1738,20 @@ export default function Changes() {
               <FormField control={form.control} name="impact" render={({ field }) => (
                 <FormItem><FormLabel>Impact</FormLabel><FormControl><Textarea placeholder="What systems or users will be affected?" className="min-h-[60px]" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
+              <ChangeImpactSelector
+                applicationIds={form.watch("targetApplicationIds") ?? []}
+                serverIds={form.watch("targetServerIds") ?? []}
+                onChange={selection => {
+                  form.setValue("targetApplicationIds", selection.applicationIds, { shouldDirty: true });
+                  form.setValue("targetServerIds", selection.serverIds, { shouldDirty: true });
+                }}
+              />
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="scheduledStart" render={({ field }) => (
-                  <FormItem><FormLabel>Scheduled Start</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Scheduled Start</FormLabel><FormControl><CalendarDateField value={field.value ?? ""} onChange={field.onChange} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="scheduledEnd" render={({ field }) => (
-                  <FormItem><FormLabel>Scheduled End</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Scheduled End</FormLabel><FormControl><CalendarDateField value={field.value ?? ""} onChange={field.onChange} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
               {/* CAB section */}
@@ -1658,7 +1769,7 @@ export default function Changes() {
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="cabScheduledFor" render={({ field }) => (
-                  <FormItem><FormLabel>CAB Meeting Date</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>CAB Meeting Date</FormLabel><FormControl><CalendarDateField value={field.value ?? ""} onChange={field.onChange} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
               <FormField control={form.control} name="implementationPlan" render={({ field }) => (

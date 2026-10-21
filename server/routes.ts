@@ -20,13 +20,14 @@ import {
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
-  cmdbApplications, servers, configurationDocuments, insertCmdbApplicationSchema, insertServerSchema,
+  cmdbApplications, servers, applicationServerLinks, changeCiLinks,
+  configurationDocuments, insertCmdbApplicationSchema, insertServerSchema,
   employeeOffboardingSubmissionSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull, sql, or, ilike, desc } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql, or, ilike, desc, asc } from "drizzle-orm";
 import {
   ACCESS_DROPDOWN_CATEGORIES,
   ACCESS_TYPES,
@@ -171,7 +172,7 @@ async function logEmployeeAccessMutation(
     actorId?: string | null;
     actorIp?: string | null;
     userAgent?: string | null;
-    action: "GRANT" | "MODIFY" | "REVOKE" | "EXPIRE";
+    action: "GRANT" | "MODIFY" | "REVOKE" | "EXPIRE" | "EXTEND";
     recordId: string;
     recordName: string;
     reason: string;
@@ -2607,6 +2608,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     pageSize: z.enum(["20", "50"]).default("20").transform(Number),
     search: z.string().trim().max(120).optional(),
   });
+  const applicationIdListSchema = z.array(z.string().uuid()).max(200);
+  const syncServerApplications = async (executor: any, serverId: string, requestedIds: string[]) => {
+    const applicationIds = requestedIds.filter((id, index) => requestedIds.indexOf(id) === index);
+    if (applicationIds.length !== requestedIds.length) {
+      throw Object.assign(new Error("Choose each hosted application only once"), { status: 400 });
+    }
+    if (applicationIds.length) {
+      const valid = await executor.select({ id: cmdbApplications.id }).from(cmdbApplications)
+        .where(inArray(cmdbApplications.id, applicationIds));
+      if (valid.length !== applicationIds.length) {
+        throw Object.assign(new Error("One or more selected applications do not exist"), { status: 400 });
+      }
+    }
+    await executor.delete(applicationServerLinks).where(eq(applicationServerLinks.serverId, serverId));
+    if (applicationIds.length) {
+      await executor.insert(applicationServerLinks).values(applicationIds.map(applicationId => ({ applicationId, serverId })));
+    }
+  };
+
+  app.get("/api/cmdb/application-options", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (_req, res) => {
+    try {
+      const rows = await db.select({
+        id: cmdbApplications.id,
+        name: cmdbApplications.name,
+        status: cmdbApplications.status,
+      }).from(cmdbApplications).orderBy(asc(cmdbApplications.name));
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to load application options" });
+    }
+  });
 
   app.get("/api/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
     try {
@@ -2693,6 +2725,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/applications/:id/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const [application] = await db.select({ id: cmdbApplications.id }).from(cmdbApplications).where(eq(cmdbApplications.id, req.params.id));
+      if (!application) return res.status(404).json({ message: "Application not found" });
+      const hostedServers = await db.select({
+        id: servers.id,
+        hostname: servers.hostname,
+        ipAddress: servers.ipAddress,
+        environment: servers.environment,
+        status: servers.status,
+        osPlatform: servers.osPlatform,
+        location: servers.location,
+      }).from(applicationServerLinks).innerJoin(servers, eq(servers.id, applicationServerLinks.serverId))
+        .where(eq(applicationServerLinks.applicationId, application.id))
+        .orderBy(asc(servers.hostname));
+      res.json(hostedServers);
+    } catch {
+      res.status(500).json({ message: "Failed to load hosted infrastructure" });
+    }
+  });
+
   app.get("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
     try {
       const parsed = cmdbPageFilters.extend({
@@ -2733,10 +2786,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
     try {
       const input = insertServerSchema.parse(req.body);
+      const applicationIds = applicationIdListSchema.default([]).parse(req.body.applicationIds ?? []);
       if (!(await hasActiveDropdownValue("os_platform", input.osPlatform))) {
         return res.status(400).json({ message: "Select an active OS platform from System Dropdowns" });
       }
-      const [row] = await db.insert(servers).values(input).returning();
+      const row = await db.transaction(async tx => {
+        const [created] = await tx.insert(servers).values(input).returning();
+        await syncServerApplications(tx, created.id, applicationIds);
+        return created;
+      });
       await logAudit(req.user?.id, "CREATE", "servers", row.id, row.hostname, null, row, req);
       res.status(201).json(row);
     } catch (error: any) {
@@ -2749,19 +2807,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/servers/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
     try {
       const input = insertServerSchema.partial().parse(req.body);
+      const hasApplicationIds = Object.prototype.hasOwnProperty.call(req.body ?? {}, "applicationIds");
+      const applicationIds = hasApplicationIds
+        ? applicationIdListSchema.parse(req.body.applicationIds)
+        : undefined;
       if (input.osPlatform && !(await hasActiveDropdownValue("os_platform", input.osPlatform))) {
         return res.status(400).json({ message: "Select an active OS platform from System Dropdowns" });
       }
       const [previous] = await db.select().from(servers).where(eq(servers.id, req.params.id));
       if (!previous) return res.status(404).json({ message: "Server not found" });
-      const [row] = await db.update(servers).set({ ...input, updatedAt: new Date() })
-        .where(eq(servers.id, req.params.id)).returning();
+      const row = await db.transaction(async tx => {
+        const [updated] = await tx.update(servers).set({ ...input, updatedAt: new Date() })
+          .where(eq(servers.id, req.params.id)).returning();
+        if (applicationIds) await syncServerApplications(tx, updated.id, applicationIds);
+        return updated;
+      });
       await logAudit(req.user?.id, "UPDATE", "servers", row.id, row.hostname, previous, row, req);
       res.json(row);
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.errors });
       if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
       res.status(500).json({ message: "Failed to update server" });
+    }
+  });
+
+  app.get("/api/servers/:id/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const [server] = await db.select({ id: servers.id }).from(servers).where(eq(servers.id, req.params.id));
+      if (!server) return res.status(404).json({ message: "Server not found" });
+      const hostedApplications = await db.select({
+        id: cmdbApplications.id,
+        name: cmdbApplications.name,
+        category: cmdbApplications.category,
+        status: cmdbApplications.status,
+      }).from(applicationServerLinks).innerJoin(cmdbApplications, eq(cmdbApplications.id, applicationServerLinks.applicationId))
+        .where(eq(applicationServerLinks.serverId, server.id))
+        .orderBy(asc(cmdbApplications.name));
+      res.json(hostedApplications);
+    } catch {
+      res.status(500).json({ message: "Failed to load hosted applications" });
     }
   });
 
@@ -3251,52 +3335,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
       source: "application" | "server" | "asset" | "dropdown";
     }> = [];
     const seen = new Set<string>();
+    const normalized = (value: unknown) => normalizeLookupKey(String(value ?? ""));
     const add = (item: Omit<(typeof catalog)[number], "key">) => {
-      const duplicateKey = `${item.accessType}:${normalizeLookupKey(item.name)}`;
+      const duplicateKey = `${item.accessType}:${normalized(item.name)}`;
       if (!item.name.trim() || seen.has(duplicateKey)) return;
       seen.add(duplicateKey);
       catalog.push({ ...item, key: `${item.source}:${item.id}` });
     };
 
     for (const option of systemOptions) {
-      const accessType = ACCESS_DROPDOWN_CATEGORIES[normalizeLookupKey(option.category)];
+      const accessType = ACCESS_DROPDOWN_CATEGORIES[normalized(option.category)];
       if (!accessType) continue;
+      const optionLabel = String(option.label ?? option.value ?? "").trim();
+      if (!optionLabel) continue;
       add({
         id: option.id,
-        name: option.label.trim(),
-        label: option.label.trim(),
+        name: optionLabel,
+        label: optionLabel,
         accessType,
         source: "dropdown",
       });
     }
 
     for (const application of applicationRows) {
-      if (normalizeLookupKey(application.status) !== "active") continue;
+      if (normalized(application.status) !== "active") continue;
+      const name = String(application.name ?? "").trim();
       add({
         id: application.id,
-        name: application.name,
-        label: application.vendor ? `${application.name} · ${application.vendor}` : application.name,
+        name,
+        label: application.vendor ? `${name} · ${application.vendor}` : name,
         accessType: "application",
         source: "application",
       });
     }
 
     for (const server of serverRows) {
-      if (normalizeLookupKey(server.status) === "offline") continue;
+      if (normalized(server.status) === "offline") continue;
+      const hostname = String(server.hostname ?? "").trim();
       add({
         id: server.id,
-        name: server.hostname,
-        label: server.hostname,
+        name: hostname,
+        label: hostname,
         accessType: "server_remote_access",
         source: "server",
       });
     }
 
     for (const asset of assetRows) {
-      const accessType = classifyAccessAsset(asset.type, asset.category);
+      const accessType = classifyAccessAsset(String(asset.type ?? ""), String(asset.category ?? ""));
       const inactiveStatuses = new Set(["inactive", "disabled", "retired", "disposed", "decommissioned"]);
-      if (!accessType || inactiveStatuses.has(normalizeLookupKey(asset.status)) ||
-        inactiveStatuses.has(normalizeLookupKey(asset.lifecycleStatus))) continue;
+      if (!accessType || inactiveStatuses.has(normalized(asset.status)) ||
+        inactiveStatuses.has(normalized(asset.lifecycleStatus))) continue;
       const name = String(asset.name ?? "").trim();
       const label = asset.assetTag ? `${name} · ${asset.assetTag}` : name;
       add({ id: asset.id, name, label, accessType, source: "asset" });
@@ -3470,7 +3559,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/access-governance/catalog", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (_req, res) => {
     try {
       res.json(await getAccessSystemCatalog(db));
-    } catch {
+    } catch (error) {
+      console.error("Failed to load access system catalog:", error);
       res.status(500).json({ message: "Failed to load access system catalog" });
     }
   });
@@ -3483,7 +3573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pageSize: z.enum(["20", "50"]).default("20").transform(Number),
         employeeId: z.string().trim().min(1).optional(),
         accessType: z.enum(ACCESS_TYPES).optional(),
-        status: z.enum(["all", "active", "expiring", "expired", "revoked"]).default("all"),
+        status: z.enum(["all", "active", "expiring", "expired", "expiry_review", "revoked"]).default("all"),
         search: z.string().trim().max(120).optional(),
         catalogSource: z.enum(["application", "server", "asset", "dropdown", "legacy"]).optional(),
         catalogItemId: z.string().trim().min(1).optional(),
@@ -3494,31 +3584,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Select both catalog source and system ID" });
       }
 
-      const conditions: any[] = [];
-      if (filters.employeeId) conditions.push(eq(employeeAccessRights.employeeId, filters.employeeId));
-      if (filters.accessType) conditions.push(eq(employeeAccessRights.accessType, filters.accessType));
-      if (filters.status === "revoked" || filters.status === "expired") {
-        conditions.push(eq(employeeAccessRights.status, filters.status));
-      } else if (filters.status === "active") {
-        conditions.push(eq(employeeAccessRights.status, "active"));
-      } else if (filters.status === "expiring") {
-        const today = toDateInputValue(new Date());
-        const throughDate = new Date();
-        throughDate.setDate(throughDate.getDate() + 30);
-        conditions.push(and(
-          eq(employeeAccessRights.status, "active"),
-          sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${toDateInputValue(throughDate)}::date`,
-        ));
-      }
+      const commonConditions: any[] = [];
+      if (filters.employeeId) commonConditions.push(eq(employeeAccessRights.employeeId, filters.employeeId));
+      if (filters.accessType) commonConditions.push(eq(employeeAccessRights.accessType, filters.accessType));
       if (filters.catalogSource) {
-        conditions.push(and(
+        commonConditions.push(and(
           eq(employeeAccessRights.catalogSource, filters.catalogSource),
           eq(employeeAccessRights.catalogItemId, filters.catalogItemId!),
         ));
       }
       if (filters.search) {
         const search = `%${filters.search.replace(/[%_]/g, "\\$&")}%`;
-        conditions.push(or(
+        commonConditions.push(or(
           ilike(employeeAccessRights.applicationName, search),
           ilike(employeeAccessRights.accountUsername, search),
           ilike(employees.firstName, search),
@@ -3527,7 +3604,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ilike(employees.email, search),
         ));
       }
+      const today = toDateInputValue(new Date());
+      const throughDate = new Date();
+      throughDate.setDate(throughDate.getDate() + 30);
+      const through = toDateInputValue(throughDate);
+      const conditions = [...commonConditions];
+      if (filters.status === "revoked" || filters.status === "expired") {
+        conditions.push(eq(employeeAccessRights.status, filters.status));
+      } else if (filters.status === "active") {
+        conditions.push(eq(employeeAccessRights.status, "active"));
+      } else if (filters.status === "expiring") {
+        conditions.push(and(
+          eq(employeeAccessRights.status, "active"),
+          sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${through}::date`,
+        ));
+      } else if (filters.status === "expiry_review") {
+        conditions.push(or(
+          eq(employeeAccessRights.status, "expired"),
+          and(
+            eq(employeeAccessRights.status, "active"),
+            sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${through}::date`,
+          ),
+        ));
+      }
       const where = conditions.length ? and(...conditions) : undefined;
+      const summaryWhere = commonConditions.length ? and(...commonConditions) : undefined;
+      const [expirySummary = { expiring: 0, expired: 0 }] = await db.select({
+        expiring: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${through}::date)::int`,
+        expired: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'expired' OR (${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date))::int`,
+      }).from(employeeAccessRights).innerJoin(employees, eq(employees.id, employeeAccessRights.employeeId)).where(summaryWhere);
       const [{ total = 0 } = {}] = await db.select({
         total: sql<number>`count(*)::int`,
       }).from(employeeAccessRights).innerJoin(employees, eq(employees.id, employeeAccessRights.employeeId)).where(where);
@@ -3569,6 +3674,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         total,
         page: filters.page,
         pageSize: filters.pageSize,
+        expirySummary,
       });
     } catch {
       res.status(500).json({ message: "Failed to load access governance records" });
@@ -3706,6 +3812,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/employees/:id/access-rights/:rightId/extend", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const input = z.object({
+        days: z.coerce.number().int().min(30).max(365).default(90),
+        businessJustification: z.string().trim().min(5).max(4000),
+      }).parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [employee] = await tx.select({ id: employees.id, status: employees.status })
+          .from(employees).where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        if (employee.status !== "active") {
+          throw Object.assign(new Error("Access cannot be extended for a disabled employee"), { status: 409 });
+        }
+        const [current] = await tx.select().from(employeeAccessRights).where(and(
+          eq(employeeAccessRights.id, req.params.rightId),
+          eq(employeeAccessRights.employeeId, employee.id),
+          inArray(employeeAccessRights.status, ["active", "expired"]),
+        )).for("update");
+        if (!current) throw Object.assign(new Error("Access entitlement is not available to extend"), { status: 404 });
+        if (input.businessJustification === "Legacy access record - justification pending review") {
+          throw Object.assign(new Error("Enter a current business justification before extending access"), { status: 400 });
+        }
+        const today = toDateInputValue(new Date());
+        const baseDate = current.expiresAt && current.expiresAt > today ? current.expiresAt : today;
+        const nextDate = new Date(`${baseDate}T12:00:00`);
+        nextDate.setDate(nextDate.getDate() + input.days);
+        const expiresAt = toDateInputValue(nextDate);
+        const [updated] = await tx.update(employeeAccessRights).set({
+          status: "active",
+          expiresAt,
+          businessJustification: input.businessJustification,
+          updatedAt: new Date(),
+        }).where(eq(employeeAccessRights.id, current.id)).returning();
+        await logEmployeeAccessMutation(tx, {
+          actorId: req.user?.id,
+          actorIp: req.ip,
+          userAgent: req.get("user-agent"),
+          action: "EXTEND",
+          recordId: updated.id,
+          recordName: `${updated.applicationName} access extended`,
+          reason: `Periodic access review: extended by ${input.days} days. ${input.businessJustification}`,
+          oldValues: current,
+          newValues: updated,
+        });
+        return updated;
+      });
+      res.json({ ...result, expiryState: getAccessExpiryState(result.status, result.expiresAt) });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Provide a valid extension period and business justification", errors: error.errors });
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to extend employee access" });
+    }
+  });
+
   app.post("/api/employees/:id/access-rights/:rightId/revoke", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
       const { reason } = z.object({ reason: z.string().trim().min(3).max(2000) }).parse(req.body);
@@ -3715,9 +3875,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [current] = await tx.select().from(employeeAccessRights).where(and(
           eq(employeeAccessRights.id, req.params.rightId),
           eq(employeeAccessRights.employeeId, employee.id),
-          eq(employeeAccessRights.status, "active"),
+          inArray(employeeAccessRights.status, ["active", "expired"]),
         )).for("update");
-        if (!current) throw Object.assign(new Error("Active access entitlement not found"), { status: 404 });
+        if (!current) throw Object.assign(new Error("Access entitlement is not available to revoke"), { status: 404 });
         const [revoked] = await tx.update(employeeAccessRights).set({
           status: "revoked", revokedAt: new Date(), revocationReason: reason, updatedAt: new Date(),
         }).where(eq(employeeAccessRights.id, current.id)).returning();
@@ -7766,6 +7926,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Change Management ────────────────────────────────────────────────────
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);
 
+  const changeTargetSchema = z.object({
+    targetApplicationIds: z.array(z.string().uuid()).max(100).optional(),
+    targetServerIds: z.array(z.string().uuid()).max(100).optional(),
+  });
+  const validateChangeCiTargets = async (executor: any, applicationIds: string[], serverIds: string[]) => {
+    const uniqueApplicationIds = applicationIds.filter((id, index) => applicationIds.indexOf(id) === index);
+    const uniqueServerIds = serverIds.filter((id, index) => serverIds.indexOf(id) === index);
+    if (uniqueApplicationIds.length !== applicationIds.length || uniqueServerIds.length !== serverIds.length) {
+      throw Object.assign(new Error("Choose each application and server only once"), { status: 400 });
+    }
+    if (uniqueApplicationIds.length) {
+      const found = await executor.select({ id: cmdbApplications.id }).from(cmdbApplications)
+        .where(inArray(cmdbApplications.id, uniqueApplicationIds));
+      if (found.length !== uniqueApplicationIds.length) {
+        throw Object.assign(new Error("One or more selected applications do not exist"), { status: 400 });
+      }
+    }
+    if (uniqueServerIds.length) {
+      const found = await executor.select({ id: servers.id }).from(servers)
+        .where(inArray(servers.id, uniqueServerIds));
+      if (found.length !== uniqueServerIds.length) {
+        throw Object.assign(new Error("One or more selected servers do not exist"), { status: 400 });
+      }
+    }
+  };
+  const syncChangeCiLinks = async (executor: any, changeId: string, applicationIds: string[], serverIds: string[]) => {
+    const uniqueApplicationIds = applicationIds.filter((id, index) => applicationIds.indexOf(id) === index);
+    const uniqueServerIds = serverIds.filter((id, index) => serverIds.indexOf(id) === index);
+    await validateChangeCiTargets(executor, applicationIds, serverIds);
+    await executor.delete(changeCiLinks).where(eq(changeCiLinks.changeRequestId, changeId));
+    const links = [
+      ...uniqueApplicationIds.map(applicationId => ({ changeRequestId: changeId, applicationId, serverId: null })),
+      ...uniqueServerIds.map(serverId => ({ changeRequestId: changeId, applicationId: null, serverId })),
+    ];
+    if (links.length) await executor.insert(changeCiLinks).values(links);
+  };
+
+  const getChangeImpactAnalysis = async (changeId: string, executor: any = db) => {
+    const applicationFields = {
+      id: cmdbApplications.id,
+      name: cmdbApplications.name,
+      category: cmdbApplications.category,
+      criticalityRating: cmdbApplications.criticalityRating,
+      businessOwnerId: cmdbApplications.businessOwner,
+      businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
+      technicalOwnerId: cmdbApplications.technicalOwner,
+      technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+    };
+    const serverFields = {
+      id: servers.id,
+      hostname: servers.hostname,
+      ipAddress: servers.ipAddress,
+      environment: servers.environment,
+      status: servers.status,
+      osPlatform: servers.osPlatform,
+      location: servers.location,
+    };
+    type ApplicationImpactRow = {
+      id: string;
+      name: string;
+      category: string;
+      criticalityRating: string;
+      businessOwnerId: string | null;
+      businessOwnerName: string | null;
+      technicalOwnerId: string | null;
+      technicalOwnerName: string | null;
+    };
+    type ServerImpactRow = {
+      id: string;
+      hostname: string;
+      ipAddress: string | null;
+      environment: string;
+      status: string;
+      osPlatform: string;
+      location: string | null;
+    };
+    const [
+      directlySelectedApplications,
+      directlySelectedServers,
+      serversHostingTargetedApplications,
+      applicationsHostedOnTargetServers,
+    ] = await Promise.all([
+      executor.select(applicationFields).from(changeCiLinks)
+        .innerJoin(cmdbApplications, eq(cmdbApplications.id, changeCiLinks.applicationId))
+        .where(eq(changeCiLinks.changeRequestId, changeId)),
+      executor.select(serverFields).from(changeCiLinks)
+        .innerJoin(servers, eq(servers.id, changeCiLinks.serverId))
+        .where(eq(changeCiLinks.changeRequestId, changeId)),
+      executor.select({
+        ...serverFields,
+        targetApplicationId: cmdbApplications.id,
+        targetApplicationName: cmdbApplications.name,
+      }).from(changeCiLinks)
+        .innerJoin(applicationServerLinks, eq(applicationServerLinks.applicationId, changeCiLinks.applicationId))
+        .innerJoin(servers, eq(servers.id, applicationServerLinks.serverId))
+        .innerJoin(cmdbApplications, eq(cmdbApplications.id, changeCiLinks.applicationId))
+        .where(eq(changeCiLinks.changeRequestId, changeId)),
+      executor.select({
+        ...applicationFields,
+        targetServerId: servers.id,
+        targetServerHostname: servers.hostname,
+      }).from(changeCiLinks)
+        .innerJoin(applicationServerLinks, eq(applicationServerLinks.serverId, changeCiLinks.serverId))
+        .innerJoin(cmdbApplications, eq(cmdbApplications.id, applicationServerLinks.applicationId))
+        .innerJoin(servers, eq(servers.id, changeCiLinks.serverId))
+        .where(eq(changeCiLinks.changeRequestId, changeId)),
+    ]) as [
+      ApplicationImpactRow[],
+      ServerImpactRow[],
+      (ServerImpactRow & { targetApplicationId: string; targetApplicationName: string })[],
+      (ApplicationImpactRow & { targetServerId: string; targetServerHostname: string })[],
+    ];
+
+    type ImpactApplication = ApplicationImpactRow & { affectedThrough: string[] };
+    type ImpactServer = ServerImpactRow & { affectedThrough: string[] };
+    const applications: ImpactApplication[] = [];
+    const addApplication = (row: ApplicationImpactRow, via: string) => {
+      let current = applications.find(application => application.id === row.id);
+      if (!current) {
+        current = { ...row, affectedThrough: [] };
+        applications.push(current);
+      }
+      if (!current.affectedThrough.includes(via)) current.affectedThrough.push(via);
+    };
+    directlySelectedApplications.forEach(row => addApplication(row, "Direct application target"));
+    applicationsHostedOnTargetServers.forEach(row => addApplication(row, `Hosted on target server ${row.targetServerHostname}`));
+
+    const serversById: ImpactServer[] = [];
+    const addServer = (row: ServerImpactRow, via: string) => {
+      let current = serversById.find(server => server.id === row.id);
+      if (!current) {
+        current = { ...row, affectedThrough: [] };
+        serversById.push(current);
+      }
+      if (!current.affectedThrough.includes(via)) current.affectedThrough.push(via);
+    };
+    directlySelectedServers.forEach(row => addServer(row, "Direct server target"));
+    serversHostingTargetedApplications.forEach(row =>
+      addServer(row, `Hosts target application ${row.targetApplicationName}`),
+    );
+
+    const owners: Array<{ id: string; name: string; role: "Business Owner" | "Technical Owner"; applications: string[] }> = [];
+    for (const application of applications) {
+      for (const [id, name, role] of [
+        [application.businessOwnerId, application.businessOwnerName, "Business Owner"],
+        [application.technicalOwnerId, application.technicalOwnerName, "Technical Owner"],
+      ] as const) {
+        if (!id || !name) continue;
+        let owner = owners.find(item => item.id === id && item.role === role);
+        if (!owner) {
+          owner = { id, name, role, applications: [] };
+          owners.push(owner);
+        }
+        if (!owner.applications.includes(application.name)) owner.applications.push(application.name);
+      }
+    }
+
+    return {
+      selectedApplicationIds: directlySelectedApplications.map(row => row.id),
+      selectedServerIds: directlySelectedServers.map(row => row.id),
+      applications: applications.sort((a, b) => a.name.localeCompare(b.name)),
+      servers: serversById.sort((a, b) => a.hostname.localeCompare(b.hostname)),
+      affectedOwners: owners.sort((a, b) => a.name.localeCompare(b.name) || a.role.localeCompare(b.role)),
+    };
+  };
+
+  app.get("/api/cmdb/change-options", requireAuth, requireModule("itsm"), async (_req, res) => {
+    try {
+      const [applicationRows, serverRows] = await Promise.all([
+        db.select({
+          id: cmdbApplications.id,
+          name: cmdbApplications.name,
+          category: cmdbApplications.category,
+          criticalityRating: cmdbApplications.criticalityRating,
+          businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
+          technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+        }).from(cmdbApplications).where(eq(cmdbApplications.status, "active")).orderBy(asc(cmdbApplications.name)),
+        db.select({
+          id: servers.id,
+          hostname: servers.hostname,
+          ipAddress: servers.ipAddress,
+          environment: servers.environment,
+          status: servers.status,
+        }).from(servers).where(sql`${servers.status} <> 'offline'`).orderBy(asc(servers.hostname)),
+      ]);
+      res.json({ applications: applicationRows, servers: serverRows });
+    } catch {
+      res.status(500).json({ message: "Failed to load change target catalog" });
+    }
+  });
+
   app.get("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const userId = (req.user as any).id as string;
@@ -7802,7 +8153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (ch.requestedById !== (req.user as any).id && !(await canViewAllItsmRecords((req.user as any).id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      res.json(ch);
+      res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id) });
     } catch { res.status(500).json({ message: "Failed to fetch change" }); }
   });
 
@@ -7810,6 +8161,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as any;
       const body = { ...req.body };
+      const targetIds = changeTargetSchema.parse(body);
+      const targetApplicationIds = targetIds.targetApplicationIds ?? [];
+      const targetServerIds = targetIds.targetServerIds ?? [];
+      delete body.targetApplicationIds;
+      delete body.targetServerIds;
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
       if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
       if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
@@ -7820,6 +8176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
+      await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
       // New changes always start as draft regardless of caller-supplied status
       body.status = "draft";
       // Compute authoritative cabRequired from type/risk on creation
@@ -7829,9 +8186,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body.cabRequired = true;
       }
       const change = await storage.createChange({ ...body, requestedById: user.id });
-      res.status(201).json(change);
+      await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
+      res.status(201).json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to create change:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.errors });
+      if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
       res.status(500).json({ message: "Failed to create change", detail: err instanceof Error ? err.message : String(err) });
     }
   });
@@ -7840,6 +8200,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const oldChange = await storage.getChange(req.params.id);
       const body = { ...req.body };
+      const targetIds = changeTargetSchema.parse(body);
+      delete body.targetApplicationIds;
+      delete body.targetServerIds;
+      const linkUpdateRequested = targetIds.targetApplicationIds !== undefined || targetIds.targetServerIds !== undefined;
+      const currentLinks = linkUpdateRequested
+        ? await db.select().from(changeCiLinks).where(eq(changeCiLinks.changeRequestId, req.params.id))
+        : [];
+      const targetApplicationIds = targetIds.targetApplicationIds ?? currentLinks.flatMap(link => link.applicationId ? [link.applicationId] : []);
+      const targetServerIds = targetIds.targetServerIds ?? currentLinks.flatMap(link => link.serverId ? [link.serverId] : []);
+      if (linkUpdateRequested) await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
       if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
       if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
@@ -7869,9 +8239,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const change = result.change;
       if (!change) return res.status(404).json({ message: "Change not found" });
-      res.json(change);
+      if (linkUpdateRequested) {
+        await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
+      }
+      res.json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to update change:", err);
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.errors });
+      if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
       res.status(500).json({ message: "Failed to update change", detail: err instanceof Error ? err.message : String(err) });
     }
   });

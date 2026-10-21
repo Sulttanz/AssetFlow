@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search, Server as ServerIcon } from "lucide-react";
 import Header from "@/components/layout/header";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -30,6 +31,8 @@ type ServerRecord = {
 type ServerFormData = Omit<ServerRecord, "id" | "createdAt" | "updatedAt">;
 type ListResponse = { data: ServerRecord[]; total: number; page: number; pageSize: number };
 type Option = { id: string; value: string; label: string; isActive: boolean };
+type ApplicationOption = { id: string; name: string; status: string };
+type HostedApplication = { id: string; name: string; category: string; status: string };
 
 const emptyForm: ServerFormData = {
   hostname: "",
@@ -55,6 +58,7 @@ export default function Servers() {
   const [editing, setEditing] = useState<ServerRecord | null>(null);
   const [documentsFor, setDocumentsFor] = useState<ServerRecord | null>(null);
   const [form, setForm] = useState<ServerFormData>(emptyForm);
+  const [selectedApplicationIds, setSelectedApplicationIds] = useState<string[]>([]);
 
   const listUrl = useMemo(() => {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
@@ -74,11 +78,26 @@ export default function Servers() {
     },
   });
   const { data: platforms = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/os_platform"] });
+  const { data: applicationOptions = [] } = useQuery<ApplicationOption[]>({ queryKey: ["/api/cmdb/application-options"] });
+  const { data: hostedApplications = [] } = useQuery<HostedApplication[]>({
+    queryKey: ["/api/servers", editing?.id, "applications"],
+    enabled: Boolean(formOpen && editing),
+    queryFn: async () => {
+      const response = await fetch(`/api/servers/${editing!.id}/applications`);
+      if (!response.ok) throw new Error("Failed to load hosted applications");
+      return response.json();
+    },
+  });
+
+  useEffect(() => {
+    if (formOpen && editing) setSelectedApplicationIds(hostedApplications.map(application => application.id));
+  }, [formOpen, editing?.id, hostedApplications]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
         ...form,
+        applicationIds: selectedApplicationIds,
         ipAddress: form.ipAddress?.trim() || null,
         cpuRamSpecs: form.cpuRamSpecs?.trim() || null,
         location: form.location?.trim() || null,
@@ -89,6 +108,8 @@ export default function Servers() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/servers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/applications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cmdb/change-options"] });
       queryClient.invalidateQueries({ queryKey: ["/api/access-governance/catalog"] });
       setFormOpen(false);
       setEditing(null);
@@ -99,12 +120,14 @@ export default function Servers() {
 
   const startCreate = () => {
     setEditing(null);
+    setSelectedApplicationIds([]);
     setForm({ ...emptyForm, osPlatform: platforms[0]?.value ?? "" });
     setFormOpen(true);
   };
 
   const startEdit = (record: ServerRecord) => {
     setEditing(record);
+    setSelectedApplicationIds([]);
     setForm({
       hostname: record.hostname,
       ipAddress: record.ipAddress ?? "",
@@ -202,6 +225,29 @@ export default function Servers() {
               <div className="space-y-2"><Label htmlFor="server-specs">CPU / RAM Specs</Label><Input id="server-specs" maxLength={1000} value={form.cpuRamSpecs ?? ""} onChange={event => setForm(current => ({ ...current, cpuRamSpecs: event.target.value }))} /></div>
               <div className="space-y-2"><Label htmlFor="server-location">Location</Label><Input id="server-location" maxLength={255} value={form.location ?? ""} onChange={event => setForm(current => ({ ...current, location: event.target.value }))} /></div>
               <div className="space-y-2"><Label>Status</Label><Select value={form.status} onValueChange={value => setForm(current => ({ ...current, status: value as ServerFormData["status"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="online">Online</SelectItem><SelectItem value="maintenance">Maintenance</SelectItem><SelectItem value="offline">Offline</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Hosted Applications</Label>
+                <p className="text-xs text-muted-foreground">Select the business applications this server supports.</p>
+                <ScrollArea className="h-44 rounded-md border">
+                  <div className="space-y-1 p-2">
+                    {applicationOptions.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No applications are registered.</p>
+                      : applicationOptions.map(application => (
+                        <label key={application.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/60">
+                          <input
+                            type="checkbox"
+                            className="accent-primary"
+                            checked={selectedApplicationIds.includes(application.id)}
+                            onChange={() => setSelectedApplicationIds(current => current.includes(application.id)
+                              ? current.filter(id => id !== application.id)
+                              : [...current, application.id])}
+                          />
+                          <span className="flex-1">{application.name}</span>
+                          <Badge variant={application.status === "active" ? "default" : "secondary"}>{labelize(application.status)}</Badge>
+                        </label>
+                      ))}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
             <div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending || !form.osPlatform}>{saveMutation.isPending ? "Saving…" : editing ? "Save Changes" : "Create Server"}</Button></div>
           </form>

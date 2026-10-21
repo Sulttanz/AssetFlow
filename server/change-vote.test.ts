@@ -18,7 +18,20 @@ const store = vi.hoisted(() => ({
 
 vi.mock("./storage", () => ({ storage: store }));
 const notificationQuery = vi.hoisted(() => vi.fn().mockResolvedValue({}));
-vi.mock("./db", () => ({ db: {}, pool: { query: notificationQuery } }));
+vi.mock("./db", () => ({
+  db: {
+    transaction: async () => [],
+    select: () => {
+      const query: any = {
+        from: () => query,
+        innerJoin: () => query,
+        where: async () => [],
+      };
+      return query;
+    },
+  },
+  pool: { query: notificationQuery },
+}));
 vi.mock("./auth", () => ({
   setupAuth: (app: express.Express) => {
     app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
@@ -218,6 +231,13 @@ describe("CAB change routes", () => {
       { id: "deleted-account-vote", approverId: null, originalApproverId: "deleted-user", approverLabel: "Casey Deleted", decision: "approved" },
     ]);
     expect(body.removedApproverIds).toEqual(["removed-user"]);
+    expect(body.impactAnalysis).toMatchObject({
+      selectedApplicationIds: [],
+      selectedServerIds: [],
+      applications: [],
+      servers: [],
+      affectedOwners: [],
+    });
     expect(body.removedApprovals).toMatchObject([
       { id: "removed-assignment", approverId: null, originalApproverId: "removed-user", approverLabel: "Morgan Former", removedByLabel: "Taylor Manager" },
     ]);

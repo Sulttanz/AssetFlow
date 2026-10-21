@@ -71,11 +71,12 @@ type AccessResponse = {
   total: number;
   page: number;
   pageSize: number;
+  expirySummary?: { expiring: number; expired: number };
 };
 
 type PrivilegeOption = { id: string; value: string; label: string; isActive: boolean };
 type ViewMode = "employee" | "system";
-type StatusFilter = "all" | "active" | "expiring" | "expired" | "revoked";
+type StatusFilter = "all" | "active" | "expiring" | "expired" | "expiry_review" | "revoked";
 type PageSize = 20 | 50;
 
 const accessTypeLabels = ACCESS_TYPE_LABELS;
@@ -202,6 +203,23 @@ export default function AccessGovernance() {
     }),
   });
 
+  const extendMutation = useMutation({
+    mutationFn: ({ record, days }: { record: AccessRecord; days: number }) =>
+      apiRequest("POST", `/api/employees/${record.employeeId}/access-rights/${record.id}/extend`, {
+        days,
+        businessJustification: record.businessJustification,
+      }),
+    onSuccess: async (_result, variables) => {
+      await invalidateGovernance(variables.record.employeeId);
+      toast({ title: "Access extended", description: "The extension and review reason were added to the immutable audit trail." });
+    },
+    onError: (mutationError: Error) => toast({
+      title: "Could not extend access",
+      description: mutationError.message,
+      variant: "destructive",
+    }),
+  });
+
   const total = data?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -254,6 +272,40 @@ export default function AccessGovernance() {
         </TabsContent>
       </Tabs>
 
+      <div className="grid gap-3 md:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => setStatusFilter("expiring")}
+          className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 text-left transition hover:bg-amber-100/70"
+        >
+          <span className="flex items-center justify-between text-sm font-medium text-amber-900">
+            Expiring in 30 days <Badge variant="outline" className="border-amber-500 text-amber-800">{data?.expirySummary?.expiring ?? 0}</Badge>
+          </span>
+          <span className="mt-1 block text-xs text-amber-800/80">Review and extend or revoke soon-to-expire access.</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("expired")}
+          className="rounded-xl border border-red-300 bg-red-50/70 p-4 text-left transition hover:bg-red-100/70"
+        >
+          <span className="flex items-center justify-between text-sm font-medium text-red-900">
+            Expired access <Badge variant="destructive">{data?.expirySummary?.expired ?? 0}</Badge>
+          </span>
+          <span className="mt-1 block text-xs text-red-800/80">Confirm revocation or extend a legitimate entitlement.</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatusFilter("expiry_review")}
+          className={`rounded-xl border p-4 text-left transition ${statusFilter === "expiry_review" ? "border-primary bg-primary/5" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+        >
+          <span className="flex items-center justify-between text-sm font-medium">
+            Expiring & expired review queue
+            <Badge variant="secondary">{(data?.expirySummary?.expiring ?? 0) + (data?.expirySummary?.expired ?? 0)}</Badge>
+          </span>
+          <span className="mt-1 block text-xs text-muted-foreground">Open the combined periodic access-review view.</span>
+        </button>
+      </div>
+
       <Card>
         <CardContent className="space-y-4 p-4">
           <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_200px_180px]">
@@ -281,6 +333,7 @@ export default function AccessGovernance() {
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="expiring">Expiring in 30 days</SelectItem>
                 <SelectItem value="expired">Expired</SelectItem>
+                <SelectItem value="expiry_review">Expiring & expired review</SelectItem>
                 <SelectItem value="revoked">Revoked</SelectItem>
               </SelectContent>
             </Select>
@@ -350,7 +403,7 @@ export default function AccessGovernance() {
                             <Pencil className="mr-1 h-3.5 w-3.5" /> Edit Privilege
                           </Button>
                         )}
-                        {record.status === "active" && (
+                        {record.status === "active" && record.expiryState !== "expiring" && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -362,7 +415,38 @@ export default function AccessGovernance() {
                             <ShieldOff className="mr-1 h-3.5 w-3.5" /> Revoke
                           </Button>
                         )}
-                        {record.status !== "active" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
+                        {(record.expiryState === "expiring" || record.expiryState === "expired") && (
+                          <>
+                            {record.employee.status !== "disabled" && record.businessJustification !== "Legacy access record - justification pending review" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => extendMutation.mutate({ record, days: 90 })}
+                                disabled={extendMutation.isPending}
+                                aria-label={`Extend ${record.applicationName} access by 90 days`}
+                                title="Extend access by 90 days"
+                              >
+                                Extend 90d
+                              </Button>
+                            )}
+                            {record.status !== "revoked" && (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => revokeMutation.mutate({
+                                  record,
+                                  reason: "Periodic access review: auditor confirmed revocation.",
+                                })}
+                                disabled={revokeMutation.isPending}
+                                aria-label={`Confirm revocation of ${record.applicationName} for ${record.employee.firstName} ${record.employee.lastName}`}
+                                title="Confirm revocation during periodic review"
+                              >
+                                Confirm Revocation
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {record.status !== "active" && record.expiryState !== "expired" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
                       </div>
                     </TableCell>
                   </TableRow>

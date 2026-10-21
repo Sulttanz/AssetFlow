@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Boxes, ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Plus, Search } from "lucide-react";
 import Header from "@/components/layout/header";
 import { ConfigurationDocuments } from "@/components/cmdb/configuration-documents";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -33,6 +34,7 @@ type ApplicationRecord = {
 type ListResponse = { data: ApplicationRecord[]; total: number; page: number; pageSize: number };
 type Option = { id: string; value: string; label: string; isActive: boolean };
 type EmployeeOption = { id: string; firstName: string; lastName: string; employeeId?: string; status?: string };
+type HostedServer = { id: string; hostname: string; ipAddress: string | null; environment: string; status: string; osPlatform: string; location: string | null };
 type ApplicationFormData = Omit<ApplicationRecord, "id" | "businessOwnerName" | "technicalOwnerName" | "createdAt" | "updatedAt">;
 
 const emptyForm: ApplicationFormData = {
@@ -59,6 +61,7 @@ export default function Applications() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ApplicationRecord | null>(null);
   const [documentsFor, setDocumentsFor] = useState<ApplicationRecord | null>(null);
+  const [detailsFor, setDetailsFor] = useState<ApplicationRecord | null>(null);
   const [form, setForm] = useState<ApplicationFormData>(emptyForm);
 
   const listUrl = useMemo(() => {
@@ -80,6 +83,15 @@ export default function Applications() {
   });
   const { data: categoryOptions = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/application_category"] });
   const { data: employees = [] } = useQuery<EmployeeOption[]>({ queryKey: ["/api/employees"] });
+  const { data: hostedServers = [], isLoading: hostedServersLoading } = useQuery<HostedServer[]>({
+    queryKey: ["/api/applications", detailsFor?.id, "servers"],
+    enabled: Boolean(detailsFor),
+    queryFn: async () => {
+      const response = await fetch(`/api/applications/${detailsFor!.id}/servers`);
+      if (!response.ok) throw new Error("Failed to load hosted infrastructure");
+      return response.json();
+    },
+  });
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -94,6 +106,7 @@ export default function Applications() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/applications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cmdb/change-options"] });
       queryClient.invalidateQueries({ queryKey: ["/api/access-governance/catalog"] });
       setFormOpen(false);
       setEditing(null);
@@ -174,6 +187,7 @@ export default function Applications() {
                     <TableCell className="whitespace-nowrap">{formatDateDisplay(record.updatedAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setDetailsFor(record)} aria-label={`View details for ${record.name}`}><Eye className="mr-1 h-4 w-4" />Details</Button>
                         <Button variant="ghost" size="sm" onClick={() => setDocumentsFor(record)} aria-label={`Documents for ${record.name}`}><FileText className="mr-1 h-4 w-4" />Documents</Button>
                         <Button variant="ghost" size="icon" onClick={() => startEdit(record)} aria-label={`Edit ${record.name}`}><Pencil className="h-4 w-4" /></Button>
                       </div>
@@ -213,6 +227,46 @@ export default function Applications() {
             </div>
             <div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending || !form.category}>{saveMutation.isPending ? "Saving…" : editing ? "Save Changes" : "Create Application"}</Button></div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(detailsFor)} onOpenChange={open => { if (!open) setDetailsFor(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{detailsFor?.name}</DialogTitle>
+            <DialogDescription>Application profile and its mapped hosted infrastructure.</DialogDescription>
+          </DialogHeader>
+          {detailsFor && (
+            <Tabs key={detailsFor.id} defaultValue="overview">
+              <TabsList><TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="infrastructure">Hosted Infrastructure ({hostedServers.length})</TabsTrigger></TabsList>
+              <TabsContent value="overview" className="grid gap-4 pt-4 sm:grid-cols-2">
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Category</p><p className="mt-1">{categoryOptions.find(option => option.value === detailsFor.category)?.label ?? detailsFor.category}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Vendor</p><p className="mt-1">{detailsFor.vendor || "—"}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Business Owner</p><p className="mt-1">{detailsFor.businessOwnerName || "Unassigned"}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Technical Owner</p><p className="mt-1">{detailsFor.technicalOwnerName || "Unassigned"}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Hosting</p><p className="mt-1">{labelize(detailsFor.hostingType)}</p></div>
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Criticality / Status</p><p className="mt-1">{detailsFor.criticalityRating} · {labelize(detailsFor.status)}</p></div>
+              </TabsContent>
+              <TabsContent value="infrastructure" className="pt-4">
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Server</TableHead><TableHead>IP Address</TableHead><TableHead>Environment</TableHead><TableHead>Platform</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {hostedServersLoading ? <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Loading hosted infrastructure…</TableCell></TableRow>
+                        : hostedServers.length === 0 ? <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No servers are linked to this application.</TableCell></TableRow>
+                          : hostedServers.map(server => <TableRow key={server.id}>
+                            <TableCell className="font-medium">{server.hostname}</TableCell>
+                            <TableCell className="font-mono text-xs">{server.ipAddress || "—"}</TableCell>
+                            <TableCell>{labelize(server.environment)}</TableCell>
+                            <TableCell>{server.osPlatform}</TableCell>
+                            <TableCell><Badge variant={server.status === "online" ? "default" : "secondary"}>{labelize(server.status)}</Badge></TableCell>
+                          </TableRow>)}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            </Tabs>
+          )}
         </DialogContent>
       </Dialog>
 

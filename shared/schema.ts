@@ -693,6 +693,18 @@ export const servers = pgTable("servers", {
 ]);
 export type Server = typeof servers.$inferSelect;
 
+export const applicationServerLinks = pgTable("application_server_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: varchar("application_id").notNull().references(() => cmdbApplications.id, { onDelete: "cascade" }),
+  serverId: varchar("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("application_server_links_pair_unique").on(table.applicationId, table.serverId),
+  index("application_server_links_server_idx").on(table.serverId),
+  index("application_server_links_application_idx").on(table.applicationId),
+]);
+export type ApplicationServerLink = typeof applicationServerLinks.$inferSelect;
+
 // Dropdown Options - Manage all dropdown values
 export const dropdownOptions = pgTable("dropdown_options", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1629,6 +1641,21 @@ export const changeRiskLinks = pgTable("change_risk_links", {
   createdAt: timestamp("created_at").default(sql`now()`),
 }, table => [
   uniqueIndex("change_risk_links_pair_idx").on(table.changeRequestId, table.riskId),
+]);
+
+export const changeCiLinks = pgTable("change_ci_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeRequestId: varchar("change_request_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  applicationId: varchar("application_id").references(() => cmdbApplications.id, { onDelete: "cascade" }),
+  serverId: varchar("server_id").references(() => servers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  check("change_ci_links_one_target_check", sql`num_nonnulls(${table.applicationId}, ${table.serverId}) = 1`),
+  uniqueIndex("change_ci_links_application_unique").on(table.changeRequestId, table.applicationId),
+  uniqueIndex("change_ci_links_server_unique").on(table.changeRequestId, table.serverId),
+  index("change_ci_links_change_idx").on(table.changeRequestId),
+  index("change_ci_links_application_idx").on(table.applicationId),
+  index("change_ci_links_server_idx").on(table.serverId),
 ]);
 
 export const changeApprovals = pgTable("change_approvals", {

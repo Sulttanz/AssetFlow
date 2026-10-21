@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { CalendarDateField } from "@/components/ui/calendar-date-field";
+import { ChangeImpactSelector } from "@/components/cmdb/change-impact-selector";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -36,6 +38,8 @@ export default function NewChangePage() {
   const [scheduledStart, setScheduledStart] = useState("");
   const [scheduledEnd, setScheduledEnd] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [targetApplicationIds, setTargetApplicationIds] = useState<string[]>([]);
+  const [targetServerIds, setTargetServerIds] = useState<string[]>([]);
   const [validationError, setValidationError] = useState("");
   const options = useQuery<ChangeOptions>({
     queryKey: ["/api/incidents/options"],
@@ -45,6 +49,7 @@ export default function NewChangePage() {
     mutationFn: async (payload: {
       title: string; description: string; type: ChangeType; priority: Rating; risk: Rating; impact: string;
       implementationPlan: string; rollbackPlan: string; testPlan: string; scheduledStart: string; scheduledEnd: string; projectId: string | null;
+      targetApplicationIds: string[]; targetServerIds: string[];
     }) => (await apiRequest("POST", "/api/changes", payload)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
@@ -85,6 +90,8 @@ export default function NewChangePage() {
       scheduledStart,
       scheduledEnd,
       projectId: projectId || null,
+      targetApplicationIds,
+      targetServerIds,
     });
   }
 
@@ -122,6 +129,15 @@ export default function NewChangePage() {
             </CardContent>
           </Card>
 
+          <ChangeImpactSelector
+            applicationIds={targetApplicationIds}
+            serverIds={targetServerIds}
+            onChange={selection => {
+              setTargetApplicationIds(selection.applicationIds);
+              setTargetServerIds(selection.serverIds);
+            }}
+          />
+
           <Card className="rounded-[22px] border-[#d8e4df] bg-[#fffdfa] shadow-[0_12px_35px_rgba(35,73,70,.05)]">
             <CardContent className="grid gap-5 p-5 sm:p-7">
               <div className="border-b border-[#e5ece8] pb-4"><h2 className="font-semibold tracking-[-.02em]">Execution and recovery</h2><p className="mt-1 text-sm text-[#768987]">Provide an actionable procedure and a tested path back.</p></div>
@@ -143,10 +159,10 @@ export default function NewChangePage() {
             <CardContent className="grid gap-5 p-5">
               <div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#6f8982]">Change window</p><h2 className="mt-1 font-semibold text-[#244847]">Timing and ownership</h2></div>
               <Field label="Scheduled start" hint="Date only. Coordinate the exact time with the change team.">
-                <Input type="date" required value={scheduledStart} onChange={event => setScheduledStart(event.target.value)} className={inputClass} />
+                <CalendarDateField required value={scheduledStart} onChange={event => setScheduledStart(event.target.value)} className={inputClass} />
               </Field>
               <Field label="Scheduled end" hint="Must be on or after the start date.">
-                <Input type="date" required min={scheduledStart || undefined} value={scheduledEnd} onChange={event => setScheduledEnd(event.target.value)} className={inputClass} />
+                <CalendarDateField required min={scheduledStart || undefined} value={scheduledEnd} onChange={event => setScheduledEnd(event.target.value)} className={inputClass} />
               </Field>
               <Field label="Project (optional)">
                 <select className={selectClass} value={projectId} onChange={event => setProjectId(event.target.value)}>
