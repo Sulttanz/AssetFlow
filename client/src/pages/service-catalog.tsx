@@ -16,10 +16,12 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useLocation } from "wouter";
 import { ShoppingCart, Plus, Search, Pencil, Trash2, Laptop, Shield, Wifi, User, Building, Package, CheckCircle2 } from "lucide-react";
 
 interface CatalogItem {
   id: string; name: string; description: string | null; category: string;
+  consumableId?: string | null;
   icon: string | null; fulfillmentTeam: string | null; slaHours: number | null;
   approvalRequired: boolean; isActive: boolean; displayOrder: number;
   createdAt: string; updatedAt: string;
@@ -38,6 +40,7 @@ const formSchema = z.object({
   fulfillmentTeam: z.string().optional(),
   slaHours: z.coerce.number().optional(),
   approvalRequired: z.boolean().default(false),
+  consumableId: z.string().optional(),
   isActive: z.boolean().default(true),
   displayOrder: z.coerce.number().default(0),
 });
@@ -47,6 +50,7 @@ const requestFormSchema = z.object({ description: z.string().optional() });
 type RequestFormData = z.infer<typeof requestFormSchema>;
 
 export default function ServiceCatalog() {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"storefront"|"admin">("storefront");
   const [search, setSearch] = useState("");
@@ -57,10 +61,11 @@ export default function ServiceCatalog() {
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
 
   const { data: items = [], isLoading } = useQuery<CatalogItem[]>({ queryKey: ["/api/catalog/items"] });
+  const { data: stockItems = [] } = useQuery<{ id: string; name: string; category: string; modelPartNumber: string | null; quantityInStock: number; warehouseName: string | null }[]>({ queryKey: ["/api/consumables"] });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0 },
+    defaultValues: { name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0, consumableId: "" },
   });
 
   const reqForm = useForm<RequestFormData>({ resolver: zodResolver(requestFormSchema), defaultValues: { description: "" } });
@@ -103,20 +108,28 @@ export default function ServiceCatalog() {
 
   function openCreate() {
     setEditingItem(null);
-    form.reset({ name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0 });
+    form.reset({ name: "", description: "", category: "hardware", fulfillmentTeam: "", slaHours: undefined, approvalRequired: false, isActive: true, displayOrder: 0, consumableId: "" });
     setDialogOpen(true);
   }
 
   function openEdit(i: CatalogItem) {
     setEditingItem(i);
-    form.reset({ name: i.name, description: i.description ?? "", category: i.category, fulfillmentTeam: i.fulfillmentTeam ?? "", slaHours: i.slaHours ?? undefined, approvalRequired: i.approvalRequired, isActive: i.isActive, displayOrder: i.displayOrder });
+    form.reset({ name: i.name, description: i.description ?? "", category: i.category, fulfillmentTeam: i.fulfillmentTeam ?? "", slaHours: i.slaHours ?? undefined, approvalRequired: i.approvalRequired, isActive: i.isActive, displayOrder: i.displayOrder, consumableId: i.consumableId ?? "" });
     setDialogOpen(true);
   }
 
   function onSubmit(data: FormData) {
-    const payload = { ...data, description: data.description || null, fulfillmentTeam: data.fulfillmentTeam || null, slaHours: data.slaHours ?? null };
+    const payload = { ...data, description: data.description || null, fulfillmentTeam: data.fulfillmentTeam || null, slaHours: data.slaHours ?? null, consumableId: data.consumableId || null };
     if (editingItem) updateMutation.mutate({ id: editingItem.id, data: payload as any });
     else createMutation.mutate(payload as any);
+  }
+
+  function requestCatalogItem(item: CatalogItem) {
+    if (item.consumableId) {
+      navigate(`/service-requests/new?catalogItemId=${encodeURIComponent(item.id)}`);
+      return;
+    }
+    setRequestItem(item);
   }
 
   return (
@@ -178,7 +191,7 @@ export default function ServiceCatalog() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {catItems.map(item => (
-                      <Card key={item.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => setRequestItem(item)}>
+                      <Card key={item.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => requestCatalogItem(item)}>
                         <CardHeader className="pb-2">
                           <CardTitle className="text-base">{item.name}</CardTitle>
                           {item.description && <CardDescription className="text-sm line-clamp-2">{item.description}</CardDescription>}
@@ -190,7 +203,7 @@ export default function ServiceCatalog() {
                               {item.approvalRequired && <Badge variant="secondary" className="text-xs">Approval needed</Badge>}
                               {item.fulfillmentTeam && <Badge variant="outline" className="text-xs">{item.fulfillmentTeam}</Badge>}
                             </div>
-                            <Button size="sm" onClick={e => { e.stopPropagation(); setRequestItem(item); }}>Request</Button>
+                             <Button size="sm" onClick={e => { e.stopPropagation(); requestCatalogItem(item); }}>Request</Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -311,6 +324,14 @@ export default function ServiceCatalog() {
                   <FormItem><FormLabel>Fulfillment Team</FormLabel><FormControl><Input placeholder="e.g. IT Helpdesk" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
+              <FormField control={form.control} name="consumableId" render={({ field }) => (
+                <FormItem><FormLabel>Linked consumable (optional)</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || "__none__"}>
+                    <FormControl><SelectTrigger><SelectValue placeholder="Not a stock item" /></SelectTrigger></FormControl>
+                    <SelectContent><SelectItem value="__none__">Not a stock item</SelectItem>{stockItems.map(item => <SelectItem key={item.id} value={item.id}>{item.name}{item.modelPartNumber ? ` · ${item.modelPartNumber}` : ""} — {item.quantityInStock} in stock{item.warehouseName ? ` at ${item.warehouseName}` : ""}</SelectItem>)}</SelectContent>
+                  </Select><FormDescription>When linked, service requests will require stock fulfillment from a warehouse.</FormDescription><FormMessage />
+                </FormItem>
+              )} />
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="slaHours" render={({ field }) => (
                   <FormItem><FormLabel>SLA (hours)</FormLabel><FormControl><Input type="number" placeholder="e.g. 48" {...field} /></FormControl><FormDescription>Leave blank for no SLA</FormDescription><FormMessage /></FormItem>

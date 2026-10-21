@@ -17,6 +17,7 @@ type CatalogItem = {
   description?: string | null;
   category?: string | null;
   fulfillmentTeam?: string | null;
+  consumableId?: string | null;
   approvalRequired?: boolean;
   isActive?: boolean;
 };
@@ -29,6 +30,7 @@ type RequestPayload = {
   projectId: string | null;
   targetFulfillmentDate: string | null;
   cost: number;
+  requestedQuantity: number;
   requesterId?: string;
 };
 
@@ -58,6 +60,7 @@ export default function NewServiceRequestPage() {
   const [projectId, setProjectId] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [cost, setCost] = useState("0");
+  const [requestedQuantity, setRequestedQuantity] = useState("1");
   const [files, setFiles] = useState<File[]>([]);
   const [requestedForId, setRequestedForId] = useState("");
   const [requestedForSearch, setRequestedForSearch] = useState("");
@@ -143,6 +146,7 @@ export default function NewServiceRequestPage() {
       projectId: projectId || null,
       targetFulfillmentDate: targetDate || null,
       cost: numericCost,
+      requestedQuantity: selectedItem?.consumableId ? Math.max(1, Math.floor(Number(requestedQuantity))) : 1,
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
@@ -202,6 +206,9 @@ export default function NewServiceRequestPage() {
             <Field label="Request description" hint="Include quantity, access level, business need, or other details that will help fulfillment.">
               <Textarea required rows={6} maxLength={8000} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the service or item you need and any important requirements." className={textAreaClass} />
             </Field>
+            {selectedItem?.consumableId && <Field label="Quantity requested" hint="The fulfillment team will reserve and deduct this quantity from warehouse stock.">
+              <Input type="number" min="1" max="10000" step="1" required value={requestedQuantity} onChange={event => setRequestedQuantity(event.target.value)} className={inputClass} />
+            </Field>}
             <section aria-labelledby="attachments-heading" className="rounded-2xl border border-dashed border-[#cdded8] bg-[#f8faf8] p-4 sm:p-5">
               <div className="flex items-start gap-3">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Paperclip className="h-4 w-4" /></span>

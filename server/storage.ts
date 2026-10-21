@@ -1412,6 +1412,11 @@ export class MemStorage implements IStorage {
       id,
       assetId: item.assetId ?? null,
       assetType: item.assetType ?? null,
+      itemType: item.itemType ?? "asset",
+      consumableId: item.consumableId ?? null,
+      consumableCategory: item.consumableCategory ?? null,
+      modelPartNumber: item.modelPartNumber ?? null,
+      warehouseLocationId: item.warehouseLocationId ?? null,
       serialNumber: item.serialNumber ?? null,
       quantity: item.quantity ?? 1
     };
@@ -2685,7 +2690,7 @@ export class MemStorage implements IStorage {
   async getCatalogItem(_id: string): Promise<CatalogItem | undefined> { return undefined; }
   async createCatalogItem(item: InsertCatalogItem): Promise<CatalogItem> {
     const id = randomUUID(); const now = new Date();
-    return { id, ...item, description: item.description ?? null, icon: item.icon ?? null, fulfillmentTeam: item.fulfillmentTeam ?? null, slaHours: item.slaHours ?? null, approvalRequired: item.approvalRequired ?? false, isActive: item.isActive ?? true, displayOrder: item.displayOrder ?? 0, createdAt: now, updatedAt: now };
+    return { id, ...item, description: item.description ?? null, icon: item.icon ?? null, fulfillmentTeam: item.fulfillmentTeam ?? null, consumableId: item.consumableId ?? null, slaHours: item.slaHours ?? null, approvalRequired: item.approvalRequired ?? false, isActive: item.isActive ?? true, displayOrder: item.displayOrder ?? 0, createdAt: now, updatedAt: now };
   }
   async updateCatalogItem(_id: string, _i: Partial<InsertCatalogItem>): Promise<CatalogItem | undefined> { return undefined; }
   async deleteCatalogItem(_id: string): Promise<boolean> { return false; }

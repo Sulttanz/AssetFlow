@@ -11,13 +11,15 @@ import { calculateDepreciation, generateDepreciationSchedule } from "./depreciat
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
-  insertPurchaseOrderSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
+  insertPurchaseOrderSchema, insertPurchaseOrderItemSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, users, employees, assets, contracts, softwareLicenseAllocations,
-  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles
+  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
+  warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
+  insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -1064,7 +1066,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [projectRows, userRows, catalogRows, employeeRows] = await Promise.all([
         db.select({ id: projects.id, name: projects.name }).from(projects),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
-        db.select({ id: catalogItems.id, name: catalogItems.name }).from(catalogItems),
+        db.select({ id: catalogItems.id, name: catalogItems.name, consumableId: catalogItems.consumableId }).from(catalogItems),
         db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees),
       ]);
       const projectNames = new Map(projectRows.map(row => [row.id, row.name]));
@@ -1077,11 +1079,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mobile: employee.mobile,
       }]));
       const catalogNames = new Map(catalogRows.map(row => [row.id, row.name]));
+      const catalogConsumables = new Map(catalogRows.map(row => [row.id, row.consumableId]));
       res.json(visible.map(row => ({
         ...row,
         fulfillmentStage: row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted",
         projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
         catalogItemName: row.catalogItemId ? catalogNames.get(row.catalogItemId) ?? null : null,
+        consumableId: row.catalogItemId ? catalogConsumables.get(row.catalogItemId) ?? null : null,
         requesterName: userDetails.get(row.requesterId)?.name ?? null,
         requesterEmail: userDetails.get(row.requesterId)?.email ?? null,
         requesterPhone: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.phone ?? null,
@@ -1103,6 +1107,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(request);
     } catch {
       res.status(500).json({ message: "Failed to fetch service request" });
+    }
+  });
+
+  app.get("/api/service-requests/:id/consumable-options", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
+      if (!request) return res.status(404).json({ message: "Service request not found" });
+      if (!request.catalogItemId) return res.json({ stock: [], requestedQuantity: request.requestedQuantity || 1 });
+      const [catalogItem] = await db.select().from(catalogItems).where(eq(catalogItems.id, request.catalogItemId));
+      if (!catalogItem?.consumableId) return res.json({ stock: [], requestedQuantity: request.requestedQuantity || 1 });
+      const [master] = await db.select().from(consumables).where(eq(consumables.id, catalogItem.consumableId));
+      if (!master) return res.json({ stock: [], requestedQuantity: request.requestedQuantity || 1 });
+      const stock = await db.select({
+        id: consumables.id,
+        name: consumables.name,
+        modelPartNumber: consumables.modelPartNumber,
+        quantityInStock: consumables.quantityInStock,
+        warehouseLocationId: consumables.warehouseLocationId,
+        warehouseName: warehouseLocations.name,
+        warehouseCode: warehouseLocations.code,
+        storageRoom: warehouseLocations.storageRoom,
+      }).from(consumables)
+        .innerJoin(warehouseLocations, eq(warehouseLocations.id, consumables.warehouseLocationId))
+        .where(eq(consumables.category, master.category));
+      const matching = stock.filter(item =>
+        item.name.toLocaleLowerCase() === master.name.toLocaleLowerCase() &&
+        (item.modelPartNumber ?? "").toLocaleLowerCase() === (master.modelPartNumber ?? "").toLocaleLowerCase()
+      );
+      const [dispatch] = await db.select({
+        id: consumableDispatchLog.id,
+        quantity: consumableDispatchLog.quantity,
+        dispatchedAt: consumableDispatchLog.dispatchedAt,
+        requesterId: consumableDispatchLog.requesterId,
+        agentId: consumableDispatchLog.agentId,
+        warehouseName: warehouseLocations.name,
+        consumableName: consumables.name,
+      }).from(consumableDispatchLog)
+        .innerJoin(warehouseLocations, eq(warehouseLocations.id, consumableDispatchLog.warehouseLocationId))
+        .innerJoin(consumables, eq(consumables.id, consumableDispatchLog.consumableId))
+        .where(eq(consumableDispatchLog.serviceRequestId, request.id));
+      let dispatchDetails: Record<string, unknown> | null = null;
+      if (dispatch) {
+        const people = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username })
+          .from(users).where(inArray(users.id, [dispatch.requesterId, dispatch.agentId]));
+        const names = new Map(people.map(person => [person.id, [person.firstName, person.lastName].filter(Boolean).join(" ") || person.username]));
+        dispatchDetails = {
+          ...dispatch,
+          requesterName: names.get(dispatch.requesterId) ?? "Former user",
+          agentName: names.get(dispatch.agentId) ?? "Former user",
+        };
+      }
+      res.json({ stock: matching, requestedQuantity: request.requestedQuantity || 1, dispatch: dispatchDetails });
+    } catch {
+      res.status(500).json({ message: "Failed to fetch fulfillment stock options" });
     }
   });
 
@@ -1212,6 +1270,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (["In Procurement", "Ready for Delivery", "Completed"].includes(stage) && existing.approvalStatus !== "approved") {
         return res.status(409).json({ message: "The request must be approved before fulfillment can proceed" });
       }
+      if (stage === "Completed" && existing.catalogItemId) {
+        const [catalogItem] = await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, existing.catalogItemId));
+        if (catalogItem?.consumableId) return res.status(409).json({ message: "Use Fulfill / Deliver to deduct stock before completing this request" });
+      }
       if (stage === "Completed" && existing.fulfillmentStage !== "Ready for Delivery") {
         return res.status(409).json({ message: "Move the request to Ready for Delivery before completing it" });
       }
@@ -1232,6 +1294,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/service-requests/:id/fulfill-consumable", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const { warehouseLocationId } = z.object({ warehouseLocationId: z.string().uuid() }).parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [request] = await tx.select().from(serviceRequests).where(eq(serviceRequests.id, req.params.id)).for("update");
+        if (!request) throw Object.assign(new Error("Service request not found"), { status: 404 });
+        if (request.fulfillmentStage !== "Ready for Delivery" || request.approvalStatus !== "approved") {
+          throw Object.assign(new Error("The request must be approved and ready for delivery"), { status: 409 });
+        }
+        if (!request.catalogItemId) throw Object.assign(new Error("This request is not linked to a consumable catalog item"), { status: 400 });
+        const [catalogItem] = await tx.select().from(catalogItems).where(eq(catalogItems.id, request.catalogItemId));
+        if (!catalogItem?.consumableId) throw Object.assign(new Error("This catalog item is not linked to a consumable"), { status: 400 });
+        const [priorDispatch] = await tx.select({ id: consumableDispatchLog.id }).from(consumableDispatchLog)
+          .where(eq(consumableDispatchLog.serviceRequestId, request.id));
+        if (priorDispatch) throw Object.assign(new Error("Stock was already dispatched for this request"), { status: 409 });
+        const [catalogStock] = await tx.select().from(consumables).where(eq(consumables.id, catalogItem.consumableId));
+        if (!catalogStock) throw Object.assign(new Error("The catalog stock item no longer exists"), { status: 404 });
+        const locationStock = await tx.select().from(consumables)
+          .where(eq(consumables.warehouseLocationId, warehouseLocationId)).for("update");
+        const stock = locationStock.find(row =>
+          row.id === catalogStock.id ||
+          (row.name.toLocaleLowerCase() === catalogStock.name.toLocaleLowerCase() &&
+            (row.modelPartNumber ?? "").toLocaleLowerCase() === (catalogStock.modelPartNumber ?? "").toLocaleLowerCase())
+        );
+        if (!stock) throw Object.assign(new Error("No matching stock item exists at that location"), { status: 404 });
+        const quantity = request.requestedQuantity || 1;
+        if (stock.quantityInStock < quantity) throw Object.assign(new Error(`Insufficient stock: ${stock.quantityInStock} available, ${quantity} requested`), { status: 409 });
+        const now = new Date();
+        const [updatedStock] = await tx.update(consumables).set({
+          quantityInStock: stock.quantityInStock - quantity,
+          updatedAt: now,
+        }).where(eq(consumables.id, stock.id)).returning();
+        const [dispatch] = await tx.insert(consumableDispatchLog).values({
+          consumableId: stock.id,
+          warehouseLocationId,
+          serviceRequestId: request.id,
+          serviceRequestNumber: request.requestNumber,
+          requesterId: request.requesterId,
+          agentId: req.user.id,
+          quantity,
+          dispatchedAt: now,
+        }).returning();
+        await tx.insert(consumableStockMovements).values({
+          consumableId: stock.id,
+          movementType: "issue",
+          quantity,
+          fromWarehouseLocationId: warehouseLocationId,
+          recipientUserId: request.requesterId,
+          actorId: req.user.id,
+          serviceRequestId: request.id,
+          notes: `Fulfilled ${request.requestNumber}`,
+          createdAt: now,
+        });
+        const [updatedRequest] = await tx.update(serviceRequests).set({
+          fulfillmentStage: "Completed",
+          fulfillmentStatus: "Completed",
+          completedAt: now,
+        }).where(eq(serviceRequests.id, request.id)).returning();
+        await tx.insert(serviceRequestActivities).values({
+          serviceRequestId: request.id,
+          actorId: req.user.id,
+          action: "Consumable delivered",
+          details: `${quantity} × ${stock.name} dispatched from stock at ${warehouseLocationId}`,
+          createdAt: now,
+        });
+        return { request: updatedRequest, stock: updatedStock, dispatch };
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Select a source warehouse", errors: error.errors });
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      res.status(500).json({ message: "Failed to fulfill consumable request" });
+    }
+  });
+
   app.put("/api/service-requests/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
       const parsed = insertServiceRequestSchema.partial().omit({ requesterId: true, completedAt: true }).parse(req.body);
@@ -1247,6 +1385,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const existing = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!existing) return res.status(404).json({ message: "Service request not found" });
+      if ((parsed.fulfillmentStatus === "Completed" || parsed.fulfillmentStage === "Completed") && existing.catalogItemId) {
+        const [catalogItem] = await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, existing.catalogItemId));
+        if (catalogItem?.consumableId) return res.status(409).json({ message: "Use Fulfill / Deliver to deduct stock before completing this request" });
+      }
       const nextApproval = parsed.approvalStatus ?? existing.approvalStatus;
       const nextStatus = parsed.fulfillmentStatus ?? existing.fulfillmentStatus;
       if (nextStatus === "Completed" && nextApproval !== "approved") {
@@ -3257,6 +3399,229 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Purchase Orders routes
+  app.get("/api/warehouse-locations", requireAuth, requireModule("asset_management"), async (_req, res) => {
+    try {
+      res.json(await db.select().from(warehouseLocations).orderBy(warehouseLocations.name));
+    } catch {
+      res.status(500).json({ message: "Failed to fetch warehouse locations" });
+    }
+  });
+
+  app.post("/api/warehouse-locations", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+    try {
+      const input = insertWarehouseLocationSchema.parse(req.body);
+      const [created] = await db.insert(warehouseLocations).values(input).returning();
+      res.status(201).json(created);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.errors });
+      if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
+      res.status(500).json({ message: "Failed to create warehouse location" });
+    }
+  });
+
+  app.patch("/api/warehouse-locations/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const input = insertWarehouseLocationSchema.partial().parse(req.body);
+      const [updated] = await db.update(warehouseLocations).set(input).where(eq(warehouseLocations.id, req.params.id)).returning();
+      if (!updated) return res.status(404).json({ message: "Warehouse location not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.errors });
+      if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
+      res.status(500).json({ message: "Failed to update warehouse location" });
+    }
+  });
+
+  app.get("/api/consumables/options", requireAuth, requireModule("asset_management"), async (_req, res) => {
+    try {
+      const [locations, vendorRows, userRows] = await Promise.all([
+        db.select().from(warehouseLocations).where(eq(warehouseLocations.isActive, true)).orderBy(warehouseLocations.name),
+        db.select({ id: vendors.id, name: vendors.name }).from(vendors),
+        db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName, username: users.username, email: users.email }).from(users).where(eq(users.isActive, true)),
+      ]);
+      res.json({
+        locations,
+        vendors: vendorRows,
+        users: userRows.map(user => ({ id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username, email: user.email })),
+      });
+    } catch {
+      res.status(500).json({ message: "Failed to fetch consumables options" });
+    }
+  });
+
+  app.get("/api/consumables", requireAuth, requireModule("asset_management"), async (_req, res) => {
+    try {
+      const rows = await db.select({
+        id: consumables.id,
+        name: consumables.name,
+        category: consumables.category,
+        modelPartNumber: consumables.modelPartNumber,
+        quantityInStock: consumables.quantityInStock,
+        minReorderLevel: consumables.minReorderLevel,
+        warehouseLocationId: consumables.warehouseLocationId,
+        storageRoom: consumables.storageRoom,
+        unitCost: consumables.unitCost,
+        vendorId: consumables.vendorId,
+        createdAt: consumables.createdAt,
+        updatedAt: consumables.updatedAt,
+        warehouseName: warehouseLocations.name,
+        warehouseCode: warehouseLocations.code,
+        vendorName: vendors.name,
+      }).from(consumables)
+        .leftJoin(warehouseLocations, eq(warehouseLocations.id, consumables.warehouseLocationId))
+        .leftJoin(vendors, eq(vendors.id, consumables.vendorId))
+        .orderBy(consumables.name, warehouseLocations.name);
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch consumables" });
+    }
+  });
+
+  app.post("/api/consumables", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+    try {
+      const input = insertConsumableSchema.parse(req.body);
+      const [location] = await db.select({ id: warehouseLocations.id }).from(warehouseLocations).where(eq(warehouseLocations.id, input.warehouseLocationId));
+      if (!location) return res.status(400).json({ message: "Select a valid warehouse location" });
+      const [created] = await db.insert(consumables).values({ ...input, storageRoom: input.storageRoom || null }).returning();
+      await db.insert(consumableStockMovements).values({
+        consumableId: created.id,
+        movementType: "adjustment",
+        quantity: created.quantityInStock,
+        toWarehouseLocationId: created.warehouseLocationId,
+        actorId: req.user!.id,
+        notes: "Opening stock",
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      res.status(500).json({ message: "Failed to create consumable" });
+    }
+  });
+
+  app.patch("/api/consumables/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    try {
+      const input = insertConsumableSchema.partial().omit({ quantityInStock: true }).parse(req.body);
+      const [updated] = await db.update(consumables).set({ ...input, updatedAt: new Date() })
+        .where(eq(consumables.id, req.params.id)).returning();
+      if (!updated) return res.status(404).json({ message: "Consumable not found" });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      res.status(500).json({ message: "Failed to update consumable" });
+    }
+  });
+
+  app.post("/api/consumables/:id/stock-movement", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+    const movementSchema = z.discriminatedUnion("movementType", [
+      z.object({ movementType: z.literal("issue"), quantity: z.number().int().positive(), recipientUserId: z.string().uuid(), notes: z.string().trim().max(2000).optional() }),
+      z.object({ movementType: z.literal("transfer"), quantity: z.number().int().positive(), toWarehouseLocationId: z.string().uuid(), notes: z.string().trim().max(2000).optional() }),
+    ]);
+    try {
+      const input = movementSchema.parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [source] = await tx.select().from(consumables).where(eq(consumables.id, req.params.id)).for("update");
+        if (!source) throw Object.assign(new Error("Consumable not found"), { status: 404 });
+        if (source.quantityInStock < input.quantity) throw Object.assign(new Error("Not enough stock is available"), { status: 409 });
+        if (input.movementType === "issue") {
+          const [recipient] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, input.recipientUserId), eq(users.isActive, true)));
+          if (!recipient) throw Object.assign(new Error("Select an active employee"), { status: 400 });
+          const [updated] = await tx.update(consumables).set({
+            quantityInStock: source.quantityInStock - input.quantity,
+            updatedAt: new Date(),
+          }).where(eq(consumables.id, source.id)).returning();
+          const [movement] = await tx.insert(consumableStockMovements).values({
+            consumableId: source.id, movementType: "issue", quantity: input.quantity,
+            fromWarehouseLocationId: source.warehouseLocationId, recipientUserId: input.recipientUserId,
+            actorId: req.user!.id, notes: input.notes || null,
+          }).returning();
+          return { consumable: updated, movement };
+        }
+
+        const [destination] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+          .where(and(eq(warehouseLocations.id, input.toWarehouseLocationId), eq(warehouseLocations.isActive, true)));
+        if (!destination) throw Object.assign(new Error("Select an active destination location"), { status: 400 });
+        if (source.warehouseLocationId === input.toWarehouseLocationId) throw Object.assign(new Error("Choose a different destination location"), { status: 400 });
+        const [updatedSource] = await tx.update(consumables).set({
+          quantityInStock: source.quantityInStock - input.quantity,
+          updatedAt: new Date(),
+        }).where(eq(consumables.id, source.id)).returning();
+        const destinationRows = await tx.select().from(consumables).where(eq(consumables.warehouseLocationId, input.toWarehouseLocationId)).for("update");
+        let destinationItem = destinationRows.find(row =>
+          row.name.toLocaleLowerCase() === source.name.toLocaleLowerCase() &&
+          (row.modelPartNumber ?? "").toLocaleLowerCase() === (source.modelPartNumber ?? "").toLocaleLowerCase()
+        );
+        if (destinationItem) {
+          [destinationItem] = await tx.update(consumables).set({
+            quantityInStock: destinationItem.quantityInStock + input.quantity,
+            updatedAt: new Date(),
+          }).where(eq(consumables.id, destinationItem.id)).returning();
+        } else {
+          [destinationItem] = await tx.insert(consumables).values({
+            name: source.name, category: source.category, modelPartNumber: source.modelPartNumber,
+            quantityInStock: input.quantity, minReorderLevel: source.minReorderLevel,
+            warehouseLocationId: input.toWarehouseLocationId, storageRoom: null,
+            unitCost: source.unitCost, vendorId: source.vendorId,
+          }).returning();
+        }
+        const [movement] = await tx.insert(consumableStockMovements).values({
+          consumableId: source.id, movementType: "transfer", quantity: input.quantity,
+          fromWarehouseLocationId: source.warehouseLocationId, toWarehouseLocationId: input.toWarehouseLocationId,
+          actorId: req.user!.id, notes: input.notes || null,
+        }).returning();
+        return { consumable: updatedSource, destination: destinationItem, movement };
+      });
+      await logAudit(req.user?.id, "UPDATE", "consumables", result.consumable.id, result.consumable.name, null, result, req);
+      res.status(201).json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid stock movement", errors: error.errors });
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      res.status(500).json({ message: "Failed to save stock movement" });
+    }
+  });
+
+  app.post("/api/consumables/:id/draft-purchase-order", requireAuth, requireModule("asset_management"), requirePermission("purchase_order_create"), async (req, res) => {
+    try {
+      const [item] = await db.select().from(consumables).where(eq(consumables.id, req.params.id));
+      if (!item) return res.status(404).json({ message: "Consumable not found" });
+      const [location] = await db.select({ name: warehouseLocations.name }).from(warehouseLocations).where(eq(warehouseLocations.id, item.warehouseLocationId));
+      const vendorName = item.vendorId ? (await storage.getVendor(item.vendorId))?.name ?? null : null;
+      const shortage = Math.max(item.minReorderLevel * 2 - item.quantityInStock, 1);
+      const po = await storage.createPurchaseOrder({
+        poNumber: `PO-RESTOCK-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+        vendorId: item.vendorId,
+        vendor: vendorName,
+        reference: `Low stock reorder: ${item.name}`,
+        orderDate: new Date().toISOString().slice(0, 10),
+        expectedDelivery: null,
+        actualDelivery: null,
+        totalAmount: (Number(item.unitCost) * shortage).toFixed(2),
+        status: "pending",
+        departmentId: null,
+        notes: `Draft reorder for ${location?.name ?? "warehouse"}; current stock ${item.quantityInStock}, minimum ${item.minReorderLevel}.`,
+        assetsCreated: false,
+      });
+      await storage.createPurchaseOrderItem({
+        purchaseOrderId: po.id,
+        description: item.name,
+        assetType: "other",
+        itemType: "consumable",
+        consumableId: item.id,
+        consumableCategory: item.category,
+        modelPartNumber: item.modelPartNumber,
+        warehouseLocationId: item.warehouseLocationId,
+        serialNumber: null,
+        quantity: shortage,
+        unitPrice: item.unitCost,
+        totalPrice: (Number(item.unitCost) * shortage).toFixed(2),
+        assetId: null,
+      });
+      res.status(201).json(po);
+    } catch {
+      res.status(500).json({ message: "Failed to create draft purchase order" });
+    }
+  });
+
   app.get("/api/purchase-orders", requireAuth, async (req, res) => {
     try {
       const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
@@ -3270,24 +3635,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Extract items from request body as they're not part of the purchase order schema
       const { items, ...purchaseOrderData } = req.body;
-      
+      const lineSchema = z.object({
+        description: z.string().trim().min(1),
+        assetType: z.string().nullable().optional(),
+        itemType: z.enum(["asset", "consumable"]).default("asset"),
+        consumableId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+        consumableCategory: z.string().trim().max(100).nullable().optional(),
+        modelPartNumber: z.string().trim().max(160).nullable().optional(),
+        warehouseLocationId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+        serialNumber: z.string().nullable().optional(),
+        quantity: z.coerce.number().int().min(1).max(100000),
+        unitPrice: z.coerce.number().min(0),
+        assetId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+      });
+      const itemInputs = z.array(lineSchema).parse(items ?? []);
+      if (itemInputs.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
+        return res.status(400).json({ message: "Consumable PO lines require a warehouse location" });
+      }
       const validatedData = insertPurchaseOrderSchema.parse(purchaseOrderData);
       const purchaseOrder = await storage.createPurchaseOrder(validatedData);
       
       // Create purchase order items if provided
-      if (items && Array.isArray(items)) {
-        for (const item of items) {
+      if (itemInputs.length) {
+        for (const item of itemInputs) {
           const totalPrice = item.quantity * item.unitPrice;
-          await storage.createPurchaseOrderItem({
+          const line = insertPurchaseOrderItemSchema.parse({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
             assetType: item.assetType || "other",
+            itemType: item.itemType,
+            consumableId: item.consumableId || null,
+            consumableCategory: item.consumableCategory || null,
+            modelPartNumber: item.modelPartNumber || null,
+            warehouseLocationId: item.warehouseLocationId || null,
             serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             totalPrice: totalPrice.toString(),
             assetId: item.assetId || undefined
           });
+          await storage.createPurchaseOrderItem(line);
         }
       }
       
@@ -3321,9 +3708,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/purchase-orders/:id", requireAuth, requirePermission('purchase_order_update'), async (req, res) => {
     try {
       const { items, ...purchaseOrderData } = req.body;
+      const itemInputs = items === undefined ? undefined : z.array(z.object({
+        description: z.string().trim().min(1),
+        assetType: z.string().nullable().optional(),
+        itemType: z.enum(["asset", "consumable"]).default("asset"),
+        consumableId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+        consumableCategory: z.string().trim().max(100).nullable().optional(),
+        modelPartNumber: z.string().trim().max(160).nullable().optional(),
+        warehouseLocationId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+        serialNumber: z.string().nullable().optional(),
+        quantity: z.coerce.number().int().min(1).max(100000),
+        unitPrice: z.coerce.number().min(0),
+        assetId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
+      })).parse(items);
+      if (itemInputs?.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
+        return res.status(400).json({ message: "Consumable PO lines require a warehouse location" });
+      }
       const validatedData = insertPurchaseOrderSchema.partial().parse(purchaseOrderData);
       
       const oldPO = await storage.getPurchaseOrder(req.params.id);
+      if (oldPO?.assetsCreated && itemInputs !== undefined) {
+        return res.status(409).json({ message: "Received PO items cannot be changed after inventory processing" });
+      }
       
       const purchaseOrder = await storage.updatePurchaseOrder(req.params.id, validatedData);
       if (!purchaseOrder) {
@@ -3331,7 +3737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Update items if provided
-      if (items && Array.isArray(items)) {
+      if (itemInputs) {
         // Delete existing items
         const existingItems = await storage.getPurchaseOrderItems(req.params.id);
         for (const item of existingItems) {
@@ -3339,18 +3745,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Create new items
-        for (const item of items) {
+        for (const item of itemInputs) {
           const totalPrice = item.quantity * item.unitPrice;
-          await storage.createPurchaseOrderItem({
+          const line = insertPurchaseOrderItemSchema.parse({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
             assetType: item.assetType || "other",
+            itemType: item.itemType,
+            consumableId: item.consumableId || null,
+            consumableCategory: item.consumableCategory || null,
+            modelPartNumber: item.modelPartNumber || null,
+            warehouseLocationId: item.warehouseLocationId || null,
             serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             totalPrice: totalPrice.toString(),
             assetId: item.assetId || undefined
           });
+          await storage.createPurchaseOrderItem(line);
         }
       }
       
@@ -3438,16 +3850,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PO → Asset auto-creation
+  // PO receipt processing creates tagged assets and/or adds consumable stock.
   app.post("/api/purchase-orders/:id/create-assets", requireAuth, requirePermission('purchase_order_update'), async (req, res) => {
     try {
       const po = await storage.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
-      if (po.status !== 'received') return res.status(400).json({ message: "Purchase order must be in 'received' status to create assets" });
-      if (po.assetsCreated) return res.status(400).json({ message: "Assets have already been created for this purchase order" });
+      if (po.status !== 'received') return res.status(400).json({ message: "Purchase order must be received before inventory can be processed" });
+      if (po.assetsCreated) return res.status(409).json({ message: "Inventory has already been processed for this purchase order" });
 
       const items = await storage.getPurchaseOrderItems(req.params.id);
       if (!items.length) return res.status(400).json({ message: "No items found in purchase order" });
+      if (items.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
+        return res.status(400).json({ message: "Every consumable PO line must have a warehouse location" });
+      }
 
       // Look up vendor name if vendorId is present
       let vendorName = po.vendor || '';
@@ -3457,30 +3872,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (vendor) vendorName = vendor.name;
       }
 
-      const createdAssets: any[] = [];
-      for (const item of items) {
-        const qty = item.quantity || 1;
-        for (let i = 0; i < qty; i++) {
-          const assetName = qty > 1 ? `${item.description} #${i + 1}` : item.description;
-          const asset = await storage.createAsset({
-            name: assetName,
-            type: item.assetType || 'other',
-            status: 'available',
-            vendor: vendorName,
-            serialNumber: qty === 1 ? (item.serialNumber || undefined) : undefined,
-            purchasePrice: item.unitPrice,
-            purchaseDate: po.orderDate,
-            purchaseOrderNumber: po.poNumber,
-            departmentId: po.departmentId || undefined,
-          });
-          createdAssets.push(asset);
+      const unprocessedIds = new Set((await db.select({ id: purchaseOrderItemReceipts.purchaseOrderItemId })
+        .from(purchaseOrderItemReceipts).where(eq(purchaseOrderItemReceipts.purchaseOrderId, po.id))).map(row => row.id));
+      const assetItems = items.filter(item => item.itemType !== "consumable" && !unprocessedIds.has(item.id));
+      const allocatedTags = new Map<string, string[]>();
+      for (const item of assetItems) {
+        const tags = [];
+        for (let unit = 0; unit < (item.quantity || 1); unit++) {
+          tags.push(`ASSET-${String(await storage.getNextAssetIdNumber()).padStart(4, "0")}`);
         }
+        allocatedTags.set(item.id, tags);
       }
 
-      await storage.updatePurchaseOrder(po.id, { assetsCreated: true });
-      await logAudit(req.user?.id, 'CREATE', 'assets', po.id, `Assets from PO #${po.poNumber}`, null, { count: createdAssets.length }, req);
-      res.json({ created: createdAssets.length, assets: createdAssets });
+      const received = await db.transaction(async tx => {
+        const [lockedPO] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
+        if (!lockedPO) throw Object.assign(new Error("Purchase order not found"), { status: 404 });
+        if (lockedPO.status !== "received") throw Object.assign(new Error("Purchase order must be received before inventory can be processed"), { status: 400 });
+        if (lockedPO.assetsCreated) throw Object.assign(new Error("Inventory has already been processed for this purchase order"), { status: 409 });
+
+        const createdAssets: any[] = [];
+        let stockUnits = 0;
+        for (const item of items) {
+          const [receipt] = await tx.select({ id: purchaseOrderItemReceipts.id }).from(purchaseOrderItemReceipts)
+            .where(eq(purchaseOrderItemReceipts.purchaseOrderItemId, item.id));
+          if (receipt) continue;
+          const quantity = item.quantity || 1;
+          if (item.itemType === "consumable") {
+            const locationId = item.warehouseLocationId!;
+            const [location] = await tx.select({ id: warehouseLocations.id, storageRoom: warehouseLocations.storageRoom })
+              .from(warehouseLocations).where(and(eq(warehouseLocations.id, locationId), eq(warehouseLocations.isActive, true)));
+            if (!location) throw Object.assign(new Error(`Warehouse location for "${item.description}" is unavailable`), { status: 400 });
+            let target: any = null;
+            if (item.consumableId) {
+              [target] = await tx.select().from(consumables).where(and(
+                eq(consumables.id, item.consumableId),
+                eq(consumables.warehouseLocationId, locationId),
+              )).for("update");
+            }
+            if (!target) {
+              const candidates = await tx.select().from(consumables).where(eq(consumables.warehouseLocationId, locationId)).for("update");
+              target = candidates.find(candidate =>
+                candidate.name.toLocaleLowerCase() === item.description.toLocaleLowerCase() &&
+                (candidate.modelPartNumber ?? "").toLocaleLowerCase() === (item.modelPartNumber ?? "").toLocaleLowerCase()
+              );
+            }
+            if (target) {
+              await tx.update(consumables).set({
+                quantityInStock: target.quantityInStock + quantity,
+                unitCost: item.unitPrice,
+                vendorId: lockedPO.vendorId,
+                updatedAt: new Date(),
+              }).where(eq(consumables.id, target.id));
+            } else {
+              [target] = await tx.insert(consumables).values({
+                name: item.description,
+                category: item.consumableCategory || "Other",
+                modelPartNumber: item.modelPartNumber || null,
+                quantityInStock: quantity,
+                minReorderLevel: 0,
+                warehouseLocationId: locationId,
+                storageRoom: location.storageRoom,
+                unitCost: item.unitPrice,
+                vendorId: lockedPO.vendorId,
+              }).returning();
+            }
+            await tx.insert(consumableStockMovements).values({
+              consumableId: target.id,
+              movementType: "receipt",
+              quantity,
+              toWarehouseLocationId: locationId,
+              actorId: req.user!.id,
+              purchaseOrderId: lockedPO.id,
+              notes: `Received on PO ${lockedPO.poNumber}`,
+            });
+            stockUnits += quantity;
+          } else {
+            const tags = allocatedTags.get(item.id) ?? [];
+            for (let unit = 0; unit < quantity; unit++) {
+              const [asset] = await tx.insert(assets).values({
+                name: quantity > 1 ? `${item.description} #${unit + 1}` : item.description,
+                assetTag: tags[unit],
+                type: item.assetType || "other",
+                status: "available",
+                vendor: vendorName,
+                serialNumber: quantity === 1 ? item.serialNumber : null,
+                purchasePrice: item.unitPrice,
+                purchaseDate: lockedPO.orderDate,
+                purchaseOrderNumber: lockedPO.poNumber,
+                departmentId: lockedPO.departmentId,
+              }).returning();
+              createdAssets.push(asset);
+            }
+          }
+          await tx.insert(purchaseOrderItemReceipts).values({ purchaseOrderId: lockedPO.id, purchaseOrderItemId: item.id });
+        }
+        await tx.update(purchaseOrders).set({ assetsCreated: true }).where(eq(purchaseOrders.id, lockedPO.id));
+        return { createdAssets, stockUnits };
+      });
+
+      await logAudit(req.user?.id, 'CREATE', 'assets', po.id, `Inventory from PO #${po.poNumber}`, null, {
+        assetsCreated: received.createdAssets.length,
+        consumableUnitsReceived: received.stockUnits,
+      }, req);
+      res.json({ created: received.createdAssets.length, assets: received.createdAssets, consumableUnitsReceived: received.stockUnits });
     } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
       console.error('Create assets from PO error:', error);
       res.status(500).json({ message: "Failed to create assets from purchase order" });
     }
@@ -6084,17 +6581,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/catalog/items", requireAuth, requirePermission("system_admin"), async (req, res) => {
     try {
-      const item = await storage.createCatalogItem(req.body);
+      const input = insertCatalogItemSchema.parse({ ...req.body, consumableId: req.body.consumableId || null });
+      const item = await storage.createCatalogItem(input);
       res.status(201).json(item);
-    } catch { res.status(500).json({ message: "Failed to create catalog item" }); }
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.errors });
+      res.status(500).json({ message: "Failed to create catalog item" });
+    }
   });
 
   app.put("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
     try {
-      const item = await storage.updateCatalogItem(req.params.id, req.body);
+      const input = insertCatalogItemSchema.partial().parse({ ...req.body, ...(req.body.consumableId !== undefined ? { consumableId: req.body.consumableId || null } : {}) });
+      const item = await storage.updateCatalogItem(req.params.id, input);
       if (!item) return res.status(404).json({ message: "Item not found" });
       res.json(item);
-    } catch { res.status(500).json({ message: "Failed to update catalog item" }); }
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.errors });
+      res.status(500).json({ message: "Failed to update catalog item" });
+    }
   });
 
   app.delete("/api/catalog/items/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {

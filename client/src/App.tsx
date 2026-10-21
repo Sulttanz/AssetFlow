@@ -15,6 +15,7 @@ import Locations from "@/pages/locations";
 import Departments from "@/pages/departments";
 import Vendors from "@/pages/vendors";
 import PurchaseOrders from "@/pages/purchase-orders";
+import Consumables from "@/pages/consumables";
 import Budgets from "@/pages/budgets";
 import Maintenance from "@/pages/maintenance";
 import Users from "@/pages/users";
@@ -105,6 +106,8 @@ function Router() {
                   <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
                   <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />
                   <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" />
+                  <ProtectedRoute path="/consumables" component={Consumables} requiredModule="asset_management" />
+                  <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports" component={Reports} requiredModule="asset_management" />

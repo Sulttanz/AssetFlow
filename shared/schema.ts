@@ -387,6 +387,64 @@ export const vendors = pgTable("vendors", {
   lastUpdatedBy: text("last_updated_by"),
 });
 
+export const warehouseLocations = pgTable("warehouse_locations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  storageRoom: text("storage_room"),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const consumables = pgTable("consumables", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("Other"),
+  modelPartNumber: text("model_part_number"),
+  quantityInStock: integer("quantity_in_stock").notNull().default(0),
+  minReorderLevel: integer("min_reorder_level").notNull().default(0),
+  warehouseLocationId: varchar("warehouse_location_id").notNull().references(() => warehouseLocations.id),
+  storageRoom: text("storage_room"),
+  unitCost: decimal("unit_cost", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  vendorId: varchar("vendor_id").references(() => vendors.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+}, table => [
+  index("consumables_location_idx").on(table.warehouseLocationId),
+  index("consumables_category_idx").on(table.category),
+]);
+
+export const consumableStockMovements = pgTable("consumable_stock_movements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  consumableId: varchar("consumable_id").notNull().references(() => consumables.id),
+  movementType: text("movement_type").notNull(), // receipt, issue, transfer
+  quantity: integer("quantity").notNull(),
+  fromWarehouseLocationId: varchar("from_warehouse_location_id").references(() => warehouseLocations.id),
+  toWarehouseLocationId: varchar("to_warehouse_location_id").references(() => warehouseLocations.id),
+  recipientUserId: varchar("recipient_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: "set null" }),
+  serviceRequestId: varchar("service_request_id").references(() => serviceRequests.id, { onDelete: "set null" }),
+  purchaseOrderId: varchar("purchase_order_id").references(() => purchaseOrders.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+}, table => [index("consumable_stock_movements_item_idx").on(table.consumableId, table.createdAt)]);
+
+export const consumableDispatchLog = pgTable("consumable_dispatch_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  consumableId: varchar("consumable_id").notNull().references(() => consumables.id),
+  warehouseLocationId: varchar("warehouse_location_id").notNull().references(() => warehouseLocations.id),
+  serviceRequestId: varchar("service_request_id").notNull().references(() => serviceRequests.id),
+  serviceRequestNumber: text("service_request_number").notNull(),
+  requesterId: varchar("requester_id").notNull().references(() => users.id),
+  agentId: varchar("agent_id").notNull().references(() => users.id),
+  quantity: integer("quantity").notNull(),
+  dispatchedAt: timestamp("dispatched_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("consumable_dispatch_request_unique").on(table.serviceRequestId),
+  index("consumable_dispatch_log_item_idx").on(table.consumableId, table.dispatchedAt),
+]);
+
 // Financial Management
 export const purchaseOrders = pgTable("purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -410,10 +468,22 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   assetId: varchar("asset_id").references(() => assets.id),
   description: text("description").notNull(),
   assetType: text("asset_type").default("other"),
+  itemType: text("item_type").notNull().default("asset"), // asset | consumable
+  consumableId: varchar("consumable_id").references(() => consumables.id, { onDelete: "set null" }),
+  consumableCategory: text("consumable_category"),
+  modelPartNumber: text("model_part_number"),
+  warehouseLocationId: varchar("warehouse_location_id").references(() => warehouseLocations.id, { onDelete: "set null" }),
   serialNumber: text("serial_number"),
   quantity: integer("quantity").notNull().default(1),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+});
+
+export const purchaseOrderItemReceipts = pgTable("purchase_order_item_receipts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  purchaseOrderId: varchar("purchase_order_id").notNull().references(() => purchaseOrders.id),
+  purchaseOrderItemId: varchar("purchase_order_item_id").notNull().unique().references(() => purchaseOrderItems.id),
+  processedAt: timestamp("processed_at").notNull().default(sql`now()`),
 });
 
 export const budgets = pgTable("budgets", {
@@ -876,6 +946,14 @@ export const insertDropdownOptionSchema = createInsertSchema(dropdownOptions, {
 // Insert schemas
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true });
+export const insertWarehouseLocationSchema = createInsertSchema(warehouseLocations).omit({ id: true, createdAt: true });
+export const insertConsumableSchema = createInsertSchema(consumables, {
+  name: z.string().trim().min(1).max(180),
+  category: z.string().trim().min(1).max(100),
+  quantityInStock: z.number().int().nonnegative(),
+  minReorderLevel: z.number().int().nonnegative(),
+  unitCost: z.string().regex(/^\d{1,10}(?:\.\d{1,2})?$/, "Enter a valid non-negative cost"),
+}).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAssetSchema = createInsertSchema(assets, {
   licenseQuantity: z.number().int().nonnegative().nullable().optional(),
   usedSeats: z.number().int().nonnegative().nullable().optional(),
@@ -886,7 +964,10 @@ export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: tru
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
-export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems).omit({ id: true });
+export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems, {
+  itemType: z.enum(["asset", "consumable"]),
+  quantity: z.number().int().min(1).max(100000),
+}).omit({ id: true });
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });
 export const insertMaintenanceScheduleSchema = createInsertSchema(maintenanceSchedules).omit({ id: true });
 export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecords).omit({ id: true });
@@ -914,6 +995,10 @@ export type DropdownOption = typeof dropdownOptions.$inferSelect;
 
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+export type WarehouseLocation = typeof warehouseLocations.$inferSelect;
+export type InsertWarehouseLocation = z.infer<typeof insertWarehouseLocationSchema>;
+export type Consumable = typeof consumables.$inferSelect;
+export type InsertConsumable = z.infer<typeof insertConsumableSchema>;
 export type InsertAsset = z.infer<typeof insertAssetSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
@@ -964,12 +1049,15 @@ export type InsertSetting = z.infer<typeof insertSettingSchema>;
 // Select types
 export type Location = typeof locations.$inferSelect;
 export type Department = typeof departments.$inferSelect;
+export type ConsumableStockMovement = typeof consumableStockMovements.$inferSelect;
+export type ConsumableDispatch = typeof consumableDispatchLog.$inferSelect;
 export type Asset = typeof assets.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type Assignment = typeof assignments.$inferSelect;
 export type Vendor = typeof vendors.$inferSelect;
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type PurchaseOrderItem = typeof purchaseOrderItems.$inferSelect;
+export type PurchaseOrderItemReceipt = typeof purchaseOrderItemReceipts.$inferSelect;
 export type Budget = typeof budgets.$inferSelect;
 export type MaintenanceSchedule = typeof maintenanceSchedules.$inferSelect;
 export type MaintenanceRecord = typeof maintenanceRecords.$inferSelect;
@@ -1192,6 +1280,7 @@ export const catalogItems = pgTable("catalog_items", {
   category: text("category").notNull(),   // hardware, software, access, facilities, other
   icon: text("icon"),
   fulfillmentTeam: text("fulfillment_team"),
+  consumableId: varchar("consumable_id").references(() => consumables.id, { onDelete: "set null" }),
   slaHours: integer("sla_hours"),
   approvalRequired: boolean("approval_required").default(false),
   isActive: boolean("is_active").default(true),
@@ -1298,6 +1387,7 @@ export const serviceRequests = pgTable("service_requests", {
   fulfillmentStatus: text("fulfillment_status").notNull().default("Submitted"),
   approvalStatus: text("approval_status").notNull().default("pending"),
   cost: real("cost").notNull().default(0),
+  requestedQuantity: integer("requested_quantity").notNull().default(1),
   fulfilledAssetId: varchar("fulfilled_asset_id").references(() => assets.id, { onDelete: "set null" }),
   targetFulfillmentDate: date("target_fulfillment_date"),
   fulfillmentDueAt: timestamp("fulfillment_due_at"),
@@ -1323,7 +1413,9 @@ export const serviceRequestActivities = pgTable("service_request_activities", {
 }, table => [index("service_request_activities_request_created_idx").on(table.serviceRequestId, table.createdAt)]);
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
-export const insertServiceRequestSchema = createInsertSchema(serviceRequests).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });
+export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {
+  requestedQuantity: z.number().int().min(1).max(10000).default(1),
+}).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });
 export type Incident = typeof incidents.$inferSelect;
 export type InsertIncident = z.infer<typeof insertIncidentSchema>;
 export type ServiceRequest = typeof serviceRequests.$inferSelect;

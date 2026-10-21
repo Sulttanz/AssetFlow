@@ -42,6 +42,7 @@ import {
   BookOpen,
   Gauge,
   LifeBuoy,
+  Boxes,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -90,6 +91,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "asset_management",
       items: [
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
+        { name: "Consumables", href: "/consumables", icon: Boxes, current: location === "/consumables" || location === "/inventory" },
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees" },
         { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
         { name: "Asset Disposal", href: "/asset-disposal", icon: Trash2, current: location === "/asset-disposal" },

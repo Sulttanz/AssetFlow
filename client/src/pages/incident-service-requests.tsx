@@ -211,6 +211,7 @@ export function ServiceRequestsPage() {
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [fulfillmentLocationId, setFulfillmentLocationId] = useState("");
   const [closureNote, setClosureNote] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
@@ -240,6 +241,15 @@ export function ServiceRequestsPage() {
     ]);
   });
   const { data: assets = [] } = useQuery<Asset[]>({ queryKey: ["/api/assets"], queryFn: getQueryFn({ on401: "throw" }) });
+  const { data: consumableStockOptions = { stock: [], requestedQuantity: 1 } } = useQuery<{
+    stock: { id: string; name: string; modelPartNumber: string | null; quantityInStock: number; warehouseLocationId: string; warehouseName: string; warehouseCode: string; storageRoom: string | null }[];
+    requestedQuantity: number;
+    dispatch?: { quantity: number; dispatchedAt: string; warehouseName: string; consumableName: string; requesterName: string; agentName: string } | null;
+  }>({
+    queryKey: ["/api/service-requests", selectedId, "consumable-options"],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: Boolean(selectedId),
+  });
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const openRequests = requests.filter(row => !["Completed", "Rejected", "Cancelled"].includes(row.fulfillmentStage ?? row.fulfillmentStatus));
   const requestMetrics = [
@@ -301,6 +311,19 @@ export function ServiceRequestsPage() {
     },
     onError: (error: Error) => toast({ title: "Could not update fulfillment", description: error.message, variant: "destructive" }),
   });
+  const fulfillConsumable = useMutation({
+    mutationFn: async ({ id, warehouseLocationId }: { id: string; warehouseLocationId: string }) =>
+      (await apiRequest("POST", `/api/service-requests/${id}/fulfill-consumable`, { warehouseLocationId })).json(),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "consumable-options"] }),
+      ]);
+      toast({ title: "Request fulfilled", description: "Stock was deducted and the dispatch was recorded." });
+    },
+    onError: (error: Error) => toast({ title: "Could not fulfill request", description: error.message, variant: "destructive" }),
+  });
   const closeRequest = useMutation({
     mutationFn: async ({ id }: { id: string }) => (await apiRequest("PATCH", `/api/service-requests/${id}/close`, { closureNote })).json(),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/service-requests"] }); queryClient.invalidateQueries({ queryKey: ["/api/service-requests", selectedId, "activity"] }); toast({ title: "Request cancelled" }); },
@@ -330,7 +353,7 @@ export function ServiceRequestsPage() {
           const row = request as ServiceRequest & { projectName?: string; catalogItemName?: string; requesterName?: string; assigneeName?: string };
           const stage = row.fulfillmentStage ?? ({ Submitted: "Submitted", Approved: "Approved", Fulfilling: "In Procurement", Completed: "Completed", Rejected: "Rejected" } as Record<string, string>)[row.fulfillmentStatus] ?? "Submitted";
           return <TableRow key={row.id} className="cursor-pointer" onClick={() => {
-             setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId(""); setClosureNote((row as any).closureNote ?? "");
+              setSelectedId(row.id); setAssignmentGroup(row.assignmentGroup ?? ""); setAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setSelectedAssetId(""); setFulfillmentLocationId(""); setClosureNote((row as any).closureNote ?? "");
           }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.requestNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell>{formatRequestTimestamp(row.createdAt)}</TableCell>
@@ -346,6 +369,11 @@ export function ServiceRequestsPage() {
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.requestNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{(selected as any).catalogItemName ?? "General request"} · Requested by {(selected as any).requesterName ?? "Unknown"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6">
           <section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Request details</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><div className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><p><span className="text-muted-foreground">Request date:</span> {formatRequestTimestamp(selected.createdAt)}</p><p><span className="text-muted-foreground">Target completion:</span> {formatRequestDate(selected.targetFulfillmentDate, true)}</p><p><span className="text-muted-foreground">Completed:</span> {formatRequestTimestamp(selected.completedAt)}</p><p><span className="text-muted-foreground">Project:</span> {(selected as any).projectName ?? "—"}</p><p><span className="text-muted-foreground">Cost:</span> {Number(selected.cost).toFixed(2)}</p><p><span className="text-muted-foreground">Requested by:</span> {(selected as any).requesterName ?? "—"}</p><p><span className="text-muted-foreground">Asset:</span> {selected.fulfilledAssetId ? assets.find(asset => asset.id === selected.fulfilledAssetId)?.name ?? "Assigned asset" : "—"}</p></div></section>
+           {consumableStockOptions.dispatch && <section className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm dark:border-green-900 dark:bg-green-950/30">
+             <h3 className="font-semibold text-green-900 dark:text-green-100">Consumable dispatch record</h3>
+             <p className="mt-2">{consumableStockOptions.dispatch.quantity} × {consumableStockOptions.dispatch.consumableName} · {consumableStockOptions.dispatch.warehouseName}</p>
+             <p className="mt-1 text-xs text-green-800 dark:text-green-200">Requested for {consumableStockOptions.dispatch.requesterName} · delivered by {consumableStockOptions.dispatch.agentName} · {appFormatDateTime(consumableStockOptions.dispatch.dispatchedAt)}</p>
+           </section>}
           <section><h3 className="font-semibold">Supporting files</h3>{attachmentsLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading attachments…</p> : attachments.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No files attached.</p> : <ul className="mt-2 space-y-2">{attachments.map(file => <li key={file.id}><a className="text-sm font-medium text-primary underline-offset-4 hover:underline" href={`/api/service-requests/${selected.id}/attachments/${file.id}`} target="_blank" rel="noreferrer">{file.originalName}</a><span className="ml-2 text-xs text-muted-foreground">{file.fileSize ? `${(file.fileSize / 1024).toFixed(0)} KB` : file.fileType ?? ""}</span></li>)}</ul>}</section>
           {manager && <>
             <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={assignmentGroup} onChange={e => setAssignmentGroup(e.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
@@ -357,7 +385,18 @@ export function ServiceRequestsPage() {
             {selected.approvalStatus === "approved" && <section className="grid gap-3"><h3 className="font-semibold">Fulfillment</h3>
               {(selected.fulfillmentStage === "Approved" || selected.fulfillmentStage === "Submitted") && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "In Procurement" })} disabled={updateStage.isPending}>Start procurement</Button>}
               {selected.fulfillmentStage === "In Procurement" && <Button variant="outline" onClick={() => updateStage.mutate({ id: selected.id, stage: "Ready for Delivery" })} disabled={updateStage.isPending}>Mark ready for delivery</Button>}
-              {selected.fulfillmentStage === "Ready for Delivery" && <><label className="grid gap-1 text-sm">Inventory asset<select className="h-10 rounded-md border bg-background px-3 text-sm" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}><option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name}</option>)}</select></label><Button onClick={() => updateStage.mutate({ id: selected.id, stage: "Completed", assetId: selectedAssetId })} disabled={updateStage.isPending}>Complete request</Button></>}
+              {selected.fulfillmentStage === "Ready for Delivery" && (selected as any).consumableId ? (() => {
+                const options = consumableStockOptions.stock;
+                const quantity = Number(consumableStockOptions.requestedQuantity || 1);
+                const selectedStock = options.find(item => item.warehouseLocationId === fulfillmentLocationId);
+                return <div className="grid gap-3"><p className="text-sm text-muted-foreground">Stock item: {options[0]?.name ?? "Loading item"} · quantity requested: {quantity}</p>
+                  <label className="grid gap-1 text-sm">Source warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={fulfillmentLocationId} onChange={event => setFulfillmentLocationId(event.target.value)}><option value="">Select warehouse</option>{options.map(item =>
+                    <option key={item.id} value={item.warehouseLocationId}>{item.warehouseName} ({item.warehouseCode}){item.storageRoom ? ` · ${item.storageRoom}` : ""} · {item.quantityInStock} in stock</option>
+                  )}</select></label>
+                  {selectedStock && selectedStock.quantityInStock < quantity && <p role="alert" className="text-sm text-destructive">Insufficient stock at this warehouse ({selectedStock.quantityInStock} available).</p>}
+                  <Button onClick={() => fulfillConsumable.mutate({ id: selected.id, warehouseLocationId: fulfillmentLocationId })} disabled={!selectedStock || selectedStock.quantityInStock < quantity || fulfillConsumable.isPending}>{fulfillConsumable.isPending ? "Delivering…" : "Fulfill / Deliver"}</Button>
+                </div>;
+              })() : <><label className="grid gap-1 text-sm">Inventory asset<select className="h-10 rounded-md border bg-background px-3 text-sm" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}><option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name}</option>)}</select></label><Button onClick={() => updateStage.mutate({ id: selected.id, stage: "Completed", assetId: selectedAssetId })} disabled={updateStage.isPending}>Complete request</Button></>}
             </section>}
           </>}
           <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>

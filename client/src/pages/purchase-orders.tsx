@@ -36,6 +36,11 @@ const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
   items: z.array(z.object({
     description: z.string().min(1, "Asset name is required"),
     assetType: z.string().optional(),
+    itemType: z.enum(["asset", "consumable"]).default("asset"),
+    consumableId: z.string().optional(),
+    consumableCategory: z.string().optional(),
+    modelPartNumber: z.string().optional(),
+    warehouseLocationId: z.string().optional(),
     serialNumber: z.string().optional(),
     quantity: z.number().min(1, "Quantity must be at least 1"),
     unitPrice: z.number().min(0, "Unit price must be positive"),
@@ -69,12 +74,16 @@ function PurchaseOrderForm({
   submitText,
   vendors,
   departments,
+  warehouses,
+  consumables,
 }: {
   form: any;
   onSubmit: (data: PurchaseOrderFormData) => void;
   submitText: string;
   vendors: Vendor[];
   departments: Department[];
+  warehouses: { id: string; name: string; code: string }[];
+  consumables: { id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[];
 }) {
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -245,7 +254,7 @@ function PurchaseOrderForm({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => append({ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" })}
+              onClick={() => append({ description: "", assetType: "other", itemType: "asset", consumableId: "", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" })}
               data-testid="button-add-item"
             >
               <Plus className="w-4 h-4 mr-1" />
@@ -271,12 +280,60 @@ function PurchaseOrderForm({
               </div>
 
               <div className="space-y-3">
+                <FormField control={form.control} name={`items.${index}.itemType`} render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Inventory classification</FormLabel>
+                    <Select value={field.value || "asset"} onValueChange={value => {
+                      field.onChange(value);
+                      if (value === "asset") {
+                        form.setValue(`items.${index}.consumableId`, "");
+                        form.setValue(`items.${index}.warehouseLocationId`, "");
+                      }
+                    }}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent><SelectItem value="asset">Asset</SelectItem><SelectItem value="consumable">Consumable</SelectItem></SelectContent>
+                    </Select>
+                  </FormItem>
+                )} />
+                {form.watch(`items.${index}.itemType`) === "consumable" && <div className="grid gap-3 rounded-md border bg-muted/30 p-3 md:grid-cols-2">
+                  <FormField control={form.control} name={`items.${index}.consumableId`} render={({ field }) => (
+                    <FormItem className="md:col-span-2"><FormLabel>Existing stock item (optional)</FormLabel>
+                      <Select value={field.value || "__new__"} onValueChange={value => {
+                        const existing = consumables.find(item => item.id === value);
+                        field.onChange(value === "__new__" ? "" : value);
+                        if (existing) {
+                          form.setValue(`items.${index}.description`, existing.name);
+                          form.setValue(`items.${index}.consumableCategory`, existing.category);
+                          form.setValue(`items.${index}.modelPartNumber`, existing.modelPartNumber || "");
+                          form.setValue(`items.${index}.unitPrice`, Number(existing.unitCost));
+                          form.setValue(`items.${index}.warehouseLocationId`, existing.warehouseLocationId);
+                        }
+                      }}>
+                        <FormControl><SelectTrigger><SelectValue placeholder="Create stock item on receipt" /></SelectTrigger></FormControl>
+                        <SelectContent><SelectItem value="__new__">Create new inventory item on receipt</SelectItem>{consumables.map(item => <SelectItem key={item.id} value={item.id}>{item.name}{item.modelPartNumber ? ` · ${item.modelPartNumber}` : ""}</SelectItem>)}</SelectContent>
+                      </Select><FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name={`items.${index}.consumableCategory`} render={({ field }) => (
+                    <FormItem><FormLabel>Category</FormLabel><FormControl><Input {...field} placeholder="Toner, peripherals, cables…" /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name={`items.${index}.modelPartNumber`} render={({ field }) => (
+                    <FormItem><FormLabel>Model / part number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name={`items.${index}.warehouseLocationId`} render={({ field }) => (
+                    <FormItem className="md:col-span-2"><FormLabel>Receiving warehouse (required)</FormLabel>
+                      <Select value={field.value || ""} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue placeholder="Select warehouse location" /></SelectTrigger></FormControl>
+                        <SelectContent>{warehouses.map(location => <SelectItem key={location.id} value={location.id}>{location.name} ({location.code})</SelectItem>)}</SelectContent>
+                      </Select><FormMessage />
+                    </FormItem>
+                  )} />
+                </div>}
                 <FormField
                   control={form.control}
                   name={`items.${index}.description`}
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Asset Name</FormLabel>
+                      <FormLabel>Item Name</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="e.g., Dell Laptop 15-inch" data-testid={`input-item-description-${index}`} />
                       </FormControl>
@@ -285,7 +342,7 @@ function PurchaseOrderForm({
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-3">
+                {form.watch(`items.${index}.itemType`) !== "consumable" && <div className="grid grid-cols-2 gap-3">
                   <FormField
                     control={form.control}
                     name={`items.${index}.assetType`}
@@ -336,7 +393,7 @@ function PurchaseOrderForm({
                       );
                     }}
                   />
-                </div>
+                </div>}
 
                 <div className="grid grid-cols-2 gap-3">
                   <FormField
@@ -381,7 +438,7 @@ function PurchaseOrderForm({
                   />
                 </div>
 
-                <FormField
+                {form.watch(`items.${index}.itemType`) !== "consumable" && <FormField
                   control={form.control}
                   name={`items.${index}.assetId`}
                   render={({ field }) => (
@@ -393,7 +450,7 @@ function PurchaseOrderForm({
                       <FormMessage />
                     </FormItem>
                   )}
-                />
+                />}
               </div>
             </Card>
           ))}
@@ -458,6 +515,8 @@ export default function PurchaseOrders() {
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
   });
+  const { data: warehouses = [] } = useQuery<{ id: string; name: string; code: string }[]>({ queryKey: ["/api/warehouse-locations"] });
+  const { data: consumables = [] } = useQuery<{ id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[]>({ queryKey: ["/api/consumables"] });
 
   const filteredOrders = useMemo(() => {
     let result = orders;
@@ -565,21 +624,21 @@ export default function PurchaseOrders() {
     onSuccess: async (data: any) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      const count = data?.created ?? "some";
-      toast({ title: "Assets Created", description: `${count} asset(s) created from this purchase order.` });
+      await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
+      toast({ title: "Inventory received", description: `${data?.created ?? 0} assets and ${data?.consumableUnitsReceived ?? 0} consumable units were processed.` });
     },
     onError: async (error: any) => {
       await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       const message = typeof error?.message === "string" ? error.message.replace(/^\d+:\s*/, "") : "";
       toast({
         title: "Error",
-        description: message || "Failed to create assets from purchase order",
+        description: message || "Failed to process purchase order inventory",
         variant: "destructive",
       });
     },
   });
 
-  const defaultFormValues = {
+  const defaultFormValues: PurchaseOrderFormData = {
     poNumber: generatePONumber(),
     vendorId: "",
     reference: "",
@@ -588,7 +647,7 @@ export default function PurchaseOrders() {
     status: "pending" as const,
     notes: "",
     totalAmount: "0",
-    items: [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
+    items: [{ description: "", assetType: "other", itemType: "asset", consumableId: "", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
   };
 
   const createForm = useForm<PurchaseOrderFormData>({
@@ -631,11 +690,16 @@ export default function PurchaseOrders() {
       items: order.items?.map((item) => ({
         description: item.description,
         assetType: item.assetType || "other",
+        itemType: item.itemType === "consumable" ? "consumable" : "asset",
+        consumableId: item.consumableId || "",
+        consumableCategory: item.consumableCategory || "",
+        modelPartNumber: item.modelPartNumber || "",
+        warehouseLocationId: item.warehouseLocationId || "",
         serialNumber: item.serialNumber || "",
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
         assetId: item.assetId || "",
-      })) || [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
+      })) || [{ description: "", assetType: "other", itemType: "asset", consumableId: "", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
     });
   };
 
@@ -652,11 +716,16 @@ export default function PurchaseOrders() {
       items: order.items?.map((item) => ({
         description: item.description,
         assetType: item.assetType || "other",
+        itemType: item.itemType === "consumable" ? "consumable" : "asset",
+        consumableId: "",
+        consumableCategory: item.consumableCategory || "",
+        modelPartNumber: item.modelPartNumber || "",
+        warehouseLocationId: item.warehouseLocationId || "",
         serialNumber: "",
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
         assetId: "",
-      })) || [{ description: "", assetType: "other", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
+      })) || [{ description: "", assetType: "other", itemType: "asset", consumableId: "", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", serialNumber: "", quantity: 1, unitPrice: 0, assetId: "" }],
     });
     setIsCreateDialogOpen(true);
     toast({ title: "Order duplicated", description: "Review the new order and click Create Order to save it." });
@@ -730,21 +799,24 @@ export default function PurchaseOrders() {
       : eligibleForAssets;
 
     if (!targets.length) {
-      return toast({ title: "Nothing to process", description: "No received orders with items (and without assets already created) were found." });
+      return toast({ title: "Nothing to process", description: "No unprocessed received purchase orders with items were found." });
     }
     setIsBulkLoading(true);
     let totalCreated = 0;
+    let totalConsumableUnits = 0;
     let failed = 0;
     for (const o of targets) {
       try {
         const result: any = await apiRequest("POST", `/api/purchase-orders/${o.id}/create-assets`);
         totalCreated += result?.created ?? 0;
+        totalConsumableUnits += result?.consumableUnitsReceived ?? 0;
       } catch {
         failed++;
       }
     }
     await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
     await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
     setIsBulkLoading(false);
     setSelectedForAssets(new Set());
     if (failed > 0 && totalCreated > 0) {
@@ -752,7 +824,7 @@ export default function PurchaseOrders() {
     } else if (failed > 0) {
       toast({ title: "Error", description: `Failed to create assets for ${failed} order(s).`, variant: "destructive" });
     } else {
-      toast({ title: "Assets Created", description: `${totalCreated} asset(s) created from ${targets.length} order(s).` });
+      toast({ title: "Inventory processed", description: `${totalCreated} tagged asset(s) and ${totalConsumableUnits} consumable units received from ${targets.length} purchase order(s).` });
     }
   };
 
@@ -791,6 +863,8 @@ export default function PurchaseOrders() {
                 submitText="Create Order"
                 vendors={vendors}
                 departments={departments}
+                warehouses={warehouses}
+                consumables={consumables}
               />
             </DialogContent>
           </Dialog>
@@ -860,8 +934,8 @@ export default function PurchaseOrders() {
               {isBulkLoading
                 ? "Processing…"
                 : selectedForAssets.size > 0
-                ? `Create Assets for ${selectedForAssets.size} Selected`
-                : "Create Assets for All Eligible"}
+                ? `Process ${selectedForAssets.size} Selected`
+                : "Process Inventory for All Eligible"}
             </Button>
           </div>
 
@@ -875,7 +949,7 @@ export default function PurchaseOrders() {
                 data-testid="checkbox-select-all-eligible"
               />
               <label htmlFor="select-all-eligible" className="text-xs text-muted-foreground cursor-pointer select-none">
-                Select all {eligibleForAssets.length} order{eligibleForAssets.length !== 1 ? "s" : ""} eligible for asset creation
+                Select all {eligibleForAssets.length} received order{eligibleForAssets.length !== 1 ? "s" : ""} for inventory processing
                 {selectedForAssets.size > 0 ? ` (${selectedForAssets.size} selected)` : ""}
               </label>
             </div>
@@ -913,7 +987,7 @@ export default function PurchaseOrders() {
                           </Badge>
                           {order.assetsCreated && (
                             <Badge variant="outline" className="text-xs gap-1">
-                              <Boxes className="w-3 h-3" /> Assets Created
+                              <Boxes className="w-3 h-3" /> Inventory Processed
                             </Badge>
                           )}
                         </div>
@@ -1016,9 +1090,9 @@ export default function PurchaseOrders() {
                         <div key={idx} className="flex justify-between items-start text-xs text-muted-foreground gap-2">
                           <span className="truncate">
                             {item.description}
-                            {item.assetType && item.assetType !== "other" && (
-                              <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">({item.assetType})</span>
-                            )}
+                            {item.itemType === "consumable"
+                              ? <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">(Consumable{item.consumableCategory ? ` · ${item.consumableCategory}` : ""})</span>
+                              : item.assetType && item.assetType !== "other" && <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">({item.assetType})</span>}
                             {item.serialNumber && (
                               <span className="ml-1 text-[10px] opacity-70">SN: {item.serialNumber}</span>
                             )}
@@ -1054,14 +1128,14 @@ export default function PurchaseOrders() {
                           className="text-xs h-8 gap-1"
                           disabled={createAssetsMutation.isPending || isBulkLoading}
                           onClick={() => {
-                            if (window.confirm(`Create ${itemCount} asset(s) from this PO?`)) {
+                            if (window.confirm(`Process ${itemCount} inventory line(s) from this PO?`)) {
                               createAssetsMutation.mutate(order.id);
                             }
                           }}
                           data-testid={`button-create-assets-${order.id}`}
                         >
                           <Boxes className="h-3 w-3" />
-                          {createAssetsMutation.isPending ? "Creating…" : `Create ${itemCount} Asset${itemCount !== 1 ? "s" : ""}`}
+                          {createAssetsMutation.isPending ? "Processing…" : `Process ${itemCount} Item${itemCount !== 1 ? "s" : ""}`}
                         </Button>
                       )}
                       {order.status === "received" && itemCount === 0 && (
@@ -1150,6 +1224,8 @@ export default function PurchaseOrders() {
             submitText="Update Order"
             vendors={vendors}
             departments={departments}
+            warehouses={warehouses}
+            consumables={consumables}
           />
         </DialogContent>
       </Dialog>
