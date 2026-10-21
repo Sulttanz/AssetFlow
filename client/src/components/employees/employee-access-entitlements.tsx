@@ -9,6 +9,7 @@ import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Pencil, ShieldOff } from "lucide-react";
@@ -25,16 +26,22 @@ type AccessRight = {
   catalogItemId?: string | null;
   privilegeLevel: string;
   accountUsername: string | null;
+  businessJustification: string;
   grantDate: string;
-  status: "active" | "revoked";
+  expiresAt: string | null;
+  expiryState?: "active" | "expiring" | "expired" | "revoked";
+  status: "active" | "revoked" | "expired";
   revokedAt: string | null;
+  revocationReason?: string | null;
 };
 
 type AccessRightDraft = {
   catalogKey: string;
   privilegeLevel: string;
   accountUsername: string;
+  businessJustification: string;
   grantDate: string;
+  expiresAt: string;
 };
 
 type DropdownOption = { id: string; value: string; label: string; isActive?: boolean };
@@ -57,11 +64,15 @@ export default function EmployeeAccessEntitlements({
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AccessRight | null>(null);
+  const [revoking, setRevoking] = useState<AccessRight | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
   const [draft, setDraft] = useState<AccessRightDraft>({
     catalogKey: "",
     privilegeLevel: "",
     accountUsername: "",
+    businessJustification: "",
     grantDate: toDateInputValue(new Date()),
+    expiresAt: "",
   });
   const rightsKey = [`/api/employees/${employeeId}/access-rights`];
   const { data: rights = [], isLoading } = useQuery<AccessRight[]>({ queryKey: rightsKey });
@@ -79,7 +90,9 @@ export default function EmployeeAccessEntitlements({
       const body = {
         privilegeLevel: draft.privilegeLevel,
         accountUsername: draft.accountUsername.trim() || null,
+        businessJustification: draft.businessJustification.trim(),
         grantDate: draft.grantDate,
+        expiresAt: draft.expiresAt || null,
         ...(selectedSystem ? {
           accessType: selectedSystem.accessType,
           catalogSource: selectedSystem.source,
@@ -93,6 +106,8 @@ export default function EmployeeAccessEntitlements({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: rightsKey });
+      queryClient.invalidateQueries({ queryKey: ["/api/access-governance"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/employees/${employeeId}/offboarding-review`] });
       setDialogOpen(false);
       setEditing(null);
       toast({ title: "Access entitlement saved" });
@@ -105,10 +120,14 @@ export default function EmployeeAccessEntitlements({
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (rightId: string) => apiRequest("POST", `/api/employees/${employeeId}/access-rights/${rightId}/revoke`),
+    mutationFn: ({ rightId, reason }: { rightId: string; reason: string }) =>
+      apiRequest("POST", `/api/employees/${employeeId}/access-rights/${rightId}/revoke`, { reason }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: rightsKey });
+      queryClient.invalidateQueries({ queryKey: ["/api/access-governance"] });
       queryClient.invalidateQueries({ queryKey: [`/api/employees/${employeeId}/offboarding-review`] });
+      setRevoking(null);
+      setRevokeReason("");
       toast({ title: "Access revoked", description: "The entitlement remains in the employee audit history." });
     },
     onError: (error: Error) => toast({
@@ -120,7 +139,7 @@ export default function EmployeeAccessEntitlements({
 
   const openNew = () => {
     setEditing(null);
-    setDraft({ catalogKey: "", privilegeLevel: "", accountUsername: "", grantDate: toDateInputValue(new Date()) });
+    setDraft({ catalogKey: "", privilegeLevel: "", accountUsername: "", businessJustification: "", grantDate: toDateInputValue(new Date()), expiresAt: "" });
     setDialogOpen(true);
   };
 
@@ -132,15 +151,21 @@ export default function EmployeeAccessEntitlements({
         : "",
       privilegeLevel: right.privilegeLevel,
       accountUsername: right.accountUsername ?? "",
+      businessJustification: right.businessJustification ?? "",
       grantDate: String(right.grantDate ?? "").slice(0, 10),
+      expiresAt: String(right.expiresAt ?? "").slice(0, 10),
     });
     setDialogOpen(true);
   };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if ((!editing && !draft.catalogKey) || !draft.privilegeLevel || !draft.grantDate) {
+    if ((!editing && !draft.catalogKey) || !draft.privilegeLevel || !draft.grantDate || draft.businessJustification.trim().length < 5) {
       toast({ title: "Complete the required entitlement fields", variant: "destructive" });
+      return;
+    }
+    if (draft.expiresAt && draft.expiresAt < draft.grantDate) {
+      toast({ title: "Expiry date must be on or after the grant date", variant: "destructive" });
       return;
     }
     saveMutation.mutate();
@@ -179,15 +204,17 @@ export default function EmployeeAccessEntitlements({
               <TableHead>Privilege</TableHead>
               <TableHead>Account Username</TableHead>
               <TableHead>Grant Date</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead>Business Justification</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">Loading access records…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Loading access records…</TableCell></TableRow>
             ) : rights.length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No access has been recorded.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="py-8 text-center text-muted-foreground">No access has been recorded.</TableCell></TableRow>
             ) : rights.map(right => (
               <TableRow key={right.id}>
                 <TableCell className="font-medium">{right.applicationName}</TableCell>
@@ -195,9 +222,14 @@ export default function EmployeeAccessEntitlements({
                 <TableCell>{privilegeOptions.find(option => option.value === right.privilegeLevel)?.label ?? right.privilegeLevel}</TableCell>
                 <TableCell>{right.accountUsername || "—"}</TableCell>
                 <TableCell>{formatDateDisplay(right.grantDate)}</TableCell>
+                <TableCell>{right.expiresAt ? formatDateDisplay(right.expiresAt) : "No expiry"}</TableCell>
+                <TableCell className="max-w-[200px] truncate" title={right.businessJustification}>{right.businessJustification}</TableCell>
                 <TableCell>
-                  <Badge variant={right.status === "active" ? "default" : "secondary"}>
-                    {right.status === "active" ? "Active" : "Revoked"}
+                  <Badge
+                    variant={right.expiryState === "expired" || right.status === "expired" ? "destructive" : right.expiryState === "expiring" ? "outline" : right.status === "active" ? "default" : "secondary"}
+                    className={right.expiryState === "expiring" ? "border-amber-500 text-amber-700" : ""}
+                  >
+                    {right.expiryState === "expiring" ? "Expiring soon" : right.expiryState === "expired" || right.status === "expired" ? "Expired" : right.status === "active" ? "Active" : "Revoked"}
                   </Badge>
                 </TableCell>
                 <TableCell>
@@ -206,7 +238,7 @@ export default function EmployeeAccessEntitlements({
                       <Button variant="outline" size="sm" onClick={() => openEdit(right)} disabled={employeeStatus === "disabled"}>
                         <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => revokeMutation.mutate(right.id)} disabled={revokeMutation.isPending}>
+                      <Button variant="outline" size="sm" onClick={() => { setRevoking(right); setRevokeReason(""); }} disabled={revokeMutation.isPending}>
                         <ShieldOff className="mr-1 h-3.5 w-3.5" /> Revoke
                       </Button>
                     </div>
@@ -264,11 +296,36 @@ export default function EmployeeAccessEntitlements({
               <Label htmlFor="access-grant-date">Grant Date</Label>
               <CalendarDateField id="access-grant-date" value={draft.grantDate} onChange={event => setDraft({ ...draft, grantDate: event.target.value })} required />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="access-expires-at">Expiry Date <span className="font-normal text-muted-foreground">· optional</span></Label>
+              <CalendarDateField id="access-expires-at" value={draft.expiresAt} onChange={event => setDraft({ ...draft, expiresAt: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="access-business-justification">Business Justification <span className="text-destructive">*</span></Label>
+              <Textarea id="access-business-justification" value={draft.businessJustification} maxLength={4000} rows={3} onChange={event => setDraft({ ...draft, businessJustification: event.target.value })} placeholder="Explain the business need for this access and privilege." required />
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saveMutation.isPending}>{saveMutation.isPending ? "Saving…" : "Save Entitlement"}</Button>
+              <Button type="submit" disabled={saveMutation.isPending || draft.businessJustification.trim().length < 5}>{saveMutation.isPending ? "Saving…" : "Save Entitlement"}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(revoking)} onOpenChange={open => { if (!open) { setRevoking(null); setRevokeReason(""); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Revoke Access</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Enter the reason for revoking {revoking?.applicationName}. This will be retained in the immutable audit trail.</p>
+          <div className="space-y-2">
+            <Label htmlFor="employee-access-revoke-reason">Revocation Reason</Label>
+            <Textarea id="employee-access-revoke-reason" value={revokeReason} maxLength={2000} rows={4} onChange={event => setRevokeReason(event.target.value)} placeholder="Describe why this access is being revoked." />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRevoking(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" disabled={!revoking || revokeReason.trim().length < 3 || revokeMutation.isPending} onClick={() => revoking && revokeMutation.mutate({ rightId: revoking.id, reason: revokeReason.trim() })}>
+              {revokeMutation.isPending ? "Revoking…" : "Revoke Access"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,9 +56,13 @@ type AccessRecord = {
   catalogItemId: string | null;
   privilegeLevel: string;
   accountUsername: string | null;
+  businessJustification: string;
   grantDate: string;
-  status: "active" | "revoked";
+  expiresAt: string | null;
+  expiryState: "active" | "expiring" | "expired" | "revoked";
+  status: "active" | "revoked" | "expired";
   revokedAt: string | null;
+  revocationReason: string | null;
   employee: Employee;
 };
 
@@ -69,7 +75,7 @@ type AccessResponse = {
 
 type PrivilegeOption = { id: string; value: string; label: string; isActive: boolean };
 type ViewMode = "employee" | "system";
-type StatusFilter = "all" | "active" | "revoked";
+type StatusFilter = "all" | "active" | "expiring" | "expired" | "revoked";
 type PageSize = 20 | 50;
 
 const accessTypeLabels = ACCESS_TYPE_LABELS;
@@ -95,7 +101,10 @@ export default function AccessGovernance() {
   const [page, setPage] = useState(1);
   const [editingRecord, setEditingRecord] = useState<AccessRecord | null>(null);
   const [nextPrivilege, setNextPrivilege] = useState("");
+  const [nextExpiresAt, setNextExpiresAt] = useState("");
+  const [businessJustification, setBusinessJustification] = useState("");
   const [revokingRecord, setRevokingRecord] = useState<AccessRecord | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
 
   const { data: employees = [], isLoading: employeesLoading } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -159,8 +168,12 @@ export default function AccessGovernance() {
   };
 
   const updatePrivilegeMutation = useMutation({
-    mutationFn: ({ record, privilegeLevel }: { record: AccessRecord; privilegeLevel: string }) =>
-      apiRequest("PUT", `/api/employees/${record.employeeId}/access-rights/${record.id}`, { privilegeLevel }),
+    mutationFn: ({ record, privilegeLevel, expiresAt, businessJustification }: { record: AccessRecord; privilegeLevel: string; expiresAt: string; businessJustification: string }) =>
+      apiRequest("PUT", `/api/employees/${record.employeeId}/access-rights/${record.id}`, {
+        privilegeLevel,
+        expiresAt: expiresAt || null,
+        businessJustification,
+      }),
     onSuccess: async (_result, variables) => {
       await invalidateGovernance(variables.record.employeeId);
       setEditingRecord(null);
@@ -174,11 +187,12 @@ export default function AccessGovernance() {
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (record: AccessRecord) =>
-      apiRequest("POST", `/api/employees/${record.employeeId}/access-rights/${record.id}/revoke`),
-    onSuccess: async (_result, record) => {
-      await invalidateGovernance(record.employeeId);
+    mutationFn: ({ record, reason }: { record: AccessRecord; reason: string }) =>
+      apiRequest("POST", `/api/employees/${record.employeeId}/access-rights/${record.id}/revoke`, { reason }),
+    onSuccess: async (_result, variables) => {
+      await invalidateGovernance(variables.record.employeeId);
       setRevokingRecord(null);
+      setRevokeReason("");
       toast({ title: "Access revoked", description: "The historical entitlement remains in the audit record." });
     },
     onError: (mutationError: Error) => toast({
@@ -265,6 +279,8 @@ export default function AccessGovernance() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="expiring">Expiring in 30 days</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
                 <SelectItem value="revoked">Revoked</SelectItem>
               </SelectContent>
             </Select>
@@ -277,7 +293,7 @@ export default function AccessGovernance() {
           )}
 
           <div className="overflow-x-auto rounded-md border">
-            <Table className="min-w-[900px]">
+            <Table className="min-w-[1120px]">
               <TableHeader>
                 <TableRow>
                   {view === "system" && <TableHead>Employee</TableHead>}
@@ -287,13 +303,15 @@ export default function AccessGovernance() {
                   <TableHead>Privilege</TableHead>
                   <TableHead>Account</TableHead>
                   <TableHead>Grant Date</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Business Justification</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={(view === "system" || employeeFilter === "all") ? 8 : 7} className="py-10 text-center text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading access records…</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={(view === "system" || employeeFilter === "all") ? 10 : 9} className="py-10 text-center text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading access records…</TableCell></TableRow>
                 ) : data?.records.length ? data.records.map(record => (
                   <TableRow key={record.id}>
                     {(view === "system" || employeeFilter === "all") && (
@@ -307,9 +325,11 @@ export default function AccessGovernance() {
                     <TableCell>{privilegeOptions.find(option => option.value === record.privilegeLevel)?.label ?? record.privilegeLevel}</TableCell>
                     <TableCell>{record.accountUsername || "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{formatDateDisplay(record.grantDate)}</TableCell>
+                    <TableCell className="whitespace-nowrap">{record.expiresAt ? formatDateDisplay(record.expiresAt) : "No expiry"}</TableCell>
+                    <TableCell className="max-w-[210px] truncate" title={record.businessJustification}>{record.businessJustification}</TableCell>
                     <TableCell>
-                      <Badge variant={record.status === "active" ? "default" : "secondary"}>
-                        {record.status === "active" ? "Active" : "Revoked"}
+                      <Badge variant={record.expiryState === "expired" ? "destructive" : record.expiryState === "expiring" ? "outline" : record.status === "active" ? "default" : "secondary"} className={record.expiryState === "expiring" ? "border-amber-500 text-amber-700" : ""}>
+                        {record.expiryState === "expiring" ? "Expiring soon" : record.expiryState === "expired" ? "Expired" : record.status === "active" ? "Active" : "Revoked"}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -321,6 +341,8 @@ export default function AccessGovernance() {
                             onClick={() => {
                               setEditingRecord(record);
                               setNextPrivilege(record.privilegeLevel);
+                              setNextExpiresAt(record.expiresAt ?? "");
+                              setBusinessJustification(record.businessJustification ?? "");
                             }}
                             aria-label={`Edit privilege for ${record.employee.firstName} ${record.employee.lastName}`}
                             title="Edit privilege"
@@ -340,14 +362,14 @@ export default function AccessGovernance() {
                             <ShieldOff className="mr-1 h-3.5 w-3.5" /> Revoke
                           </Button>
                         )}
-                        {record.status === "revoked" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
+                        {record.status !== "active" && <span className="pr-2 text-xs text-muted-foreground">No actions</span>}
                       </div>
                     </TableCell>
                   </TableRow>
                 )) : (
                   <TableRow>
                     <TableCell
-                      colSpan={(view === "system" || employeeFilter === "all") ? 8 : 7}
+                      colSpan={(view === "system" || employeeFilter === "all") ? 10 : 9}
                       className="py-12 text-center text-muted-foreground"
                     >
                       {view === "employee" && employeeFilter !== "all" && !employees.some(employee => employee.id === employeeFilter)
@@ -386,7 +408,7 @@ export default function AccessGovernance() {
 
       <Dialog open={Boolean(editingRecord)} onOpenChange={open => { if (!open) setEditingRecord(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Access Privilege</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Access Entitlement</DialogTitle></DialogHeader>
           {editingRecord && (
             <div className="space-y-4">
               <div className="rounded-md bg-muted p-3">
@@ -404,21 +426,29 @@ export default function AccessGovernance() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="space-y-2">
+                <label htmlFor="governance-expires-at" className="text-sm font-medium">Expiry Date · optional</label>
+                <CalendarDateField id="governance-expires-at" value={nextExpiresAt} onChange={event => setNextExpiresAt(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="governance-business-justification" className="text-sm font-medium">Business Justification · required</label>
+                <Textarea id="governance-business-justification" value={businessJustification} onChange={event => setBusinessJustification(event.target.value)} maxLength={4000} rows={4} placeholder="Explain the business need for this access and privilege." />
+              </div>
             </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEditingRecord(null)}>Cancel</Button>
             <Button
-              onClick={() => editingRecord && updatePrivilegeMutation.mutate({ record: editingRecord, privilegeLevel: nextPrivilege })}
-              disabled={!editingRecord || !nextPrivilege || nextPrivilege === editingRecord.privilegeLevel || updatePrivilegeMutation.isPending}
+              onClick={() => editingRecord && updatePrivilegeMutation.mutate({ record: editingRecord, privilegeLevel: nextPrivilege, expiresAt: nextExpiresAt, businessJustification: businessJustification.trim() })}
+              disabled={!editingRecord || !nextPrivilege || !businessJustification.trim() || businessJustification.trim().length < 5 || (nextExpiresAt !== "" && nextExpiresAt < editingRecord.grantDate) || (nextPrivilege === editingRecord.privilegeLevel && nextExpiresAt === (editingRecord.expiresAt ?? "") && businessJustification.trim() === editingRecord.businessJustification) || updatePrivilegeMutation.isPending}
             >
-              {updatePrivilegeMutation.isPending ? "Saving…" : "Save Privilege"}
+              {updatePrivilegeMutation.isPending ? "Saving…" : "Save Entitlement"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(revokingRecord)} onOpenChange={open => { if (!open) setRevokingRecord(null); }}>
+      <AlertDialog open={Boolean(revokingRecord)} onOpenChange={open => { if (!open) { setRevokingRecord(null); setRevokeReason(""); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke system access?</AlertDialogTitle>
@@ -428,14 +458,18 @@ export default function AccessGovernance() {
                 : "This will revoke the selected access entitlement."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="governance-revoke-reason" className="text-sm font-medium">Revocation Reason · required</label>
+            <Textarea id="governance-revoke-reason" value={revokeReason} onChange={event => setRevokeReason(event.target.value)} maxLength={2000} rows={3} placeholder="Record why this access is being revoked." />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={event => {
                 event.preventDefault();
-                if (revokingRecord) revokeMutation.mutate(revokingRecord);
+                if (revokingRecord && revokeReason.trim().length >= 3) revokeMutation.mutate({ record: revokingRecord, reason: revokeReason.trim() });
               }}
-              disabled={revokeMutation.isPending}
+              disabled={revokeMutation.isPending || revokeReason.trim().length < 3}
             >
               {revokeMutation.isPending ? "Revoking…" : "Revoke Access"}
             </AlertDialogAction>

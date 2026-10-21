@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
-  formatDateDisplay, formatDateTime, toDateInputValue, toDateTimeInputValue,
+  formatDateDisplay, formatDateTime, formatDateTimeMinute, toDateInputValue, toDateTimeInputValue,
   parseDateValue, toSpreadsheetDateInput, formatExportValue,
 } from "../shared/date-format";
 
@@ -43,6 +43,7 @@ describe("global day-month-year dates", () => {
   it("preserves timestamp times and ISO input contracts", () => {
     const date = new Date(2026, 10, 5, 14, 9, 7);
     expect(formatDateTime(date)).toBe("05-11-2026 14:09:07");
+    expect(formatDateTimeMinute(date)).toBe("05-11-2026 14:09");
     expect(toDateTimeInputValue(date)).toBe("2026-11-05T14:09");
     expect(formatDateDisplay(new Date("invalid"))).toBe("—");
     expect(toDateInputValue(null)).toBe("");

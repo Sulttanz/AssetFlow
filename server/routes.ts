@@ -16,11 +16,12 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users, employees, employeeAccessRights, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
+  assetAttachments, ticketAttachments, risks, changes, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
-  cmdbApplications, servers, configurationDocuments, insertCmdbApplicationSchema, insertServerSchema
+  cmdbApplications, servers, configurationDocuments, insertCmdbApplicationSchema, insertServerSchema,
+  employeeOffboardingSubmissionSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
@@ -164,6 +165,76 @@ async function logAudit(
   }
 }
 
+async function logEmployeeAccessMutation(
+  executor: any,
+  input: {
+    actorId?: string | null;
+    actorIp?: string | null;
+    userAgent?: string | null;
+    action: "GRANT" | "MODIFY" | "REVOKE" | "EXPIRE";
+    recordId: string;
+    recordName: string;
+    reason: string;
+    oldValues?: unknown;
+    newValues: unknown;
+  },
+) {
+  await executor.insert(auditLogs).values({
+    userId: input.actorId ?? null,
+    action: input.action,
+    tableName: "employee_access_rights",
+    recordId: input.recordId,
+    recordName: input.recordName,
+    oldValues: input.oldValues == null ? null : JSON.stringify(input.oldValues),
+    newValues: JSON.stringify({ ...(input.newValues as object), reason: input.reason }),
+    timestamp: new Date(),
+    ipAddress: input.actorIp ?? "system",
+    userAgent: input.userAgent ?? "automated-access-expiry",
+  });
+}
+
+async function expireDueEmployeeAccessRights() {
+  try {
+    const today = toDateInputValue(new Date());
+    return await db.transaction(async tx => {
+      const expiredRows = await tx.update(employeeAccessRights).set({
+        status: "expired",
+        updatedAt: new Date(),
+      }).where(and(
+        eq(employeeAccessRights.status, "active"),
+        sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date`,
+      )).returning();
+      for (const row of expiredRows) {
+        await logEmployeeAccessMutation(tx, {
+          action: "EXPIRE",
+          recordId: row.id,
+          recordName: `${row.applicationName} access expired`,
+          reason: `Access automatically expired on ${row.expiresAt ?? "its end date"}.`,
+          oldValues: { status: "active", expiresAt: row.expiresAt },
+          newValues: { status: "expired", expiresAt: row.expiresAt, employeeId: row.employeeId },
+        });
+      }
+      return expiredRows.length;
+    });
+  } catch (error) {
+    console.error("Failed to expire employee access rights:", error);
+    return 0;
+  }
+}
+
+let employeeAccessExpiryInterval: NodeJS.Timeout | undefined;
+
+function getAccessExpiryState(status: string, expiresAt: string | null) {
+  if (status === "revoked") return "revoked" as const;
+  if (status === "expired") return "expired" as const;
+  if (!expiresAt) return "active" as const;
+  const today = toDateInputValue(new Date());
+  if (expiresAt <= today) return "expired" as const;
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + 30);
+  return expiresAt <= toDateInputValue(horizon) ? "expiring" as const : "active" as const;
+}
+
 // Idempotently ensures ITSM permissions exist and are granted to the System Administrator role.
 // This runs on every startup so it works for deployments that already have their permission
 // set seeded (the one-time /api/system/seed-data route only seeds when no users exist yet).
@@ -205,6 +276,11 @@ async function ensureItsmPermissions() {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  if (!employeeAccessExpiryInterval) {
+    void expireDueEmployeeAccessRights();
+    employeeAccessExpiryInterval = setInterval(() => void expireDueEmployeeAccessRights(), 5 * 60 * 1000);
+    employeeAccessExpiryInterval.unref?.();
+  }
   // Setup authentication system
   setupAuth(app);
 
@@ -3250,7 +3326,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     accessType: z.enum(ACCESS_TYPES).optional(),
     privilegeLevel: z.string().trim().min(1).max(100).optional(),
     accountUsername: z.string().trim().max(200).nullable().optional(),
+    businessJustification: z.string().trim().min(5).max(4000),
     grantDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    expiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   });
   const createAccessRightBodySchema = accessRightBodySchema.extend({
     catalogSource: z.enum(["application", "server", "asset", "dropdown"]),
@@ -3293,17 +3371,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/employees/:id/offboard", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
-      const input = z.object({
-        offboardedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        offboardedReason: z.string().trim().min(3).max(2000),
-      }).parse(req.body);
+      const input = employeeOffboardingSubmissionSchema.parse(req.body);
       const result = await db.transaction(async tx => {
         const [employee] = await tx.select().from(employees).where(eq(employees.id, req.params.id)).for("update");
         if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
         if (employee.status === "disabled") throw Object.assign(new Error("Employee is already offboarded"), { status: 409 });
         const review = await getEmployeeOffboardingReview(tx, employee);
-        if (!review.canOffboard) {
-          throw Object.assign(new Error("Resolve all assigned resources and active access before confirming offboarding"), { status: 409, review });
+        const submittedClearances = new Map(input.clearances.map(clearance => [clearance.clearanceType, clearance]));
+        const blockerClearances: Array<[boolean, "physical_asset_return" | "credential_vpn_revocation" | "license_reallocation"]> = [
+          [review.blockers.hardwareAssets > 0, "physical_asset_return"],
+          [review.blockers.accessRights + review.blockers.activeAccounts > 0, "credential_vpn_revocation"],
+          [review.blockers.softwareSeats > 0, "license_reallocation"],
+        ];
+        if (blockerClearances.some(([hasBlocker, type]) => hasBlocker && submittedClearances.get(type)?.status !== "waived")) {
+          throw Object.assign(new Error("Resolve the outstanding resources or document a waiver for each affected clearance"), { status: 409, review });
+        }
+        const signedAt = new Date();
+        await tx.insert(employeeOffboardingClearances).values(input.clearances.map(clearance => ({
+          employeeId: employee.id,
+          offboardingDate: input.offboardedDate,
+          clearanceType: clearance.clearanceType,
+          status: clearance.status,
+          note: clearance.note?.trim() || (clearance.status === "verified" ? "Clearance verified." : null),
+          signedBy: req.user?.id ?? null,
+          signedAt,
+        })));
+        for (const clearance of input.clearances) {
+          const note = clearance.note?.trim() || "Clearance verified.";
+          await tx.insert(auditLogs).values({
+            userId: req.user?.id ?? null,
+            action: clearance.status === "waived" ? "WAIVE" : "VERIFY",
+            tableName: "employee_offboarding_clearances",
+            recordId: employee.id,
+            recordName: `${employee.firstName} ${employee.lastName} · ${clearance.clearanceType}`,
+            oldValues: null,
+            newValues: JSON.stringify({
+              clearanceType: clearance.clearanceType,
+              status: clearance.status,
+              note,
+              offboardingDate: input.offboardedDate,
+              signedAt,
+              reason: note,
+            }),
+            timestamp: signedAt,
+            ipAddress: req.ip || null,
+            userAgent: req.get("user-agent") || null,
+          });
         }
         const [updated] = await tx.update(employees).set({
           status: "disabled",
@@ -3315,7 +3428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "employees", result.employee.id, `${result.employee.firstName} ${result.employee.lastName} offboarded`, result.previous, result.employee, req);
       res.json(result.employee);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a valid offboarding date and reason", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Complete each clearance and enter a note for every waiver", errors: error.errors });
       if (error?.review) return res.status(409).json({ message: error.message, review: error.review });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to offboard employee" });
@@ -3364,12 +3477,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/access-governance", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
+      await expireDueEmployeeAccessRights();
       const parsed = z.object({
         page: z.coerce.number().int().min(1).default(1),
         pageSize: z.enum(["20", "50"]).default("20").transform(Number),
         employeeId: z.string().trim().min(1).optional(),
         accessType: z.enum(ACCESS_TYPES).optional(),
-        status: z.enum(["all", "active", "revoked"]).default("all"),
+        status: z.enum(["all", "active", "expiring", "expired", "revoked"]).default("all"),
         search: z.string().trim().max(120).optional(),
         catalogSource: z.enum(["application", "server", "asset", "dropdown", "legacy"]).optional(),
         catalogItemId: z.string().trim().min(1).optional(),
@@ -3383,7 +3497,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conditions: any[] = [];
       if (filters.employeeId) conditions.push(eq(employeeAccessRights.employeeId, filters.employeeId));
       if (filters.accessType) conditions.push(eq(employeeAccessRights.accessType, filters.accessType));
-      if (filters.status !== "all") conditions.push(eq(employeeAccessRights.status, filters.status));
+      if (filters.status === "revoked" || filters.status === "expired") {
+        conditions.push(eq(employeeAccessRights.status, filters.status));
+      } else if (filters.status === "active") {
+        conditions.push(eq(employeeAccessRights.status, "active"));
+      } else if (filters.status === "expiring") {
+        const today = toDateInputValue(new Date());
+        const throughDate = new Date();
+        throughDate.setDate(throughDate.getDate() + 30);
+        conditions.push(and(
+          eq(employeeAccessRights.status, "active"),
+          sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${toDateInputValue(throughDate)}::date`,
+        ));
+      }
       if (filters.catalogSource) {
         conditions.push(and(
           eq(employeeAccessRights.catalogSource, filters.catalogSource),
@@ -3414,8 +3540,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         catalogItemId: employeeAccessRights.catalogItemId,
         privilegeLevel: employeeAccessRights.privilegeLevel,
         accountUsername: employeeAccessRights.accountUsername,
+        businessJustification: employeeAccessRights.businessJustification,
         grantDate: employeeAccessRights.grantDate,
+        expiresAt: employeeAccessRights.expiresAt,
         status: employeeAccessRights.status,
+        revocationReason: employeeAccessRights.revocationReason,
         revokedAt: employeeAccessRights.revokedAt,
         employee: {
           id: employees.id,
@@ -3432,7 +3561,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(filters.pageSize)
         .offset((filters.page - 1) * filters.pageSize);
 
-      res.json({ records, total, page: filters.page, pageSize: filters.pageSize });
+      res.json({
+        records: records.map(record => ({
+          ...record,
+          expiryState: getAccessExpiryState(record.status, record.expiresAt),
+        })),
+        total,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      });
     } catch {
       res.status(500).json({ message: "Failed to load access governance records" });
     }
@@ -3440,9 +3577,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
+      await expireDueEmployeeAccessRights();
       if (!(await storage.getEmployee(req.params.id))) return res.status(404).json({ message: "Employee not found" });
       const rows = await db.select().from(employeeAccessRights).where(eq(employeeAccessRights.employeeId, req.params.id));
-      res.json(rows);
+      res.json(rows.map(row => ({ ...row, expiryState: getAccessExpiryState(row.status, row.expiresAt) })));
     } catch {
       res.status(500).json({ message: "Failed to fetch employee access rights" });
     }
@@ -3451,6 +3589,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
       const input = createAccessRightBodySchema.parse(req.body);
+      const effectiveGrantDate = input.grantDate ?? toDateInputValue(new Date());
+      if (input.expiresAt && input.expiresAt < effectiveGrantDate) {
+        return res.status(400).json({ message: "Expiry date cannot be earlier than the grant date" });
+      }
       const row = await db.transaction(async tx => {
         const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
           .where(eq(employees.id, req.params.id)).for("update");
@@ -3466,12 +3608,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           catalogItemId: catalogItem.id,
           privilegeLevel: input.privilegeLevel,
           accountUsername: input.accountUsername || null,
+          businessJustification: input.businessJustification,
           grantDate: input.grantDate,
+          expiresAt: input.expiresAt ?? null,
           status: "active",
         }).returning();
+        await logEmployeeAccessMutation(tx, {
+          actorId: req.user?.id,
+          actorIp: req.ip,
+          userAgent: req.get("user-agent"),
+          action: "GRANT",
+          recordId: created.id,
+          recordName: `${created.applicationName} access granted`,
+          reason: input.businessJustification,
+          newValues: created,
+        });
         return created;
       });
-      await logAudit(req.user?.id, "CREATE", "employee_access_rights", row.id, `${row.applicationName} access for ${req.params.id}`, null, row, req);
       res.status(201).json(row);
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
@@ -3494,6 +3647,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )).for("update");
         if (!current) throw Object.assign(new Error("Access entitlement not found"), { status: 404 });
         if (current.status !== "active") throw Object.assign(new Error("Revoked entitlements are historical records and cannot be edited"), { status: 409 });
+        if (
+          current.businessJustification === "Legacy access record - justification pending review" &&
+          input.businessJustification === current.businessJustification
+        ) {
+          throw Object.assign(new Error("Replace the legacy placeholder with a current business justification"), { status: 400 });
+        }
         const changes: Record<string, unknown> = { updatedAt: new Date() };
         if (input.privilegeLevel !== undefined) {
           await validatePrivilegeLevel(tx, input.privilegeLevel);
@@ -3501,6 +3660,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (input.accountUsername !== undefined) changes.accountUsername = input.accountUsername || null;
         if (input.grantDate !== undefined) changes.grantDate = input.grantDate;
+        if (input.expiresAt !== undefined) changes.expiresAt = input.expiresAt;
+        changes.businessJustification = input.businessJustification;
+        const nextGrantDate = input.grantDate ?? current.grantDate;
+        const nextExpiresAt = input.expiresAt !== undefined ? input.expiresAt : current.expiresAt;
+        if (nextExpiresAt && nextGrantDate && nextExpiresAt < nextGrantDate) {
+          throw Object.assign(new Error("Expiry date cannot be earlier than the grant date"), { status: 400 });
+        }
         const hasCatalogSelection = input.catalogSource !== undefined || input.catalogItemId !== undefined || input.accessType !== undefined;
         if (hasCatalogSelection) {
           if (!input.catalogSource || !input.catalogItemId || !input.accessType) {
@@ -3519,9 +3685,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (Object.keys(changes).length === 1) throw Object.assign(new Error("No access entitlement changes were provided"), { status: 400 });
         const [updated] = await tx.update(employeeAccessRights).set(changes)
           .where(eq(employeeAccessRights.id, current.id)).returning();
+        await logEmployeeAccessMutation(tx, {
+          actorId: req.user?.id,
+          actorIp: req.ip,
+          userAgent: req.get("user-agent"),
+          action: "MODIFY",
+          recordId: updated.id,
+          recordName: `${updated.applicationName} access modified`,
+          reason: input.businessJustification,
+          oldValues: current,
+          newValues: updated,
+        });
         return { current, updated };
       });
-      await logAudit(req.user?.id, "UPDATE", "employee_access_rights", result.updated.id, result.updated.applicationName, result.current, result.updated, req);
       res.json(result.updated);
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
@@ -3532,6 +3708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/employees/:id/access-rights/:rightId/revoke", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
     try {
+      const { reason } = z.object({ reason: z.string().trim().min(3).max(2000) }).parse(req.body);
       const result = await db.transaction(async tx => {
         const [employee] = await tx.select({ id: employees.id }).from(employees).where(eq(employees.id, req.params.id)).for("update");
         if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
@@ -3542,13 +3719,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )).for("update");
         if (!current) throw Object.assign(new Error("Active access entitlement not found"), { status: 404 });
         const [revoked] = await tx.update(employeeAccessRights).set({
-          status: "revoked", revokedAt: new Date(), updatedAt: new Date(),
+          status: "revoked", revokedAt: new Date(), revocationReason: reason, updatedAt: new Date(),
         }).where(eq(employeeAccessRights.id, current.id)).returning();
+        await logEmployeeAccessMutation(tx, {
+          actorId: req.user?.id,
+          actorIp: req.ip,
+          userAgent: req.get("user-agent"),
+          action: "REVOKE",
+          recordId: revoked.id,
+          recordName: `${revoked.applicationName} access revoked`,
+          reason,
+          oldValues: current,
+          newValues: revoked,
+        });
         return { current, revoked };
       });
-      await logAudit(req.user?.id, "UPDATE", "employee_access_rights", result.revoked.id, `${result.revoked.applicationName} access revoked`, result.current, result.revoked, req);
       res.json(result.revoked);
     } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A revocation reason is required", errors: error.errors });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to revoke employee access" });
     }

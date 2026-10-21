@@ -1,4 +1,4 @@
-import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
+import { formatDateTimeMinute as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

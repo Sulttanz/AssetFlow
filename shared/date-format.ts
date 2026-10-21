@@ -30,9 +30,14 @@ export function formatDateDisplay(value: DateValue): string {
   return date ? `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${String(date.getFullYear()).padStart(4, "0")}` : "—";
 }
 
+export function formatDateTimeMinute(value: DateValue): string {
+  const date = parseDateValue(value);
+  return date ? `${formatDateDisplay(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}` : "—";
+}
+
 export function formatDateTime(value: DateValue): string {
   const date = parseDateValue(value);
-  return date ? `${formatDateDisplay(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` : "—";
+  return date ? `${formatDateTimeMinute(date)}:${pad(date.getSeconds())}` : "—";
 }
 
 /** HTML date inputs require YYYY-MM-DD even when human-readable dates are DMY. */

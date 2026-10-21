@@ -33,14 +33,33 @@ export const employeeAccessRights = pgTable("employee_access_rights", {
   catalogItemId: text("catalog_item_id"),
   privilegeLevel: text("privilege_level").notNull(),
   accountUsername: text("account_username"),
+  businessJustification: text("business_justification").notNull().default("Legacy access record - justification pending review"),
   grantDate: date("grant_date").notNull().default(sql`CURRENT_DATE`),
+  expiresAt: date("expires_at"),
   status: text("status").notNull().default("active"),
   revokedAt: timestamp("revoked_at"),
+  revocationReason: text("revocation_reason"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
   updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
 }, table => [
   index("employee_access_rights_employee_idx").on(table.employeeId, table.status),
   index("employee_access_rights_catalog_idx").on(table.catalogSource, table.catalogItemId, table.status),
+  index("employee_access_rights_expiry_idx").on(table.expiresAt, table.status),
+]);
+
+export const employeeOffboardingClearances = pgTable("employee_offboarding_clearances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").notNull().references(() => employees.id, { onDelete: "restrict" }),
+  offboardingDate: date("offboarding_date").notNull(),
+  clearanceType: text("clearance_type").notNull(),
+  status: text("status").notNull(),
+  note: text("note"),
+  signedBy: varchar("signed_by").references(() => users.id, { onDelete: "set null" }),
+  signedAt: timestamp("signed_at").notNull().default(sql`now()`),
+}, table => [
+  check("employee_offboarding_clearance_type_check", sql`${table.clearanceType} IN ('physical_asset_return', 'credential_vpn_revocation', 'license_reallocation')`),
+  check("employee_offboarding_clearance_status_check", sql`${table.status} IN ('verified', 'waived')`),
+  index("employee_offboarding_clearance_employee_idx").on(table.employeeId, table.offboardingDate, table.signedAt),
 ]);
 
 // Locations & Departments
@@ -1072,6 +1091,30 @@ export const insertConfigurationDocumentSchema = createInsertSchema(configuratio
 export const insertEmployeeSchema = createInsertSchema(employees, {
   status: z.enum(["active", "disabled"]).default("active"),
 }).omit({ id: true });
+export const EMPLOYEE_OFFBOARDING_CLEARANCE_TYPES = [
+  "physical_asset_return",
+  "credential_vpn_revocation",
+  "license_reallocation",
+] as const;
+export const employeeOffboardingSubmissionSchema = z.object({
+  offboardedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  offboardedReason: z.string().trim().min(3).max(2000),
+  clearances: z.array(z.object({
+    clearanceType: z.enum(EMPLOYEE_OFFBOARDING_CLEARANCE_TYPES),
+    status: z.enum(["verified", "waived"]),
+    note: z.string().trim().max(2000).optional(),
+  })).length(3),
+}).superRefine((value, context) => {
+  const types = new Set(value.clearances.map(clearance => clearance.clearanceType));
+  if (types.size !== EMPLOYEE_OFFBOARDING_CLEARANCE_TYPES.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["clearances"], message: "Sign off each clearance category exactly once" });
+  }
+  value.clearances.forEach((clearance, index) => {
+    if (clearance.status === "waived" && (clearance.note ?? "").length < 3) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["clearances", index, "note"], message: "A waiver requires an audit note" });
+    }
+  });
+});
 export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccessRights, {
   applicationName: z.string().trim().min(1).max(200),
   accessType: z.enum(["application", "network_vpn", "server_remote_access", "cloud_tenant"]).default("application"),
@@ -1079,8 +1122,10 @@ export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccess
   catalogItemId: z.string().trim().min(1).max(200).nullable().optional(),
   privilegeLevel: z.string().trim().min(1).max(100),
   accountUsername: z.string().trim().max(200).nullable().optional(),
-  status: z.enum(["active", "revoked"]).default("active"),
-}).omit({ id: true, revokedAt: true, createdAt: true, updatedAt: true });
+  businessJustification: z.string().trim().min(5).max(4000),
+  expiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  status: z.enum(["active", "revoked", "expired"]).default("active"),
+}).omit({ id: true, revokedAt: true, revocationReason: true, createdAt: true, updatedAt: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
@@ -1122,6 +1167,7 @@ export type InsertConsumable = z.infer<typeof insertConsumableSchema>;
 export type InsertAsset = z.infer<typeof insertAssetSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type EmployeeAccessRight = typeof employeeAccessRights.$inferSelect;
+export type EmployeeOffboardingClearance = typeof employeeOffboardingClearances.$inferSelect;
 export type InsertEmployeeAccessRight = z.infer<typeof insertEmployeeAccessRightSchema>;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 export type InsertVendor = z.infer<typeof insertVendorSchema>;

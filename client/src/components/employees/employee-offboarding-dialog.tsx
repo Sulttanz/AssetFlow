@@ -5,9 +5,11 @@ import { formatDateDisplay } from "@/lib/date-utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, CheckCircle2, ExternalLink, RefreshCw } from "lucide-react";
 import type { EmployeeWithDetails } from "@shared/schema";
@@ -22,6 +24,22 @@ type OffboardingReview = {
   blockers: { hardwareAssets: number; softwareSeats: number; accessRights: number; activeAccounts: number };
   canOffboard: boolean;
 };
+
+type ClearanceType = "physical_asset_return" | "credential_vpn_revocation" | "license_reallocation";
+type ClearanceStatus = "pending" | "verified" | "waived";
+type ClearanceDraft = { clearanceType: ClearanceType; status: ClearanceStatus; note: string };
+
+const clearanceDefinitions: Array<{ type: ClearanceType; title: string; description: string }> = [
+  { type: "physical_asset_return", title: "Physical Asset Return", description: "Laptops, access cards, tokens, and other assigned equipment." },
+  { type: "credential_vpn_revocation", title: "Credential & VPN Revocation", description: "Application accounts, VPN, remote access, and linked credentials." },
+  { type: "license_reallocation", title: "License Reallocation", description: "M365, SaaS seats, and other employee-assigned licenses." },
+];
+
+const emptyClearances = (): ClearanceDraft[] => clearanceDefinitions.map(item => ({
+  clearanceType: item.type,
+  status: "pending",
+  note: "",
+}));
 
 function todayInputDate() {
   const now = new Date();
@@ -44,6 +62,7 @@ export default function EmployeeOffboardingDialog({
   const { toast } = useToast();
   const [offboardedDate, setOffboardedDate] = useState(todayInputDate());
   const [offboardedReason, setOffboardedReason] = useState("");
+  const [clearances, setClearances] = useState<ClearanceDraft[]>(emptyClearances);
   const reviewUrl = employee ? `/api/employees/${employee.id}/offboarding-review` : "";
   const { data: review, isLoading, isFetching, refetch } = useQuery<OffboardingReview>({
     queryKey: [reviewUrl],
@@ -54,6 +73,7 @@ export default function EmployeeOffboardingDialog({
     if (open) {
       setOffboardedDate(todayInputDate());
       setOffboardedReason("");
+      setClearances(emptyClearances());
     }
   }, [open, employee?.id]);
 
@@ -78,7 +98,14 @@ export default function EmployeeOffboardingDialog({
   });
 
   const offboard = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/employees/${employee!.id}/offboard`, { offboardedDate, offboardedReason }),
+    mutationFn: () => apiRequest("POST", `/api/employees/${employee!.id}/offboard`, {
+      offboardedDate,
+      offboardedReason,
+      clearances: clearances.filter(clearance => clearance.status !== "pending").map(clearance => ({
+        ...clearance,
+        note: clearance.note.trim() || undefined,
+      })),
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
@@ -93,6 +120,12 @@ export default function EmployeeOffboardingDialog({
 
   const busy = returnAsset.isPending || releaseSeat.isPending;
   const unresolved = !review?.canOffboard;
+  const allClearancesComplete = clearances.length === clearanceDefinitions.length && clearances.every(clearance =>
+    clearance.status !== "pending" && (clearance.status !== "waived" || clearance.note.trim().length >= 3),
+  );
+  const setClearance = (type: ClearanceType, patch: Partial<ClearanceDraft>) => {
+    setClearances(current => current.map(clearance => clearance.clearanceType === type ? { ...clearance, ...patch } : clearance));
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -113,7 +146,7 @@ export default function EmployeeOffboardingDialog({
                 <div className={`flex items-start gap-3 rounded-lg border p-3 ${review.canOffboard ? "border-green-200 bg-green-50 text-green-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
                   {review.canOffboard ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">{review.canOffboard ? "Ready to offboard" : "Resolve the outstanding items first"}</p>
+                    <p className="font-medium">{review.canOffboard ? "Resources are clear" : "Outstanding items need clearance or a documented waiver"}</p>
                     <p className="mt-1 text-sm">
                       Hardware {review.blockers.hardwareAssets} · Software seats {review.blockers.softwareSeats} · Application access {review.blockers.accessRights} · Active accounts {review.blockers.activeAccounts}
                     </p>
@@ -200,10 +233,57 @@ export default function EmployeeOffboardingDialog({
               </div>
             )}
 
+            <section className="space-y-3 border-t pt-4">
+              <div>
+                <h3 className="font-semibold">Required clearance sign-offs</h3>
+                <p className="text-sm text-muted-foreground">Each category must be verified or waived. Waivers require an audit note and are recorded with your account and IP.</p>
+              </div>
+              {clearanceDefinitions.map(definition => {
+                const clearance = clearances.find(item => item.clearanceType === definition.type)!;
+                const blockerCount = definition.type === "physical_asset_return"
+                  ? review?.blockers.hardwareAssets ?? 0
+                  : definition.type === "license_reallocation"
+                    ? review?.blockers.softwareSeats ?? 0
+                    : (review?.blockers.accessRights ?? 0) + (review?.blockers.activeAccounts ?? 0);
+                return (
+                  <div key={definition.type} className="space-y-3 rounded-lg border p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-medium">{definition.title}</p>
+                        <p className="text-sm text-muted-foreground">{definition.description}{review ? ` · ${blockerCount} outstanding` : ""}</p>
+                      </div>
+                      <Select value={clearance.status} onValueChange={value => setClearance(definition.type, { status: value as ClearanceStatus })}>
+                        <SelectTrigger className="w-full sm:w-44" aria-label={`${definition.title} sign-off`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Select sign-off</SelectItem>
+                          <SelectItem value="verified">Verified</SelectItem>
+                          <SelectItem value="waived">Waived with note</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {clearance.status === "waived" && (
+                      <div className="space-y-2">
+                        <Label htmlFor={`clearance-note-${definition.type}`}>Required waiver note</Label>
+                        <Textarea
+                          id={`clearance-note-${definition.type}`}
+                          value={clearance.note}
+                          onChange={event => setClearance(definition.type, { note: event.target.value })}
+                          maxLength={2000}
+                          rows={2}
+                          placeholder="Explain why this clearance is waived and who accepted the risk."
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+
             <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="offboarded-date">Offboarding Date</Label>
-                <Input id="offboarded-date" type="date" value={offboardedDate} onChange={event => setOffboardedDate(event.target.value)} required />
+                <CalendarDateField id="offboarded-date" value={offboardedDate} onChange={event => setOffboardedDate(event.target.value)} required />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="offboarded-reason">Reason</Label>
@@ -216,7 +296,7 @@ export default function EmployeeOffboardingDialog({
               <Button
                 variant="destructive"
                 onClick={() => offboard.mutate()}
-                disabled={unresolved || isLoading || !offboardedDate || offboardedReason.trim().length < 3 || offboard.isPending}
+                disabled={!allClearancesComplete || isLoading || !review || !offboardedDate || offboardedReason.trim().length < 3 || offboard.isPending}
               >
                 {offboard.isPending ? "Offboarding…" : "Confirm Offboarding"}
               </Button>
