@@ -172,84 +172,87 @@ export default function Employees() {
                 ))}
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table className="w-full min-w-[1140px] table-fixed">
+              <div className="w-full overflow-hidden">
+                <Table className="w-full table-fixed">
                   <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[90px]">Employee ID</TableHead>
-                      <TableHead className="w-[125px]">Name</TableHead>
-                      <TableHead className="w-[180px]">Email</TableHead>
-                      <TableHead className="w-[130px]">Department</TableHead>
-                      <TableHead className="w-[110px]">Location</TableHead>
-                      <TableHead className="w-[120px]">Position</TableHead>
-                      <TableHead className="w-[145px]">Status</TableHead>
-                      <TableHead className="w-[240px] text-right">Actions</TableHead>
+                    <TableRow className="h-9">
+                      <TableHead className="w-[9%] px-2 py-2">Employee ID</TableHead>
+                      <TableHead className="w-[15%] px-2 py-2">Name</TableHead>
+                      <TableHead className="w-[23%] px-2 py-2">Email</TableHead>
+                      <TableHead className="w-[17%] px-2 py-2">Department</TableHead>
+                      <TableHead className="w-[11%] px-2 py-2">Status</TableHead>
+                      <TableHead className="w-[25%] px-2 py-2 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedEmployees.length > 0 ? paginatedEmployees.map((employee) => (
-                      <TableRow key={employee.id} data-testid={`employee-row-${employee.id}`}>
-                        <TableCell className="truncate font-medium" data-testid={`employee-id-${employee.id}`} title={employee.employeeId ?? undefined}>
+                      <TableRow key={employee.id} className="h-10" data-testid={`employee-row-${employee.id}`}>
+                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" data-testid={`employee-id-${employee.id}`} title={employee.employeeId ?? undefined}>
                           {employee.employeeId || "-"}
                         </TableCell>
-                        <TableCell className="truncate font-medium" title={`${employee.firstName} ${employee.lastName}`}>
+                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" title={`${employee.firstName} ${employee.lastName}`}>
                           {employee.firstName} {employee.lastName}
                         </TableCell>
-                        <TableCell className="truncate" title={employee.email}>{employee.email}</TableCell>
-                        <TableCell className="truncate" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
+                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" title={employee.email}>{employee.email}</TableCell>
+                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
                           {employee.departmentDetails?.name || employee.department || "-"}
                         </TableCell>
-                        <TableCell className="truncate" data-testid={`employee-location-${employee.id}`} title={employee.locationDetails?.name || undefined}>
-                          {employee.locationDetails?.name || "-"}
-                        </TableCell>
-                        <TableCell className="truncate" title={employee.position}>{employee.position}</TableCell>
-                        <TableCell>
-                          <Badge variant={employee.status === "disabled" ? "secondary" : "default"}>
+                        <TableCell className="whitespace-nowrap px-2 py-1.5">
+                          <Badge
+                            variant={employee.status === "disabled" ? "secondary" : "default"}
+                            title={employee.status === "disabled" ? `Offboarded ${employee.offboardedDate ? formatDateDisplay(employee.offboardedDate) : ""}${employee.offboardedReason ? ` · ${employee.offboardedReason}` : ""}` : "Active employee"}
+                          >
                             {employee.status === "disabled" ? "Disabled" : "Active"}
                           </Badge>
-                          {employee.status === "disabled" && (
-                            <div className="mt-1 max-w-[135px] truncate text-xs text-muted-foreground" title={employee.offboardedReason ?? undefined}>
-                              {employee.offboardedDate ? `Since ${formatDateDisplay(employee.offboardedDate)}` : "Offboarded"}
-                              {employee.offboardedReason ? ` · ${employee.offboardedReason}` : ""}
-                            </div>
-                          )}
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap justify-end gap-1">
+                        <TableCell className="whitespace-nowrap px-2 py-1.5">
+                          <div className="flex flex-nowrap items-center justify-end gap-1">
                             <Button
                               variant="outline"
                               size="sm"
+                              className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
+                              aria-label={`Edit ${employee.firstName} ${employee.lastName}`}
+                              title="Edit Employee"
                               onClick={() => handleEditEmployee(employee)}
                               data-testid={`edit-employee-${employee.id}`}
                             >
-                              <Edit className="mr-1 h-3.5 w-3.5" /> Edit
+                              <Edit className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Edit</span>
                             </Button>
                             <Button
                               variant="outline"
                               size="sm"
+                              className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
+                              aria-label={`Manage access for ${employee.firstName} ${employee.lastName}`}
+                              title="Manage Access"
                               onClick={() => handleEditEmployee(employee, "access")}
                               data-testid={`manage-access-${employee.id}`}
                             >
-                              <KeyRound className="mr-1 h-3.5 w-3.5" /> Manage Access
+                              <KeyRound className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Manage Access</span>
                             </Button>
                             {employee.status !== "disabled" && (
                               <Button
                                 variant="outline"
                                 size="sm"
+                                className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
+                                aria-label={`Offboard ${employee.firstName} ${employee.lastName}`}
+                                title="Offboard / Disable"
                                 onClick={() => handleOffboardEmployee(employee)}
                                 data-testid={`offboard-employee-${employee.id}`}
                               >
-                                <UserX className="mr-1 h-4 w-4" /> Offboard
+                                <UserX className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Offboard</span>
                               </Button>
                             )}
                             {employee.status === "disabled" && (
                               <Button
                                 variant="outline"
                                 size="sm"
+                                className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
+                                aria-label={`Reactivate ${employee.firstName} ${employee.lastName}`}
+                                title="Reactivate"
                                 onClick={() => handleReactivateEmployee(employee)}
                                 data-testid={`reactivate-employee-${employee.id}`}
                               >
-                                <UserCheck className="mr-1 h-4 w-4" /> Reactivate
+                                <UserCheck className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">Reactivate</span>
                               </Button>
                             )}
                           </div>
@@ -257,7 +260,7 @@ export default function Employees() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8">
+                        <TableCell colSpan={6} className="px-2 py-6 text-center">
                           <div className="text-muted-foreground">
                             <Users className="mx-auto h-12 w-12 mb-4" />
                             <p>No employees found</p>
