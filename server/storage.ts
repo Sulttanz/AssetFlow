@@ -874,6 +874,9 @@ export class MemStorage implements IStorage {
     const employee: Employee = { 
       ...insertEmployee, 
       id,
+      status: insertEmployee.status ?? "active",
+      offboardedDate: insertEmployee.offboardedDate ?? null,
+      offboardedReason: insertEmployee.offboardedReason ?? null,
       department: insertEmployee.department ?? null,
       mobile: insertEmployee.mobile ?? null,
       employeeId: insertEmployee.employeeId === "" ? null : (insertEmployee.employeeId ?? null),

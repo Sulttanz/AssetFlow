@@ -717,6 +717,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                 <FormLabel>Attachments (optional)</FormLabel>
                 <Input
                   type="file"
+                  accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt"
                   multiple
                   className="mt-1.5"
                   onChange={(e) => {
@@ -1035,6 +1036,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="file"
+                        accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt"
                         onChange={(e) => setAttachmentFile(e.target.files?.[0] || null)}
                         className="block flex-1 text-sm text-muted-foreground file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:cursor-pointer"
                       />

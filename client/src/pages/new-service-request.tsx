@@ -213,7 +213,7 @@ export default function NewServiceRequestPage() {
               <div className="flex items-start gap-3">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Paperclip className="h-4 w-4" /></span>
                 <div className="min-w-0 flex-1"><h3 id="attachments-heading" className="text-sm font-semibold text-[#31504e]">Supporting files <span className="font-normal text-[#81918d]">· optional</span></h3><p className="mt-1 text-xs leading-5 text-[#788d89]">Attach a quote, screenshot, or requirements document.</p>
-                  <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Choose supporting files" onChange={event => addFiles(event.target.files)} />
+                  <input ref={fileInput} type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt" className="sr-only" aria-label="Choose supporting files" onChange={event => addFiles(event.target.files)} />
                   <Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg border-[#d5e1dc] bg-white" onClick={() => fileInput.current?.click()} disabled={createRequest.isPending}><FilePlus2 className="mr-2 h-4 w-4" />Add files</Button>
                 </div>
               </div>

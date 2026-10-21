@@ -82,6 +82,7 @@ describe("on-prem startup migrations", () => {
       "20261026_consumables_inventory.sql",
       "20261027_warehouse_site.sql",
       "20261028_seed_consumable_categories.sql",
+      "20261029_employee_offboarding_access_entitlements.sql",
     ]) {
       const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
       expect(() => assertAdditiveMigration(migration, name)).not.toThrow();

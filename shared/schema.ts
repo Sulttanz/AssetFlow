@@ -10,6 +10,9 @@ export const employees = pgTable("employees", {
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
   email: text("email").notNull().unique(),
+  status: text("status").notNull().default("active"),
+  offboardedDate: date("offboarded_date"),
+  offboardedReason: text("offboarded_reason"),
   department: text("department"), // Keep for backward compatibility, now optional
   position: text("position").notNull(),
   phone: text("phone"),
@@ -20,6 +23,21 @@ export const employees = pgTable("employees", {
   departmentId: varchar("department_id"),
   locationId: varchar("location_id"),
 });
+
+export const employeeAccessRights = pgTable("employee_access_rights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").notNull().references(() => employees.id, { onDelete: "restrict" }),
+  applicationName: text("application_name").notNull(),
+  privilegeLevel: text("privilege_level").notNull(),
+  accountUsername: text("account_username"),
+  grantDate: date("grant_date").notNull().default(sql`CURRENT_DATE`),
+  status: text("status").notNull().default("active"),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  index("employee_access_rights_employee_idx").on(table.employeeId, table.status),
+]);
 
 // Locations & Departments
 export const locations = pgTable("locations", {
@@ -961,7 +979,15 @@ export const insertAssetSchema = createInsertSchema(assets, {
   recurringCost: z.string().regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter a non-negative cost with up to two decimal places").nullable().optional(),
   billingCycle: z.enum(["monthly", "annual"]).nullable().optional(),
 }).omit({ id: true });
-export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
+export const insertEmployeeSchema = createInsertSchema(employees, {
+  status: z.enum(["active", "disabled"]).default("active"),
+}).omit({ id: true });
+export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccessRights, {
+  applicationName: z.string().trim().min(1).max(200),
+  privilegeLevel: z.string().trim().min(1).max(100),
+  accountUsername: z.string().trim().max(200).nullable().optional(),
+  status: z.enum(["active", "revoked"]).default("active"),
+}).omit({ id: true, revokedAt: true, createdAt: true, updatedAt: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
@@ -1002,6 +1028,8 @@ export type Consumable = typeof consumables.$inferSelect;
 export type InsertConsumable = z.infer<typeof insertConsumableSchema>;
 export type InsertAsset = z.infer<typeof insertAssetSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+export type EmployeeAccessRight = typeof employeeAccessRights.$inferSelect;
+export type InsertEmployeeAccessRight = z.infer<typeof insertEmployeeAccessRightSchema>;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 export type InsertVendor = z.infer<typeof insertVendorSchema>;
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
@@ -1098,9 +1126,17 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
     fields: [employees.locationId],
     references: [locations.id],
   }),
+  accessRights: many(employeeAccessRights),
   managedDepartments: many(departments),
   managedLocations: many(locations),
   assignments: many(assignments),
+}));
+
+export const employeeAccessRightsRelations = relations(employeeAccessRights, ({ one }) => ({
+  employee: one(employees, {
+    fields: [employeeAccessRights.employeeId],
+    references: [employees.id],
+  }),
 }));
 
 export const departmentsRelations = relations(departments, ({ one, many }) => ({

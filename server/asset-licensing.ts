@@ -11,8 +11,10 @@ export async function allocateSoftwareSeat(assetId: string, employeeId: string) 
     const [asset] = await tx.select().from(assets).where(eq(assets.id, assetId)).for("update");
     if (!asset) throw new AssetLicenseError(404, "Asset not found");
     if (asset.type !== "software") throw new AssetLicenseError(400, "Seat allocations require a software asset");
-    const [employee] = await tx.select({ id: employees.id }).from(employees).where(eq(employees.id, employeeId));
+    const [employee] = await tx.select({ id: employees.id, status: employees.status })
+      .from(employees).where(eq(employees.id, employeeId)).for("update");
     if (!employee) throw new AssetLicenseError(400, "Employee not found");
+    if (employee.status === "disabled") throw new AssetLicenseError(409, "Software seats cannot be assigned to a disabled employee");
     const active = await tx.select().from(softwareLicenseAllocations).where(and(
       eq(softwareLicenseAllocations.assetId, assetId), isNull(softwareLicenseAllocations.releasedAt),
     ));

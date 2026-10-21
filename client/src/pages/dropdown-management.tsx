@@ -24,6 +24,7 @@ const categories = [
   { value: "status", label: "Asset Status" },
   { value: "assetCondition", label: "Asset Condition" },
   { value: "consumable_category", label: "Consumable Category" },
+  { value: "access_privilege_level", label: "Access Privilege Level" },
   { value: "criticality", label: "Criticality" },
   { value: "complianceStatus", label: "Compliance Status" },
   { value: "lifecycleStatus", label: "Lifecycle Status" },

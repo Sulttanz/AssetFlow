@@ -24,9 +24,9 @@ describe("software seat allocation transactions", () => {
     tx = { select: vi.fn(), update: vi.fn(), insert: vi.fn() };
     database.transaction.mockImplementation(async callback => callback(tx));
   });
-  function setupAllocation(current = asset, active: { employeeId: string }[] = []) {
+  function setupAllocation(current = asset, active: { employeeId: string }[] = [], employeeStatus?: string) {
     const locked = query([current]);
-    tx.select.mockReturnValueOnce(locked).mockReturnValueOnce(query([{ id: "employee" }])).mockReturnValueOnce(query(active));
+    tx.select.mockReturnValueOnce(locked).mockReturnValueOnce(query([{ id: "employee", status: employeeStatus }])).mockReturnValueOnce(query(active));
     const update = query([]);
     tx.update.mockReturnValue(update);
     tx.insert.mockReturnValue(query([{ id: "allocation", employeeId: "employee" }]));
@@ -41,6 +41,11 @@ describe("software seat allocation transactions", () => {
   it("preserves existing unnamed usage while identifying an occupant", async () => {
     setupAllocation({ ...asset, usedSeats: 3 });
     await expect(allocateSoftwareSeat("software", "employee")).resolves.toMatchObject({ usedSeats: 3 });
+  });
+  it("blocks software seat allocations to disabled employees", async () => {
+    setupAllocation(asset, [], "disabled");
+    await expect(allocateSoftwareSeat("software", "employee")).rejects.toMatchObject({ status: 409 });
+    expect(tx.insert).not.toHaveBeenCalled();
   });
   it("rejects duplicate active employee allocations", async () => {
     setupAllocation(asset, [{ employeeId: "employee" }]);

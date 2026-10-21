@@ -5,13 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { insertEmployeeSchema, type Employee, type Department, type Location } from "@shared/schema";
+import EmployeeAccessEntitlements from "@/components/employees/employee-access-entitlements";
 import { z } from "zod";
 
-const formSchema = insertEmployeeSchema.extend({
+const formSchema = insertEmployeeSchema.omit({
+  status: true,
+  offboardedDate: true,
+  offboardedReason: true,
+}).extend({
   employeeId: z.string().optional().transform(val => val || undefined),
   startDate: z.string().optional().transform(val => val || undefined),
   phone: z.string().optional().transform(val => val || undefined),
@@ -27,9 +33,10 @@ interface EmployeeFormProps {
   employee?: Employee | null;
   onSuccess: () => void;
   onCancel?: () => void;
+  initialTab?: "profile" | "access";
 }
 
-export default function EmployeeForm({ employee, onSuccess, onCancel }: EmployeeFormProps) {
+export default function EmployeeForm({ employee, onSuccess, onCancel, initialTab = "profile" }: EmployeeFormProps) {
   const { toast } = useToast();
   const isEdit = !!employee;
 
@@ -116,8 +123,16 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
   const isLoading = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="employee-form">
+    <Tabs defaultValue={employee ? initialTab : "profile"} className="w-full">
+      {employee && (
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="access">Access Entitlements</TabsTrigger>
+        </TabsList>
+      )}
+      <TabsContent value="profile" className="mt-4">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="employee-form">
         <FormField
           control={form.control}
           name="employeeId"
@@ -309,7 +324,14 @@ export default function EmployeeForm({ employee, onSuccess, onCancel }: Employee
             {isLoading ? "Saving..." : (isEdit ? "Update Employee" : "Create Employee")}
           </Button>
         </div>
-      </form>
-    </Form>
+          </form>
+        </Form>
+      </TabsContent>
+      {employee && (
+        <TabsContent value="access" className="mt-4">
+          <EmployeeAccessEntitlements employeeId={employee.id} employeeStatus={employee.status} />
+        </TabsContent>
+      )}
+    </Tabs>
   );
 }

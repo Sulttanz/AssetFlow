@@ -16,7 +16,7 @@ import {
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, users, employees, assets, contracts, softwareLicenseAllocations,
+  assetAttachments, ticketAttachments, risks, changes, users, employees, employeeAccessRights, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems
@@ -24,7 +24,7 @@ import {
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql } from "drizzle-orm";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
@@ -2487,6 +2487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Asset Attachments
+  const supportedAttachmentExtensions = new Set(["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "conf", "ini", "txt"]);
   const diskUpload = multer({
     storage: multer.diskStorage({
       destination: (_req, _file, cb) => cb(null, 'server/uploads/'),
@@ -2497,6 +2498,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         cb(null, `${unique}${extension}`);
       },
     }),
+    fileFilter: (_req, file, cb) => {
+      const extension = file.originalname.split(".").pop()?.toLowerCase() ?? "";
+      if (!supportedAttachmentExtensions.has(extension)) {
+        return cb(new Error("Supported attachments: PDF, DOCX, XLSX, PNG, JPG, CONF, INI, and TXT"));
+      }
+      cb(null, true);
+    },
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   });
 
@@ -2758,6 +2766,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const getEmployeeOffboardingReview = async (executor: any, employee: any) => {
+    const [hardwareAssets, softwareSeats, accessRights, linkedAccounts] = await Promise.all([
+      executor.select({
+        assignmentId: assignments.id,
+        assetId: assets.id,
+        assetName: assets.name,
+        assetTag: assets.assetTag,
+        assignedDate: assignments.assignedDate,
+      }).from(assignments).innerJoin(assets, eq(assets.id, assignments.assetId))
+        .where(and(eq(assignments.employeeId, employee.id), isNull(assignments.returnedDate))),
+      executor.select({
+        allocationId: softwareLicenseAllocations.id,
+        assetId: assets.id,
+        assetName: assets.name,
+        assetTag: assets.assetTag,
+        allocatedAt: softwareLicenseAllocations.allocatedAt,
+      }).from(softwareLicenseAllocations).innerJoin(assets, eq(assets.id, softwareLicenseAllocations.assetId))
+        .where(and(eq(softwareLicenseAllocations.employeeId, employee.id), isNull(softwareLicenseAllocations.releasedAt))),
+      executor.select().from(employeeAccessRights).where(and(
+        eq(employeeAccessRights.employeeId, employee.id),
+        eq(employeeAccessRights.status, "active"),
+      )),
+      executor.select({ id: users.id, username: users.username, email: users.email, isActive: users.isActive })
+        .from(users).where(sql`lower(${users.email}) = ${String(employee.email).trim().toLowerCase()}`),
+    ]);
+    const activeAccounts = linkedAccounts.filter((account: any) => account.isActive === true);
+    return {
+      employeeId: employee.id,
+      status: employee.status ?? "active",
+      hardwareAssets,
+      softwareSeats,
+      accessRights,
+      linkedAccounts,
+      blockers: {
+        hardwareAssets: hardwareAssets.length,
+        softwareSeats: softwareSeats.length,
+        accessRights: accessRights.length,
+        activeAccounts: activeAccounts.length,
+      },
+      canOffboard: hardwareAssets.length + softwareSeats.length + accessRights.length + activeAccounts.length === 0,
+    };
+  };
+
+  const validatePrivilegeLevel = async (executor: any, privilegeLevel: string) => {
+    const normalized = privilegeLevel.trim().toLocaleLowerCase();
+    const [option] = await executor.select({ id: dropdownOptions.id }).from(dropdownOptions).where(and(
+      sql`lower(btrim(${dropdownOptions.category})) = 'access_privilege_level'`,
+      sql`lower(btrim(${dropdownOptions.value})) = ${normalized}`,
+      eq(dropdownOptions.isActive, true),
+    )).limit(1);
+    if (!option) throw Object.assign(new Error("Select an active privilege level from System Dropdowns"), { status: 400 });
+  };
+
+  const accessRightBodySchema = z.object({
+    applicationName: z.string().trim().min(1).max(200),
+    privilegeLevel: z.string().trim().min(1).max(100),
+    accountUsername: z.string().trim().max(200).nullable().optional(),
+    grantDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  });
+
   // Employees routes
   app.get("/api/employees", requireAuth, requireModule('asset_management'), async (req, res) => {
     try {
@@ -2780,10 +2848,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/employees/:id/offboarding-review", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const employee = await storage.getEmployee(req.params.id);
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
+      res.json(await getEmployeeOffboardingReview(db, employee));
+    } catch {
+      res.status(500).json({ message: "Failed to load offboarding review" });
+    }
+  });
+
+  app.post("/api/employees/:id/offboard", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const input = z.object({
+        offboardedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        offboardedReason: z.string().trim().min(3).max(2000),
+      }).parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [employee] = await tx.select().from(employees).where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        if (employee.status === "disabled") throw Object.assign(new Error("Employee is already offboarded"), { status: 409 });
+        const review = await getEmployeeOffboardingReview(tx, employee);
+        if (!review.canOffboard) {
+          throw Object.assign(new Error("Resolve all assigned resources and active access before confirming offboarding"), { status: 409, review });
+        }
+        const [updated] = await tx.update(employees).set({
+          status: "disabled",
+          offboardedDate: input.offboardedDate,
+          offboardedReason: input.offboardedReason,
+        }).where(eq(employees.id, employee.id)).returning();
+        return { previous: employee, employee: updated };
+      });
+      await logAudit(req.user?.id, "UPDATE", "employees", result.employee.id, `${result.employee.firstName} ${result.employee.lastName} offboarded`, result.previous, result.employee, req);
+      res.json(result.employee);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a valid offboarding date and reason", errors: error.errors });
+      if (error?.review) return res.status(409).json({ message: error.message, review: error.review });
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to offboard employee" });
+    }
+  });
+
+  app.get("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      if (!(await storage.getEmployee(req.params.id))) return res.status(404).json({ message: "Employee not found" });
+      const rows = await db.select().from(employeeAccessRights).where(eq(employeeAccessRights.employeeId, req.params.id));
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch employee access rights" });
+    }
+  });
+
+  app.post("/api/employees/:id/access-rights", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const input = accessRightBodySchema.parse(req.body);
+      const row = await db.transaction(async tx => {
+        const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
+          .where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        if (employee.status !== "active") throw Object.assign(new Error("Access cannot be granted to a disabled employee"), { status: 409 });
+        await validatePrivilegeLevel(tx, input.privilegeLevel);
+        const [created] = await tx.insert(employeeAccessRights).values({
+          employeeId: employee.id,
+          applicationName: input.applicationName,
+          privilegeLevel: input.privilegeLevel,
+          accountUsername: input.accountUsername || null,
+          grantDate: input.grantDate,
+          status: "active",
+        }).returning();
+        return created;
+      });
+      await logAudit(req.user?.id, "CREATE", "employee_access_rights", row.id, `${row.applicationName} access for ${req.params.id}`, null, row, req);
+      res.status(201).json(row);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to grant employee access" });
+    }
+  });
+
+  app.put("/api/employees/:id/access-rights/:rightId", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const input = accessRightBodySchema.partial().parse(req.body);
+      const result = await db.transaction(async tx => {
+        const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
+          .where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        if (employee.status !== "active") throw Object.assign(new Error("Access details for a disabled employee cannot be edited; revoke the entitlement instead"), { status: 409 });
+        const [current] = await tx.select().from(employeeAccessRights).where(and(
+          eq(employeeAccessRights.id, req.params.rightId),
+          eq(employeeAccessRights.employeeId, employee.id),
+        )).for("update");
+        if (!current) throw Object.assign(new Error("Access entitlement not found"), { status: 404 });
+        if (current.status !== "active") throw Object.assign(new Error("Revoked entitlements are historical records and cannot be edited"), { status: 409 });
+        if (input.privilegeLevel) await validatePrivilegeLevel(tx, input.privilegeLevel);
+        const [updated] = await tx.update(employeeAccessRights).set({ ...input, updatedAt: new Date() })
+          .where(eq(employeeAccessRights.id, current.id)).returning();
+        return { current, updated };
+      });
+      await logAudit(req.user?.id, "UPDATE", "employee_access_rights", result.updated.id, result.updated.applicationName, result.current, result.updated, req);
+      res.json(result.updated);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to update employee access" });
+    }
+  });
+
+  app.post("/api/employees/:id/access-rights/:rightId/revoke", requireAuth, requireModule("asset_management"), requirePermission("employee_update"), async (req, res) => {
+    try {
+      const result = await db.transaction(async tx => {
+        const [employee] = await tx.select({ id: employees.id }).from(employees).where(eq(employees.id, req.params.id)).for("update");
+        if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+        const [current] = await tx.select().from(employeeAccessRights).where(and(
+          eq(employeeAccessRights.id, req.params.rightId),
+          eq(employeeAccessRights.employeeId, employee.id),
+          eq(employeeAccessRights.status, "active"),
+        )).for("update");
+        if (!current) throw Object.assign(new Error("Active access entitlement not found"), { status: 404 });
+        const [revoked] = await tx.update(employeeAccessRights).set({
+          status: "revoked", revokedAt: new Date(), updatedAt: new Date(),
+        }).where(eq(employeeAccessRights.id, current.id)).returning();
+        return { current, revoked };
+      });
+      await logAudit(req.user?.id, "UPDATE", "employee_access_rights", result.revoked.id, `${result.revoked.applicationName} access revoked`, result.current, result.revoked, req);
+      res.json(result.revoked);
+    } catch (error: any) {
+      if (error?.status) return res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Failed to revoke employee access" });
+    }
+  });
+
   app.post("/api/employees", requireAuth, requireModule('asset_management'), requirePermission('employee_create'), async (req, res) => {
     try {
-      const validatedData = insertEmployeeSchema.parse(req.body);
-      const employee = await storage.createEmployee(validatedData);
+      const validatedData = insertEmployeeSchema.omit({ status: true, offboardedDate: true, offboardedReason: true }).parse(req.body);
+      const employee = await storage.createEmployee({ ...validatedData, status: "active" });
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, null, { firstName: employee.firstName, lastName: employee.lastName, email: employee.email }, req);
@@ -2799,7 +2998,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/employees/:id", requireAuth, requirePermission('employee_update'), async (req, res) => {
     try {
-      const validatedData = insertEmployeeSchema.partial().parse(req.body);
+      if ("status" in req.body || "offboardedDate" in req.body || "offboardedReason" in req.body) {
+        return res.status(400).json({ message: "Employee lifecycle fields can only be changed through the offboarding workflow" });
+      }
+      const validatedData = insertEmployeeSchema.partial().omit({ status: true, offboardedDate: true, offboardedReason: true }).parse(req.body);
       
       // Get old employee for audit log
       const oldEmployee = await storage.getEmployee(req.params.id);
@@ -2822,39 +3024,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/employees/:id", requireAuth, requirePermission('employee_delete'), async (req, res) => {
-    try {
-      // Get employee for audit log before deleting
-      const employee = await storage.getEmployee(req.params.id);
-      
-      if (!employee) {
-        return res.status(404).json({ message: "Employee not found" });
-      }
-      
-      // Check if employee has any ACTIVE assignments (not returned)
-      const assignments = await storage.getAssignmentsByEmployee(req.params.id);
-      const activeAssignments = assignments?.filter(a => !a.returnedDate) || [];
-      
-      if (activeAssignments.length > 0) {
-        return res.status(400).json({ 
-          message: `Cannot delete employee. This employee has ${activeAssignments.length} active assignment(s). Please return these assets first.`,
-          hasAssignments: true,
-          assignmentCount: activeAssignments.length
-        });
-      }
-      
-      // Delete employee - assignment history is preserved with NULL employee_id
-      const deleted = await storage.deleteEmployee(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Employee not found" });
-      }
-      
-      // Log audit
-      await logAudit(req.user?.id, 'DELETE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, employee, null, req);
-      
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete employee" });
-    }
+    const employee = await storage.getEmployee(req.params.id);
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    res.status(409).json({ message: "Employee records cannot be deleted. Use the offboarding workflow to preserve employment and access history." });
   });
 
   // Assignments routes
@@ -2882,10 +3054,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/assignments", requireAuth, requireModule('asset_management'), requirePermission('assignment_create'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.parse(req.body);
-      const assignment = await storage.createAssignment(validatedData);
-      
-      // Update asset status to "assigned"
-      await storage.updateAsset(validatedData.assetId, { status: "assigned" });
+      const assignment = await db.transaction(async tx => {
+        const [asset] = await tx.select({ id: assets.id }).from(assets).where(eq(assets.id, validatedData.assetId)).for("update");
+        if (!asset) throw Object.assign(new Error("Asset not found"), { status: 404 });
+        if (validatedData.employeeId) {
+          const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
+            .where(eq(employees.id, validatedData.employeeId)).for("update");
+          if (!employee) throw Object.assign(new Error("Employee not found"), { status: 400 });
+          if (employee.status !== "active") throw Object.assign(new Error("Assets cannot be assigned to a disabled employee"), { status: 409 });
+        }
+        const [created] = await tx.insert(assignments).values(validatedData).returning();
+        await tx.update(assets).set({ status: "assigned" }).where(eq(assets.id, validatedData.assetId));
+        return created;
+      });
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, null, { assetId: assignment.assetId, employeeId: assignment.employeeId, assignedDate: assignment.assignedDate }, req);
@@ -2895,6 +3076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
       }
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to create assignment" });
     }
   });
@@ -2902,14 +3084,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/assignments/:id", requireAuth, requirePermission('assignment_update'), async (req, res) => {
     try {
       const validatedData = insertAssignmentSchema.partial().parse(req.body);
-      
-      // Get old assignment for audit log
-      const oldAssignment = await storage.getAssignment(req.params.id);
-      
-      const assignment = await storage.updateAssignment(req.params.id, validatedData);
-      if (!assignment) {
-        return res.status(404).json({ message: "Assignment not found" });
-      }
+      const result = await db.transaction(async tx => {
+        const [oldAssignment] = await tx.select().from(assignments).where(eq(assignments.id, req.params.id)).for("update");
+        if (!oldAssignment) throw Object.assign(new Error("Assignment not found"), { status: 404 });
+        if (validatedData.employeeId && validatedData.employeeId !== oldAssignment.employeeId) {
+          const [employee] = await tx.select({ id: employees.id, status: employees.status }).from(employees)
+            .where(eq(employees.id, validatedData.employeeId)).for("update");
+          if (!employee) throw Object.assign(new Error("Employee not found"), { status: 400 });
+          if (employee.status !== "active") throw Object.assign(new Error("Assets cannot be assigned to a disabled employee"), { status: 409 });
+        }
+        const [assignment] = await tx.update(assignments).set(validatedData)
+          .where(eq(assignments.id, req.params.id)).returning();
+        return { oldAssignment, assignment };
+      });
+      const { oldAssignment, assignment } = result;
       
       // Log audit
       await logAudit(req.user?.id, 'UPDATE', 'assignments', assignment.id.toString(), `Assignment #${assignment.id}`, oldAssignment, assignment, req);
@@ -2919,6 +3107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
       }
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to update assignment" });
     }
   });
@@ -2964,6 +3153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update asset status back to available
       await storage.updateAsset(assignment.assetId, { status: "available" });
 
+      await logAudit(req.user?.id, "UPDATE", "assignments", assignment.id, `Assignment #${assignment.id} returned`, assignment, updatedAssignment, req);
       res.json(updatedAssignment);
     } catch (error) {
       res.status(500).json({ message: "Failed to return asset" });
@@ -6017,6 +6207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               phone: empData.phone?.toString() || undefined,
               startDate: convertDate(empData.startDate),
               salary: empData.salary ? empData.salary.toString() : undefined,
+              status: "active",
             });
             
             await logAudit(req.user?.id, 'CREATE', 'employees', employee.id, `${employee.firstName} ${employee.lastName}`, null, employee, req);
@@ -6419,6 +6610,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { category: "ticketCategory", value: "printer", label: "Printer", displayOrder: 5 },
         { category: "ticketCategory", value: "security", label: "Security", displayOrder: 6 },
         { category: "ticketCategory", value: "other", label: "Other", displayOrder: 7 },
+        // Employee application access privileges
+        { category: "access_privilege_level", value: "administrator", label: "Administrator", displayOrder: 0 },
+        { category: "access_privilege_level", value: "power_user", label: "Power User", displayOrder: 1 },
+        { category: "access_privilege_level", value: "data_entry", label: "Data Entry", displayOrder: 2 },
+        { category: "access_privilege_level", value: "viewer", label: "Viewer", displayOrder: 3 },
       ];
 
       let created = 0;
