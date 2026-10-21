@@ -27,3 +27,4 @@
 - [Software seat accounting](software-seat-accounting.md) — legacy used-seat totals can contain unnamed occupants; allocating employees must not reset that usage.
 - [Global date policy](global-date-policy.md) — human-facing dates and exports use DD-MM-YYYY; calendar dates retain ISO input/storage contracts without UTC shifting.
 - [Consumables inventory model](consumables-inventory-model.md) — stock is tracked per warehouse; catalog links resolve equivalent item rows at the selected location, and PO receipts must remain idempotent.
+- [Legacy catalog metadata](legacy-catalog-metadata.md) — optional legacy metadata can be null despite stricter current form contracts; one source must not break a combined catalog.

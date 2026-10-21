@@ -79,7 +79,7 @@ export default function Servers() {
   });
   const { data: platforms = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/os_platform"] });
   const { data: applicationOptions = [] } = useQuery<ApplicationOption[]>({ queryKey: ["/api/cmdb/application-options"] });
-  const { data: hostedApplications = [] } = useQuery<HostedApplication[]>({
+  const { data: hostedApplications, isFetching: hostedApplicationsLoading, isError: hostedApplicationsError } = useQuery<HostedApplication[]>({
     queryKey: ["/api/servers", editing?.id, "applications"],
     enabled: Boolean(formOpen && editing),
     queryFn: async () => {
@@ -90,11 +90,14 @@ export default function Servers() {
   });
 
   useEffect(() => {
-    if (formOpen && editing) setSelectedApplicationIds(hostedApplications.map(application => application.id));
+    if (formOpen && editing && hostedApplications) setSelectedApplicationIds(hostedApplications.map(application => application.id));
   }, [formOpen, editing?.id, hostedApplications]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (editing && (hostedApplicationsLoading || hostedApplicationsError || !hostedApplications)) {
+        throw new Error("Wait for the existing application links to load before saving.");
+      }
       const payload = {
         ...form,
         applicationIds: selectedApplicationIds,
@@ -228,6 +231,8 @@ export default function Servers() {
               <div className="space-y-2 sm:col-span-2">
                 <Label>Hosted Applications</Label>
                 <p className="text-xs text-muted-foreground">Select the business applications this server supports.</p>
+                {editing && hostedApplicationsLoading && <p className="text-xs text-muted-foreground">Loading existing application links…</p>}
+                {editing && hostedApplicationsError && <p role="alert" className="text-xs text-destructive">Existing application links could not be loaded. Saving is blocked to preserve them.</p>}
                 <ScrollArea className="h-44 rounded-md border">
                   <div className="space-y-1 p-2">
                     {applicationOptions.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No applications are registered.</p>
@@ -236,6 +241,7 @@ export default function Servers() {
                           <input
                             type="checkbox"
                             className="accent-primary"
+                            disabled={Boolean(editing && (hostedApplicationsLoading || hostedApplicationsError))}
                             checked={selectedApplicationIds.includes(application.id)}
                             onChange={() => setSelectedApplicationIds(current => current.includes(application.id)
                               ? current.filter(id => id !== application.id)
@@ -249,7 +255,7 @@ export default function Servers() {
                 </ScrollArea>
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending || !form.osPlatform}>{saveMutation.isPending ? "Saving…" : editing ? "Save Changes" : "Create Server"}</Button></div>
+            <div className="flex justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending || !form.osPlatform || Boolean(editing && (hostedApplicationsLoading || hostedApplicationsError || !hostedApplications))}>{saveMutation.isPending ? "Saving…" : editing ? "Save Changes" : "Create Server"}</Button></div>
           </form>
         </DialogContent>
       </Dialog>
