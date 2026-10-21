@@ -30,6 +30,7 @@ const categories = [
   { value: "access_server_remote_access", label: "Access Systems — Servers / Remote Access" },
   { value: "access_cloud_tenant", label: "Access Systems — Cloud Tenants" },
   { value: "application_category", label: "Application Category" },
+  { value: "kb_category", label: "Knowledge Base Category" },
   { value: "os_platform", label: "Operating System Platform" },
   { value: "configuration_document_type", label: "Configuration Document Type" },
   { value: "criticality", label: "Criticality" },

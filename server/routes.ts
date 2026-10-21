@@ -42,6 +42,7 @@ import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeTo
 import { cabApprovalsGranted } from "./cab-gate";
 import { compareAppVersions } from "./startup-migrations";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
+import { registerKnowledgeRoutes } from "./knowledge-governance";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -124,6 +125,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/problems",
     "/catalog",
     "/knowledge-base",
+    "/kb",
     "/kb-articles",
     "/reports/tickets",
     "/reports/problems",
@@ -8004,94 +8006,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Knowledge Base ───────────────────────────────────────────────────────
-  app.get("/api/kb/articles", requireAuth, async (req, res) => {
-    try {
-      const status = req.query.status as string | undefined;
-      const articles = await storage.getKbArticles(status);
-      res.json(articles);
-    } catch { res.status(500).json({ message: "Failed to fetch articles" }); }
-  });
-
-  app.get("/api/kb/search", requireAuth, async (req, res) => {
-    try {
-      const q = req.query.q as string;
-      if (!q) return res.json([]);
-      res.json(await storage.searchKbArticles(q));
-    } catch { res.status(500).json({ message: "Search failed" }); }
-  });
-
-  app.get("/api/kb/articles/:id", requireAuth, async (req, res) => {
-    try {
-      const article = await storage.getKbArticle(req.params.id);
-      if (!article) return res.status(404).json({ message: "Article not found" });
-      await storage.incrementKbArticleViews(req.params.id);
-      res.json(article);
-    } catch { res.status(500).json({ message: "Failed to fetch article" }); }
-  });
-
-  app.post("/api/kb/articles", requireAuth, requirePermission("system_admin"), async (req, res) => {
-    try {
-      const user = req.user as any;
-      const article = await storage.createKbArticle({ ...req.body, authorId: user.id });
-      res.status(201).json(article);
-    } catch { res.status(500).json({ message: "Failed to create article" }); }
-  });
-
-  app.put("/api/kb/articles/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
-    try {
-      const article = await storage.updateKbArticle(req.params.id, req.body);
-      if (!article) return res.status(404).json({ message: "Article not found" });
-      res.json(article);
-    } catch { res.status(500).json({ message: "Failed to update article" }); }
-  });
-
-  app.delete("/api/kb/articles/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
-    try {
-      const deleted = await storage.deleteKbArticle(req.params.id);
-      if (!deleted) return res.status(404).json({ message: "Article not found" });
-      res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to delete article" }); }
-  });
-
-  app.post("/api/kb/articles/:id/rate", requireAuth, async (req, res) => {
-    try {
-      await storage.rateKbArticle(req.params.id, req.body.helpful === true);
-      res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to rate article" }); }
-  });
-
-  // KB Review Workflow
-  app.post("/api/kb/articles/:id/request-review", requireAuth, async (req, res) => {
-    try {
-      const article = await storage.getKbArticle(req.params.id);
-      if (!article) return res.status(404).json({ message: "Article not found" });
-      if (article.status !== "draft") return res.status(400).json({ message: "Only draft articles can be submitted for review" });
-      const updated = await storage.updateKbArticle(req.params.id, { status: "under_review" } as any);
-      res.json(updated);
-    } catch { res.status(500).json({ message: "Failed to request review" }); }
-  });
-
-  app.post("/api/kb/articles/:id/approve", requireAuth, requirePermission("system_admin"), async (req, res) => {
-    try {
-      const user = req.user as any;
-      const article = await storage.getKbArticle(req.params.id);
-      if (!article) return res.status(404).json({ message: "Article not found" });
-      if (article.status !== "under_review") return res.status(400).json({ message: "Only articles under review can be approved" });
-      const updated = await storage.updateKbArticle(req.params.id, { status: "published", reviewedById: user.id, reviewedAt: new Date(), publishedAt: new Date() } as any);
-      res.json(updated);
-    } catch { res.status(500).json({ message: "Failed to approve article" }); }
-  });
-
-  app.post("/api/kb/articles/:id/reject", requireAuth, requirePermission("system_admin"), async (req, res) => {
-    try {
-      const user = req.user as any;
-      const article = await storage.getKbArticle(req.params.id);
-      if (!article) return res.status(404).json({ message: "Article not found" });
-      if (article.status !== "under_review") return res.status(400).json({ message: "Only articles under review can be rejected" });
-      const updated = await storage.updateKbArticle(req.params.id, { status: "draft", reviewedById: user.id, reviewedAt: new Date() } as any);
-      res.json(updated);
-    } catch { res.status(500).json({ message: "Failed to reject article" }); }
-  });
+  registerKnowledgeRoutes(app, requireAuth);
 
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -9030,11 +8945,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ ...result, page, pageSize, summary });
     }
     catch { res.status(500).json({ message: "Failed to fetch change report" }); }
-  });
-
-  app.get("/api/reports/kb-articles", requireAuth, async (req, res) => {
-    try { res.json(await storage.getKbArticles()); }
-    catch { res.status(500).json({ message: "Failed to fetch KB report" }); }
   });
 
   // ── ITSM Sample Data Seed ────────────────────────────────────────────────────

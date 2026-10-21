@@ -78,7 +78,7 @@ export function isPersonaPageAllowed(
 
   return personas.some(persona => {
     if (persona === "end_user") {
-      return ["/portal", "/service-catalog", "/my-assets", "/incidents", "/service-requests"]
+      return ["/portal", "/service-catalog", "/my-assets", "/incidents", "/service-requests", "/knowledge-base"]
         .some(prefix => matchesPath(path, prefix));
     }
     if (persona === "it_agent") {
@@ -131,7 +131,7 @@ function isTicketApiAllowed(path: string, method: string): boolean {
 
 const IT_AGENT_API_PREFIXES = [
   "/incidents", "/service-requests", "/tickets", "/problems", "/catalog",
-  "/knowledge-base", "/kb-articles", "/assets", "/assignments", "/maintenance",
+  "/knowledge-base", "/kb", "/kb-articles", "/assets", "/assignments", "/maintenance",
   "/maintenance-schedules", "/maintenance-records", "/asset-bookings",
   "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
   "/warehouses", "/inventory", "/vendors", "/locations", "/departments",

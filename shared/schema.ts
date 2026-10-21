@@ -1413,6 +1413,7 @@ export type MaintenanceScheduleWithDetails = MaintenanceSchedule & {
 export const kbArticles = pgTable("kb_articles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
+  slug: text("slug").notNull().default(sql`gen_random_uuid()::text`),
   content: text("content").notNull(),
   category: text("category").notNull(),
   tags: text("tags"),            // comma-separated
@@ -1421,12 +1422,29 @@ export const kbArticles = pgTable("kb_articles", {
   helpfulCount: integer("helpful_count").default(0),
   notHelpfulCount: integer("not_helpful_count").default(0),
   authorId: varchar("author_id").references(() => users.id, { onDelete: "set null" }),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
+  reviewDate: date("review_date"),
+  version: text("version").notNull().default("1.0"),
+  isPublic: boolean("is_public").notNull().default(false),
   reviewedById: varchar("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at"),
   publishedAt: timestamp("published_at"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
-});
+}, table => [
+  uniqueIndex("kb_articles_slug_unique_ci").on(sql`lower(${table.slug})`),
+  index("kb_articles_visibility_idx").on(table.status, table.isPublic),
+]);
+
+export const kbArticleVersions = pgTable("kb_article_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  articleId: varchar("article_id").notNull().references(() => kbArticles.id, { onDelete: "restrict" }),
+  version: text("version").notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: "set null" }),
+  changeNote: text("change_note").notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("kb_article_versions_article_version_unique").on(table.articleId, table.version)]);
 
 export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true, reviewedById: true, reviewedAt: true, publishedAt: true });
 export type KbArticle = typeof kbArticles.$inferSelect;
@@ -1610,6 +1628,20 @@ export const serviceRequestActivities = pgTable("service_request_activities", {
   details: text("details"),
   createdAt: timestamp("created_at").default(sql`now()`),
 }, table => [index("service_request_activities_request_created_idx").on(table.serviceRequestId, table.createdAt)]);
+
+export const kbTicketLinks = pgTable("kb_ticket_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  articleId: varchar("article_id").notNull().references(() => kbArticles.id, { onDelete: "restrict" }),
+  articleVersion: text("article_version").notNull(),
+  incidentId: varchar("incident_id").references(() => incidents.id, { onDelete: "cascade" }),
+  serviceRequestId: varchar("service_request_id").references(() => serviceRequests.id, { onDelete: "cascade" }),
+  linkedById: varchar("linked_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  check("kb_ticket_links_one_ticket", sql`num_nonnulls(${table.incidentId}, ${table.serviceRequestId}) = 1`),
+  uniqueIndex("kb_ticket_links_incident_unique").on(table.incidentId, table.articleId),
+  uniqueIndex("kb_ticket_links_request_unique").on(table.serviceRequestId, table.articleId),
+]);
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {

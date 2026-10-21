@@ -14,6 +14,8 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
+import { TicketKnowledgeLinks } from "@/components/knowledge-base/ticket-knowledge-links";
+import { canManageKnowledge } from "@shared/kb-governance";
 import { AlertTriangle, CheckCircle2, Ticket, UserX } from "lucide-react";
 
 type QueueScope = "mine" | "assigned" | "all";
@@ -195,6 +197,7 @@ export function IncidentsPage() {
                <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status || (["Resolved", "Closed"].includes(status) && !resolutionNotes.trim()) || (status === "Resolved" && !resolutionCode)}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code and note are required to resolve; a closure note is required to close.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
             </section>
           </>}
+          {canManageKnowledge(user) && <TicketKnowledgeLinks ticketType="incidents" ticketId={selected.id} />}
           <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>
         </div>
       </>}
@@ -399,6 +402,7 @@ export function ServiceRequestsPage() {
               })() : <><label className="grid gap-1 text-sm">Inventory asset<select className="h-10 rounded-md border bg-background px-3 text-sm" value={selectedAssetId} onChange={e => setSelectedAssetId(e.target.value)}><option value="">Complete without an asset</option>{assets.filter(asset => asset.status === "In Store").map(asset => <option key={asset.id} value={asset.id}>{asset.assetTag || asset.name}</option>)}</select></label><Button onClick={() => updateStage.mutate({ id: selected.id, stage: "Completed", assetId: selectedAssetId })} disabled={updateStage.isPending}>Complete request</Button></>}
             </section>}
           </>}
+          {canManageKnowledge(user) && <TicketKnowledgeLinks ticketType="service-requests" ticketId={selected.id} />}
           <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>
         </div>
       </>}

@@ -82,7 +82,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: personaRoles.includes("end_user") ? "My Tickets" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.includes("end_user") },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: !personaScoped && !isItsmStaff },
+        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: personaRoles.includes("end_user") || (!personaScoped && !isItsmStaff) },
       ]
     },
     {

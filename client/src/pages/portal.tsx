@@ -6,9 +6,9 @@ import { Activity, ArrowDownRight, ArrowRight, BookOpen, ChevronRight, CircleHel
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ArticleDetailDialog } from "@/components/knowledge-base/article-detail-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getQueryFn } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 
 type CatalogItem = {
@@ -48,9 +48,9 @@ export default function PortalPage() {
   const [articleId, setArticleId] = useState<string | null>(null);
   const queryTerm = search.trim();
   const kbQuery = useQuery<Article[]>({
-    queryKey: [`/api/kb/search?q=${encodeURIComponent(queryTerm)}`],
-    queryFn: getQueryFn({ on401: "throw" }),
-    enabled: queryTerm.length > 0,
+    queryKey: ["/api/kb/search", user?.id, queryTerm],
+    queryFn: async () => (await apiRequest("GET", `/api/kb/search?q=${encodeURIComponent(queryTerm)}`)).json(),
+    enabled: Boolean(user?.id) && queryTerm.length > 0,
   });
   const catalogQuery = useQuery<CatalogItem[]>({
     queryKey: ["/api/catalog/items?activeOnly=true"],
@@ -61,11 +61,6 @@ export default function PortalPage() {
   const changesQuery = useQuery<{ changes: Change[]; total: number; page: number; pageSize: number }>({
     queryKey: ["/api/changes?page=1&pageSize=100"],
     queryFn: getQueryFn({ on401: "throw" }),
-  });
-  const articleQuery = useQuery<Article>({
-    queryKey: [`/api/kb/articles/${articleId}`],
-    queryFn: getQueryFn({ on401: "throw" }),
-    enabled: Boolean(articleId),
   });
 
   const catalog = (catalogQuery.data ?? []).filter(item => item.isActive !== false);
@@ -168,13 +163,7 @@ export default function PortalPage() {
       <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-[#8a9b97]"><span>Workplace Support · Here when you need us.</span><Link href="/knowledge-base" className="inline-flex items-center gap-1 hover:text-[#397571]">Help articles <ArrowRight className="h-3 w-3" /></Link></footer>
     </div>
 
-    <Sheet open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }}>
-      <SheetContent className="w-full overflow-y-auto border-[#d6e3de] bg-[#f8fbf8] sm:max-w-[620px]">
-        {articleQuery.isLoading ? <div className="space-y-4 pr-8"><div className="h-3 w-24 animate-pulse rounded bg-[#e1ebe6]" /><div className="h-8 w-3/4 animate-pulse rounded bg-[#e1ebe6]" /><div className="h-32 animate-pulse rounded-xl bg-[#e1ebe6]" /></div>
-          : articleQuery.isError ? <div className="pr-8 pt-8"><SheetTitle>Article unavailable</SheetTitle><p className="mt-2 text-sm text-[#718582]">This article could not be loaded.</p><Button variant="outline" className="mt-4" onClick={() => void articleQuery.refetch()}>Try again</Button></div>
-          : articleQuery.data && <><SheetHeader className="pr-8 text-left"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#68827f]">{articleQuery.data.category || "Knowledge base"}</p><SheetTitle className="text-2xl leading-tight tracking-[-.04em] text-[#214344]">{articleQuery.data.title}</SheetTitle><SheetDescription>{articleQuery.data.updatedAt ? `Updated ${dateLabel(articleQuery.data.updatedAt)}` : "Helpful information from your support team."}</SheetDescription></SheetHeader><article className="mt-7 whitespace-pre-wrap text-sm leading-7 text-[#496463]">{articleQuery.data.content ?? articleQuery.data.summary ?? articleQuery.data.excerpt ?? "This article has no additional details."}</article><Link href="/knowledge-base" className="mt-8 inline-flex items-center gap-2 text-sm font-semibold text-[#397571] hover:underline">Browse all articles <ArrowRight className="h-4 w-4" /></Link></>}
-      </SheetContent>
-    </Sheet>
+    <ArticleDetailDialog articleId={articleId} open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }} />
   </main>;
 }
 

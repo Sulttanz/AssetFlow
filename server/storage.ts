@@ -2666,7 +2666,14 @@ export class MemStorage implements IStorage {
   async searchKbArticles(_query: string): Promise<KbArticle[]> { return []; }
   async createKbArticle(article: InsertKbArticle): Promise<KbArticle> {
     const id = randomUUID(); const now = new Date();
-    return { id, ...article, views: 0, helpfulCount: 0, notHelpfulCount: 0, authorId: article.authorId ?? null, reviewedById: null, reviewedAt: null, publishedAt: null, tags: article.tags ?? null, status: article.status ?? "draft", createdAt: now, updatedAt: now };
+    return {
+      id, ...article, slug: article.slug ?? id, version: article.version ?? "1.0",
+      ownerId: article.ownerId ?? null, reviewDate: article.reviewDate ?? null,
+      isPublic: article.isPublic ?? false, views: 0, helpfulCount: 0, notHelpfulCount: 0,
+      authorId: article.authorId ?? null, reviewedById: null, reviewedAt: null,
+      publishedAt: null, tags: article.tags ?? null, status: article.status ?? "draft",
+      createdAt: now, updatedAt: now,
+    };
   }
   async updateKbArticle(_id: string, _a: Partial<InsertKbArticle>): Promise<KbArticle | undefined> { return undefined; }
   async deleteKbArticle(_id: string): Promise<boolean> { return false; }
