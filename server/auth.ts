@@ -9,6 +9,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { createDemoViewerGuard } from "./demo-viewer";
 
 // Extend Express User type to match our User interface
 declare global {
@@ -67,6 +68,8 @@ export function setupAuth(app: Express) {
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
+  // Before ALL auth and feature handlers, including registration and exports.
+  app.use("/api", createDemoViewerGuard(userId => storage.getUserRoles(userId)));
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {

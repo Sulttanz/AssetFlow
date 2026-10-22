@@ -1,4 +1,5 @@
 import type { PersonaRoleKey } from "./schema";
+import { isDemoApiAllowed, isDemoPageAllowed, isDemoViewer } from "./demo-viewer";
 
 export type PersonaUserLike = {
   roles?: Array<{ name: string }> | null;
@@ -43,6 +44,7 @@ export function getPersonaRoleKeys(roleNames: readonly string[] = []): PersonaRo
 
 export function isSystemAdministrator(user: PersonaUserLike | null | undefined): boolean {
   if (!user) return false;
+  if (isDemoViewer(user.roles?.map(role => role.name) ?? [])) return false;
   return user.permissions?.includes("system_admin") === true ||
     user.roles?.some(role => ["system_administrator", "administrator", "admin"].includes(normalize(role.name))) === true;
 }
@@ -62,6 +64,7 @@ export function isPersonaPageAllowed(
   permissions: readonly string[],
   requestedPath: string,
 ): boolean {
+  if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
   if (permissions.includes("system_admin") || roleNames.some(name =>
     ["system_administrator", "administrator", "admin"].includes(normalize(name)),
   )) return true;
@@ -149,6 +152,7 @@ export function isPersonaApiAllowed(
   path: string,
   method: string,
 ): boolean {
+  if (isDemoViewer(roleNames)) return isDemoApiAllowed(path, method);
   if (permissions.includes("system_admin") || roleNames.some(name =>
     ["system_administrator", "administrator", "admin"].includes(normalize(name)),
   )) return true;

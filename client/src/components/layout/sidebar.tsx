@@ -57,6 +57,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { isPersonaApiAllowed, isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
+import { isDemoViewer } from "@shared/demo-viewer";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { activeNavigationHref } from "@/lib/navigation-active";
@@ -277,7 +278,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const isItemAllowed = (item: any) => {
     if (!hasPermission(item.permission) || item.visible === false) return false;
     if (item.name === "Approval Queue") return Boolean(catalogAccess?.canApprove);
-    if (!personaScoped) return true;
+    if (!personaScoped && !isDemoViewer(roleNames)) return true;
     if (item.hasSubmenu) {
       return isPersonaPageAllowed(roleNames, permissions, item.href) ||
         item.submenu?.some((subitem: any) => isPersonaPageAllowed(roleNames, permissions, subitem.href));

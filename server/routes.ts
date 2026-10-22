@@ -37,6 +37,7 @@ import {
   type AccessType,
 } from "@shared/access-governance";
 import { getPersonaRoleKeys, isPersonaApiAllowed } from "@shared/personas";
+import { isDemoViewer } from "@shared/demo-viewer";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
@@ -4333,7 +4334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = userPermissions.includes("system_admin") ||
         roleNames.some(name => ["admin", "administrator", "system_administrator"].includes(name));
       const personaRoles = getPersonaRoleKeys(userRoles.map(role => role.name));
-      if (!isAdmin && !personaRoles.some(role => role === "it_manager" || role === "cab_member")) {
+      if (!isAdmin && !isDemoViewer(userRoles.map(role => role.name)) && !personaRoles.some(role => role === "it_manager" || role === "cab_member")) {
         return res.status(403).json({ message: "Executive analytics are available to IT Managers, CAB Members, and administrators" });
       }
 

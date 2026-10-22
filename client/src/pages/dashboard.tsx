@@ -4,6 +4,7 @@ import { AlertTriangle, Boxes, BriefcaseBusiness, Check, ChevronRight, CircleHel
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { getPersonaRoleKeys, isSystemAdministrator } from "@shared/personas";
+import { isDemoViewer } from "@shared/demo-viewer";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import Header from "@/components/layout/header";
 import { Badge } from "@/components/ui/badge";
@@ -143,7 +144,7 @@ export default function Dashboard() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const personaRoles = getPersonaRoleKeys(roleNames);
-  const isExecutiveViewer = isSystemAdministrator(user) ||
+  const isExecutiveViewer = isSystemAdministrator(user) || isDemoViewer(roleNames) ||
     personaRoles.some(role => role === "it_manager" || role === "cab_member");
   const { data, isLoading, isError, refetch, isFetching } = useQuery<ExecutiveDashboard>({
     queryKey: ["/api/dashboard/executive"],

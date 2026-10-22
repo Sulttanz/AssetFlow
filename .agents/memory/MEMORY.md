@@ -41,3 +41,4 @@
 - [Request security design](request-security-design.md) — preserve legitimate technical content; generic input regexes are not a substitute for a verified CRS-compatible edge WAF.
 - [UI test layout boundary](ui-test-layout-boundary.md) — jsdom output tests cannot verify browser dimensions; isolate measurement dependencies rather than masking runtime failures.
 - [Preview cookie attributes](preview-cookie-attributes.md) — native Strict cookies differed from public preview responses; compare raw headers and verify production independently.
+- [Demo visitor boundary](demo-visitor-boundary.md) — visitors can explore operational views and executive analytics but must remain read-only and outside administration.

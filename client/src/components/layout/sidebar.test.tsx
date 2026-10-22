@@ -60,6 +60,21 @@ describe("Enterprise sidebar navigation", () => {
     expect(Array.from(tools.querySelectorAll("a")).map(link => link.textContent)).toEqual(["Import Data", "Data Migration Center", "Settings"]);
   });
 
+  it("keeps operational navigation while hiding administration from the Demo Viewer", () => {
+    state.user = user("Demo Viewer", ["asset_view", "cmdb_view", "ticket_view_all", "audit_view", "finance_view"]);
+    render(<Sidebar />);
+    for (const section of ["Asset Management", "CMDB & Infrastructure", "IT Service Management", "System"]) {
+      fireEvent.click(button(section));
+    }
+    expect(screen.getByRole("link", { name: "Assets" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Applications" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Incident Tracker" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Request Tracker" })).toBeTruthy();
+    for (const name of ["User Management", "Roles", "Permissions", "System Settings", "Settings", "Import Data", "Data Migration Center"]) {
+      expect(screen.queryByRole("link", { name })).toBeNull();
+    }
+  });
+
   it("highlights query queues and tracker aliases without also selecting the parent workbench", () => {
     path("/service-catalog?tab=approvals");
     const { unmount } = render(<Sidebar />);
