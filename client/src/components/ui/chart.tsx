@@ -103,6 +103,7 @@ ${colorConfig
 
 function isSafeChartColor(value: string): boolean {
   return /^#[\da-f]{3,8}$/i.test(value) ||
+    /^[a-zA-Z]{1,30}$/.test(value) ||
     /^var\(--[a-zA-Z0-9_-]+\)$/.test(value) ||
     /^(?:rgb|rgba|hsl|hsla|oklab|oklch)\([a-zA-Z0-9\s.,%/()+-]+\)$/i.test(value);
 }

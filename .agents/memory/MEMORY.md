@@ -38,3 +38,6 @@
 - [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.
 - [Login visual direction](login-visual-direction.md) — preserve the original navy, white and blue enterprise styling; avoid serif typography and technical badge clutter.
 - [Internal design direction](internal-design-system.md) — align all internal modules with shared blue/slate styling, simple headers/filter bars and soft semantic accents.
+- [Request security design](request-security-design.md) — preserve legitimate technical content; generic input regexes are not a substitute for a verified CRS-compatible edge WAF.
+- [UI test layout boundary](ui-test-layout-boundary.md) — jsdom output tests cannot verify browser dimensions; isolate measurement dependencies rather than masking runtime failures.
+- [Preview cookie attributes](preview-cookie-attributes.md) — native Strict cookies differed from public preview responses; compare raw headers and verify production independently.

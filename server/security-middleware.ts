@@ -82,7 +82,12 @@ export const dataMigrationRateLimit = sensitiveWriteLimiter(30, "DATA-MIGRATION-
 export const clearSystemDataRateLimit = sensitiveWriteLimiter(2, "SYSTEM-CLEAR-RATE-LIMIT");
 
 export const securityHeaders: RequestHandler = (req, res, next) => {
-  const devScriptPolicy = req.app.get("env") === "development" ? " 'unsafe-eval'" : "";
+  const isDevelopment = req.app.get("env") === "development";
+  // Vite React Refresh injects a development-only inline preamble.
+  const devScriptPolicy = isDevelopment ? " 'unsafe-inline' 'unsafe-eval'" : "";
+  const frameAncestors = isDevelopment
+    ? "'self' https://replit.com https://*.replit.com"
+    : "'self'";
   res.setHeader(
     "Content-Security-Policy",
     [
@@ -98,7 +103,7 @@ export const securityHeaders: RequestHandler = (req, res, next) => {
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
-      "frame-ancestors 'self'",
+      `frame-ancestors ${frameAncestors}`,
     ].join("; "),
   );
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
