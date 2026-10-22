@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
 import { cn } from "@/lib/utils";
 import { 
   Server, 
@@ -52,16 +52,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { isPersonaApiAllowed, isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { activeNavigationHref } from "@/lib/navigation-active";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
+  const search = useSearch();
   const { user, logoutMutation } = useAuth();
   const { data: catalogAccess } = useQuery<{ canManage: boolean; canApprove: boolean }>({
     queryKey: ["/api/service-catalog/options", user?.id],
@@ -84,7 +86,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     setExpandedSections((prev) => ({ ...prev, [title]: !prev[title] }));
   };
 
-  const navigationSections = [
+  const sectionDefinitions = [
+    {
+      title: "Overview",
+      items: [
+        { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
+        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isItsmStaff },
+      ]
+    },
     {
       title: "Employee Support",
       moduleKey: "itsm",
@@ -101,13 +110,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", permission: ["my_assets_view", "system_admin"] },
       ],
-    },
-    {
-      title: "Overview",
-      items: [
-        { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
-        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis" },
-      ]
     },
     {
       title: "Asset Management",
@@ -173,14 +175,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       ]
     },
     {
-      title: "Risk Management",
-      moduleKey: "risk_management",
+      title: "Risk Management & Compliance",
       items: [
-        { name: "Risk Register", href: "/risks", icon: ShieldAlert, current: location === "/risks" },
+        { name: "Risk Register", href: "/risks", icon: ShieldAlert, current: location === "/risks", visible: isModuleEnabled("risk_management") },
+        { name: "IT Components & Compliance", href: "/reports/hardware-inventory", icon: ClipboardCheck, current: location === "/reports/hardware-inventory", visible: isModuleEnabled("asset_management"), permission: ["asset_view", "audit_view", "compliance_view", "system_admin"] },
       ]
     },
     {
-      title: "Analytics",
+      title: "Analytics & Reports",
       items: [
         { 
           name: "Reports", 
@@ -191,7 +193,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           submenu: [
             { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary" },
             { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle" },
-            { name: "IT Components & Compliance", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
+            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
             { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments" },
             { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance" },
             { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders" },
@@ -216,8 +218,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     {
       title: "Tools",
       items: [
-        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin" },
         { name: "Import Data", href: "/import", icon: Upload, current: location === "/import" },
+        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin" },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]
     },
@@ -235,12 +237,42 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     }
   ];
 
+  const activeHref = activeNavigationHref(location, search, sectionDefinitions.flatMap(section =>
+    section.items.flatMap((item: any) => [item.href, ...(item.submenu?.map((sub: any) => sub.href) ?? [])]),
+  ));
+  const navigationSections = sectionDefinitions.map(section => ({
+    ...section,
+    items: section.items.map((item: any) => {
+      const duplicateSelfServiceLink = ["/service-catalog", "/knowledge-base"].includes(item.href) &&
+        ((section.title === "Employee Support" && isItsmStaff) || (section.title === "IT Service Management" && !isItsmStaff));
+      const submenu = item.submenu?.map((sub: any) => ({
+        ...sub, current: sub.href === activeHref && sub.href !== "/reports/hardware-inventory",
+      }));
+      return {
+        ...item,
+        submenu,
+        current: !duplicateSelfServiceLink && (item.href === activeHref || submenu?.some((sub: any) => sub.current)),
+      };
+    }),
+  }));
+  const overviewExpandedByDefault = isSystemAdministrator(user) ||
+    personaRoles.includes("it_manager") || roleNames.some(name => name.trim().toLowerCase() === "manager");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
     const activeSection = navigationSections.find((section) =>
       section.items.some((item: any) => item.current || item.submenu?.some((sub: any) => sub.current))
     );
-    return activeSection ? { [activeSection.title]: true } : {};
+    return { ...(overviewExpandedByDefault ? { Overview: true } : {}), ...(activeSection ? { [activeSection.title]: true } : {}) };
   });
+  useEffect(() => {
+    if (overviewExpandedByDefault) setExpandedSections(previous => ({ ...previous, Overview: true }));
+  }, [overviewExpandedByDefault]);
+  useEffect(() => {
+    const activeSection = navigationSections.find(section => section.items.some((item: any) => item.current));
+    if (activeSection) setExpandedSections(previous => previous[activeSection.title] ? previous : { ...previous, [activeSection.title]: true });
+    if (activeHref?.startsWith("/reports/") && activeHref !== "/reports/hardware-inventory") setReportsExpanded(true);
+    // Expand on navigation, not on every render, so manual collapse remains independent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, search, activeHref]);
 
   const isItemAllowed = (item: any) => {
     if (!hasPermission(item.permission) || item.visible === false) return false;
@@ -256,13 +288,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Logo/Header */}
-      <div className="p-5 border-b border-border">
+      <div className="p-5 pr-10 md:pr-5 border-b border-border">
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shrink-0">
             <Server className="text-primary-foreground w-5 h-5" />
           </div>
-          <div>
-            <h1 className="font-semibold text-base text-foreground leading-tight">IT Asset Manager</h1>
+          <div className="min-w-0">
+            <h1 className="truncate font-semibold text-base text-foreground leading-tight">IT Asset Manager</h1>
             <p className="text-xs text-muted-foreground">v2.1.0</p>
           </div>
         </div>
@@ -273,7 +305,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         {navigationSections
           .map(section => ({ ...section, items: section.items.filter(isItemAllowed) }))
           .filter((section) => section.items.length > 0)
-          .filter((section) => personaScoped || isItsmStaff || section.title === "Employee Support" || section.title === "My Assets")
+          .filter((section) => personaScoped || isItsmStaff || ["Overview", "Employee Support", "My Assets"].includes(section.title))
           .filter((section) => !section.moduleKey || isModuleEnabled(section.moduleKey))
           .map((section) => {
             const isSectionExpanded = expandedSections[section.title] ?? false;
@@ -283,6 +315,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={() => toggleSection(section.title)}
                   className="w-full flex items-center justify-between px-3 mb-1.5 group"
                   data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
+                  aria-expanded={isSectionExpanded}
                 >
                   <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
                     {section.title}
@@ -299,7 +332,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                       const Icon = item.icon;
 
                       if (item.hasSubmenu) {
-                        const isExpanded = section.title === "Analytics" ? reportsExpanded : false;
+                        const isExpanded = reportsExpanded;
                         return (
                           <div key={item.name}>
                             <button
@@ -311,6 +344,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
                               )}
                               data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
+                              aria-expanded={isExpanded}
                             >
                               <div className="flex items-center space-x-3">
                                 <Icon className="w-4 h-4 shrink-0" />
@@ -324,6 +358,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                   <Link
                                     key={subitem.name}
                                     href={subitem.href}
+                                    aria-current={subitem.current ? "page" : undefined}
                                     onClick={onNavigate}
                                     className={cn(
                                       "flex items-center px-3 py-2 rounded-md text-sm",
@@ -346,6 +381,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                         <Link
                           key={item.name}
                           href={item.href}
+                          aria-current={item.current ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
                             "flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium",
@@ -415,6 +451,8 @@ export default function Sidebar() {
           onClick={() => setMobileOpen(true)}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
           aria-label="Open menu"
+          aria-expanded={mobileOpen}
+          aria-controls="mobile-navigation"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -428,7 +466,9 @@ export default function Sidebar() {
 
       {/* ── Mobile drawer ── */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="p-0 w-72 border-r">
+        <SheetContent id="mobile-navigation" side="left" className="p-0 w-72 border-r">
+          <SheetTitle className="sr-only">Main navigation</SheetTitle>
+          <SheetDescription className="sr-only">Browse your authorized workspaces and reports. Select a destination to close this menu.</SheetDescription>
           <NavContent onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>

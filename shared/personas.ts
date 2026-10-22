@@ -23,7 +23,7 @@ const IT_AGENT_PAGE_PREFIXES = [
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
   "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
-  "/contracts", "/employees", "/vendors", "/locations", "/departments",
+  "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis",
 ];
 
 function normalize(value: string): string {
@@ -52,14 +52,9 @@ export function personaRolesForUser(user: PersonaUserLike | null | undefined): P
 }
 
 export function getPersonaHomePath(roleNames: readonly string[] = [], permissions: readonly string[] = []): string {
-  if (permissions.includes("system_admin") || roleNames.some(name =>
-    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
-  )) return "/dashboard";
-  const personas = getPersonaRoleKeys(roleNames);
-  if (personas.includes("auditor")) return "/access-governance";
-  if (personas.includes("cab_member")) return "/changes";
-  if (personas.includes("it_manager") || personas.includes("it_agent")) return "/dashboard";
-  return "/portal";
+  // A shared landing URL does not grant executive API access. The dashboard
+  // renders the appropriate workspace for the authenticated persona.
+  return "/dashboard";
 }
 
 export function isPersonaPageAllowed(
@@ -74,7 +69,7 @@ export function isPersonaPageAllowed(
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
-  if (path === "/") return true;
+  if (path === "/" || path === "/dashboard") return true;
 
   return personas.some(persona => {
     if (persona === "end_user") {
@@ -180,7 +175,7 @@ export function isPersonaApiAllowed(
     if (persona === "it_manager") {
       if (apiPath === "/my/asset-handovers") return isReadMethod(upperMethod);
       if (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath)) return upperMethod === "POST";
-      return apiPath === "/dashboard/executive" ||
+      return (apiPath === "/kpis" && isReadMethod(upperMethod)) || apiPath === "/dashboard/executive" ||
         (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }

@@ -35,3 +35,4 @@
 - [Vendor SLA governance](vendor-sla-governance.md) — keep SLA and financial contracts one-to-one; derive expiry without reviving terminated history or combining different currencies.
 - [Bulk import governance](bulk-import-governance.md) — migrating records must not bypass publication, approvals, or access authorization.
 - [System data reset boundary](system-data-reset-boundary.md) — business resets preserve identity/configuration; destructive verification needs its own disposable test schema.
+- [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.

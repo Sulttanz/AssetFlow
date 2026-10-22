@@ -10,8 +10,6 @@ import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
 import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
-import { useAuth } from "@/hooks/use-auth";
-import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { getPersonaHomePath } from "@shared/personas";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -81,10 +79,7 @@ const NewServiceRequestPage = lazy(() => import("@/pages/new-service-request"));
 const NewChangePage = lazy(() => import("@/pages/new-change"));
 
 function HomeRedirect() {
-  const { user } = useAuth();
-  return <Redirect to={user
-    ? getPersonaHomePath(user.roles?.map(role => role.name) ?? [], user.permissions ?? [])
-    : canAccessItsmWorkbench(user) ? "/dashboard" : "/portal"} />;
+  return <Redirect to={getPersonaHomePath()} />;
 }
 
 function Router() {

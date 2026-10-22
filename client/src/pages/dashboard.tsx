@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { AlertTriangle, Boxes, BriefcaseBusiness, Check, ChevronRight, CircleHelp, Clock3, CloudCog, FileCode2, LockKeyhole, RefreshCw, Server, ShieldAlert, ShieldCheck, TicketCheck, Wallet, Wrench } from "lucide-react";
 import { Link } from "wouter";
-import { Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { getPersonaRoleKeys, isSystemAdministrator } from "@shared/personas";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -11,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PersonaDashboard } from "@/components/dashboard/persona-dashboard";
 
 type PriorityCounts = { P1: number; P2: number; P3: number; P4: number };
 
@@ -145,14 +145,13 @@ export default function Dashboard() {
   const personaRoles = getPersonaRoleKeys(roleNames);
   const isExecutiveViewer = isSystemAdministrator(user) ||
     personaRoles.some(role => role === "it_manager" || role === "cab_member");
-  const isAgentWithoutExecutiveAccess = !isExecutiveViewer && personaRoles.includes("it_agent");
   const { data, isLoading, isError, refetch, isFetching } = useQuery<ExecutiveDashboard>({
     queryKey: ["/api/dashboard/executive"],
     enabled: isExecutiveViewer && !isAuthLoading,
   });
 
   if (isAuthLoading) return <LoadingDashboard />;
-  if (isAgentWithoutExecutiveAccess) return <Redirect to="/incidents/tracker" />;
+  if (!isExecutiveViewer && user) return <PersonaDashboard user={user} />;
 
   return (
     <div className="min-h-[100dvh] flex-1 overflow-y-auto bg-[#f1f5f2]">
