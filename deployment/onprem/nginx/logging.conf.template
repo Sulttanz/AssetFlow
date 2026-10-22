@@ -1,0 +1,10 @@
+# Avoid the image's default combined format, which includes query strings and
+# Referer. JSON escaping prevents user-controlled headers forging log entries.
+log_format governance_safe escape=json
+    '{"time":"$time_iso8601","request_id":"$request_id",'
+    '"ip":"$remote_addr","method":"$request_method","path":"$uri",'
+    '"status":$status,"user_agent":"$http_user_agent"}';
+access_log /dev/stdout governance_safe;
+# Rule/error messages may contain matched input. Keep them off public stdout
+# and redact them in the approved log pipeline before central audit ingestion.
+error_log /var/log/modsecurity/error.log warn;

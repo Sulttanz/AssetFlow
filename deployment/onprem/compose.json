@@ -1,0 +1,112 @@
+{
+  "name": "it-governance",
+  "services": {
+    "app": {
+      "build": {
+        "context": "../..",
+        "dockerfile": "deployment/onprem/Dockerfile",
+        "target": "runtime",
+        "args": { "NODE_IMAGE": "${NODE_IMAGE:-node:22-bookworm-slim}" }
+      },
+      "image": "${APP_IMAGE:-it-governance-app:local}",
+      "env_file": ["${APP_ENV_FILE:?Set APP_ENV_FILE to a protected absolute app.env path}"],
+      "environment": { "NODE_ENV": "production", "HOST": "0.0.0.0", "PORT": "5000" },
+      "expose": ["5000"],
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "${UPLOADS_DIR:?Set an existing persistent UPLOADS_DIR}",
+          "target": "/app/server/uploads",
+          "bind": { "create_host_path": false }
+        }
+      ],
+      "networks": ["app-network"],
+      "read_only": true,
+      "tmpfs": ["/tmp:rw,noexec,nosuid,size=256m"],
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
+      "pids_limit": 256,
+      "init": true,
+      "restart": "unless-stopped",
+      "stop_grace_period": "30s",
+      "logging": { "driver": "json-file", "options": { "max-size": "10m", "max-file": "5" } }
+    },
+    "waf": {
+      "image": "${CRS_IMAGE:?Set CRS_IMAGE to an approved official nginx CRS image pinned by digest}",
+      "depends_on": { "app": { "condition": "service_healthy" } },
+      "ports": ["80:8080", "443:8443"],
+      "environment": {
+        "SERVER_NAME": "${SERVER_NAME:?Set the public DNS hostname without scheme or port}",
+        "BACKEND": "http://app:5000",
+        "PORT": "8080",
+        "SSL_PORT": "8443",
+        "SSL_CERT_FILE": "/run/tls/server.crt",
+        "SSL_CERT_KEY_FILE": "/run/tls/server.key",
+        "MODSEC_RULE_ENGINE": "${WAF_RULE_ENGINE:-On}",
+        "BLOCKING_PARANOIA": "1",
+        "MODSEC_REQ_BODY_ACCESS": "On",
+        "MODSEC_REQ_BODY_LIMIT": "31457280",
+        "MODSEC_REQ_BODY_NOFILES_LIMIT": "10485760",
+        "MODSEC_REQ_BODY_LIMIT_ACTION": "Reject",
+        "MODSEC_AUDIT_ENGINE": "RelevantOnly",
+        "MODSEC_AUDIT_LOG_FORMAT": "JSON",
+        "MODSEC_AUDIT_LOG_TYPE": "Serial",
+        "MODSEC_AUDIT_LOG_PARTS": "AHZ",
+        "MODSEC_AUDIT_LOG": "/var/log/modsecurity/audit.json",
+        "MODSEC_DEBUG_LOGLEVEL": "0",
+        "ERRORLOG": "/var/log/modsecurity/error.log"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "./nginx/default.conf.template",
+          "target": "/etc/nginx/templates/conf.d/default.conf.template",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "./nginx/logging.conf.template",
+          "target": "/etc/nginx/templates/conf.d/logging.conf.template",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "../owasp-crs/app-crs-exclusions.conf",
+          "target": "/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "${TLS_CERT_FILE:?Set an existing TLS certificate chain file}",
+          "target": "/run/tls/server.crt",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "${TLS_KEY_FILE:?Set an existing private TLS key file}",
+          "target": "/run/tls/server.key",
+          "read_only": true,
+          "bind": { "create_host_path": false }
+        },
+        {
+          "type": "bind",
+          "source": "${WAF_LOG_DIR:?Set an existing restricted WAF_LOG_DIR}",
+          "target": "/var/log/modsecurity",
+          "bind": { "create_host_path": false }
+        }
+      ],
+      "networks": ["app-network"],
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
+      "pids_limit": 256,
+      "init": true,
+      "restart": "unless-stopped",
+      "logging": { "driver": "json-file", "options": { "max-size": "10m", "max-file": "5" } }
+    }
+  },
+  "networks": { "app-network": { "driver": "bridge" } }
+}

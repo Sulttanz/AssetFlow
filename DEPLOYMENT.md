@@ -43,6 +43,8 @@ Replit's deployment configuration currently targets Autoscale. Set production-on
 
 ## On-premises deployment
 
+For the future Docker-based Nginx/ModSecurity migration, use the complete [on-premises deployment bundle](deployment/onprem/README.md). These saved files do not change the current Replit deployment.
+
 Requirements: Node.js 20, npm, PostgreSQL 16 (or a compatible supported version), and the WebSocket-compatible database transport described above. Provide a database user permitted to create the migration ledger and apply schema changes.
 
 1. Install the release and its dependencies:

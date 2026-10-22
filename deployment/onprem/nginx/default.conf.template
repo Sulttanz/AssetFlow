@@ -1,0 +1,49 @@
+# The official CRS image loads ModSecurity and its generated setup.conf at
+# http scope. Do not load the engine a second time or replace its CRS tree.
+server {
+    listen 8080 default_server;
+    server_name ${SERVER_NAME};
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "OK";
+    }
+    location / {
+        return 308 https://${SERVER_NAME}$request_uri;
+    }
+}
+
+server {
+    listen 8443 ssl;
+    server_name ${SERVER_NAME};
+    server_tokens off;
+    ssl_certificate /run/tls/server.crt;
+    ssl_certificate_key /run/tls/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_tickets off;
+    client_max_body_size 30m;
+    # Apply these to edge-generated errors too; avoid duplicate upstream values.
+    proxy_hide_header Strict-Transport-Security;
+    proxy_hide_header X-Content-Type-Options;
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Referrer-Policy;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location / {
+        proxy_pass http://app:5000;
+        proxy_http_version 1.1;
+        # Preserve the browser's external origin, including an explicit port.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto https;
+        # A single trusted ingress: discard client-supplied forwarding chains.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
