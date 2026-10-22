@@ -6,7 +6,8 @@ import { Pool } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { changeApprovals } from "@shared/schema";
 
-const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+const databaseIntegrationEnabled =
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
 
 describe("CAB assignment history lookup index", () => {
   const schema = `cab_assignment_plan_${randomUUID().replaceAll("-", "")}`;

@@ -1,14 +1,53 @@
 // @vitest-environment node
 import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Pool } from "pg";
 import { ticketComments, tickets, users } from "@shared/schema";
-import { db } from "./db";
-import { storage } from "./storage";
+import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 
-const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+const databaseIntegrationEnabled =
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
 
 describe.skipIf(!databaseIntegrationEnabled)("requester ticket cancellation (PostgreSQL)", () => {
+  const schema = `test_ticket_cancel_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
+  let setupPool: Pool | undefined;
+  let appPool: Pool | undefined;
+  let db: typeof import("./db").db;
+  let storage: typeof import("./storage").storage;
+
+  beforeAll(async () => {
+    if (!originalDatabaseUrl) throw new Error("DATABASE_URL is required for requester cancellation tests");
+    setupPool = new Pool({ connectionString: originalDatabaseUrl });
+    const client = await setupPool.connect();
+    try {
+      await initializeTestSchema(client, schema);
+    } finally {
+      client.release();
+    }
+
+    process.env.DATABASE_URL = testDatabaseUrlForSchema(originalDatabaseUrl, schema);
+    const databaseModule = await import("./db");
+    db = databaseModule.db;
+    appPool = databaseModule.pool;
+    storage = (await import("./storage")).storage;
+  }, 120_000);
+
+  afterAll(async () => {
+    try {
+      await appPool?.end();
+    } finally {
+      if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
+      else delete process.env.DATABASE_URL;
+      try {
+        if (setupPool) await setupPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      } finally {
+        await setupPool?.end();
+      }
+    }
+  });
+
   it("cancels open, in-progress, and resolved requests and records the requester reason", async () => {
     const suffix = randomUUID();
     const requesterId = randomUUID();

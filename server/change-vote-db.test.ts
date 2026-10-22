@@ -52,7 +52,8 @@ import
 ;
 
 
-const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1"
+const databaseIntegrationEnabled =
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1"
 ;
 
 
@@ -87,6 +88,7 @@ vi.mock("./auth", () => (
   requireAuth: (req: express.Request, res: express.Response, next: express.NextFunction) =>
     req.isAuthenticated() ? next() : res.sendStatus(401),
   requirePermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  requireAnyPermission: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   hashPassword: vi.fn(),
 }
 ))

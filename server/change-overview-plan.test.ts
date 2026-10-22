@@ -2,10 +2,9 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
-import ws from "ws";
 import { changeApprovals, changes } from "@shared/schema";
 
 const database = vi.hoisted(() => ({ select: vi.fn() }));
@@ -34,7 +33,8 @@ const queries: {
   whereCondition?: Parameters<typeof dialect.sqlToQuery>[0];
 }[] = [];
 
-const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+const databaseIntegrationEnabled =
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
 
 describe("CAB overview pending count plan", () => {
   const schema = `cab_overview_plan_${randomUUID().replaceAll("-", "")}`;
@@ -71,7 +71,6 @@ describe("CAB overview pending count plan", () => {
   beforeAll(async () => {
     if (!databaseIntegrationEnabled) return;
     if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB overview planner test");
-    neonConfig.webSocketConstructor = ws;
     setupPool = new Pool({ connectionString: databaseUrl });
     await setupPool.query(`CREATE SCHEMA "${schema}"`);
 
@@ -188,7 +187,7 @@ describe("CAB overview pending count plan", () => {
       "utf8",
     );
     await plannerPool.query(countIndexMigration);
-    await plannerPool.query("ANALYZE change_approvals");
+    await plannerPool.query("VACUUM (ANALYZE) change_approvals");
 
     const countAfter = await readCount();
     const planAfter = await explain();

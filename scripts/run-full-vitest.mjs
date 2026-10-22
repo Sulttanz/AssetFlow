@@ -60,7 +60,7 @@ try {
     "--auth-host=trust",
     "--username=postgres",
     "--no-instructions",
-  ], { stdio: "inherit" });
+  ], { stdio: "inherit", env: testEnvironment() });
 
   run("pg_ctl", [
     "-D", dataDirectory,
@@ -68,10 +68,19 @@ try {
     "-o", `-h 127.0.0.1 -k ${tempRoot} -p ${port} -c listen_addresses=127.0.0.1`,
     "-w",
     "start",
-  ], { stdio: "inherit" });
+  ], { stdio: "inherit", env: testEnvironment() });
   postgresStarted = true;
 
   const adminUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
+  run("psql", [
+    "--host", "127.0.0.1",
+    "--port", String(port),
+    "--username", "postgres",
+    "--dbname", "postgres",
+    "--set", "ON_ERROR_STOP=1",
+    "--file", path.join(projectRoot, "scripts/fixtures/cab-schema-sync-legacy.sql"),
+  ], { stdio: "inherit", env: testEnvironment() });
+
   const schemaSetup = run(process.execPath, [
     "--import", "tsx",
     path.join(projectRoot, "scripts/initialize-vitest-schema.ts"),
@@ -111,7 +120,9 @@ try {
 } finally {
   try {
     if (postgresStarted) {
-      run("pg_ctl", ["-D", dataDirectory, "-m", "fast", "-w", "stop"]);
+      run("pg_ctl", ["-D", dataDirectory, "-m", "fast", "-w", "stop"], {
+        env: testEnvironment(),
+      });
     }
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

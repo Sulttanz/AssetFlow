@@ -7,7 +7,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { changeApprovals, changes } from "@shared/schema";
 
-const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
+const databaseIntegrationEnabled =
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
 
 const database = vi.hoisted(() => ({
   select: vi.fn(),
