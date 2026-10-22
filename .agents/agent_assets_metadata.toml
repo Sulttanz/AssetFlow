@@ -42,3 +42,17 @@ mtime_ms = 1792651839236
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/4f5674c3-5222-4c8c-a6a0-b8ab4413ebc6/480c2fbc-fa6c-4e09-a311-ab02da1df5f3"
 storage_version_token = "1792651865610815"
 content_type = "text/html"
+
+[[outputs]]
+id = "NLW_FWL0jsA2RFF2ACSkd"
+uri = "file://.local/outputs/master-system-audit-report.html"
+type = "html"
+title = "Master System Audit Report"
+description = "Complete workspace audit with the implementation status table, reviewed routes and schema inventory, and prioritized auditor-readiness gaps."
+logical_id = "0def7da3-253f-485a-bfe8-e1f13b83b40b"
+content_hash = "sha256:a19471d1d1c0c6ba9e988a7b1e6192430ffc4c889dd65cbb033cb4254e6179ab"
+size = 31791
+mtime_ms = 1792661285295
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/0def7da3-253f-485a-bfe8-e1f13b83b40b/4355a299-41da-4cf8-a3b3-55bcaeeea349"
+storage_version_token = "1792661307508130"
+content_type = "text/html"
