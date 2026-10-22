@@ -1,711 +1,265 @@
-import { useState, useMemo, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Building, Edit2, Trash2, Mail, Phone, Globe, Star, DollarSign, Package, MapPin } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ArrowUpRight, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, FileText, Globe2, Mail, Phone, Plus, Search, Server, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { insertVendorSchema, type VendorWithDetails } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { z } from "zod";
-import ComprehensiveVendorForm from "@/components/vendors/vendor-form";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
+import { formatDateDisplay } from "@/lib/date-utils";
+import { ContractEditor } from "@/components/vendors/contract-editor";
+import { VendorEditor } from "@/components/vendors/vendor-editor";
+import { ContractPayload, VendorContract, VendorOptions, VendorPayload, VendorRow } from "@/components/vendors/types";
 
-const ITEMS_PER_PAGE = 10;
+type Tab = "vendors" | "contracts";
+type ContractStatus = VendorContract["status"];
 
-const vendorFormSchema = insertVendorSchema.extend({
-  rating: z.number().min(1).max(5).default(5)
-});
+async function responseData<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || `Request failed (${response.status})`);
+  }
+  return response.json() as Promise<T>;
+}
 
-type VendorFormData = z.infer<typeof vendorFormSchema>;
+function lifecycleTone(status: string) {
+  if (status === "Active") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (status === "Expiring Soon") return "border-amber-300 bg-amber-50 text-amber-800";
+  if (status === "Terminated") return "border-slate-300 bg-slate-100 text-slate-700";
+  return "border-rose-300 bg-rose-50 text-rose-800";
+}
 
-const ratingStars = (rating: number) => {
-  return Array.from({ length: 5 }, (_, i) => (
-    <Star
-      key={i}
-      className={`w-4 h-4 ${i < rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
-    />
-  ));
-};
+function currencyLabel(value: string | number, currency: string) {
+  const amount = Number(value);
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number.isFinite(amount) ? amount : 0);
+  } catch {
+    return `${currency} ${Number.isFinite(amount) ? amount.toLocaleString() : "0"}`;
+  }
+}
 
-const getStatusColor = (isActive: string) => {
-  return isActive === "true" 
-    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-    : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
-};
+function EntityLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return <a href={href} className="inline-flex items-center gap-1 text-primary hover:underline">{children}<ArrowUpRight className="h-3 w-3" /></a>;
+}
 
 export default function Vendors() {
+  const { user } = useAuth();
   const { toast } = useToast();
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editingVendor, setEditingVendor] = useState<VendorWithDetails | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [tab, setTab] = useState<Tab>(() => new URLSearchParams(window.location.search).get("tab") === "contracts" ? "contracts" : "vendors");
+  const [search, setSearch] = useState("");
+  const [vendorCategory, setVendorCategory] = useState("all");
+  const [vendorStatus, setVendorStatus] = useState("all");
+  const [contractStatus, setContractStatus] = useState("all");
+  const [contractVendor, setContractVendor] = useState("all");
+  const [contractType, setContractType] = useState("all");
+  const [pageSize, setPageSize] = useState(20);
+  const [page, setPage] = useState(1);
+  const [vendorEditorOpen, setVendorEditorOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState<VendorRow | null>(null);
+  const [contractEditorOpen, setContractEditorOpen] = useState(false);
+  const [editingContract, setEditingContract] = useState<VendorContract | null>(null);
 
-  // Fetch vendors
-  const { data: vendors = [], isLoading } = useQuery<VendorWithDetails[]>({
-    queryKey: ["/api/vendors"],
+  const optionsQuery = useQuery<VendorOptions>({
+    queryKey: ["vendor-management", "options", user?.id],
+    queryFn: async () => responseData<VendorOptions>(await apiRequest("GET", "/api/vendor-management/options")),
+    enabled: Boolean(user?.id),
   });
-
-  // Pagination calculations
-  const totalPages = useMemo(() => {
-    return Math.ceil((vendors?.length || 0) / ITEMS_PER_PAGE);
-  }, [vendors]);
-
-  const paginatedVendors = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return vendors?.slice(startIndex, endIndex) || [];
-  }, [vendors, currentPage]);
-
-  // Clamp currentPage to valid range when total pages changes
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
-  // Create mutation
-  const createMutation = useMutation({
-    mutationFn: (data: VendorFormData) => apiRequest("POST", "/api/vendors", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
-      setIsCreateDialogOpen(false);
-      createForm.reset();
-      toast({ title: "Success", description: "Vendor created successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create vendor", variant: "destructive" });
-    },
+  const options = optionsQuery.data;
+  const vendorsQuery = useQuery<VendorRow[]>({
+    queryKey: ["vendor-management", "vendors", user?.id],
+    queryFn: async () => responseData<VendorRow[]>(await apiRequest("GET", "/api/vendor-management/vendors")),
+    enabled: Boolean(options),
   });
+  const contractsQuery = useQuery<VendorContract[]>({
+    queryKey: ["vendor-contracts", user?.id],
+    queryFn: async () => responseData<VendorContract[]>(await apiRequest("GET", "/api/vendor-contracts")),
+    enabled: Boolean(options),
+  });
+  const vendors = vendorsQuery.data ?? [];
+  const contracts = contractsQuery.data ?? [];
 
-  // Update mutation
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<VendorFormData> }) =>
-      apiRequest("PUT", `/api/vendors/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
+  const invalidateManagement = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["vendor-management"] }),
+      queryClient.invalidateQueries({ queryKey: ["vendor-contracts"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/vendors"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/contracts"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/executive"] }),
+    ]);
+  };
+  const vendorSave = useMutation({
+    mutationFn: async ({ id, payload }: { id?: string; payload: VendorPayload }) => responseData(await apiRequest(id ? "PUT" : "POST", id ? `/api/vendor-management/vendors/${id}` : "/api/vendor-management/vendors", payload)),
+    onSuccess: async (_data, variables) => {
+      await invalidateManagement();
+      setVendorEditorOpen(false);
       setEditingVendor(null);
-      toast({ title: "Success", description: "Vendor updated successfully" });
+      toast({ title: variables.id ? "Supplier updated" : "Supplier created", description: "Supplier record and procurement context are up to date." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update vendor", variant: "destructive" });
+    onError: (error: Error) => toast({ title: "Could not save supplier", description: error.message, variant: "destructive" }),
+  });
+  const contractSave = useMutation({
+    mutationFn: async ({ id, payload }: { id?: string; payload: ContractPayload }) => responseData(await apiRequest(id ? "PUT" : "POST", id ? `/api/vendor-contracts/${id}` : "/api/vendor-contracts", payload)),
+    onSuccess: async (_data, variables) => {
+      await invalidateManagement();
+      setContractEditorOpen(false);
+      setEditingContract(null);
+      toast({ title: variables.id ? "Contract updated" : "Contract created", description: "Lifecycle and linked procurement records have been refreshed." });
     },
+    onError: (error: Error) => toast({ title: "Could not save contract", description: error.message, variant: "destructive" }),
   });
 
-  // Delete mutation
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("DELETE", `/api/vendors/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
-      toast({ title: "Success", description: "Vendor deleted successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete vendor", variant: "destructive" });
-    },
-  });
-
-  const createForm = useForm<VendorFormData>({
-    resolver: zodResolver(vendorFormSchema),
-    defaultValues: {
-      name: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      city: "",
-      state: "",
-      zipCode: "",
-      country: "USA",
-      website: "",
-      taxId: "",
-      paymentTerms: "Net 30",
-      category: "",
-      rating: 5,
-      notes: "",
-      isActive: "true"
-    },
-  });
-
-  const editForm = useForm<VendorFormData>({
-    resolver: zodResolver(vendorFormSchema),
-    defaultValues: {
-      name: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      city: "",
-      state: "",
-      zipCode: "",
-      country: "USA",
-      website: "",
-      taxId: "",
-      paymentTerms: "Net 30",
-      category: "",
-      rating: 5,
-      notes: "",
-      isActive: "true"
-    },
-  });
-
-  const handleCreate = (data: VendorFormData) => {
-    const cleanData = {
-      ...data,
-      contactPerson: data.contactPerson || undefined,
-      email: data.email || undefined,
-      phone: data.phone || undefined,
-      address: data.address || undefined,
-      city: data.city || undefined,
-      state: data.state || undefined,
-      zipCode: data.zipCode || undefined,
-      website: data.website || undefined,
-      taxId: data.taxId || undefined,
-      category: data.category || undefined,
-      notes: data.notes || undefined
-    };
-    createMutation.mutate(cleanData);
-  };
-
-  const handleEdit = (vendor: VendorWithDetails) => {
-    setEditingVendor(vendor);
-    editForm.reset({
-      name: vendor.name,
-      contactPerson: vendor.contactPerson || "",
-      email: vendor.email || "",
-      phone: vendor.phone || "",
-      address: vendor.address || "",
-      city: vendor.city || "",
-      state: vendor.state || "",
-      zipCode: vendor.zipCode || "",
-      country: vendor.country || "USA",
-      website: vendor.website || "",
-      taxId: vendor.taxId || "",
-      paymentTerms: vendor.paymentTerms || "Net 30",
-      category: vendor.category || "",
-      rating: vendor.rating || 5,
-      notes: vendor.notes || "",
-      isActive: vendor.isActive || "true"
+  const filteredVendors = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    return vendors.filter(vendor => {
+      const active = vendor.status ? vendor.status.toLowerCase() === "active" : vendor.isActive !== "false";
+      return (!term || `${vendor.name} ${vendor.code ?? ""} ${vendor.category ?? ""} ${vendor.primaryContactName ?? vendor.contactPerson ?? ""}`.toLocaleLowerCase().includes(term)) &&
+        (vendorCategory === "all" || vendor.category === vendorCategory) &&
+        (vendorStatus === "all" || (vendorStatus === "active" ? active : !active));
     });
-  };
-
-  const handleUpdate = (data: VendorFormData) => {
-    if (!editingVendor) return;
-    const cleanData = {
-      ...data,
-      contactPerson: data.contactPerson || undefined,
-      email: data.email || undefined,
-      phone: data.phone || undefined,
-      address: data.address || undefined,
-      city: data.city || undefined,
-      state: data.state || undefined,
-      zipCode: data.zipCode || undefined,
-      website: data.website || undefined,
-      taxId: data.taxId || undefined,
-      category: data.category || undefined,
-      notes: data.notes || undefined
-    };
-    updateMutation.mutate({ id: editingVendor.id, data: cleanData });
-  };
-
-  const VendorForm = ({ form, onSubmit, submitText }: {
-    form: any;
-    onSubmit: (data: VendorFormData) => void;
-    submitText: string;
-  }) => (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Vendor Name</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-vendor-name" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="contactPerson"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Contact Person</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-contact-person" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input {...field} type="email" data-testid="input-email" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="phone"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Phone</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-phone" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Address</FormLabel>
-              <FormControl>
-                <Input {...field} data-testid="input-address" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <FormField
-            control={form.control}
-            name="city"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>City</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-city" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="state"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>State</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-state" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="zipCode"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>ZIP Code</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-zipcode" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="website"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Website</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="https://example.com" data-testid="input-website" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="taxId"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Tax ID</FormLabel>
-                <FormControl>
-                  <Input {...field} data-testid="input-tax-id" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <FormField
-            control={form.control}
-            name="paymentTerms"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment Terms</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-payment-terms">
-                      <SelectValue placeholder="Select payment terms" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="Net 30">Net 30</SelectItem>
-                    <SelectItem value="Net 60">Net 60</SelectItem>
-                    <SelectItem value="Net 90">Net 90</SelectItem>
-                    <SelectItem value="COD">COD (Cash on Delivery)</SelectItem>
-                    <SelectItem value="Prepaid">Prepaid</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="category"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Category</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="e.g., Hardware, Software, Services" data-testid="input-category" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="rating"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Rating (1-5)</FormLabel>
-                <Select onValueChange={value => field.onChange(Number(value))} value={field.value?.toString()}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-rating">
-                      <SelectValue placeholder="Select rating" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="1">1 Star</SelectItem>
-                    <SelectItem value="2">2 Stars</SelectItem>
-                    <SelectItem value="3">3 Stars</SelectItem>
-                    <SelectItem value="4">4 Stars</SelectItem>
-                    <SelectItem value="5">5 Stars</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <FormField
-          control={form.control}
-          name="isActive"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Status</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl>
-                  <SelectTrigger data-testid="select-status">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="true">Active</SelectItem>
-                  <SelectItem value="false">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="notes"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Notes</FormLabel>
-              <FormControl>
-                <Textarea {...field} data-testid="input-notes" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <div className="flex justify-end space-x-2">
-          <Button type="submit" data-testid="button-submit">
-            {submitText}
-          </Button>
-        </div>
-      </form>
-    </Form>
-  );
-
-  if (isLoading) {
-    return (
-      <div className="flex-1 p-8">
-        <div className="flex items-center justify-center h-64">
-          <p>Loading vendors...</p>
-        </div>
-      </div>
+  }, [vendors, search, vendorCategory, vendorStatus]);
+  const filteredContracts = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase();
+    return contracts.filter(contract =>
+      (!term || `${contract.title} ${contract.contractNumber} ${contract.vendorName} ${contract.slaTier}`.toLocaleLowerCase().includes(term)) &&
+      (contractStatus === "all" || contract.lifecycleStatus === contractStatus) &&
+      (contractVendor === "all" || contract.vendorId === contractVendor) &&
+      (contractType === "all" || contract.contractType === contractType),
     );
-  }
+  }, [contracts, search, contractStatus, contractVendor, contractType]);
+  const selectedRows = tab === "vendors" ? filteredVendors : filteredContracts;
+  const pages = Math.max(1, Math.ceil(selectedRows.length / pageSize));
+  // Inactive tab children are evaluated too. Never cast one shared collection
+  // into two incompatible record shapes when constructing those children.
+  const vendorPageRows = filteredVendors.slice((page - 1) * pageSize, page * pageSize);
+  const contractPageRows = filteredContracts.slice((page - 1) * pageSize, page * pageSize);
+  const currencyTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    contracts.filter(item => item.lifecycleStatus === "Active" || item.lifecycleStatus === "Expiring Soon").forEach(item => totals.set(item.currency, (totals.get(item.currency) ?? 0) + Number(item.cost || 0)));
+    return Array.from(totals.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [contracts]);
+  const renewalQueue = useMemo(() => contracts.filter(contract => contract.renewalDue && contract.lifecycleStatus !== "Terminated")
+    .sort((a, b) => a.daysUntilExpiry - b.daysUntilExpiry).slice(0, 5), [contracts]);
+  const activeContractCount = contracts.filter(contract => contract.lifecycleStatus === "Active" || contract.lifecycleStatus === "Expiring Soon").length;
 
-  return (
-    <div className="flex-1 p-8 overflow-auto" data-testid="vendors-page">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Vendors</h1>
-            <p className="text-muted-foreground">Manage your organization's suppliers and service providers</p>
+  const setTabAndReset = (value: string) => { setTab(value as Tab); setPage(1); setSearch(""); };
+  const openVendorEdit = (vendor: VendorRow) => { setEditingVendor(vendor); setVendorEditorOpen(true); };
+  const startVendorCreate = () => { setEditingVendor(null); setVendorEditorOpen(true); };
+  const startContractCreate = () => { setEditingContract(null); setContractEditorOpen(true); };
+  const openContractEdit = (contract: VendorContract) => { setEditingContract(contract); setContractEditorOpen(true); };
+  const submitVendor = (payload: VendorPayload) => vendorSave.mutate({ id: editingVendor?.id, payload });
+  const submitContract = (payload: ContractPayload) => contractSave.mutate({ id: editingContract?.id, payload });
+
+  if (optionsQuery.isLoading) return <main className="min-h-[100dvh] space-y-5 p-4 sm:p-7"><div className="h-36 animate-pulse rounded-2xl bg-muted/40" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(item => <div key={item} className="h-48 animate-pulse rounded-xl bg-muted/40" />)}</div></main>;
+  if (optionsQuery.isError || !options) return <main className="p-5 sm:p-8"><Card><CardContent className="p-10 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-3 font-semibold">Supplier workspace unavailable</h1><p className="mt-1 text-sm text-muted-foreground">{optionsQuery.error instanceof Error ? optionsQuery.error.message : "We could not confirm your access."}</p><Button variant="outline" className="mt-4" onClick={() => void optionsQuery.refetch()}>Retry</Button></CardContent></Card></main>;
+
+  return <main className="min-h-[100dvh] bg-background p-4 text-foreground sm:p-7">
+    <div className="mx-auto max-w-7xl space-y-6">
+      <header className="relative overflow-hidden rounded-2xl border bg-card px-5 py-6 sm:px-8 sm:py-8">
+        <div className="absolute -right-10 -top-20 h-64 w-64 rounded-full border-[34px] border-primary/[0.06]" aria-hidden="true" />
+        <div className="relative flex flex-wrap items-end justify-between gap-5">
+          <div className="max-w-2xl">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-primary"><ShieldCheck className="h-4 w-4" /> Supplier governance · Module 03</div>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Vendors & commitments</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">Keep every support promise, renewal window, and purchasing trail connected to the supplier behind it.</p>
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-vendor">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Vendor
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create New Vendor</DialogTitle>
-                <DialogDescription>
-                  Add a new vendor to your supplier network
-                </DialogDescription>
-              </DialogHeader>
-              <ComprehensiveVendorForm 
-                vendor={null}
-                onSubmit={async (data) => { await createMutation.mutateAsync(data); }}
-                onSuccess={() => setIsCreateDialogOpen(false)}
-                onCancel={() => setIsCreateDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
+          <div className="flex flex-wrap gap-2">
+            {tab === "vendors" && options.canCreateVendor && <Button onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add supplier</Button>}
+            {tab === "contracts" && options.canManageContracts && <Button onClick={startContractCreate}><Plus className="mr-2 h-4 w-4" />New contract</Button>}
+          </div>
+        </div>
+      </header>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Users className="h-5 w-5" /></div><div><p className="text-xs uppercase tracking-wider text-muted-foreground">Supplier network</p><p className="text-2xl font-semibold">{vendors.length}<span className="ml-2 text-sm font-normal text-muted-foreground">records</span></p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-700"><FileText className="h-5 w-5" /></div><div><p className="text-xs uppercase tracking-wider text-muted-foreground">In-force commitments</p><p className="text-2xl font-semibold">{activeContractCount}<span className="ml-2 text-sm font-normal text-muted-foreground">contracts</span></p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 text-amber-700"><Wallet className="h-5 w-5" /></div><div className="min-w-0"><p className="text-xs uppercase tracking-wider text-muted-foreground">Portfolio valuation</p><p className="truncate text-lg font-semibold">{currencyTotals.length ? currencyTotals.map(([currency, amount]) => currencyLabel(amount, currency)).join(" · ") : "No active value"}</p></div></CardContent></Card>
+      </section>
+
+      <Tabs value={tab} onValueChange={setTabAndReset}>
+        <TabsList className="h-auto flex-wrap justify-start">
+          <TabsTrigger value="vendors">Vendors <span className="ml-2 text-xs text-muted-foreground">{vendors.length}</span></TabsTrigger>
+          <TabsTrigger value="contracts">Contracts &amp; SLAs <span className="ml-2 text-xs text-muted-foreground">{contracts.length}</span></TabsTrigger>
+        </TabsList>
+        <div className="mt-4 flex flex-col gap-3 rounded-xl border bg-card p-3 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search" placeholder={tab === "vendors" ? "Search suppliers, codes, contacts…" : "Search contracts, numbers, suppliers…"} className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
+          {tab === "vendors" ? <>
+            <select aria-label="Filter supplier category" className="h-10 rounded-md border bg-background px-3 text-sm" value={vendorCategory} onChange={event => { setVendorCategory(event.target.value); setPage(1); }}><option value="all">All categories</option>{options.categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+            <select aria-label="Filter supplier status" className="h-10 rounded-md border bg-background px-3 text-sm" value={vendorStatus} onChange={event => { setVendorStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+          </> : <>
+            <select aria-label="Filter lifecycle" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractStatus} onChange={event => { setContractStatus(event.target.value); setPage(1); }}><option value="all">All lifecycles</option>{(["Active", "Expiring Soon", "Expired", "Terminated"] as ContractStatus[]).map(status => <option key={status} value={status}>{status}</option>)}</select>
+            <select aria-label="Filter contract supplier" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractVendor} onChange={event => { setContractVendor(event.target.value); setPage(1); }}><option value="all">All suppliers</option>{vendors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <select aria-label="Filter contract type" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractType} onChange={event => { setContractType(event.target.value); setPage(1); }}><option value="all">All contract types</option>{options.contractTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+          </>}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {paginatedVendors.map((vendor) => (
-            <Card key={vendor.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Building className="w-5 h-5 text-primary" />
-                    <div>
-                      <CardTitle className="text-lg">{vendor.name}</CardTitle>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <Badge className={getStatusColor(vendor.isActive || "true")}>
-                          {vendor.isActive === "true" ? "Active" : "Inactive"}
-                        </Badge>
-                        {vendor.category && (
-                          <Badge variant="outline">{vendor.category}</Badge>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex space-x-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(vendor)}
-                      data-testid={`button-edit-${vendor.id}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(vendor.id)}
-                      data-testid={`button-delete-${vendor.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {vendor.contactPerson && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Building className="w-4 h-4 text-muted-foreground" />
-                      <span>Contact: {vendor.contactPerson}</span>
-                    </div>
-                  )}
-                  
-                  {vendor.email && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Mail className="w-4 h-4 text-muted-foreground" />
-                      <span>{vendor.email}</span>
-                    </div>
-                  )}
+        <TabsContent value="vendors" className="mt-5">
+          {vendorsQuery.isLoading ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0,1,2].map(i => <div key={i} className="h-56 animate-pulse rounded-xl border bg-card" />)}</div>
+            : vendorsQuery.isError ? <Card><CardContent className="p-10 text-center"><p className="font-semibold">Supplier records could not be loaded</p><Button variant="outline" className="mt-4" onClick={() => void vendorsQuery.refetch()}>Retry</Button></CardContent></Card>
+            : filteredVendors.length === 0 ? <div className="rounded-xl border border-dashed bg-card px-5 py-14 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h2 className="mt-3 font-semibold">{vendors.length ? "No suppliers match those filters" : "No suppliers in the register"}</h2><p className="mt-1 text-sm text-muted-foreground">{vendors.length ? "Change your search or filter to see other suppliers." : "Add a supplier to start tracking support relationships and commercial history."}</p>{vendors.length === 0 && options.canCreateVendor && <Button className="mt-4" onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add supplier</Button>}</div>
+            : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{vendorPageRows.map(vendor => {
+              const contactName = vendor.primaryContactName ?? vendor.contactPerson;
+              const email = vendor.primaryContactEmail ?? vendor.email;
+              const phone = vendor.primaryContactPhone ?? vendor.phone;
+              const active = vendor.status ? vendor.status.toLowerCase() === "active" : vendor.isActive !== "false";
+              return <Card key={vendor.id} className="group flex min-w-0 flex-col overflow-hidden transition-transform hover:-translate-y-0.5 hover:shadow-md">
+                <CardContent className="flex flex-1 flex-col p-5">
+                  <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Building2 className="h-5 w-5" /></div><div className="min-w-0"><h2 className="truncate text-lg font-semibold tracking-tight">{vendor.name}</h2><p className="truncate text-xs text-muted-foreground">{vendor.code || "Legacy record"} · {vendor.category || "Category needs review"}</p></div></div><Badge variant="outline" className={active ? "shrink-0 border-emerald-300 bg-emerald-50 text-emerald-800" : "shrink-0"}>{active ? "Active" : vendor.status || "Inactive"}</Badge></div>
+                  <div className="mt-5 rounded-lg bg-muted/40 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Primary contact</p><p className="mt-1 truncate font-medium">{contactName || "Contact not recorded"}</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">{email && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`mailto:${email}`}><Mail className="h-3.5 w-3.5" />Email</a>}{phone && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`tel:${phone}`}><Phone className="h-3.5 w-3.5" />Call</a>}{vendor.supportHotline && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`tel:${vendor.supportHotline}`}><Phone className="h-3.5 w-3.5" />Support line</a>}{vendor.website && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer"><Globe2 className="h-3.5 w-3.5" />Website</a>}</div></div>
+                  <div className="mt-4 grid grid-cols-3 gap-2 border-b pb-4"><div><p className="text-xs text-muted-foreground">Active contracts</p><p className="mt-0.5 text-xl font-semibold">{vendor.activeContractCount ?? 0}</p></div><div><p className="text-xs text-muted-foreground">Purchase orders</p><p className="mt-0.5 text-xl font-semibold">{vendor.purchaseOrderCount ?? 0}</p></div><div><p className="text-xs text-muted-foreground">Historic spend</p><p className="mt-1 truncate text-sm font-semibold">{vendor.totalSpent == null ? "—" : currencyLabel(vendor.totalSpent, "USD")}</p></div></div>
+                  <div className="mt-auto flex items-center justify-between gap-3 pt-4"><div className="flex flex-wrap gap-3 text-xs"><EntityLink href="/purchase-orders"><ClipboardList className="h-3 w-3" />Purchase orders</EntityLink><EntityLink href="/assets"><ArrowUpRight className="h-3 w-3" />Asset register</EntityLink></div>{options.canUpdateVendor && <Button size="sm" variant="outline" onClick={() => openVendorEdit(vendor)}>Edit supplier</Button>}</div>
+                </CardContent>
+              </Card>;
+            })}</div>}
+        </TabsContent>
 
-                  {vendor.phone && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Phone className="w-4 h-4 text-muted-foreground" />
-                      <span>{vendor.phone}</span>
-                    </div>
-                  )}
-
-                  {vendor.website && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Globe className="w-4 h-4 text-muted-foreground" />
-                      <a 
-                        href={vendor.website} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        Visit Website
-                      </a>
-                    </div>
-                  )}
-
-                  {(vendor.city || vendor.state) && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <MapPin className="w-4 h-4 text-muted-foreground" />
-                      <span>{[vendor.city, vendor.state].filter(Boolean).join(", ")}</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center space-x-2 text-sm">
-                    <div className="flex items-center space-x-1">
-                      {ratingStars(vendor.rating || 5)}
-                    </div>
-                    <span>{vendor.rating || 5}/5</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Package className="w-4 h-4 text-muted-foreground" />
-                      <span>{vendor.purchaseOrderCount || 0} Orders</span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-sm">
-                      <DollarSign className="w-4 h-4 text-muted-foreground" />
-                      <span>${(vendor.totalSpent || 0).toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {vendor.paymentTerms && (
-                    <div className="text-xs text-muted-foreground pt-2 border-t">
-                      Payment Terms: {vendor.paymentTerms}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex justify-center mt-6">
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      onClick={() => setCurrentPage(page)}
-                      isActive={currentPage === page}
-                      className="cursor-pointer"
-                    >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <PaginationNext
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
+        <TabsContent value="contracts" className="mt-5 space-y-5">
+          <div className="grid gap-4 lg:grid-cols-[1.3fr_.7fr]">
+            <Card><CardContent className="p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[.14em] text-muted-foreground">Committed value · by currency</p><p className="mt-1 text-sm text-muted-foreground">Terminated history excluded from current exposure.</p></div><Wallet className="h-5 w-5 text-primary" /></div>{currencyTotals.length ? <div className="mt-5 flex flex-wrap gap-3">{currencyTotals.map(([currency, amount]) => <div key={currency} className="min-w-36 rounded-xl border bg-background px-4 py-3"><p className="font-mono text-xs text-muted-foreground">{currency}</p><p className="mt-1 text-xl font-semibold">{currencyLabel(amount, currency)}</p></div>)}</div> : <p className="mt-5 text-sm text-muted-foreground">No active contract valuation recorded.</p>}</CardContent></Card>
+            <Card className="border-amber-200 bg-amber-50/50"><CardContent className="p-5"><div className="flex items-center gap-2"><CalendarClock className="h-4 w-4 text-amber-700" /><h2 className="font-semibold">Renewal alert queue</h2><Badge variant="outline" className="ml-auto border-amber-300">{renewalQueue.length}</Badge></div>{renewalQueue.length ? <div className="mt-3 divide-y divide-amber-200/70">{renewalQueue.map(contract => <button key={contract.id} disabled={!options.canManageContracts} onClick={() => openContractEdit(contract)} className={`flex w-full items-center justify-between gap-3 py-2.5 text-left disabled:cursor-default ${options.canManageContracts ? "hover:text-primary" : ""}`}><span className="min-w-0"><span className="block truncate text-sm font-medium">{contract.title}</span><span className="block truncate text-xs text-muted-foreground">{contract.vendorName} · {contract.daysUntilExpiry <= 0 ? "Renewal overdue" : `${contract.daysUntilExpiry} days remaining`}</span></span><AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" /></button>)}</div> : <p className="mt-3 text-sm text-muted-foreground">No renewals currently within notice period.</p>}</CardContent></Card>
           </div>
-        )}
+          {contractsQuery.isLoading ? <div className="h-64 animate-pulse rounded-xl border bg-card" /> : contractsQuery.isError ? <Card><CardContent className="p-10 text-center"><p className="font-semibold">Contracts could not be loaded</p><Button variant="outline" className="mt-4" onClick={() => void contractsQuery.refetch()}>Retry</Button></CardContent></Card> : filteredContracts.length === 0 ? <div className="rounded-xl border border-dashed bg-card px-5 py-14 text-center"><FileText className="mx-auto h-8 w-8 text-muted-foreground" /><h2 className="mt-3 font-semibold">{contracts.length ? "No contracts match those filters" : "No supplier contracts yet"}</h2><p className="mt-1 text-sm text-muted-foreground">{contracts.length ? "Adjust the selected search or filters." : "Record a support commitment to make renewals and linked records visible here."}</p>{!contracts.length && options.canManageContracts && <Button className="mt-4" onClick={startContractCreate}><Plus className="mr-2 h-4 w-4" />Create contract</Button>}</div> : <div className="overflow-hidden rounded-xl border bg-card">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="border-b bg-muted/45 text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>{["Commitment", "Supplier / SLA", "Term", "Renewal", "Value", "Lifecycle", "Linked records"].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
+                    {options.canManageContracts && <th className="px-4 py-3">Action</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">{contractPageRows.map(contract => (
+                  <tr key={contract.id} className="align-top hover:bg-muted/20">
+                    <td className="px-4 py-4"><p className="font-semibold">{contract.title}</p><p className="mt-1 font-mono text-xs text-muted-foreground">{contract.contractNumber} · {contract.contractType}</p></td>
+                    <td className="px-4 py-4"><p>{contract.vendorName}</p><p className="mt-1 text-xs text-muted-foreground">{contract.slaTier || "No SLA tier"}</p></td>
+                    <td className="px-4 py-4 whitespace-nowrap"><p>{formatDateDisplay(contract.startDate)}</p><p className="mt-1 text-xs text-muted-foreground">to {formatDateDisplay(contract.endDate)}</p></td>
+                    <td className="px-4 py-4 whitespace-nowrap">{contract.renewalDue ? <span className="inline-flex items-center gap-1 text-amber-800"><AlertTriangle className="h-3.5 w-3.5" />{contract.daysUntilExpiry === 0 ? "Due today" : contract.daysUntilExpiry < 0 ? `${Math.abs(contract.daysUntilExpiry)} days overdue` : `${contract.daysUntilExpiry} days`}</span> : <span className="text-muted-foreground">{contract.renewalNoticeDays} day notice</span>}</td>
+                    <td className="px-4 py-4 font-medium whitespace-nowrap">{currencyLabel(contract.cost, contract.currency)}</td>
+                    <td className="px-4 py-4"><Badge variant="outline" className={lifecycleTone(contract.lifecycleStatus)}>{contract.lifecycleStatus}</Badge></td>
+                    <td className="px-4 py-4"><div className="flex flex-col items-start gap-1 text-xs">
+                      {contract.assets.map(asset => <EntityLink key={asset.id} href="/assets"><span className="max-w-40 truncate">{asset.type.toLowerCase().includes("software") ? "Software pool · " : "Asset · "}{asset.name}</span></EntityLink>)}
+                      {contract.purchaseOrders.map(po => <EntityLink key={po.id} href="/purchase-orders"><ClipboardList className="h-3 w-3" />PO {po.poNumber}</EntityLink>)}
+                      {contract.servers.map(server => <EntityLink key={server.id} href="/servers"><Server className="h-3 w-3" />{server.hostname}</EntityLink>)}
+                      {!contract.assets.length && !contract.purchaseOrders.length && !contract.servers.length && <span className="text-muted-foreground">No links</span>}
+                    </div></td>
+                    {options.canManageContracts && <td className="px-4 py-4"><Button size="sm" variant="outline" onClick={() => openContractEdit(contract)}>Edit / renew</Button></td>}
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          </div>}
+        </TabsContent>
+      </Tabs>
 
-        {vendors.length === 0 && (
-          <div className="text-center py-12">
-            <Building className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-foreground mb-2">No vendors found</h3>
-            <p className="text-muted-foreground mb-4">
-              Start by adding your first vendor to manage your supplier network
-            </p>
-            <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-add-first-vendor">
-              <Plus className="w-4 h-4 mr-2" />
-              Add Your First Vendor
-            </Button>
-          </div>
-        )}
-
-        {/* Edit Dialog */}
-        <Dialog open={!!editingVendor} onOpenChange={() => setEditingVendor(null)}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Vendor</DialogTitle>
-              <DialogDescription>
-                Update vendor information and contact details
-              </DialogDescription>
-            </DialogHeader>
-            <ComprehensiveVendorForm 
-              vendor={editingVendor}
-              onSubmit={async (data) => { await updateMutation.mutateAsync({ id: editingVendor!.id, data }); }}
-              onSuccess={() => setEditingVendor(null)}
-              onCancel={() => setEditingVendor(null)}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
+      {selectedRows.length > 0 && <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span>Showing {Math.min((page - 1) * pageSize + 1, selectedRows.length)}–{Math.min(page * pageSize, selectedRows.length)} of {selectedRows.length}</span><div className="flex items-center gap-3"><label className="flex items-center gap-2">Rows <select className="h-9 rounded-md border bg-background px-2 text-foreground" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={50}>50</option></select></label><Button variant="outline" size="icon" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft className="h-4 w-4" /></Button><span className="min-w-16 text-center">Page {page} / {pages}</span><Button variant="outline" size="icon" aria-label="Next page" disabled={page >= pages} onClick={() => setPage(value => Math.min(pages, value + 1))}><ChevronRight className="h-4 w-4" /></Button></div></div>}
     </div>
-  );
+
+    <Dialog open={vendorEditorOpen} onOpenChange={open => { setVendorEditorOpen(open); if (!open) setEditingVendor(null); }}>
+      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{editingVendor ? "Edit supplier" : "Add supplier"}</DialogTitle><DialogDescription>Keep contact routes and supplier identity current without losing purchasing history.</DialogDescription></DialogHeader><VendorEditor key={editingVendor?.id ?? "new-vendor"} vendor={editingVendor} options={options} saving={vendorSave.isPending} onSave={submitVendor} onCancel={() => { setVendorEditorOpen(false); setEditingVendor(null); }} /></DialogContent>
+    </Dialog>
+    <Dialog open={contractEditorOpen} onOpenChange={open => { setContractEditorOpen(open); if (!open) setEditingContract(null); }}>
+      <DialogContent className="max-h-[92dvh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>{editingContract ? "Review / renew commitment" : "Create supplier contract"}</DialogTitle><DialogDescription>Capture the agreed support window, notice period, valuation, and every related record.</DialogDescription></DialogHeader><ContractEditor key={editingContract?.id ?? "new-contract"} contract={editingContract} vendors={vendors} options={options} saving={contractSave.isPending} onSave={submitContract} onCancel={() => { setContractEditorOpen(false); setEditingContract(null); }} /></DialogContent>
+    </Dialog>
+  </main>;
 }

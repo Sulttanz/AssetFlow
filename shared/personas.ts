@@ -91,7 +91,7 @@ export function isPersonaPageAllowed(
       if (matchesPath(path, "/changes/new")) return false;
       return [
         "/dashboard", "/changes", "/applications", "/servers", "/purchase-orders",
-        "/budgets", "/contracts", "/employees", "/service-catalog",
+        "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors",
       ].some(prefix => matchesPath(path, prefix));
     }
     return ["/assets", "/access-governance", "/audit-logs"].some(prefix => matchesPath(path, prefix));
@@ -143,7 +143,7 @@ const IT_AGENT_API_PREFIXES = [
 const MANAGER_API_PREFIXES = [
   ...IT_AGENT_API_PREFIXES, "/changes", "/applications", "/servers",
   "/purchase-orders", "/budgets", "/contracts", "/employees", "/vendors",
-  "/locations", "/departments",
+  "/locations", "/departments", "/vendor-management", "/vendor-contracts",
 ];
 
 export function isPersonaApiAllowed(
@@ -177,6 +177,7 @@ export function isPersonaApiAllowed(
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "cab_member") {
+      if (["/vendor-management", "/vendor-contracts"].some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
       if (["/service-catalog/options", "/service-catalog/items"].includes(apiPath)) return isReadMethod(upperMethod);
       if (apiPath === "/service-catalog/approvals") return isReadMethod(upperMethod);
       if (/^\/service-catalog\/approvals\/[^/]+\/decision$/.test(apiPath)) return upperMethod === "POST";

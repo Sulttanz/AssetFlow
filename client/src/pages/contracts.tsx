@@ -45,7 +45,7 @@ export default function ContractsPage() {
   const [vendorFilter, setVendorFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: contracts = [], isLoading } = useQuery<Contract[]>({
+  const { data: contracts = [], isLoading } = useQuery<(Contract & { vendorContractManaged?: boolean })[]>({
     queryKey: ["/api/contracts"],
   });
 
@@ -524,11 +524,11 @@ export default function ContractsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 font-semibold text-lg">
-                    <DollarSign className="w-5 h-5 text-green-600" />
-                    {parseFloat(contract.value || "0").toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    {new Intl.NumberFormat(undefined, { style: "currency", currency: contract.currency || "USD" }).format(Number(contract.value || "0"))}
                   </div>
                 </CardContent>
                 <CardFooter className="flex justify-end gap-2 bg-muted/30 pt-4">
+                  {contract.vendorContractManaged ? <Button variant="outline" size="sm" asChild><a href="/vendors?tab=contracts">Manage SLA & links</a></Button> : <>
                   <Dialog open={!!editingContract && editingContract.id === contract.id} onOpenChange={(open) => !open && setEditingContract(null)}>
                     <DialogTrigger asChild>
                       <Button variant="ghost" size="sm" onClick={() => handleEdit(contract)}>
@@ -557,6 +557,7 @@ export default function ContractsPage() {
                   }}>
                     <Trash2 className="w-4 h-4 text-red-500" />
                   </Button>
+                  </>}
                 </CardFooter>
               </Card>
             );

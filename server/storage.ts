@@ -1186,6 +1186,11 @@ export class MemStorage implements IStorage {
       ...insertVendor, 
       id,
       name: insertVendor.name, // Ensure name is included - required field
+      code: normalizeField(insertVendor.code),
+      primaryContactName: normalizeField(insertVendor.primaryContactName ?? insertVendor.contactPerson),
+      primaryContactEmail: normalizeField(insertVendor.primaryContactEmail ?? insertVendor.email),
+      primaryContactPhone: normalizeField(insertVendor.primaryContactPhone ?? insertVendor.phone),
+      supportHotline: normalizeField(insertVendor.supportHotline),
       
       // Basic Vendor Information
       contactPerson: normalizeField(insertVendor.contactPerson),
@@ -1650,6 +1655,7 @@ export class MemStorage implements IStorage {
       ...contract,
       id,
       value: contract.value ?? null,
+      currency: contract.currency ?? "USD",
       contractType: contract.contractType ?? "service",
       contractNumber: contract.contractNumber ?? null,
       vendorId: contract.vendorId ?? null,

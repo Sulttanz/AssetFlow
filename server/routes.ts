@@ -44,6 +44,8 @@ import { compareAppVersions } from "./startup-migrations";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
 import { registerKnowledgeRoutes } from "./knowledge-governance";
 import { catalogMutationError, catalogRequestHandler, isStructuredCatalogItem, loadCatalogViewer, registerServiceCatalogRoutes, syncLegacyCatalogItem } from "./service-catalog";
+import { isGovernedVendorContract, normalizeVendorContacts, registerVendorContractRoutes } from "./vendor-contracts";
+import { vendorContracts, vendorContractAssets, type InsertVendor } from "@shared/schema";
 import { serviceApprovalRoles } from "@shared/service-catalog";
 
 // Column order is part of the import format; both template and export use it.
@@ -747,14 +749,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-expire contracts whose endDate has passed but are still marked active/pending
       const today = new Date().toISOString().split("T")[0];
       const expiredIds = contracts
-        .filter(c => c.endDate && c.endDate < today && c.status !== "expired")
+        .filter(c => c.endDate && c.endDate < today && ["active", "pending"].includes(c.status ?? ""))
         .map(c => c.id);
       await Promise.all(expiredIds.map(id => storage.updateContract(id, { status: "expired" } as any)));
       if (expiredIds.length > 0) {
         const updated = await storage.getContracts();
-        return res.json(updated);
+        const managed = await db.select({ id: vendorContracts.id }).from(vendorContracts);
+        const managedIds = new Set(managed.map(row => row.id));
+        return res.json(updated.map(row => ({ ...row, vendorContractManaged: managedIds.has(row.id) })));
       }
-      res.json(contracts);
+      const managed = await db.select({ id: vendorContracts.id }).from(vendorContracts);
+      const managedIds = new Set(managed.map(row => row.id));
+      res.json(contracts.map(row => ({ ...row, vendorContractManaged: managedIds.has(row.id) })));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch contracts" });
     }
@@ -784,6 +790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
+      if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "Manage this SLA contract in Vendors → Contracts & SLAs to keep its financial record and links consistent" });
       const validatedData = insertContractSchema.partial().parse(req.body);
       const oldContract = await storage.getContract(req.params.id);
       const contract = await storage.updateContract(req.params.id, validatedData);
@@ -798,6 +805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
     try {
+      if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "SLA contract history is retained. Terminate the contract in Vendors → Contracts & SLAs instead." });
       const contract = await storage.getContract(req.params.id);
       const deleted = await storage.deleteContract(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Contract not found" });
@@ -2590,7 +2598,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const linked = assets.length ? await db.select({
         id: contracts.id, name: contracts.name, assetId: contracts.assetId, endDate: contracts.endDate,
       }).from(contracts).where(inArray(contracts.assetId, assets.map(asset => asset.id))) : [];
-      res.json(assets.map(asset => ({ ...asset, linkedContracts: linked.filter(contract => contract.assetId === asset.id) })));
+      const slaLinks = assets.length ? await db.select({
+        id: contracts.id, name: contracts.name, assetId: vendorContractAssets.assetId, endDate: contracts.endDate,
+      }).from(vendorContractAssets).innerJoin(contracts, eq(contracts.id, vendorContractAssets.contractId))
+        .where(and(inArray(vendorContractAssets.assetId, assets.map(asset => asset.id)), sql`${contracts.status} <> 'terminated'`)) : [];
+      res.json(assets.map(asset => ({ ...asset, linkedContracts: Array.from(new Map(
+        [...linked, ...slaLinks].filter(contract => contract.assetId === asset.id).map(contract => [contract.id, contract]),
+      ).values()) })));
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch assets" });
     }
@@ -2605,7 +2619,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const linkedContracts = await db.select({
         id: contracts.id, name: contracts.name, endDate: contracts.endDate,
       }).from(contracts).where(eq(contracts.assetId, asset.id));
-      res.json({ ...asset, linkedContracts });
+      const slaLinks = await db.select({ id: contracts.id, name: contracts.name, endDate: contracts.endDate })
+        .from(vendorContractAssets).innerJoin(contracts, eq(contracts.id, vendorContractAssets.contractId))
+        .where(and(eq(vendorContractAssets.assetId, asset.id), sql`${contracts.status} <> 'terminated'`));
+      res.json({ ...asset, linkedContracts: Array.from(new Map([...linkedContracts, ...slaLinks].map(contract => [contract.id, contract])).values()) });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch asset" });
     }
@@ -4867,7 +4884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/vendors", requireAuth, requirePermission('vendor_create'), async (req, res) => {
     try {
-      const validatedData = insertVendorSchema.parse(req.body);
+      const validatedData = normalizeVendorContacts(insertVendorSchema.parse(req.body)) as InsertVendor;
       const vendor = await storage.createVendor(validatedData);
       
       // Log audit
@@ -4878,6 +4895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid vendor data", errors: error.errors });
       }
+      if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
       res.status(500).json({ message: "Failed to create vendor" });
     }
   });
@@ -4896,7 +4914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/vendors/:id", requireAuth, requirePermission('vendor_update'), async (req, res) => {
     try {
-      const validatedData = insertVendorSchema.partial().parse(req.body);
+      const validatedData = normalizeVendorContacts(insertVendorSchema.partial().parse(req.body));
       
       // Get old vendor for audit log
       const oldVendor = await storage.getVendor(req.params.id);
@@ -4914,12 +4932,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid vendor data", errors: error.errors });
       }
+      if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
       res.status(500).json({ message: "Failed to update vendor" });
     }
   });
 
   app.delete("/api/vendors/:id", requireAuth, requirePermission('vendor_delete'), async (req, res) => {
     try {
+      if ((await db.select({ id: vendorContracts.id }).from(vendorContracts).where(eq(vendorContracts.vendorId, req.params.id))).length)
+        return res.status(409).json({ message: "This vendor has SLA contract history. Mark it Inactive instead of deleting it." });
       // Get vendor for audit log before deleting
       const vendor = await storage.getVendor(req.params.id);
       
@@ -4935,6 +4956,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
+      if (((error as any)?.code ?? (error as any)?.cause?.code) === "23503") return res.status(409).json({ message: "Vendor is referenced by historical records; mark it Inactive instead." });
       res.status(500).json({ message: "Failed to delete vendor" });
     }
   });
@@ -8023,6 +8045,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Knowledge Base ───────────────────────────────────────────────────────
   registerKnowledgeRoutes(app, requireAuth);
   registerServiceCatalogRoutes(app, requireAuth);
+  app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
+  registerVendorContractRoutes(app, requireAuth);
 
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {

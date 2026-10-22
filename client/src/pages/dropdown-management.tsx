@@ -55,6 +55,8 @@ const categories = [
   { value: "budgetCategory", label: "Budget Category" },
   { value: "purchaseOrderStatus", label: "Purchase Order Status" },
   { value: "paymentTerms", label: "Payment Terms" },
+  { value: "vendor_category", label: "Vendor Category" },
+  { value: "contract_type", label: "Contract Type" },
 
   // IT Service Management
   { value: "ticketCategory", label: "Ticket Category" },

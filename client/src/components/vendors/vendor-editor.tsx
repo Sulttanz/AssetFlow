@@ -1,0 +1,137 @@
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { VendorOptions, VendorPayload, VendorRow } from "./types";
+
+type Props = {
+  vendor?: VendorRow | null;
+  options: VendorOptions;
+  saving: boolean;
+  onSave: (payload: VendorPayload) => void;
+  onCancel: () => void;
+};
+
+export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Props) {
+  const [form, setForm] = useState({
+    name: "", code: "", category: "", primaryContactName: "", primaryContactEmail: "",
+    primaryContactPhone: "", supportHotline: "", website: "", status: "active" as "active" | "inactive", notes: "",
+    address: "", city: "", state: "", zipCode: "", country: "USA", taxId: "", paymentTerms: "Net 30", rating: "5",
+  });
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setForm({
+      name: vendor?.name ?? "",
+      code: vendor?.code ?? "",
+      category: vendor?.category ?? "",
+      primaryContactName: vendor?.primaryContactName ?? vendor?.contactPerson ?? "",
+      primaryContactEmail: vendor?.primaryContactEmail ?? vendor?.email ?? "",
+      primaryContactPhone: vendor?.primaryContactPhone ?? vendor?.phone ?? "",
+      supportHotline: vendor?.supportHotline ?? "",
+      website: vendor?.website ?? "",
+      status: (vendor?.status === "inactive" || vendor?.isActive === "false" ? "inactive" : "active"),
+      notes: vendor?.notes ?? "",
+      address: vendor?.address ?? "",
+      city: vendor?.city ?? "",
+      state: vendor?.state ?? "",
+      zipCode: vendor?.zipCode ?? "",
+      country: vendor?.country ?? "USA",
+      taxId: vendor?.taxId ?? "",
+      paymentTerms: vendor?.paymentTerms ?? "Net 30",
+      rating: String(vendor?.rating ?? 5),
+    });
+    setError("");
+  }, [vendor]);
+
+  const update = (key: keyof typeof form, value: string) => setForm(current => ({ ...current, [key]: value }));
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!form.name.trim() || !form.code.trim() || !form.category.trim()) {
+      setError("Name, supplier code, and category are required.");
+      return;
+    }
+    const rawWebsite = form.website.trim();
+    let website: string | null = null;
+    if (rawWebsite) {
+      const normalizedWebsite = /^[a-z][a-z\d+.-]*:\/\//i.test(rawWebsite) ? rawWebsite : `https://${rawWebsite}`;
+      try {
+        const parsed = new URL(normalizedWebsite);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("unsupported protocol");
+        website = parsed.toString();
+      } catch {
+        setError("Enter a valid website address, such as vendor.example.com or https://vendor.example.com.");
+        return;
+      }
+    }
+    onSave({
+      name: form.name.trim(), code: form.code.trim(), category: form.category.trim(),
+      primaryContactName: form.primaryContactName.trim() || null,
+      primaryContactEmail: form.primaryContactEmail.trim() || null,
+      primaryContactPhone: form.primaryContactPhone.trim() || null,
+      supportHotline: form.supportHotline.trim() || null,
+      website,
+      status: form.status, notes: form.notes.trim() || null,
+      address: form.address.trim() || null,
+      city: form.city.trim() || null,
+      state: form.state.trim() || null,
+      zipCode: form.zipCode.trim() || null,
+      country: form.country.trim() || null,
+      taxId: form.taxId.trim() || null,
+      paymentTerms: form.paymentTerms.trim() || null,
+      rating: Math.min(5, Math.max(1, Number(form.rating) || 5)),
+    });
+  };
+
+  const field = (label: string, key: keyof typeof form, props: { type?: string; required?: boolean; placeholder?: string } = {}) => (
+    <label className="space-y-1.5 text-sm font-medium">
+      <span>{label}{props.required && <span className="text-destructive"> *</span>}</span>
+      <Input type={props.type ?? "text"} value={form[key]} required={props.required} placeholder={props.placeholder} onChange={event => update(key, event.target.value)} />
+    </label>
+  );
+
+  return <form onSubmit={submit} className="space-y-5">
+    <div className="grid gap-4 sm:grid-cols-2">
+      {field("Supplier name", "name", { required: true, placeholder: "e.g. Northstar Systems" })}
+      {field("Supplier code", "code", { required: true, placeholder: "e.g. SUP-042" })}
+      <label className="space-y-1.5 text-sm font-medium">
+        <span>Category <span className="text-destructive">*</span></span>
+        <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.category} onChange={event => update("category", event.target.value)} required>
+          <option value="">Select a category</option>
+          {form.category && !options.categories.some(item => item.value === form.category) && <option value={form.category}>{form.category} (legacy)</option>}
+          {options.categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+      </label>
+      <label className="space-y-1.5 text-sm font-medium">
+        <span>Status</span>
+        <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.status} onChange={event => update("status", event.target.value)}>
+          <option value="active">Active</option><option value="inactive">Inactive</option>
+        </select>
+      </label>
+      {field("Primary contact", "primaryContactName")}
+      {field("Contact email", "primaryContactEmail", { type: "email" })}
+      {field("Contact phone", "primaryContactPhone", { type: "tel" })}
+      {field("Support hotline", "supportHotline", { type: "tel" })}
+      {field("Website", "website", { placeholder: "vendor.example.com" })}
+    </div>
+    <details className="rounded-lg border bg-muted/15 p-4" open={Boolean(vendor && (vendor.address || vendor.city || vendor.state || vendor.zipCode || vendor.country || vendor.taxId || vendor.paymentTerms || vendor.rating))}>
+      <summary className="cursor-pointer text-sm font-semibold">Advanced procurement details <span className="ml-1 font-normal text-muted-foreground">Address, tax, terms &amp; supplier rating</span></summary>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        {field("Address", "address")}
+        {field("City", "city")}
+        {field("State / region", "state")}
+        {field("ZIP / postal code", "zipCode")}
+        {field("Country", "country")}
+        {field("Tax ID", "taxId")}
+        <label className="space-y-1.5 text-sm font-medium"><span>Payment terms</span><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.paymentTerms} onChange={event => update("paymentTerms", event.target.value)}><option value="Net 30">Net 30</option><option value="Net 60">Net 60</option><option value="Net 90">Net 90</option><option value="COD">COD</option><option value="Prepaid">Prepaid</option></select></label>
+        <label className="space-y-1.5 text-sm font-medium"><span>Supplier rating</span><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.rating} onChange={event => update("rating", event.target.value)}>{[1, 2, 3, 4, 5].map(rating => <option key={rating} value={rating}>{rating} / 5</option>)}</select></label>
+      </div>
+    </details>
+    <label className="block space-y-1.5 text-sm font-medium"><span>Procurement notes</span><Textarea rows={3} value={form.notes} onChange={event => update("notes", event.target.value)} placeholder="Context worth preserving for the next renewal…" /></label>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    <div className="flex justify-end gap-2 border-t pt-4">
+      <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+      <Button type="submit" disabled={saving}>{saving ? "Saving…" : vendor ? "Save supplier" : "Create supplier"}</Button>
+    </div>
+  </form>;
+}

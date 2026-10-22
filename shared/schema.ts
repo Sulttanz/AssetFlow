@@ -304,6 +304,11 @@ export const assignments = pgTable("assignments", {
 // Vendor Management
 export const vendors = pgTable("vendors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code"),
+  primaryContactName: text("primary_contact_name"),
+  primaryContactEmail: text("primary_contact_email"),
+  primaryContactPhone: text("primary_contact_phone"),
+  supportHotline: text("support_hotline"),
   
   // Basic Vendor Information
   name: text("name").notNull().unique(),
@@ -427,7 +432,9 @@ export const vendors = pgTable("vendors", {
   lastUpdatedDate: timestamp("last_updated_date").defaultNow(),
   createdBy: text("created_by"),
   lastUpdatedBy: text("last_updated_by"),
-});
+}, table => [
+  uniqueIndex("vendors_code_normalized_unique").on(sql`lower(btrim(${table.code}))`).where(sql`${table.code} IS NOT NULL`),
+]);
 
 export const warehouseLocations = pgTable("warehouse_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -768,6 +775,7 @@ export const contracts = pgTable("contracts", {
   endDate: date("end_date"),
   renewalDate: date("renewal_date"),
   value: decimal("value", { precision: 15, scale: 2 }),
+  currency: text("currency").notNull().default("USD"),
   status: text("status").default("active"),  // active | pending | expired
   ownerId: varchar("owner_id").references(() => employees.id, { onDelete: "set null" }),
   renewalTerms: text("renewal_terms"),
@@ -777,6 +785,48 @@ export const contracts = pgTable("contracts", {
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
+
+// Governed SLA extension: the shared ID preserves one financial contract per SLA.
+export const vendorContracts = pgTable("vendor_contracts", {
+  id: varchar("id").primaryKey().references(() => contracts.id, { onDelete: "restrict" }),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "restrict" }),
+  title: text("title").notNull(),
+  contractNumber: text("contract_number").notNull(),
+  contractType: text("contract_type").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  renewalNoticeDays: integer("renewal_notice_days").notNull().default(30),
+  cost: decimal("cost", { precision: 15, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  slaTier: text("sla_tier"),
+  status: text("status").notNull().default("Active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  uniqueIndex("vendor_contracts_number_unique").on(sql`lower(btrim(${table.contractNumber}))`),
+  index("vendor_contracts_vendor_idx").on(table.vendorId),
+  index("vendor_contracts_end_date_idx").on(table.endDate),
+  check("vendor_contracts_dates_check", sql`${table.endDate} >= ${table.startDate}`),
+  check("vendor_contracts_cost_check", sql`${table.cost} >= 0`),
+  check("vendor_contracts_notice_check", sql`${table.renewalNoticeDays} BETWEEN 0 AND 3650`),
+  check("vendor_contracts_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+  check("vendor_contracts_status_check", sql`${table.status} IN ('Active', 'Expiring Soon', 'Expired', 'Terminated')`),
+]);
+export const vendorContractAssets = pgTable("vendor_contract_assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => vendorContracts.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "restrict" }),
+}, table => [uniqueIndex("vendor_contract_assets_unique").on(table.contractId, table.assetId)]);
+export const vendorContractPurchaseOrders = pgTable("vendor_contract_purchase_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => vendorContracts.id, { onDelete: "cascade" }),
+  purchaseOrderId: varchar("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "restrict" }),
+}, table => [uniqueIndex("vendor_contract_purchase_orders_unique").on(table.contractId, table.purchaseOrderId)]);
+export const vendorContractServers = pgTable("vendor_contract_servers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  contractId: varchar("contract_id").notNull().references(() => vendorContracts.id, { onDelete: "cascade" }),
+  serverId: varchar("server_id").notNull().references(() => servers.id, { onDelete: "restrict" }),
+}, table => [uniqueIndex("vendor_contract_servers_unique").on(table.contractId, table.serverId)]);
 
 export const assetBookings = pgTable("asset_bookings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

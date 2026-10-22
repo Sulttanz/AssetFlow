@@ -324,9 +324,10 @@ it("reopens the CAB stream promptly after an ITSM-enabled signal", async () => {
 });
 
 it.each([
-  { name: "a different signed-in account", currentUser: { id: "bob", isActive: true } },
-  { name: "an inactive account", currentUser: { id: "alice", isActive: false } },
-])("does not reopen the CAB stream for $name after an ITSM-enabled signal", async ({ currentUser }) => {
+  { name: "a different signed-in account", currentUser: { id: "bob", isActive: true }, expectedStreams: 3 },
+  { name: "an inactive account", currentUser: { id: "alice", isActive: false }, expectedStreams: 2 },
+])("does not restore the previous account's CAB stream for $name after an ITSM-enabled signal", async ({ currentUser, expectedStreams }) => {
+  vi.useFakeTimers();
   const fetchAccess = vi.fn()
     .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
     .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
@@ -340,9 +341,15 @@ it.each([
   const accessStream = FakeEventSource.instances[1];
   accessStream.dispatchEvent(new Event("itsm-enabled"));
   await flushAsyncWork();
+  // A new active identity legitimately mounts its own stream. Flush query
+  // notifications deterministically instead of racing the old effect cleanup.
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  await flushAsyncWork();
 
+  expect(cabStream.close).toHaveBeenCalledOnce();
   expect(accessStream.close).toHaveBeenCalledOnce();
-  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(FakeEventSource.instances).toHaveLength(expectedStreams);
+  if (expectedStreams === 3) expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
   expect(fetchAccess).toHaveBeenCalledTimes(4);
 });
 

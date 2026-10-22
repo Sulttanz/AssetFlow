@@ -31,3 +31,4 @@
 - [Spreadsheet bundle boundary](spreadsheet-bundle-boundary.md) — keep ExcelJS table-report generation on the server; its browser bundle cannot be safely split.
 - [Knowledge publication boundary](knowledge-publication-boundary.md) — “public” means authenticated employee access; legacy publication and old revisions must not expose internal content.
 - [Structured service catalog](structured-service-catalog.md) — preserve legacy stock/history links; capture submitted forms and approval policies instead of reinterpreting them after configuration changes.
+- [Vendor SLA governance](vendor-sla-governance.md) — keep SLA and financial contracts one-to-one; derive expiry without reviving terminated history or combining different currencies.
