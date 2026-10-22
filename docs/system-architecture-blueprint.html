@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Code-level architecture blueprint and gap analysis for the enterprise ITSM, ITAM, CMDB, and identity governance platform.">
+  <title>System Architecture Blueprint &amp; Gap Analysis</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172b3a;
+      --muted: #536879;
+      --line: #d8e2e9;
+      --paper: #ffffff;
+      --canvas: #f2f6f8;
+      --navy: #173b55;
+      --teal: #087e83;
+      --pale: #eaf5f4;
+      --amber: #8a5b08;
+      --amber-bg: #fff5df;
+      --red: #9a3030;
+      --red-bg: #fff0ed;
+      --green: #24664a;
+      --green-bg: #edf7f0;
+      --blue-bg: #edf4fb;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font: 15px/1.62 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    a { color: #086c79; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    a:focus-visible, summary:focus-visible { outline: 3px solid #f0b94d; outline-offset: 3px; }
+    code {
+      color: #23425a;
+      font: .91em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+    .page { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+    header {
+      padding: 48px 0 34px;
+      color: #fff;
+      background: linear-gradient(118deg, #12344d 0%, #145c66 100%);
+      border-bottom: 5px solid #52b4ae;
+    }
+    header .page { max-width: 1180px; }
+    .eyebrow { margin: 0 0 10px; color: #b7e1dd; font-size: 12px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { max-width: 850px; margin: 0; font-size: clamp(2rem, 5vw, 3.25rem); line-height: 1.08; letter-spacing: -.035em; }
+    .lede { max-width: 800px; margin: 18px 0 0; color: #e0eeef; font-size: 1.08rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 24px; color: #d1e4e7; font-size: .9rem; }
+    .meta strong { color: white; }
+    main { padding: 26px 0 60px; }
+    .intro, section, .source-box {
+      margin: 18px 0;
+      padding: clamp(18px, 3vw, 30px);
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(22, 48, 65, .035);
+    }
+    .intro { border-left: 5px solid var(--teal); }
+    h2 { margin: 0 0 16px; color: var(--navy); font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.2; }
+    h3 { margin: 25px 0 9px; color: #24576a; font-size: 1.17rem; line-height: 1.3; }
+    h4 { margin: 16px 0 5px; color: var(--navy); font-size: 1rem; }
+    p { margin: 9px 0; }
+    ul, ol { padding-left: 1.35rem; }
+    li { margin: 4px 0; }
+    .toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 2px; }
+    .toc a {
+      display: inline-block;
+      padding: 7px 11px;
+      background: var(--blue-bg);
+      border: 1px solid #d7e4ef;
+      border-radius: 999px;
+      font-size: .88rem;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    .callout { margin: 16px 0; padding: 13px 16px; border-radius: 9px; }
+    .callout.info { background: var(--blue-bg); border-left: 4px solid #4785bb; }
+    .callout.warn { background: var(--amber-bg); border-left: 4px solid #cc9222; }
+    .callout.gap { background: var(--red-bg); border-left: 4px solid #c25148; }
+    .callout.good { background: var(--green-bg); border-left: 4px solid #4a9568; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card { min-width: 0; padding: 16px; background: #f8fbfc; border: 1px solid var(--line); border-radius: 10px; }
+    .card h3, .card h4 { margin-top: 0; }
+    .table-wrap { max-width: 100%; margin: 12px 0 20px; overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; font-size: .92rem; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e6edf1; text-align: left; vertical-align: top; }
+    th { background: #edf4f6; color: #244b5d; font-size: .82rem; letter-spacing: .025em; }
+    tr:last-child td { border-bottom: 0; }
+    .entity-list { margin: 0; }
+    .entity-list code { white-space: normal; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .76rem; font-weight: 750; white-space: nowrap; }
+    .tag.built { color: var(--green); background: var(--green-bg); }
+    .tag.partial { color: var(--amber); background: var(--amber-bg); }
+    .tag.gap { color: var(--red); background: var(--red-bg); }
+    .tag.info { color: #315b7c; background: var(--blue-bg); }
+    details { margin: 11px 0; padding: 12px 15px; background: #f9fbfc; border: 1px solid var(--line); border-radius: 9px; }
+    summary { color: #214a60; cursor: pointer; font-weight: 750; }
+    details > :last-child { margin-bottom: 2px; }
+    .mono-list { line-height: 1.9; }
+    .small { color: var(--muted); font-size: .88rem; }
+    .source-box { background: #eaf0f3; box-shadow: none; }
+    footer { padding: 0 0 30px; color: var(--muted); font-size: .86rem; }
+    @media (max-width: 700px) {
+      .page { width: min(100% - 22px, 1180px); }
+      header { padding: 34px 0 26px; }
+      .grid { grid-template-columns: 1fr; }
+      th, td { padding: 8px 9px; }
+    }
+    @media print {
+      body { background: #fff; font-size: 11pt; }
+      header { padding: 20px 0; background: #fff; color: var(--ink); border-bottom: 2px solid #24576a; }
+      .eyebrow, .lede, .meta { color: var(--muted); }
+      .meta strong { color: var(--ink); }
+      .intro, section, .source-box { box-shadow: none; break-inside: avoid; }
+      .toc { display: none; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="page">
+      <p class="eyebrow">Current-state code audit · Enterprise service platform</p>
+      <h1>System Architecture Blueprint &amp; Gap Analysis</h1>
+      <p class="lede">A source-based reference for the platform’s database, APIs, workflows, routes, persona controls, integrations, and readiness gaps across ITSM, ITAM, CMDB, finance, and identity governance.</p>
+      <div class="meta">
+        <span><strong>Audit date:</strong> 22-10-2026</span>
+        <span><strong>Scope:</strong> workspace code and migration files</span>
+        <span><strong>Database:</strong> PostgreSQL via Drizzle ORM</span>
+        <span><strong>Result:</strong> 72 schema tables · 68 protected route registrations</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="intro">
+      <h2>Executive summary</h2>
+      <p>The repository contains a broad, integrated enterprise IT operations product: employee and access lifecycle controls, ITSM workflows, a manual CMDB, asset and software-seat tracking, procurement and maintenance, vendor contracts, knowledge articles, service catalog approvals, handover receipts, and an executive dashboard. The architecture is a conventional React/Vite client, Express API, Drizzle data layer, and PostgreSQL database.</p>
+      <p><strong>What is strongest:</strong> the main workflows are represented by distinct relational records; ticket, approval, change, access, and handover events have audit/activity paths; and database migrations are tracked separately for on-prem deployment.</p>
+      <p><strong>What needs attention before calling this enterprise-complete:</strong> project management is only registered as a disabled upcoming module; automated SLA escalation currently targets the generic ticket table rather than all newer incident/request records; cloud cost data is stored but not reconciled from provider billing feeds; audit records lack database-level tamper-evidence; and the native date-input UI still depends on browser locale.</p>
+      <div class="callout info"><strong>Interpretation:</strong> this is a code/schema audit, not a production-data review, penetration test, formal control assessment, or certification opinion. “Supports alignment” below does not mean ISO 27001, NCA, or SAMA compliance has been independently established.</div>
+      <nav class="toc" aria-label="Report contents">
+        <a href="#architecture">Architecture</a><a href="#data">Data model</a><a href="#backend">APIs &amp; workflows</a>
+        <a href="#frontend">Pages &amp; UI</a><a href="#integrations">Integrations</a><a href="#security">Security &amp; compliance</a><a href="#gaps">Gap analysis</a>
+      </nav>
+    </div>
+
+    <section id="architecture">
+      <h2>Core technology and deployment architecture</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Application stack</h3>
+          <ul>
+            <li><strong>Frontend:</strong> React 18, TypeScript, Vite, Wouter routing, TanStack Query, and shared Tailwind/shadcn-style UI components.</li>
+            <li><strong>Backend:</strong> Node.js and Express 4, with API routes grouped mainly in <code>server/routes.ts</code> and focused modules for auth, knowledge governance, service catalog, vendor contracts, and handovers.</li>
+            <li><strong>Data access:</strong> Drizzle ORM and shared TypeScript table/validation definitions in <code>shared/schema.ts</code>.</li>
+            <li><strong>Database:</strong> PostgreSQL. Runtime configuration uses workspace secrets such as <code>NEON_DATABASE_URL</code>; secret values are intentionally not included.</li>
+            <li><strong>Authentication:</strong> server-side session flow, PostgreSQL session table/store, password verification, and optional 2FA setup/verification endpoints.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Request and data flow</h3>
+          <p><strong>Browser UI</strong> → authenticated Express <code>/api</code> routes → persona/module/permission checks → storage/Drizzle → PostgreSQL.</p>
+          <p>Vite serves the development client. Production is built with <code>npm run build</code>; <code>npm start</code> runs the bundled server and built client. The configured development workflow is <code>npm run dev</code>.</p>
+          <p>Uploads are represented by metadata and paths in database rows; the inspected route code uses server-side filesystem upload paths rather than a discovered managed object-storage adapter.</p>
+        </div>
+        <div class="card">
+          <h3>Schema and migration path</h3>
+          <ul>
+            <li>Drizzle schema is the shared application contract; the workspace exposes <code>npm run db:push</code> for schema synchronization.</li>
+            <li>On-prem SQL changes are separate from Drizzle-managed schema changes and are applied by <code>server/startup-migrations.ts</code>.</li>
+            <li>The on-prem runner records applied migrations in the <code>onprem_deploy</code> ledger schema and checks already-applied entries. The current on-prem directory contains 19 SQL migration files.</li>
+            <li>Recent additions include inventory, employee/access governance, CMDB, change impact links, knowledge governance, service catalog, vendor contracts, and asset handovers.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Operational background work</h3>
+          <ul>
+            <li><strong>Access expiry:</strong> an immediate sweep and a five-minute interval update active access grants whose end date has passed, then add an audit row within the same database transaction.</li>
+            <li><strong>SLA enforcement:</strong> starts 30 seconds after server boot and runs every five minutes. It escalates overdue open generic tickets to critical and adds an internal system comment.</li>
+            <li><strong>CAB live updates:</strong> event streams and expiring database leases support active approval views; process-local event fan-out is reconciled through polling. Multi-instance deployments should not assume process memory is a shared event bus.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="data">
+      <h2>1. Database and relational data architecture</h2>
+      <p><code>shared/schema.ts</code> defines <strong>72 PostgreSQL tables</strong>. The names below are the physical model names; feature labels in the UI can differ. For example, the system dropdown table is <code>dropdown_options</code>, application/server attachments use <code>configuration_documents</code>, and access entitlements use <code>employee_access_rights</code>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Domain</th><th>Tables in the current schema</th><th>Model purpose</th></tr></thead>
+          <tbody>
+            <tr><td>Identity, authorization &amp; configuration (15)</td><td class="entity-list"><code>employees</code>, <code>employee_access_rights</code>, <code>employee_offboarding_clearances</code>, <code>users</code>, <code>roles</code>, <code>permissions</code>, <code>user_roles</code>, <code>role_permissions</code>, <code>sessions</code>, <code>cab_stream_leases</code>, <code>system_settings</code>, <code>audit_logs</code>, <code>dropdown_options</code>, <code>settings</code>, <code>module_settings</code></td><td>People, grants, clearances, RBAC, sessions, audit, settings, and module toggles.</td></tr>
+            <tr><td>Organization (3)</td><td class="entity-list"><code>locations</code>, <code>departments</code>, <code>projects</code></td><td>Organizational dimensions referenced by employees, assets, budgets, tickets, and changes.</td></tr>
+            <tr><td>CMDB &amp; infrastructure (4)</td><td class="entity-list"><code>cmdb_applications</code>, <code>servers</code>, <code>application_server_links</code>, <code>configuration_documents</code></td><td>Application and server registers, many-to-many hosting links, and one-parent configuration files.</td></tr>
+            <tr><td>ITSM, risk &amp; knowledge (23)</td><td class="entity-list"><code>tickets</code>, <code>ticket_comments</code>, <code>ticket_attachments</code>, <code>sla_policies</code>, <code>catalog_items</code>, <code>service_catalog_items</code>, <code>service_requests</code>, <code>service_request_activities</code>, <code>service_requests_approvals</code>, <code>incidents</code>, <code>incident_activities</code>, <code>problems</code>, <code>problem_incidents</code>, <code>changes</code>, <code>change_approvals</code>, <code>change_environment_stages</code>, <code>change_pirs</code>, <code>risk_register</code>, <code>change_risk_links</code>, <code>change_ci_links</code>, <code>kb_articles</code>, <code>kb_article_versions</code>, <code>kb_ticket_links</code></td><td>Service desk, catalog requests, CAB, problems, risk, knowledge, SLA, and workflow history.</td></tr>
+            <tr><td>ITAM &amp; lifecycle (13)</td><td class="entity-list"><code>assets</code>, <code>software_license_allocations</code>, <code>assignments</code>, <code>asset_handovers</code>, <code>asset_bookings</code>, <code>asset_disposal_records</code>, <code>asset_audit_sessions</code>, <code>asset_audit_items</code>, <code>asset_relationships</code>, <code>asset_requests</code>, <code>asset_attachments</code>, <code>maintenance_schedules</code>, <code>maintenance_records</code></td><td>Hardware, software/cloud asset attributes, custody, allocations, inventory, audits, service, and retirement.</td></tr>
+            <tr><td>Procurement, vendor &amp; supply (14)</td><td class="entity-list"><code>vendors</code>, <code>warehouse_locations</code>, <code>consumables</code>, <code>consumable_stock_movements</code>, <code>consumable_dispatch_log</code>, <code>purchase_orders</code>, <code>purchase_order_items</code>, <code>purchase_order_item_receipts</code>, <code>budgets</code>, <code>contracts</code>, <code>vendor_contracts</code>, <code>vendor_contract_assets</code>, <code>vendor_contract_purchase_orders</code>, <code>vendor_contract_servers</code></td><td>Vendors and SLAs, purchasing, receipts, budgets, warehouse stock, and contract-to-resource links.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">Domain counts sum to 72 tables. Some lifecycle entities intentionally sit in a different domain than their UI—for example, vendor contract link tables are part of the procurement set.</p>
+
+      <h3>Key entities and high-value fields</h3>
+      <div class="grid">
+        <div class="card">
+          <h4>Identity and access</h4>
+          <p><code>employees</code> stores employee number, name, email, status, offboarding date/reason, department, manager, position, location, phone, start date, and salary. <code>employee_access_rights</code> stores catalog/access type, privilege, account name, required business justification, grant/expiry dates, status, and revocation data. <code>employee_offboarding_clearances</code> records asset return, credential/VPN revocation, and license reallocation sign-off or waiver notes.</p>
+          <p><code>employee_access_rights.employee_id</code> restricts employee deletion; the employee record does not carry a direct <code>users.id</code> FK. Ticket and portal identity resolve through authenticated user records and matching employee email in several read paths.</p>
+        </div>
+        <div class="card">
+          <h4>Assets and software/cloud FinOps</h4>
+          <p>The broad <code>assets</code> table includes tag, serial/model/manufacturer, asset type/category/status, owner/custodian, location/department/vendor, acquisition/warranty/contract dates, security/compliance posture, financial valuation/depreciation, maintenance, software license type/key/quantity/used seats/expiry, and cloud provider/tenant/billing cycle/recurring cost/auto-renewal.</p>
+          <p><code>software_license_allocations</code> links a software asset pool to employees and allocation/release timestamps. Assets hold cloud and license cost metadata; no provider-billing ingestion ledger is present in this schema.</p>
+        </div>
+        <div class="card">
+          <h4>CMDB and documents</h4>
+          <p><code>cmdb_applications</code> includes category, vendor, business/technical owners, hosting type, criticality, and status. <code>servers</code> includes hostname, IP, OS, environment, specs, location, and status. <code>application_server_links</code> is the many-to-many mapping. <code>configuration_documents</code> references an application or server and stores type/version, original/file names, content type/size/path, uploader, and upload time.</p>
+          <p>A database check enforces exactly one document parent. Documents are version-labelled, but version history is not a separate immutable content archive.</p>
+        </div>
+        <div class="card">
+          <h4>Service desk and change</h4>
+          <p><code>incidents</code> tracks creator/requester, assignee/group, severity/priority/status, asset, SLA policy, response/resolve due dates, timestamps, resolution code, and notes. <code>service_requests</code> tracks requester and creator separately, service/catalog item, approval/fulfilment state, dynamic field values/schema snapshot, target/due dates, fulfilled asset, and completion/closure note.</p>
+          <p><code>changes</code> stores plans, risk/impact, schedule/actual timestamps, CAB requirement, submit/approval times, requester/assignee, department, and project. Separate tables hold approval history, deployment stages/evidence, PIR, risk links, and affected CI links.</p>
+        </div>
+        <div class="card">
+          <h4>Catalog, knowledge, and risk</h4>
+          <p><code>service_catalog_items</code> includes JSON custom-field schema, SLA hours, approval role, and active state; submitted requests snapshot the schema. <code>service_requests_approvals</code> retains approver, decision, note, and time. <code>kb_articles</code> includes publication visibility, ownership, review date, and version; <code>kb_article_versions</code> stores snapshots and change notes. <code>kb_ticket_links</code> retains the linked article version.</p>
+          <p><code>risk_register</code> stores likelihood, impact, score, mitigation, contingency, owner, due date, residual score, status, and acceptance reason; risks can link to changes without being limited to them.</p>
+        </div>
+        <div class="card">
+          <h4>Finance, vendor, warehouse</h4>
+          <p><code>vendors</code> contains contacts, category, risk/compliance details, support data, and vendor status. <code>vendor_contracts</code> holds contract/SLA dates, notice days, value/currency, tier, and status; bridge tables link contracts to assets, POs, and servers.</p>
+          <p>Purchase orders have line items and receipt records. Budgets store fiscal year, department/location, amount, spent amount, category, and notes. Warehouses and consumables have movement and dispatch history. The schema has no direct PO-to-budget FK or allocation junction.</p>
+        </div>
+      </div>
+
+      <h3>Relational integrity and deletion behavior</h3>
+      <ul>
+        <li><strong>History-preserving restrictions:</strong> employee entitlements and clearances, handovers, service catalog items referenced by requests, approved request records, and contract links restrict destructive deletes where history is material.</li>
+        <li><strong>Parent-owned cleanup:</strong> incident/request activities, change approvals/stages/PIR, application-server links, risk links, and ticket/KB associations cascade when their owning record is deleted.</li>
+        <li><strong>Optional actor references:</strong> many user/owner FKs use <code>SET NULL</code> so an account removal does not erase the business record.</li>
+        <li><strong>Checks:</strong> constraints cover offboarding clearance values, handover type/condition/accessory JSON/acknowledgment coherence, vendor contract date/cost/currency/status, one-parent configuration documents and change CI links, catalog SLA and approval role, and approval decision notes.</li>
+        <li><strong>Concurrency:</strong> business workflows use transactions and some domain-specific conflict responses; a single universal version/ETag strategy across all CRUD entities was not evident.</li>
+      </ul>
+    </section>
+
+    <section id="backend">
+      <h2>2. Backend API surface and workflow behavior</h2>
+      <p>Express routes are guarded by authentication, module enablement, permission checks, persona API rules, and—where implemented—record-level visibility. The list below summarizes the active API families; dynamic <code>:id</code> parameters are retained as route patterns.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>API family</th><th>Current capabilities</th><th>Primary workflow/state behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Authentication &amp; admin</td><td><code>/api/login</code>, <code>/api/logout</code>, <code>/api/register</code>, <code>/api/user</code>, <code>/api/auth/2fa/*</code>, users, roles, permissions, settings, system status, dropdowns, module settings.</td><td>Session-backed login; 2FA lifecycle; role/permission assignment; configurable lookup values and module toggles.</td></tr>
+            <tr><td>Employees &amp; access</td><td><code>/api/employees</code>, <code>/api/employees/:id/offboarding-review</code>, <code>/offboard</code>, <code>/reactivate</code>, nested access-right CRUD, <code>/extend</code>, <code>/revoke</code>, <code>/api/access-governance</code>, catalog.</td><td>Employee lifecycle, clearance review, time-bound grants, privilege updates, expiry/revocation reason and audit capture.</td></tr>
+            <tr><td>Incidents &amp; service requests</td><td><code>/api/incidents</code>, options, detail/activity, create/update, assignment/status, conversion to change; <code>/api/service-requests</code>, activity, attachments, approval, assignment, stage, close, consumable fulfilment.</td><td>Personal versus elevated visibility; separate creator/requester on incident intake; approval gate and stage checks before completion; stock issue integration.</td></tr>
+            <tr><td>Generic tickets &amp; SLA</td><td><code>/api/tickets</code>, my-assigned/my-requests, comments, attachments, close/cancel/reopen request, ticket reports; <code>/api/sla-policies</code>.</td><td>Ticket comments and lifecycle requests; background SLA escalation applies to overdue open rows in <code>tickets</code>.</td></tr>
+            <tr><td>Changes, CAB &amp; risk</td><td><code>/api/changes</code>, submit/start/complete/cancel, assignments, approvals and pending votes, stages, PIR, events; <code>/api/risks</code>; CI/risk options.</td><td>CAB decisions and removal history, environment stage deployment evidence, risk and CI blast-radius links, PIR closeout.</td></tr>
+            <tr><td>Knowledge &amp; catalog</td><td><code>/api/kb/articles</code>, search, versions, ratings, options; <code>/api/service-catalog/items</code>, item requests, approvals and decisions; legacy <code>/api/catalog/items</code>.</td><td>Article publication/visibility/version snapshot and ticket linking; dynamic request field schema snapshot and manager/director approval before agent fulfilment.</td></tr>
+            <tr><td>CMDB &amp; documents</td><td><code>/api/applications</code>, <code>/api/servers</code>, app/server links, <code>/api/cmdb/*</code>, attached configuration documents.</td><td>Manual CI registration, hosting relationship mapping, file metadata and change impact/owner summary.</td></tr>
+            <tr><td>Assets &amp; lifecycle</td><td><code>/api/assets</code> CRUD, bulk update, attachments, depreciation schedule, license allocations; assignments, handovers, bookings, audits, disposal, asset requests, maintenance.</td><td>Issue/return receipts update assignment and asset state; software seats are allocated/released; maintenance records can advance a schedule; audit/disposal/booking flows.</td></tr>
+            <tr><td>Procurement &amp; vendors</td><td><code>/api/vendors</code>, vendor management/options, vendor contracts; POs, items/receipts, budgets, contracts, warehouse locations, consumables and stock movements.</td><td>Receiving and fulfillment record stock movement/dispatch history; vendor contract bridges link assets, POs, and servers.</td></tr>
+            <tr><td>Dashboards, compliance &amp; reporting</td><td><code>/api/dashboard/stats</code>, <code>/api/dashboard/executive</code>, alerts, compliance views, KPIs, 28 report endpoints, spreadsheet export and asset import/export.</td><td>Aggregated operational metrics, attention queues, downloadable reports, budget/compliance summaries, import template and bulk asset load.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Record scoping observed in the ITSM API</h3>
+      <div class="callout warn">
+        <p><strong>Current collection-query behavior:</strong> <code>GET /api/incidents</code> returns all rows to elevated helpdesk/manager permissions and otherwise filters to creator or requester. <code>GET /api/service-requests</code> filters non-elevated users to requester-owned records, with approval visibility exceptions. The collection filters do not include a non-elevated assignee match, despite the broader “created or assigned” scope requested in earlier product requirements. Confirm whether that is intentional before expanding staff visibility.</p>
+      </div>
+
+      <h3>End-to-end workflows represented in code</h3>
+      <ol>
+        <li><strong>Self-service request:</strong> employee selects a catalog item, enters schema-driven values, and submits a service request. The submitted schema is snapshotted. Approval-required requests wait for an authorized decision; approved requests enter agent fulfilment, and consumable fulfilment records stock movement before completion.</li>
+        <li><strong>Incident response:</strong> an employee or staff member creates an incident, optionally on behalf of a requester; assignment, status, activity history, asset association, SLA dates, resolution notes, and incident-to-change conversion are represented.</li>
+        <li><strong>Change control:</strong> a change is submitted, routed through CAB decisions and environment stages, linked to affected applications/servers and risks, completed with implementation timestamps, and followed by PIR capture.</li>
+        <li><strong>Employee offboarding:</strong> review flags assigned assets, access grants, and software seats; formal clearance records cover return, credential/VPN revocation, and license reallocation. Finalization requires completion or an explicitly noted waiver.</li>
+        <li><strong>Asset custody:</strong> staff issue, return, or replace an asset through a handover receipt. The action links employee, asset, assignment, issuing user, condition, accessories, and acknowledgment/signature data; employees can acknowledge their receipt.</li>
+        <li><strong>Knowledge feedback:</strong> agents search and attach a versioned article to an incident or service request; the association preserves article version for later reference.</li>
+        <li><strong>Procurement to stock:</strong> PO lines and receipts support assets or consumables; consumable movement and dispatch logs retain warehouse, actor, requester, quantity, and service-request references.</li>
+      </ol>
+    </section>
+
+    <section id="frontend">
+      <h2>3. Frontend routes, workspaces, and principal dialogs</h2>
+      <p><code>client/src/App.tsx</code> currently registers 68 protected route entries, including a root redirect and legacy aliases. Sidebar visibility is persona-aware; page access is also checked by the route guard. The table groups every protected path in the current router.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Workspace</th><th>Routes currently registered</th><th>Primary view / dialog patterns</th></tr></thead>
+          <tbody>
+            <tr><td>Home and employee portal</td><td><code>/</code>, <code>/dashboard</code>, <code>/portal</code>, <code>/my-assets</code>, <code>/service-catalog</code>, <code>/knowledge-base</code></td><td>Persona home redirect; executive KPIs; self-service requests, knowledge search, assigned assets and custody receipts; dynamic catalog request form and article detail/version views.</td></tr>
+            <tr><td>ITSM workbenches</td><td><code>/incidents</code>, <code>/incidents/new</code>, <code>/incidents/tracker</code>, <code>/service-requests</code>, <code>/service-requests/new</code>, <code>/service-requests/tracker</code>, <code>/problems</code>, <code>/changes</code>, <code>/changes/new</code>, <code>/changes/tracker</code>, <code>/risks</code>, <code>/risk-management</code>, <code>/sla-policies</code>, <code>/kpis</code></td><td>Full-page intake, queue filters/assignee views, ticket details/activity, assignment/status/closure dialogs, change CI selector and CAB approval/stage/PIR views, risk scoring/mitigation forms.</td></tr>
+            <tr><td>CMDB and infrastructure</td><td><code>/applications</code>, <code>/servers</code></td><td>Application and server register/detail/edit; hosted application selection; document attachment; linked infrastructure and change impact summaries.</td></tr>
+            <tr><td>ITAM and inventory</td><td><code>/assets</code>, <code>/assignments</code>, <code>/asset-handovers</code>, <code>/asset-requests</code>, <code>/asset-audits</code>, <code>/asset-disposal</code>, <code>/bookings</code>, <code>/maintenance</code>, <code>/consumables</code>, <code>/inventory</code></td><td>Asset create/edit/detail, seat allocation, bulk/import actions, assignment/return, printable handover receipt, audit and disposal review, schedule/record logging, warehouse editing, stock movement/dispatch.</td></tr>
+            <tr><td>Identity and administration</td><td><code>/employees</code>, <code>/access-governance</code>, <code>/users</code>, <code>/roles</code>, <code>/permissions</code>, <code>/audit-logs</code>, <code>/dropdowns</code>, <code>/system/dropdowns</code>, <code>/system-settings</code>, <code>/settings</code>, <code>/import</code></td><td>Employee edit, access entitlement and offboarding/clearance dialogs; grant/extend/revoke; user-role assignment; lookup maintenance; settings and import validation.</td></tr>
+            <tr><td>Financial and vendor operations</td><td><code>/vendors</code>, <code>/purchase-orders</code>, <code>/budgets</code>, <code>/contracts</code>, <code>/locations</code>, <code>/departments</code></td><td>Vendor/contact and contract views; PO approval/receiving/payment workflows; budget utilization; contract renewal indicators; organization directory editing.</td></tr>
+            <tr><td>Reports and secondary pages</td><td><code>/reports</code>, <code>/reports/asset-summary</code>, <code>/reports/lifecycle</code>, <code>/reports/hardware-inventory</code>, <code>/reports/assignments</code>, <code>/reports/maintenance</code>, <code>/reports/purchase-orders</code>, <code>/reports/budget</code>, <code>/reports/department</code>, <code>/reports/warranties</code>, <code>/reports/vendor-analysis</code>, <code>/reports/released-assets</code>, <code>/reports/depreciation</code>, <code>/reports/missing-data</code>, <code>/reports/assignment-history</code>, <code>/reports/tickets</code>, <code>/reports/problems</code>, <code>/reports/changes</code>, <code>/reports/kb-articles</code></td><td>Report filters, tabular summaries, printable/downloadable exports; route aliases include inventory/consumables, dropdown management, and risk management.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout info"><strong>Route gap:</strong> there is no dedicated <code>/projects</code> page in the current router. The <code>projects</code> table exists and ITSM records can reference projects, but <code>project_management</code> is registered as disabled and described as “upcoming.” There is also no separate <code>/config-vault</code> route; configuration documents are managed within application/server views.</div>
+      <p class="small">This is an inventory of primary business workflows rather than every low-level confirmation, shared alert, and form-field component. Shared dialogs are reused across pages.</p>
+    </section>
+
+    <section id="integrations">
+      <h2>4. Cross-module integration map</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>From → to</th><th>Current implementation</th><th>Evidence / boundary</th></tr></thead>
+          <tbody>
+            <tr><td>Employee → access → offboarding</td><td>Employee has a separate access-rights relation and clearance rows. Access grants support expiration, status changes, extension/revoke actions, and audit entries. Offboarding review blocks finalization until required clearances are verified or waived with a note.</td><td><code>employee_access_rights</code>, <code>employee_offboarding_clearances</code>; expiry sweep runs every five minutes.</td></tr>
+            <tr><td>Application ↔ server → change</td><td>Applications and servers are linked through a mapping table; changes retain direct CI links and derive hosted application/server blast-radius and owner summaries.</td><td><code>application_server_links</code>, <code>change_ci_links</code>; the change CI link constraint requires exactly one target type per row.</td></tr>
+            <tr><td>Incident/request → knowledge</td><td>Ticket details can link an article and the version viewed at link time; activity and article versioning preserve the operational context.</td><td><code>kb_ticket_links.article_version</code> and <code>kb_article_versions</code>.</td></tr>
+            <tr><td>Service catalog → approvals → fulfilment</td><td>Dynamic schema values are stored on the request with a schema snapshot. Approval decisions include role, approver, note, and decision time. Stock fulfilment is a controlled transition before completion.</td><td><code>service_catalog_items</code>, <code>service_requests</code>, <code>service_requests_approvals</code>, consumable movement/dispatch.</td></tr>
+            <tr><td>Handover → assignment → asset → offboarding</td><td>Receipt creation updates custody and asset assignment state; return supports offboarding clearance. Employee acknowledgment is recorded separately.</td><td><code>asset_handovers.assignment_id</code> and restrictive employee/asset links preserve receipts.</td></tr>
+            <tr><td>Vendor contracts → resources</td><td>Contract links can associate a vendor agreement with hardware assets, purchase orders, and servers. Contract renewal data is available to dashboard/report views.</td><td><code>vendor_contract_assets</code>, <code>vendor_contract_purchase_orders</code>, <code>vendor_contract_servers</code>.</td></tr>
+            <tr><td>POs ↔ budgets</td><td>Purchase orders are associated with a vendor and department; budgets store department and spent amount. There is no explicit PO-to-budget relation in the schema, and the budget GET path returns stored budget rows.</td><td>Budget attribution and automatic spend reconciliation should be treated as partial, not as a guaranteed transactional link.</td></tr>
+            <tr><td>SLA policy → tickets and incidents</td><td>Generic tickets reference SLA due timestamps and are periodically escalated. Incidents and service requests also contain their own due/target dates and completion timestamps.</td><td>The periodic enforcement worker queries <code>tickets</code>; no corresponding incident/service-request escalation worker was found in the inspected startup job.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="security">
+      <h2>5. Security, governance, and compliance posture</h2>
+      <h3>Persona and permission model</h3>
+      <p>The application recognizes normalized personas <code>end_user</code>, <code>it_agent</code>, <code>cab_member</code>, <code>it_manager</code>, and <code>auditor</code>, alongside admin and legacy role aliases. Authorization composes persona page/API rules with database-backed permissions and module gates. Multiple persona assignments are additive; admin/system-admin permissions bypass persona restrictions.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Persona</th><th>Observed workspace boundary</th><th>Important qualification</th></tr></thead>
+          <tbody>
+            <tr><td>End user</td><td>Portal, service catalog, personal assets, knowledge, and personal incident/request routes; own handover receipts can be acknowledged.</td><td>Incident collection is creator/requester scoped; service request collection is requester scoped. Assigned-handler matching is not included for non-elevated collection calls.</td></tr>
+            <tr><td>IT agent</td><td>Operational ITSM and ITAM workbenches, staff workflows, and broad ticket visibility through helpdesk permissions.</td><td>Specific mutations still depend on permission checks and module enablement.</td></tr>
+            <tr><td>IT manager</td><td>Executive metrics, CMDB/change impact, service operations, financials, employee/access oversight, and broader administration.</td><td>Exact API access is still permission-gated; persona access does not replace ownership or workflow checks.</td></tr>
+            <tr><td>CAB member</td><td>Change approvals and related change/CMDB/financial pages; service catalog approval action is separately allowed.</td><td><code>/changes/new</code> is specifically excluded from the CAB page allowlist; vendor views are read-only.</td></tr>
+            <tr><td>Auditor</td><td>Read-only access to asset inventory, access governance, and audit logs.</td><td>Persona rules reject non-GET API methods unless a more privileged role is also present.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Controls visible in the code</h3>
+      <ul>
+        <li>Session authentication, optional 2FA endpoints, role/permission tables, module-level enable/disable, route permission checks, and persona-aware navigation/API checks.</li>
+        <li>Offboarding clearance types and statuses are constrained; access decisions store actor/reason/time information. Expired access is changed and audited in a transaction.</li>
+        <li>Ticket/incident/service-request updates enforce workflow rules such as approval before completion, stock fulfilment before closure, and closure notes in controlled actions. Domain-specific conflicts return HTTP 409 where state must be refreshed or a transition is invalid.</li>
+        <li>Case-insensitive dropdown duplicate cleanup/uniqueness handling exists; the lookup API returns conflict responses for duplicate values.</li>
+        <li>Human-readable date utilities standardize displayed dates to DD-MM-YYYY and date-times to DD-MM-YYYY HH:mm; persistence remains database/ISO-oriented.</li>
+        <li>Audit log views are read-only through the exposed API. Core access, handover, knowledge, service-catalog, and vendor mutation paths include audit writes; transaction placement varies by workflow.</li>
+      </ul>
+      <div class="callout warn"><strong>Date-input caveat:</strong> formatted text uses the shared date utility, but native <code>&lt;input type="date"&gt;</code> controls remain in risk and change forms. Their placeholder and visual date order are browser/OS locale-dependent, so the UI cannot promise DD-MM-YYYY display for every native picker.</div>
+      <div class="callout gap"><strong>Audit immutability caveat:</strong> application routes do not expose a normal audit-log update/delete flow, but the schema and migration inventory do not establish a database-enforced append-only policy, tamper-evident hash chain, WORM retention, or segregated audit administrator boundary. “Immutable” should therefore be treated as application-level intent, not cryptographic or storage-level proof.</div>
+
+      <h3>ISO 27001, NCA, and SAMA alignment</h3>
+      <p>Asset classification, security posture, compliance metadata, vendor risk fields, access reviews, approvals, activity history, and audit logs provide useful control evidence inputs. However, the code does not by itself prove alignment or certification against ISO 27001, NCA ECC/CCC, or SAMA CSF. A defensible compliance claim still requires a mapped control register, evidence retention/ownership, formal risk acceptance, operational procedures, independent testing, and the applicable organization-specific scope.</p>
+      <p class="small">No complete SAML/OIDC/SCIM identity federation or provider billing synchronization was evident in the inspected auth and integration paths. Confirm external integrations separately before deployment decisions.</p>
+    </section>
+
+    <section id="gaps">
+      <h2>6. Gap analysis and next opportunities</h2>
+      <p>The maturity labels below compare the current code footprint with common enterprise ITSM/ITAM/CMDB expectations. They are prioritization signals, not a product scorecard or competitor certification.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Priority</th><th>Area</th><th>Current state</th><th>Gap / recommended direction</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag gap">P1</span></td><td>Project management</td><td><span class="tag partial">Partial</span> A <code>projects</code> table and ticket/change references exist; module is disabled and described as upcoming.</td><td>Build project pages/API, task/milestone/owner/dependency views, and connect change/asset/service work. Until then, avoid presenting this as a delivered PM module.</td></tr>
+            <tr><td><span class="tag gap">P1</span></td><td>SLA consistency</td><td><span class="tag partial">Partial</span> Policies and due times exist; recurring escalation worker currently processes generic tickets.</td><td>Unify SLA clocks and breach actions across incidents/service requests, including business calendars, pause conditions, response/resolve targets, and escalation history.</td></tr>
+            <tr><td><span class="tag gap">P1</span></td><td>Identity federation and provisioning</td><td><span class="tag partial">Partial</span> Local user/session auth, roles, and 2FA are present.</td><td>Add governed SSO, MFA policy integration, SCIM/provisioning/deprovisioning, and employee-to-account identity mapping before large enterprise adoption.</td></tr>
+            <tr><td><span class="tag gap">P1</span></td><td>Audit integrity</td><td><span class="tag partial">Partial</span> Audit records and reasons are written for important actions; some flows are transactional.</td><td>Add database permissions/triggers or an external immutable archive, integrity verification, retention rules, actor identity/IP policy, and formal audit-event coverage tests.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>CMDB discovery and service mapping</td><td><span class="tag partial">Partial</span> Applications/servers and explicit manual dependency links are supported.</td><td>Add discovery/import connectors, reconciliation rules, ownership synchronization, dependency graph validation, and change impact confidence/source metadata.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Cloud FinOps and license reconciliation</td><td><span class="tag partial">Partial</span> Cloud provider/tenant/cycle/cost and software seat pool fields are stored.</td><td>Add AWS/Azure/GCP/M365 cost and license ingestion, account normalization, cost-center allocation, forecast/variance history, and reconciliation reports.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Budget-to-PO accounting</td><td><span class="tag partial">Partial</span> POs carry department; budgets store department and spend; no direct relational link exists.</td><td>Add a budget allocation reference or auditable allocation ledger and calculate committed, invoiced, and paid spend without relying on manually maintained totals.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Upload security and resilience</td><td><span class="tag partial">Partial</span> Attachments and configuration documents store server file paths and file metadata.</td><td>Use durable shared object storage or an explicitly managed on-prem storage tier; add malware scanning, access checks, size/type policy, encryption, retention, backup, and restore tests.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Notifications and integrations</td><td><span class="tag partial">Partial</span> In-app alerts and CAB streaming/polling exist.</td><td>Add outbox-backed email/webhook/chat/on-call delivery, retry/dead-letter visibility, notification preferences, and shared multi-instance event fan-out.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Workload visibility</td><td><span class="tag partial">Partial</span> Elevated agent/manager users can view broad queues; non-elevated record filters are owner/requester based.</td><td>Decide and test the intended assigned-handler rule; include assignee/team scope where policy permits and verify detail endpoints use the same row-level access policy.</td></tr>
+            <tr><td><span class="tag partial">P2</span></td><td>Date-entry consistency</td><td><span class="tag partial">Partial</span> Shared text-date utilities display DD-MM-YYYY.</td><td>Replace native date controls with a locale-independent masked date component, or clearly specify browser locale and test date round-trips across timezones.</td></tr>
+            <tr><td><span class="tag partial">P3</span></td><td>Advanced workflow automation</td><td><span class="tag partial">Partial</span> Request/approval/CAB/status transitions are explicit and tested in code.</td><td>Consider configurable workflow rules, routing policies, maintenance windows, event-driven integrations, and a business-readable history for rule outcomes.</td></tr>
+            <tr><td><span class="tag partial">P3</span></td><td>Executive reporting</td><td><span class="tag built">Built</span> Aggregated executive API, dashboard, KPIs, and report exports exist.</td><td>For sustained growth, add query plans/index review, report-level access tests, time-series snapshots, and a governed BI interface rather than expanding live transactional queries.</td></tr>
+            <tr><td><span class="tag partial">P3</span></td><td>Database integration-test coverage</td><td><span class="tag partial">Partial</span> Most current automated tests pass; the last full run skipped PostgreSQL integration suites without an isolated test database URL.</td><td>Maintain a dedicated disposable PostgreSQL test target and make critical migrations, row-level scope, and transactional workflows required CI gates.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Position relative to common enterprise suites</h3>
+      <div class="grid">
+        <div class="card">
+          <h4>Capabilities already comparable at the workflow level</h4>
+          <ul>
+            <li>Incident/request intake, assignment, activity, closure, approvals, service catalog forms, and knowledge linking.</li>
+            <li>Change/CAB controls, risk scoring, CI impact mapping, staged deployment records, and PIR.</li>
+            <li>Employee access reviews/offboarding, asset custody receipts, software allocations, inventory, maintenance, purchase orders, contracts, and reports.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>What still separates a broad platform from a mature Tier-1 deployment</h4>
+          <ul>
+            <li>Automated discovery/reconciliation and service topology; provider-backed licensing/cost feeds.</li>
+            <li>Federated identity lifecycle, cross-system orchestration, and production-grade outbound notification delivery.</li>
+            <li>Provable audit immutability, formal control mappings, resilient file storage, and operational recovery evidence.</li>
+            <li>Unified SLA semantics, workload scoping, configurable workflow automation, and dedicated project management.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout good"><strong>Verification snapshot:</strong> the most recent full test run available in this workspace reported 326 passed and 52 skipped; PostgreSQL integration suites were skipped because no isolated <code>VITEST_TEST_DATABASE_URL</code> was configured. <code>npm run check</code> and the production build passed, and the security audit reported zero vulnerabilities at that run. This report did not re-run the suite or query production data.</div>
+    </section>
+
+    <div class="source-box">
+      <h2>Audit scope and source map</h2>
+      <p>This report was assembled from the current repository source and migration directory, not from live customer records. Principal sources reviewed:</p>
+      <ul class="mono-list">
+        <li><code>shared/schema.ts</code>, <code>shared/personas.ts</code>, <code>shared/modules.ts</code></li>
+        <li><code>server/routes.ts</code>, <code>server/auth.ts</code>, <code>server/index.ts</code>, <code>server/startup-migrations.ts</code>, <code>server/storage.ts</code></li>
+        <li><code>server/knowledge-governance.ts</code>, <code>server/service-catalog.ts</code>, <code>server/vendor-contracts.ts</code>, <code>server/asset-handovers.ts</code></li>
+        <li><code>client/src/App.tsx</code>, <code>client/src/pages/</code>, <code>client/src/components/layout/</code>, <code>client/src/lib/date-utils.ts</code></li>
+        <li><code>migrations/onprem/</code> and the configured npm scripts in <code>package.json</code></li>
+      </ul>
+      <p class="small">For operational decisions, validate the deployed database schema and migration ledger, runtime configuration, configured integrations, and the enabled role/permission assignments in the target environment.</p>
+    </div>
+  </main>
+  <footer class="page">Enterprise ITSM / ITAM / CMDB platform · Architecture reference generated 22-10-2026</footer>
+</body>
+</html>

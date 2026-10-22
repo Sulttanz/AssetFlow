@@ -28,3 +28,17 @@ mtime_ms = 1792329554050
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/c4e56829-89e0-4028-bfa6-b006dd9a1000/af59cb9f-e4da-4561-8e74-a8e2891eb008"
 storage_version_token = "1792329564067979"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "W7yeWERojkE2909rfgvLB"
+uri = "file://docs/system-architecture-blueprint.html"
+type = "html"
+title = "System Architecture Blueprint & Gap Analysis"
+description = "Self-contained architecture reference covering the schema, APIs, workflows, routes, RBAC, integrations, compliance posture, and prioritized gaps."
+logical_id = "4f5674c3-5222-4c8c-a6a0-b8ab4413ebc6"
+content_hash = "sha256:be134e918fc99a6e1544156aa0d90701b62579320847d8b0207010b92a9463d9"
+size = 52247
+mtime_ms = 1792651839236
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/4f5674c3-5222-4c8c-a6a0-b8ab4413ebc6/480c2fbc-fa6c-4e09-a311-ab02da1df5f3"
+storage_version_token = "1792651865610815"
+content_type = "text/html"
