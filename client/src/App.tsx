@@ -20,6 +20,8 @@ const Employees = lazy(() => import("@/pages/employees"));
 const AccessGovernance = lazy(() => import("@/pages/access-governance"));
 const Applications = lazy(() => import("@/pages/applications"));
 const Servers = lazy(() => import("@/pages/servers"));
+const NetworkTopology = lazy(() => import("@/pages/network-topology"));
+const BackupSchedules = lazy(() => import("@/pages/backup-schedules"));
 const Assignments = lazy(() => import("@/pages/assignments"));
 const AssetHandovers = lazy(() => import("@/pages/asset-handovers"));
 const Locations = lazy(() => import("@/pages/locations"));
@@ -110,6 +112,8 @@ function Router() {
                   <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredAnyPermission={["employee_update", "access_governance_view", "system_admin"]} />
                   <ProtectedRoute path="/applications" component={Applications} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
                   <ProtectedRoute path="/servers" component={Servers} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
+                  <ProtectedRoute path="/network-topology" component={NetworkTopology} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"]} />
+                  <ProtectedRoute path="/backup-schedules" component={BackupSchedules} requiredModule="asset_management" requiredAnyPermission={["asset_update", "audit_view", "compliance_view", "system_admin"]} />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />

@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { ArticleVersion, KnowledgeArticle, statusLabel } from "./types";
+import { PolicyGovernancePanel } from "./policy-governance-panel";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await apiRequest("GET", url);
@@ -99,6 +100,7 @@ export function ArticleDetailDialog({ articleId, open, onOpenChange }: {
                 </section>
               </aside>
             </div>
+            {!historical && article && ["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase()) && <PolicyGovernancePanel articleId={article.id} />}
             <div className="flex justify-end border-t pt-3"><Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button></div>
           </> : <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><BookOpen className="h-4 w-4" /><LoaderCircle className="h-4 w-4 animate-spin" />Loading article</div>}
     </DialogContent>

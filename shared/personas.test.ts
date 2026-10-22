@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPersonaRoleKeys, isPersonaApiAllowed, isPersonaPageAllowed } from "./personas";
+import { canAuditPublishedPolicies, canReadKnowledge } from "./kb-governance";
 
 describe("persona access policy", () => {
   it("recognizes the supported persona role names and legacy IT staff aliases", () => {
@@ -29,6 +30,25 @@ describe("persona access policy", () => {
     expect(isPersonaApiAllowed(["auditor"], [], "/assets", "POST")).toBe(false);
     expect(isPersonaApiAllowed(["auditor"], [], "/audit-logs", "GET")).toBe(true);
     expect(isPersonaApiAllowed(["auditor"], [], "/audit-logs", "DELETE")).toBe(false);
+  });
+
+  it("allows auditors to inspect infrastructure and backup evidence without mutation rights", () => {
+    expect(isPersonaPageAllowed(["auditor"], [], "/network-topology")).toBe(true);
+    expect(isPersonaPageAllowed(["auditor"], [], "/backup-schedules")).toBe(true);
+    expect(isPersonaApiAllowed(["auditor"], [], "/network-topology/firewall-rules", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["auditor"], [], "/network-topology/firewall-rules", "POST")).toBe(false);
+    expect(isPersonaApiAllowed(["auditor"], [], "/backup-schedules/runs", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["auditor"], [], "/backup-schedules/id/runs", "POST")).toBe(false);
+    expect(isPersonaPageAllowed(["end_user"], [], "/network-topology")).toBe(false);
+    expect(isPersonaPageAllowed(["end_user"], [], "/backup-schedules")).toBe(false);
+  });
+
+  it("limits auditor knowledge access to published policies", () => {
+    const auditor = { roles: [{ name: "auditor" }], permissions: [] };
+    expect(canAuditPublishedPolicies(auditor)).toBe(true);
+    expect(canReadKnowledge(auditor, { status: "published", isPublic: false, category: "Policy" })).toBe(true);
+    expect(canReadKnowledge(auditor, { status: "draft", isPublic: true, category: "Policy" })).toBe(false);
+    expect(canReadKnowledge(auditor, { status: "published", isPublic: true, category: "Technical SOP" })).toBe(false);
   });
 
   it("allows workbench actions to agents while keeping role-specific APIs scoped", () => {

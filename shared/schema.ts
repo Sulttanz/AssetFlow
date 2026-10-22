@@ -750,6 +750,204 @@ export const applicationServerLinks = pgTable("application_server_links", {
 ]);
 export type ApplicationServerLink = typeof applicationServerLinks.$inferSelect;
 
+// Network topology, firewall governance, and backup verification
+export const networkZones = pgTable("network_zones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  cidr: text("cidr"),
+  securityLevel: text("security_level").notNull().default("internal"),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("network_zones_name_ci_unique").on(sql`lower(btrim(${table.name}))`),
+  uniqueIndex("network_zones_code_ci_unique").on(sql`lower(btrim(${table.code}))`),
+  index("network_zones_active_idx").on(table.isActive, table.name),
+]);
+export const insertNetworkZoneSchema = createInsertSchema(networkZones).omit({
+  id: true, createdById: true, createdAt: true, updatedAt: true,
+});
+export type NetworkZone = typeof networkZones.$inferSelect;
+
+export const networkDevices = pgTable("network_devices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  deviceType: text("device_type").notNull(),
+  hostname: text("hostname"),
+  managementIp: text("management_ip"),
+  manufacturer: text("manufacturer"),
+  model: text("model"),
+  serialNumber: text("serial_number"),
+  zoneId: varchar("zone_id").references(() => networkZones.id, { onDelete: "set null" }),
+  assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("network_devices_hostname_ci_unique").on(sql`lower(btrim(${table.hostname}))`)
+    .where(sql`${table.hostname} IS NOT NULL AND btrim(${table.hostname}) <> ''`),
+  index("network_devices_zone_status_idx").on(table.zoneId, table.status),
+  index("network_devices_type_status_idx").on(table.deviceType, table.status),
+  check("network_devices_type_check", sql`${table.deviceType} IN ('firewall', 'router', 'switch', 'access_point', 'load_balancer', 'other')`),
+  check("network_devices_status_check", sql`${table.status} IN ('active', 'maintenance', 'retired')`),
+]);
+export const insertNetworkDeviceSchema = createInsertSchema(networkDevices).omit({
+  id: true, createdById: true, createdAt: true, updatedAt: true,
+});
+export type NetworkDevice = typeof networkDevices.$inferSelect;
+
+export const networkDeviceLinks = pgTable("network_device_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceDeviceId: varchar("source_device_id").notNull().references(() => networkDevices.id, { onDelete: "restrict" }),
+  targetDeviceId: varchar("target_device_id").notNull().references(() => networkDevices.id, { onDelete: "restrict" }),
+  linkType: text("link_type").notNull().default("connection"),
+  sourceInterface: text("source_interface"),
+  targetInterface: text("target_interface"),
+  notes: text("notes"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("network_device_links_pair_unique").on(table.sourceDeviceId, table.targetDeviceId),
+  check("network_device_links_distinct_devices_check", sql`${table.sourceDeviceId} <> ${table.targetDeviceId}`),
+  index("network_device_links_target_idx").on(table.targetDeviceId),
+]);
+export const insertNetworkDeviceLinkSchema = createInsertSchema(networkDeviceLinks).omit({
+  id: true, createdById: true, createdAt: true,
+});
+export type NetworkDeviceLink = typeof networkDeviceLinks.$inferSelect;
+
+export const firewallRules = pgTable("firewall_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ruleReference: text("rule_reference"),
+  name: text("name").notNull(),
+  firewallDeviceId: varchar("firewall_device_id").notNull().references(() => networkDevices.id, { onDelete: "restrict" }),
+  sourceZoneId: varchar("source_zone_id").references(() => networkZones.id, { onDelete: "set null" }),
+  sourceAddresses: text("source_addresses").notNull().default("any"),
+  destinationZoneId: varchar("destination_zone_id").references(() => networkZones.id, { onDelete: "set null" }),
+  destinationAddresses: text("destination_addresses").notNull().default("any"),
+  protocol: text("protocol").notNull().default("any"),
+  ports: text("ports"),
+  action: text("action").notNull(),
+  businessJustification: text("business_justification").notNull(),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
+  changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
+  reviewIntervalDays: integer("review_interval_days").notNull().default(90),
+  nextReviewDueAt: date("next_review_due_at"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  status: text("status").notNull().default("active"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("firewall_rules_device_reference_ci_unique")
+    .on(table.firewallDeviceId, sql`lower(btrim(${table.ruleReference}))`)
+    .where(sql`${table.ruleReference} IS NOT NULL AND btrim(${table.ruleReference}) <> ''`),
+  index("firewall_rules_review_due_idx").on(table.status, table.nextReviewDueAt),
+  index("firewall_rules_device_idx").on(table.firewallDeviceId, table.status),
+  check("firewall_rules_action_check", sql`${table.action} IN ('allow', 'deny')`),
+  check("firewall_rules_status_check", sql`${table.status} IN ('active', 'inactive')`),
+  check("firewall_rules_review_interval_check", sql`${table.reviewIntervalDays} BETWEEN 1 AND 3650`),
+  check("firewall_rules_justification_check", sql`length(trim(${table.businessJustification})) >= 10`),
+]);
+export const insertFirewallRuleSchema = createInsertSchema(firewallRules).omit({
+  id: true, createdById: true, lastReviewedAt: true, createdAt: true, updatedAt: true,
+});
+export type FirewallRule = typeof firewallRules.$inferSelect;
+
+export const firewallRuleReviews = pgTable("firewall_rule_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  firewallRuleId: varchar("firewall_rule_id").notNull().references(() => firewallRules.id, { onDelete: "restrict" }),
+  reviewerId: varchar("reviewer_id").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at").notNull().default(sql`now()`),
+  outcome: text("outcome").notNull(),
+  nextReviewDueAt: date("next_review_due_at"),
+  notes: text("notes").notNull(),
+}, table => [
+  index("firewall_rule_reviews_rule_date_idx").on(table.firewallRuleId, table.reviewedAt),
+  check("firewall_rule_reviews_outcome_check", sql`${table.outcome} IN ('approved', 'changes_requested', 'revoked')`),
+  check("firewall_rule_reviews_notes_check", sql`length(trim(${table.notes})) >= 5`),
+]);
+export type FirewallRuleReview = typeof firewallRuleReviews.$inferSelect;
+
+export const backupSchedules = pgTable("backup_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  serverId: varchar("server_id").references(() => servers.id, { onDelete: "restrict" }),
+  applicationId: varchar("application_id").references(() => cmdbApplications.id, { onDelete: "restrict" }),
+  backupType: text("backup_type").notNull().default("full"),
+  frequency: text("frequency").notNull(),
+  customFrequency: text("custom_frequency"),
+  retentionDays: integer("retention_days").notNull(),
+  retentionPolicy: text("retention_policy"),
+  destination: text("destination").notNull(),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
+  isActive: boolean("is_active").notNull().default(true),
+  nextDueAt: timestamp("next_due_at"),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  check("backup_schedules_one_target_check", sql`num_nonnulls(${table.serverId}, ${table.applicationId}) = 1`),
+  check("backup_schedules_type_check", sql`${table.backupType} IN ('full', 'incremental', 'differential', 'snapshot')`),
+  check("backup_schedules_frequency_check", sql`${table.frequency} IN ('hourly', 'daily', 'weekly', 'monthly', 'custom')`),
+  check("backup_schedules_retention_check", sql`${table.retentionDays} BETWEEN 1 AND 36500`),
+  index("backup_schedules_active_due_idx").on(table.isActive, table.nextDueAt),
+  index("backup_schedules_server_idx").on(table.serverId),
+  index("backup_schedules_application_idx").on(table.applicationId),
+]);
+export const insertBackupScheduleSchema = createInsertSchema(backupSchedules).omit({
+  id: true, createdById: true, createdAt: true, updatedAt: true,
+});
+export type BackupSchedule = typeof backupSchedules.$inferSelect;
+
+export const backupJobRuns = pgTable("backup_job_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scheduleId: varchar("schedule_id").notNull().references(() => backupSchedules.id, { onDelete: "restrict" }),
+  status: text("status").notNull(),
+  startedAt: timestamp("started_at").notNull(),
+  completedAt: timestamp("completed_at"),
+  dataSizeMb: integer("data_size_mb"),
+  restorePoint: text("restore_point"),
+  evidenceReference: text("evidence_reference"),
+  notes: text("notes").notNull(),
+  loggedById: varchar("logged_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  index("backup_job_runs_schedule_started_idx").on(table.scheduleId, table.startedAt),
+  index("backup_job_runs_status_started_idx").on(table.status, table.startedAt),
+  check("backup_job_runs_status_check", sql`${table.status} IN ('success', 'failed', 'partial')`),
+  check("backup_job_runs_size_check", sql`${table.dataSizeMb} IS NULL OR ${table.dataSizeMb} >= 0`),
+  check("backup_job_runs_time_order_check", sql`${table.completedAt} IS NULL OR ${table.completedAt} >= ${table.startedAt}`),
+  check("backup_job_runs_notes_check", sql`length(trim(${table.notes})) >= 5`),
+]);
+export type BackupJobRun = typeof backupJobRuns.$inferSelect;
+
+export const backupRestoreTests = pgTable("backup_restore_tests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scheduleId: varchar("schedule_id").notNull().references(() => backupSchedules.id, { onDelete: "restrict" }),
+  testedAt: timestamp("tested_at").notNull().default(sql`now()`),
+  outcome: text("outcome").notNull(),
+  recoveryPoint: text("recovery_point"),
+  measuredRtoMinutes: integer("measured_rto_minutes"),
+  measuredRpoMinutes: integer("measured_rpo_minutes"),
+  evidenceReference: text("evidence_reference"),
+  notes: text("notes").notNull(),
+  testerId: varchar("tester_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  index("backup_restore_tests_schedule_tested_idx").on(table.scheduleId, table.testedAt),
+  check("backup_restore_tests_outcome_check", sql`${table.outcome} IN ('passed', 'failed', 'partial')`),
+  check("backup_restore_tests_rto_check", sql`${table.measuredRtoMinutes} IS NULL OR ${table.measuredRtoMinutes} >= 0`),
+  check("backup_restore_tests_rpo_check", sql`${table.measuredRpoMinutes} IS NULL OR ${table.measuredRpoMinutes} >= 0`),
+  check("backup_restore_tests_notes_check", sql`length(trim(${table.notes})) >= 5`),
+]);
+export type BackupRestoreTest = typeof backupRestoreTests.$inferSelect;
+
 // Dropdown Options - Manage all dropdown values
 export const dropdownOptions = pgTable("dropdown_options", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1530,6 +1728,48 @@ export const kbArticleVersions = pgTable("kb_article_versions", {
   changeNote: text("change_note").notNull(),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 }, table => [uniqueIndex("kb_article_versions_article_version_unique").on(table.articleId, table.version)]);
+
+export const kbArticleAttachments = pgTable("kb_article_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  articleId: varchar("article_id").notNull().references(() => kbArticles.id, { onDelete: "restrict" }),
+  articleVersion: text("article_version").notNull(),
+  documentType: text("document_type").notNull().default("official_policy"),
+  version: integer("version").notNull().default(1),
+  originalName: text("original_name").notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type"),
+  fileSize: integer("file_size"),
+  filePath: text("file_path").notNull(),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("kb_article_attachments_name_type_version_unique")
+    .on(table.articleId, sql`lower(btrim(${table.originalName}))`, table.documentType, table.version),
+  index("kb_article_attachments_article_uploaded_idx").on(table.articleId, table.uploadedAt),
+]);
+export type KbArticleAttachment = typeof kbArticleAttachments.$inferSelect;
+
+export const kbArticleControlMappings = pgTable("kb_article_control_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  articleId: varchar("article_id").notNull().references(() => kbArticles.id, { onDelete: "restrict" }),
+  articleVersion: text("article_version").notNull(),
+  framework: text("framework").notNull(),
+  controlId: text("control_id").notNull(),
+  controlTitle: text("control_title").notNull(),
+  implementationNotes: text("implementation_notes"),
+  mappedBy: varchar("mapped_by").references(() => users.id, { onDelete: "set null" }),
+  isActive: boolean("is_active").notNull().default(true),
+  removedBy: varchar("removed_by").references(() => users.id, { onDelete: "set null" }),
+  removedAt: timestamp("removed_at"),
+  removalNote: text("removal_note"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("kb_article_control_mappings_unique_ci")
+    .on(table.articleId, sql`lower(btrim(${table.framework}))`, sql`lower(btrim(${table.controlId}))`)
+    .where(sql`${table.isActive} = true`),
+  index("kb_article_control_mappings_framework_idx").on(table.framework, table.controlId),
+]);
+export type KbArticleControlMapping = typeof kbArticleControlMappings.$inferSelect;
 
 export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true, reviewedById: true, reviewedAt: true, publishedAt: true });
 export type KbArticle = typeof kbArticles.$inferSelect;

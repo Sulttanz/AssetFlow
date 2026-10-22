@@ -12,11 +12,19 @@ export function canManageKnowledge(user: PersonaUserLike | null | undefined): bo
   ].includes(role.name.trim().toLowerCase())) ?? false;
 }
 
+export function canAuditPublishedPolicies(user: PersonaUserLike | null | undefined): boolean {
+  if (!user) return false;
+  return personaRolesForUser(user).includes("auditor") ||
+    user.permissions?.some(permission => ["audit_view", "compliance_view"].includes(permission)) === true;
+}
+
 export function canReadKnowledge(
   user: PersonaUserLike | null | undefined,
   article: { status: string; isPublic: boolean; category: string },
 ): boolean {
   if (!user) return false;
+  if (canAuditPublishedPolicies(user) && article.status === "published" &&
+    article.category.trim().toLowerCase() === "policy") return true;
   return canManageKnowledge(user) ||
     (article.status === "published" && article.isPublic &&
       ["policy", "user guide"].includes(article.category.trim().toLowerCase()));

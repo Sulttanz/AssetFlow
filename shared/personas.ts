@@ -17,7 +17,7 @@ const IT_AGENT_PAGE_PREFIXES = [
   "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
   "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
   "/incidents", "/service-requests", "/problems", "/knowledge-base",
-  "/service-catalog", "/reports/tickets", "/reports/problems",
+  "/service-catalog", "/network-topology", "/backup-schedules", "/reports/tickets", "/reports/problems",
 ];
 
 const MANAGER_PAGE_PREFIXES = [
@@ -90,11 +90,12 @@ export function isPersonaPageAllowed(
     if (persona === "cab_member") {
       if (matchesPath(path, "/changes/new")) return false;
       return [
-        "/dashboard", "/changes", "/applications", "/servers", "/purchase-orders",
+        "/dashboard", "/changes", "/applications", "/servers", "/network-topology", "/purchase-orders",
         "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors",
       ].some(prefix => matchesPath(path, prefix));
     }
-    return ["/assets", "/access-governance", "/audit-logs"].some(prefix => matchesPath(path, prefix));
+    return ["/assets", "/access-governance", "/audit-logs", "/network-topology", "/backup-schedules", "/knowledge-base"]
+      .some(prefix => matchesPath(path, prefix));
   });
 }
 
@@ -138,6 +139,7 @@ const IT_AGENT_API_PREFIXES = [
   "/maintenance-schedules", "/maintenance-records", "/asset-bookings", "/asset-handovers",
   "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
   "/warehouses", "/inventory", "/vendors", "/locations", "/departments",
+  "/network-topology", "/backup-schedules",
 ];
 
 const MANAGER_API_PREFIXES = [
@@ -183,6 +185,7 @@ export function isPersonaApiAllowed(
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "cab_member") {
+      if (matchesPath(apiPath, "/network-topology")) return isReadMethod(upperMethod);
       if (["/vendor-management", "/vendor-contracts"].some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
       if (["/service-catalog/options", "/service-catalog/items"].includes(apiPath)) return isReadMethod(upperMethod);
       if (apiPath === "/service-catalog/approvals") return isReadMethod(upperMethod);
@@ -194,6 +197,8 @@ export function isPersonaApiAllowed(
     }
     if (!isReadMethod(upperMethod)) return false;
     if (apiPath === "/access-governance" || apiPath === "/access-governance/catalog" || apiPath === "/audit-logs") return true;
+    if (matchesPath(apiPath, "/network-topology") || matchesPath(apiPath, "/backup-schedules")) return true;
+    if (matchesPath(apiPath, "/kb/articles") || matchesPath(apiPath, "/kb/search")) return true;
     if (apiPath === "/employees") return true;
     return apiPath === "/assets" || /^\/assets\/[^/]+$/.test(apiPath);
   });

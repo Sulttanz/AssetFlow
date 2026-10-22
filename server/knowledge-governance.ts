@@ -1,15 +1,18 @@
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
+import { unlink } from "node:fs/promises";
 import { and, desc, eq, getTableColumns, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
   auditLogs, dropdownOptions, incidentActivities, incidents, kbArticles,
-  kbArticleVersions, kbTicketLinks, serviceRequestActivities, serviceRequests, users,
+  kbArticleAttachments, kbArticleControlMappings, kbArticleVersions, kbTicketLinks,
+  serviceRequestActivities, serviceRequests, users,
   type KbArticle,
 } from "@shared/schema";
 import {
-  canManageKnowledge, canReadKnowledge, knowledgeArticleInput, nextKnowledgeVersion,
+  canAuditPublishedPolicies, canManageKnowledge, canReadKnowledge, knowledgeArticleInput, nextKnowledgeVersion,
 } from "@shared/kb-governance";
 import { db } from "./db";
 import { storage } from "./storage";
@@ -41,7 +44,12 @@ function requireEditor(user: Viewer) {
 }
 
 function visibleArticles(user: Viewer): SQL | undefined {
-  return canManageKnowledge(user) ? undefined : and(
+  if (canManageKnowledge(user)) return undefined;
+  if (canAuditPublishedPolicies(user)) return and(
+    eq(kbArticles.status, "published"),
+    sql`lower(trim(${kbArticles.category})) = 'policy'`,
+  );
+  return and(
     eq(kbArticles.status, "published"),
     eq(kbArticles.isPublic, true),
     inArray(sql`lower(trim(${kbArticles.category}))`, ["policy", "user guide"]),
@@ -135,7 +143,11 @@ async function updateArticle(
 }
 
 /** Mounted after global authentication/persona/module gates. */
-export function registerKnowledgeRoutes(app: Express, requireAuth: RequestHandler) {
+export function registerKnowledgeRoutes(
+  app: Express,
+  requireAuth: RequestHandler,
+  uploadSingleFile?: RequestHandler,
+) {
   const route = (handler: (req: Request, res: Response, user: Viewer) => Promise<unknown>): RequestHandler =>
     async (req, res) => {
       try { await handler(req, res, await viewer(req)); }
@@ -143,11 +155,22 @@ export function registerKnowledgeRoutes(app: Express, requireAuth: RequestHandle
         if (error instanceof KnowledgeError) return void res.status(error.status).json({ message: error.message });
         if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid article data", errors: error.errors });
         const code = (error as any)?.code ?? (error as any)?.cause?.code;
-        if (code === "23505") return void res.status(409).json({ message: "This article slug or link already exists" });
+        if (code === "23505") return void res.status(409).json({ message: "A duplicate article, attachment, or control mapping already exists" });
         console.error("Knowledge governance request failed", error instanceof Error ? error.message : "Unknown error");
         res.status(500).json({ message: "Knowledge-base request failed" });
       }
     };
+  const editorMiddleware: RequestHandler = async (req, res, next) => {
+    try {
+      requireEditor(await viewer(req));
+      next();
+    } catch (error) {
+      if (error instanceof KnowledgeError) return void res.status(error.status).json({ message: error.message });
+      res.status(500).json({ message: "Could not verify knowledge governance access" });
+    }
+  };
+  const passThrough: RequestHandler = (_req, _res, next) => next();
+  const fileMiddleware = uploadSingleFile ?? passThrough;
 
   const list = (publishedOnly = false) => route(async (req, res, user) => {
     const query = z.object({
@@ -251,6 +274,174 @@ export function registerKnowledgeRoutes(app: Express, requireAuth: RequestHandle
       ? { helpfulCount: sql`coalesce(${field}, 0) + 1` }
       : { notHelpfulCount: sql`coalesce(${field}, 0) + 1` }).where(eq(kbArticles.id, req.params.id));
     res.json({ success: true });
+  }));
+
+  app.get("/api/kb/articles/:id/attachments", requireAuth, route(async (req, res, user) => {
+    const article = await articleDetail(req.params.id, user);
+    if (!["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase())) {
+      throw new KnowledgeError(404, "Policy documents not found");
+    }
+    const rows = await db.select({
+      id: kbArticleAttachments.id,
+      articleId: kbArticleAttachments.articleId,
+      articleVersion: kbArticleAttachments.articleVersion,
+      documentType: kbArticleAttachments.documentType,
+      version: kbArticleAttachments.version,
+      originalName: kbArticleAttachments.originalName,
+      fileType: kbArticleAttachments.fileType,
+      fileSize: kbArticleAttachments.fileSize,
+      uploadedAt: kbArticleAttachments.uploadedAt,
+      uploadedBy: kbArticleAttachments.uploadedBy,
+      uploadedByName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${users.username})`,
+    }).from(kbArticleAttachments).leftJoin(users, eq(kbArticleAttachments.uploadedBy, users.id))
+      .where(eq(kbArticleAttachments.articleId, article.id))
+      .orderBy(desc(kbArticleAttachments.uploadedAt), desc(kbArticleAttachments.version));
+    if (canManageKnowledge(user)) return res.json(rows);
+    const latest = new Map<string, typeof rows[number]>();
+    for (const row of rows) {
+      const key = `${row.originalName.trim().toLowerCase()}|${row.documentType.toLowerCase()}`;
+      if (!latest.has(key)) latest.set(key, row);
+    }
+    res.json(Array.from(latest.values()));
+  }));
+  app.post("/api/kb/articles/:id/attachments", requireAuth, editorMiddleware, fileMiddleware, route(async (req, res, user) => {
+    const file = (req as Request & { file?: Express.Multer.File }).file;
+    if (!file) throw new KnowledgeError(400, "Choose a policy document to upload");
+    let body: { documentType: string };
+    try {
+      body = z.object({
+        documentType: z.string().trim().min(1).max(100).default("official_policy"),
+      }).strict().parse(req.body);
+    } catch (error) {
+      await unlink(file.path).catch(() => {});
+      throw error;
+    }
+    const originalName = basename(file.originalname.replace(/\\/g, "/")).slice(0, 255);
+    try {
+      const attachment = await db.transaction(async tx => {
+        const [article] = await tx.select().from(kbArticles)
+          .where(eq(kbArticles.id, req.params.id)).for("update");
+        if (!article) throw new KnowledgeError(404, "Article not found");
+        if (!["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase())) {
+          throw new KnowledgeError(400, "Attachments are only supported for policies, technical SOPs, and DR plans");
+        }
+        const [latest] = await tx.select({ version: kbArticleAttachments.version })
+          .from(kbArticleAttachments).where(and(
+            eq(kbArticleAttachments.articleId, article.id),
+            sql`lower(btrim(${kbArticleAttachments.originalName})) = ${originalName.trim().toLowerCase()}`,
+            eq(kbArticleAttachments.documentType, body.documentType),
+          )).orderBy(desc(kbArticleAttachments.version)).limit(1);
+        const [created] = await tx.insert(kbArticleAttachments).values({
+          articleId: article.id,
+          articleVersion: article.version,
+          documentType: body.documentType,
+          version: (latest?.version ?? 0) + 1,
+          originalName,
+          fileName: basename(file.filename),
+          fileType: file.mimetype,
+          fileSize: file.size,
+          filePath: file.path,
+          uploadedBy: user.id,
+        }).returning();
+        await tx.insert(auditLogs).values({
+          userId: user.id, action: "CREATE", tableName: "kb_article_attachments",
+          recordId: created.id, recordName: `${article.title}: ${originalName} v${created.version}`,
+          newValues: JSON.stringify({ ...created, filePath: undefined }),
+          ipAddress: req.ip ?? null, userAgent: req.get("user-agent") ?? null,
+        });
+        return created;
+      });
+      const { filePath: _filePath, fileName: _fileName, ...safeAttachment } = attachment;
+      res.status(201).json(safeAttachment);
+    } catch (error) {
+      await unlink(file.path).catch(() => {});
+      throw error;
+    }
+  }));
+  app.get("/api/kb/articles/:id/attachments/:attachmentId", requireAuth, route(async (req, res, user) => {
+    const article = await articleDetail(req.params.id, user);
+    const [attachment] = await db.select().from(kbArticleAttachments).where(and(
+      eq(kbArticleAttachments.articleId, article.id),
+      eq(kbArticleAttachments.id, req.params.attachmentId),
+    )).limit(1);
+    if (!attachment) throw new KnowledgeError(404, "Policy document not found");
+    if (!canManageKnowledge(user)) {
+      const [latest] = await db.select({ id: kbArticleAttachments.id })
+        .from(kbArticleAttachments).where(and(
+          eq(kbArticleAttachments.articleId, article.id),
+          eq(kbArticleAttachments.documentType, attachment.documentType),
+          sql`lower(btrim(${kbArticleAttachments.originalName})) = ${attachment.originalName.trim().toLowerCase()}`,
+        )).orderBy(desc(kbArticleAttachments.version)).limit(1);
+      if (!latest || latest.id !== attachment.id) throw new KnowledgeError(404, "Policy document not found");
+    }
+    return res.download(attachment.filePath, attachment.originalName);
+  }));
+
+  app.get("/api/kb/articles/:id/controls", requireAuth, route(async (req, res, user) => {
+    if (!canManageKnowledge(user) && !canAuditPublishedPolicies(user)) {
+      throw new KnowledgeError(403, "Compliance control mappings are restricted to IT governance staff and auditors");
+    }
+    const article = await articleDetail(req.params.id, user);
+    const rows = await db.select({
+      ...getTableColumns(kbArticleControlMappings),
+      mapperName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${users.username})`,
+    }).from(kbArticleControlMappings).leftJoin(users, eq(kbArticleControlMappings.mappedBy, users.id))
+      .where(and(
+        eq(kbArticleControlMappings.articleId, article.id),
+        canManageKnowledge(user) ? undefined : and(
+          eq(kbArticleControlMappings.isActive, true),
+          eq(kbArticleControlMappings.articleVersion, article.version),
+        ),
+      )).orderBy(desc(kbArticleControlMappings.createdAt));
+    res.json(rows);
+  }));
+  app.post("/api/kb/articles/:id/controls", requireAuth, editorMiddleware, route(async (req, res, user) => {
+    const input = z.object({
+      framework: z.string().trim().min(1).max(120),
+      controlId: z.string().trim().min(1).max(120),
+      controlTitle: z.string().trim().min(1).max(300),
+      implementationNotes: z.string().trim().max(4000).nullable().optional(),
+    }).strict().parse(req.body);
+    const mapping = await db.transaction(async tx => {
+      const [article] = await tx.select().from(kbArticles).where(eq(kbArticles.id, req.params.id)).for("update");
+      if (!article) throw new KnowledgeError(404, "Article not found");
+      if (!["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase())) {
+        throw new KnowledgeError(400, "Control mappings are only supported for policies, technical SOPs, and DR plans");
+      }
+      const [created] = await tx.insert(kbArticleControlMappings).values({
+        articleId: article.id, articleVersion: article.version, ...input, mappedBy: user.id,
+      }).returning();
+      await tx.insert(auditLogs).values({
+        userId: user.id, action: "CREATE", tableName: "kb_article_control_mappings",
+        recordId: created.id, recordName: `${input.framework} ${input.controlId}`,
+        newValues: JSON.stringify(created), ipAddress: req.ip ?? null,
+        userAgent: req.get("user-agent") ?? null,
+      });
+      return created;
+    });
+    res.status(201).json(mapping);
+  }));
+  app.post("/api/kb/articles/:id/controls/:mappingId/remove", requireAuth, editorMiddleware, route(async (req, res, user) => {
+    const { removalNote } = z.object({ removalNote: z.string().trim().min(5).max(1000) }).strict().parse(req.body);
+    const updated = await db.transaction(async tx => {
+      const [before] = await tx.select().from(kbArticleControlMappings).where(and(
+        eq(kbArticleControlMappings.id, req.params.mappingId),
+        eq(kbArticleControlMappings.articleId, req.params.id),
+      )).for("update");
+      if (!before) throw new KnowledgeError(404, "Control mapping not found");
+      if (!before.isActive) throw new KnowledgeError(409, "Control mapping has already been removed");
+      const [after] = await tx.update(kbArticleControlMappings).set({
+        isActive: false, removedBy: user.id, removedAt: new Date(), removalNote,
+      }).where(eq(kbArticleControlMappings.id, before.id)).returning();
+      await tx.insert(auditLogs).values({
+        userId: user.id, action: "UPDATE", tableName: "kb_article_control_mappings",
+        recordId: after.id, recordName: `${after.framework} ${after.controlId}`,
+        oldValues: JSON.stringify(before), newValues: JSON.stringify(after),
+        ipAddress: req.ip ?? null, userAgent: req.get("user-agent") ?? null,
+      });
+      return after;
+    });
+    res.json(updated);
   }));
 
   for (const kind of ["incidents", "service-requests"] as const) {

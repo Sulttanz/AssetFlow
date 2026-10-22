@@ -48,6 +48,8 @@ import { isGovernedVendorContract, normalizeVendorContacts, registerVendorContra
 import { vendorContracts, vendorContractAssets, type InsertVendor } from "@shared/schema";
 import { serviceApprovalRoles } from "@shared/service-catalog";
 import { registerAssetHandoverRoutes } from "./asset-handovers";
+import { registerNetworkTopologyRoutes } from "./network-topology";
+import { registerBackupGovernanceRoutes } from "./backup-governance";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -113,6 +115,8 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/asset-requests",
     "/asset-audits",
     "/asset-handovers",
+    "/network-topology",
+    "/backup-schedules",
     "/employees",
     "/departments",
     "/locations",
@@ -8045,7 +8049,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Knowledge Base ───────────────────────────────────────────────────────
-  registerKnowledgeRoutes(app, requireAuth);
+  registerKnowledgeRoutes(app, requireAuth, diskUpload.single("file"));
+  registerNetworkTopologyRoutes(app, requireAuth, requireModule("asset_management"));
+  registerBackupGovernanceRoutes(app, requireAuth, requireModule("asset_management"));
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
   registerVendorContractRoutes(app, requireAuth);
