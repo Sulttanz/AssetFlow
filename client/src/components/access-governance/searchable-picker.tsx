@@ -17,6 +17,7 @@ export function SearchablePicker({
   options,
   placeholder,
   searchPlaceholder = "Search options…",
+  emptyMessage = "No matching options.",
   disabled,
   className,
   id,
@@ -27,6 +28,7 @@ export function SearchablePicker({
   options: PickerOption[];
   placeholder: string;
   searchPlaceholder?: string;
+  emptyMessage?: string;
   disabled?: boolean;
   className?: string;
   id?: string;
@@ -56,7 +58,7 @@ export function SearchablePicker({
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
-            <CommandEmpty>No matching options.</CommandEmpty>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
               {options.map(option => (
                 <CommandItem

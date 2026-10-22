@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SearchablePicker } from "@/components/access-governance/searchable-picker";
 import { Check, ChevronRight, ClipboardCheck, FilePlus2, FileText, Printer, Search, ShieldCheck, X } from "lucide-react";
 
 type Receipt = {
@@ -95,9 +96,20 @@ export default function AssetHandovers() {
     queryFn: async () => (await apiRequest("GET", `/api/asset-handovers${searchTerm || typeFilter !== "all" ? `?${new URLSearchParams({ ...(searchTerm ? { search: searchTerm } : {}), ...(typeFilter !== "all" ? { type: typeFilter } : {}) })}` : ""}`)).json(),
   });
   const optionsQuery = useQuery<Options>({
-    queryKey: ["/api/asset-handovers/options", form.type, form.employeeId],
-    queryFn: async () => (await apiRequest("GET", `/api/asset-handovers/options?${new URLSearchParams({ type: form.type, ...(form.employeeId ? { employeeId: form.employeeId } : {}) })}`)).json(),
+    queryKey: ["/api/asset-handovers/options", form.type],
+    queryFn: async () => (await apiRequest("GET", `/api/asset-handovers/options?${new URLSearchParams({ type: form.type })}`)).json(),
     enabled: creating,
+  });
+  const isReturnMode = form.type === "Return / Offboarding";
+  const returnAssetsQuery = useQuery<Options["assets"]>({
+    queryKey: ["/api/asset-handovers/options", "return-assets", form.type, form.employeeId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ type: form.type, employeeId: form.employeeId });
+      const result = await apiRequest("GET", `/api/asset-handovers/options?${params}`);
+      const options = await result.json() as Options;
+      return options.assets;
+    },
+    enabled: creating && isReturnMode && Boolean(form.employeeId),
   });
   const detailQuery = useQuery<Receipt>({
     queryKey: ["/api/asset-handovers", viewReceipt?.id],
@@ -120,6 +132,23 @@ export default function AssetHandovers() {
   const receipts = receiptsQuery.data ?? [];
   const unacknowledgedCount = useMemo(() => receipts.filter(item => !item.acknowledged).length, [receipts]);
   const selectedReceipt = detailQuery.data ?? viewReceipt;
+  const employeeOptions = useMemo(() => (optionsQuery.data?.employees ?? []).map(employee => ({
+    value: employee.id,
+    label: `${employee.firstName} ${employee.lastName}`,
+    description: [employee.employeeId, employee.email, employee.department].filter(Boolean).join(" · "),
+  })), [optionsQuery.data?.employees]);
+  const equipment = isReturnMode ? returnAssetsQuery.data ?? [] : optionsQuery.data?.assets ?? [];
+  const equipmentOptions = useMemo(() => equipment.map(asset => ({
+    value: asset.id,
+    label: `${asset.name} · ${asset.assetTag}`,
+    description: [asset.serialNumber, asset.type, asset.status].filter(Boolean).join(" · "),
+  })), [equipment]);
+  const equipmentLoading = isReturnMode ? returnAssetsQuery.isFetching : optionsQuery.isFetching;
+  const equipmentPlaceholder = equipmentLoading
+    ? "Loading equipment…"
+    : isReturnMode
+      ? !form.employeeId ? "Select an employee first" : equipmentOptions.length ? "Choose assigned equipment" : "No assigned equipment"
+      : equipmentOptions.length ? "Choose equipment" : "No available equipment";
   const toggleAccessory = (label: string) => setForm(current => ({ ...current, accessories: current.accessories.includes(label) ? current.accessories.filter(item => item !== label) : [...current.accessories, label] }));
 
   return <main className="min-h-[calc(100dvh-3.5rem)] bg-[#f2f7f5] text-[#193c3d]">
@@ -163,13 +192,35 @@ export default function AssetHandovers() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Handover type"><Select value={form.type} onValueChange={value => setForm(current => ({ ...current, type: value as HandoverType, employeeId: "", assetId: "" }))}><SelectTrigger className="h-11 rounded-xl border-[#d8e4df]"><SelectValue /></SelectTrigger><SelectContent>{(optionsQuery.data?.types?.length ? optionsQuery.data.types.map(item => item.value) : HANDOVER_TYPES).map(type => <SelectItem key={type} value={type}>{optionsQuery.data?.types?.find(item => item.value === type)?.label ?? type}</SelectItem>)}</SelectContent></Select></Field>
           <Field label="Handover date"><Input value={form.date} onChange={event => { const digits = event.target.value.replace(/\D/g, "").slice(0, 8); const masked = digits.length > 4 ? `${digits.slice(0,2)}-${digits.slice(2,4)}-${digits.slice(4)}` : digits.length > 2 ? `${digits.slice(0,2)}-${digits.slice(2)}` : digits; setForm(current => ({ ...current, date: masked })); }} placeholder="DD-MM-YYYY" inputMode="numeric" maxLength={10} className="h-11 rounded-xl border-[#d8e4df]" aria-describedby="handover-date-help" /><span id="handover-date-help" className="text-[11px] text-[#8a9b95]">Enter date as DD-MM-YYYY</span></Field>
-          <Field label="Employee"><Select value={form.employeeId} onValueChange={value => setForm(current => ({ ...current, employeeId: value, assetId: "" }))}><SelectTrigger className="h-11 rounded-xl border-[#d8e4df]"><SelectValue placeholder={optionsQuery.isLoading ? "Loading employees…" : "Choose employee"} /></SelectTrigger><SelectContent>{(optionsQuery.data?.employees ?? []).map(employee => <SelectItem key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}{employee.department ? ` · ${employee.department}` : ""}</SelectItem>)}</SelectContent></Select></Field>
-          <Field label="Equipment"><Select value={form.assetId} onValueChange={value => setForm(current => ({ ...current, assetId: value }))}><SelectTrigger className="h-11 rounded-xl border-[#d8e4df]"><SelectValue placeholder={optionsQuery.isLoading ? "Loading equipment…" : "Choose equipment"} /></SelectTrigger><SelectContent>{(optionsQuery.data?.assets ?? []).map(asset => <SelectItem key={asset.id} value={asset.id}>{asset.name} · {asset.assetTag}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label="Employee"><SearchablePicker
+            id="handover-employee"
+            ariaLabel="Employee"
+            value={form.employeeId}
+            onChange={value => setForm(current => ({ ...current, employeeId: value, assetId: "" }))}
+            options={employeeOptions}
+            placeholder={optionsQuery.isFetching ? "Loading employees…" : "Choose employee"}
+            searchPlaceholder="Search name, employee ID, or email…"
+            emptyMessage={isReturnMode ? "No employees have equipment assigned." : "No active employees found."}
+            disabled={optionsQuery.isFetching}
+            className="h-11 rounded-xl border-[#d8e4df]"
+          /></Field>
+          <Field label="Equipment"><SearchablePicker
+            id="handover-equipment"
+            ariaLabel="Equipment"
+            value={form.assetId}
+            onChange={value => setForm(current => ({ ...current, assetId: value }))}
+            options={equipmentOptions}
+            placeholder={equipmentPlaceholder}
+            searchPlaceholder="Search asset name, tag, or serial…"
+            emptyMessage={isReturnMode ? "No assigned equipment found for this employee." : "No available equipment found."}
+            disabled={equipmentLoading || (isReturnMode && !form.employeeId)}
+            className="h-11 rounded-xl border-[#d8e4df]"
+          /></Field>
           <Field label="Condition"><Select value={form.condition} onValueChange={value => setForm(current => ({ ...current, condition: value as Condition }))}><SelectTrigger className="h-11 rounded-xl border-[#d8e4df]"><SelectValue /></SelectTrigger><SelectContent>{(optionsQuery.data?.conditions?.length ? optionsQuery.data.conditions : ["New","Excellent","Fair","Needs Repair"].map(value => ({ value: value as Condition, label: value }))).map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></Field>
           <Field label="Accessories included"><div className="flex flex-wrap gap-2 pt-1">{ACCESSORY_CHOICES.map(item => <button key={item} type="button" onClick={() => toggleAccessory(item)} className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${form.accessories.includes(item) ? "border-[#8bb2a4] bg-[#e7f1eb] text-[#32675d]" : "border-[#dce6e1] bg-white text-[#708680] hover:border-[#a9c3b8]"}`}>{form.accessories.includes(item) && <Check className="mr-1 inline h-3 w-3" />}{item}</button>)}</div></Field>
           <Field label="Notes" className="sm:col-span-2"><Textarea value={form.notes} onChange={event => setForm(current => ({ ...current, notes: event.target.value }))} placeholder="Record relevant condition details or handover context" className="min-h-[92px] resize-y rounded-xl border-[#d8e4df]" /></Field>
         </div>
-        {optionsQuery.isError && <p className="text-sm text-[#a15e49]">Employee and equipment choices could not load. Close and reopen to retry.</p>}
+        {(optionsQuery.isError || returnAssetsQuery.isError) && <p className="text-sm text-[#a15e49]">Employee and equipment choices could not load. Close and reopen to retry.</p>}
         <div className="flex flex-col-reverse gap-2 border-t border-[#e5ece8] pt-4 sm:flex-row sm:justify-end"><Button variant="outline" onClick={() => setCreating(false)} className="rounded-xl border-[#d5e1db]">Cancel</Button><Button disabled={!form.employeeId || !form.assetId || !dateToISO(form.date) || createMutation.isPending} onClick={() => createMutation.mutate()} className="rounded-xl bg-[#255e5c] hover:bg-[#1e514f]">{createMutation.isPending ? "Creating receipt…" : "Create receipt"}</Button></div>
       </DialogContent>
     </Dialog>
