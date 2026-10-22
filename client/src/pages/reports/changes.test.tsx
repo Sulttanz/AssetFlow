@@ -64,7 +64,7 @@ const history = Array.from({ length: 51 }, (_, index) => ({
 
 function summaryValue(label: string) {
   const card = screen.getAllByText(label)
-    .map(labelNode => labelNode.closest<HTMLElement>('[class*="rounded-lg"]'))
+    .map(labelNode => labelNode.closest<HTMLElement>('[data-slot="card"]'))
     .find((candidate): candidate is HTMLElement => candidate !== null);
   if (!card) throw new Error(`Could not find summary card for ${label}`);
   return within(card).getByText(/^\d+$/).textContent;

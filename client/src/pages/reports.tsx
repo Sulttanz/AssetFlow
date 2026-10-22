@@ -89,10 +89,10 @@ export default function Reports() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
+    <div className="min-w-0 space-y-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-56">
+          <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
           <p className="text-muted-foreground">
             Comprehensive analytics and insights for your IT assets
           </p>
@@ -104,7 +104,7 @@ export default function Reports() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6 lg:grid-cols-12">
+        <TabsList aria-label="Report categories" className="flex h-auto w-full flex-wrap justify-start gap-1 [&_[role=tab]]:shrink-0">
           <TabsTrigger value="summary" data-testid="tab-summary">
             <Package className="mr-2 h-4 w-4" />
             Summary

@@ -94,9 +94,9 @@ function Router() {
         {(params) => {
           // All other routes require authentication and use the main layout
           return (
-            <div className="flex min-h-[100dvh] bg-background overflow-x-hidden">
+            <div className="app-workspace flex min-h-[100dvh] bg-background overflow-x-hidden">
               <Sidebar />
-              <div className="flex-1 overflow-auto pt-14 md:pt-0">
+              <div className="min-w-0 flex-1 overflow-auto pt-14 md:pt-0">
                 <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground" role="status">Loading workspace…</div>}>
                 <Switch>
                   <ProtectedRoute path="/" component={HomeRedirect} />

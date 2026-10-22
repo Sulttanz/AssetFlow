@@ -210,9 +210,9 @@ export default function HardwareInventoryReport() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="flex items-center gap-3 p-4"><ShieldCheck className="h-5 w-5 text-green-700" /><div><p className="text-sm text-muted-foreground">Compliant</p><p className="text-2xl font-semibold">{compliantCount}</p></div></CardContent></Card>
-        <Card><CardContent className="flex items-center gap-3 p-4"><ClipboardCheck className="h-5 w-5 text-red-700" /><div><p className="text-sm text-muted-foreground">Non-Compliant</p><p className="text-2xl font-semibold">{nonCompliantCount}</p></div></CardContent></Card>
-        <Card><CardContent className="flex items-center gap-3 p-4"><ClipboardCheck className="h-5 w-5 text-amber-700" /><div><p className="text-sm text-muted-foreground">Pending Review</p><p className="text-2xl font-semibold">{pendingCount}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><ShieldCheck className="h-10 w-10 shrink-0 rounded-xl bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" /><div><p className="text-sm text-muted-foreground">Compliant</p><p className="text-2xl font-semibold">{compliantCount}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><ClipboardCheck className="h-10 w-10 shrink-0 rounded-xl bg-rose-50 p-2 text-rose-600 dark:bg-rose-950 dark:text-rose-400" /><div><p className="text-sm text-muted-foreground">Non-Compliant</p><p className="text-2xl font-semibold">{nonCompliantCount}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><ClipboardCheck className="h-10 w-10 shrink-0 rounded-xl bg-amber-50 p-2 text-amber-600 dark:bg-amber-950 dark:text-amber-400" /><div><p className="text-sm text-muted-foreground">Pending Review</p><p className="text-2xl font-semibold">{pendingCount}</p></div></CardContent></Card>
       </div>
 
       <Card>

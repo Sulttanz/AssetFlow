@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Boxes, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Plus, Search } from "lucide-react";
 import Header from "@/components/layout/header";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { ConfigurationDocuments } from "@/components/cmdb/configuration-documents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,9 +146,9 @@ export default function Applications() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <Header title="Applications Catalog" description="Manage enterprise applications, ownership, hosting, and criticality." showAddButton={false} showSearch={false} />
+      <Header title="Applications Catalog" description="Manage enterprise applications, ownership, hosting, and criticality." showAddButton={canManageCmdb} onAddClick={startCreate} addButtonText="Add Application" showSearch={false} />
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center">
+      <FilterBar className="flex-col lg:flex-row lg:items-center" aria-label="Application search and filters">
         <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Search name, vendor, category, or owner…" className="pl-9" aria-label="Search applications" />
@@ -164,8 +165,7 @@ export default function Applications() {
           <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem><SelectItem value="retired">Retired</SelectItem></SelectContent>
         </Select>
-        {canManageCmdb && <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Application</Button>}
-      </div>
+      </FilterBar>
 
       <div className="overflow-x-auto rounded-xl border bg-card">
         <Table>

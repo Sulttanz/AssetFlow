@@ -169,10 +169,10 @@ export default function SystemSettings() {
   }
 
   return (
-    <div className="p-8 space-y-6" data-testid="system-settings-page">
+    <div className="p-4 md:p-6 space-y-6" data-testid="system-settings-page">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2" data-testid="page-title">
-          <Settings className="h-8 w-8" />
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-3" data-testid="page-title">
+          <Settings className="h-10 w-10 rounded-xl bg-blue-50 p-2 text-primary dark:bg-blue-950" />
           System Settings
         </h1>
         <p className="text-muted-foreground" data-testid="page-description">

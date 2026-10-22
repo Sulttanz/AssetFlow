@@ -4,6 +4,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,7 +17,7 @@ import Header from "@/components/layout/header";
 import AssetForm from "@/components/assets/asset-form";
 import AssetQRModal from "@/components/assets/asset-qr-modal";
 import AssetExpiryBadges from "@/components/assets/asset-expiry-badges";
-import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode, X, RefreshCw } from "lucide-react";
+import { Eye, Edit, Trash2, Package, Shield, AlertTriangle, CheckCircle, QrCode, X, RefreshCw, Search } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { Department, Location } from "@shared/schema";
 import type { AssetWithAssignment, Asset } from "@shared/schema";
@@ -278,15 +280,25 @@ export default function Assets() {
         onAddClick={canManageAssets ? handleAddAsset : undefined}
         addButtonText="Add Asset"
         showAddButton={canManageAssets}
-        searchPlaceholder="Search by name, asset tag, model, serial..."
-        onSearch={setSearchQuery}
+        showSearch={false}
       />
 
       <main className="p-6" data-testid="assets-content">
         <Card>
           <CardContent className="p-6">
             {/* Filters */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <FilterBar className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5" aria-label="Asset search and filters">
+              <div className="relative md:col-span-2 lg:col-span-5">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  placeholder="Search by name, asset tag, model, serial..."
+                  aria-label="Search assets"
+                  data-testid="search-input"
+                  className="pl-10"
+                />
+              </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger data-testid="status-filter">
                   <SelectValue placeholder="Filter by status" />
@@ -340,7 +352,7 @@ export default function Assets() {
                   <SelectItem value="not-assessed">Not Assessed</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+            </FilterBar>
 
             {/* Bulk Action Toolbar */}
             {canManageAssets && selectedIds.size > 0 && (

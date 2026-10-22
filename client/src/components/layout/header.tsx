@@ -91,7 +91,7 @@ export default function Header({
   }
 
   return (
-    <header className="bg-card border-b border-border px-4 py-4 md:px-6 md:py-6" data-testid="page-header">
+    <header className="bg-card px-4 py-5 md:px-8 md:py-6" data-testid="page-header">
       {/* Row 1: Title + Bell (always visible) */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -105,11 +105,18 @@ export default function Header({
 
         {/* Bell always stays in the top-right corner on mobile */}
         <div className="flex items-center gap-2 shrink-0">
+          {showAddButton && onAddClick && (
+            <Button onClick={onAddClick} aria-label={addButtonText} data-testid="add-button" size="sm" className="shrink-0">
+              <Plus className="h-4 w-4" />
+              <span>{addButtonText}</span>
+            </Button>
+          )}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <button
-                className="text-muted-foreground hover:text-foreground relative p-1"
+                className="relative rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 data-testid="notifications-button"
+                aria-label={badgeCount > 0 ? `Notifications, ${badgeCount} alerts` : "Notifications"}
               >
                 <Bell className="h-5 w-5" />
                 {badgeCount > 0 && (
@@ -172,24 +179,17 @@ export default function Header({
         </div>
       </div>
 
-      {/* Row 2: Search + action buttons — full width below title on mobile */}
-      <div className="flex flex-wrap items-center gap-2 mt-3">
-        {showSearch && <div className="relative min-w-0 flex-1 basis-full sm:basis-auto">
+      {/* Row 2: Existing search and page controls share one responsive toolbar. */}
+      {(showSearch && onSearch || children) && <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background p-3">
+        {showSearch && onSearch && <div className="relative min-w-0 flex-1 basis-full sm:basis-56">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-          <Input type="text" placeholder={searchPlaceholder} className="w-full pl-10 pr-4" onChange={(e) => onSearch?.(e.target.value)} data-testid="search-input" />
+          <Input type="text" placeholder={searchPlaceholder} className="w-full border-transparent bg-card pl-10 pr-4 shadow-none focus-visible:border-ring" onChange={(e) => onSearch(e.target.value)} data-testid="search-input" />
         </div>}
 
-        <div className="flex flex-wrap items-center gap-2 max-w-full">
+        <div className="flex max-w-full flex-wrap items-center gap-2">
           {children}
         </div>
-
-        {showAddButton && (
-          <Button onClick={onAddClick} data-testid="add-button" size="sm" className="shrink-0">
-            <Plus className="h-4 w-4 md:mr-2" />
-            <span className="hidden md:inline">{addButtonText}</span>
-          </Button>
-        )}
-      </div>
+      </div>}
     </header>
   );
 }

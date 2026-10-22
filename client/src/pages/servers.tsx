@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, FileText, Pencil, Plus, Search, Server as ServerIcon } from "lucide-react";
 import Header from "@/components/layout/header";
+import { FilterBar } from "@/components/ui/filter-bar";
 import { ConfigurationDocuments } from "@/components/cmdb/configuration-documents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -152,9 +153,9 @@ export default function Servers() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      <Header title="Servers & Infrastructure" description="Track hostnames, platforms, environments, operating status, and configuration documents." showAddButton={false} showSearch={false} />
+      <Header title="Servers & Infrastructure" description="Track hostnames, platforms, environments, operating status, and configuration documents." showAddButton={canManageCmdb} onAddClick={startCreate} addButtonText="Add Server" showSearch={false} />
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 lg:flex-row lg:items-center">
+      <FilterBar className="flex-col lg:flex-row lg:items-center" aria-label="Server search and filters">
         <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Search hostname, IP, OS, environment, specs, or location…" className="pl-9" aria-label="Search servers" />
@@ -171,8 +172,7 @@ export default function Servers() {
           <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="online">Online</SelectItem><SelectItem value="maintenance">Maintenance</SelectItem><SelectItem value="offline">Offline</SelectItem></SelectContent>
         </Select>
-        {canManageCmdb && <Button onClick={startCreate} className="shrink-0"><Plus className="mr-2 h-4 w-4" />Add Server</Button>}
-      </div>
+      </FilterBar>
 
       <div className="overflow-x-auto rounded-xl border bg-card">
         <Table>

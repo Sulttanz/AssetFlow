@@ -7,4 +7,4 @@ Keep `/auth` in the clean modern enterprise direction: navy background, white si
 
 **Why:** The user explicitly requested restoration of the original palette after the slate-teal/mint and editorial-font redesign.
 
-**How to apply:** Treat future login refinements as improvements within this direction unless the user requests a different design. This is specific to the login page, not a global restyling instruction.
+**How to apply:** Treat future login refinements as improvements within this direction unless the user requests a different design. The user subsequently extended this direction to the internal UI; see [Internal enterprise design direction](internal-design-system.md).

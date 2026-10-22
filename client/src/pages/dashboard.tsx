@@ -54,10 +54,10 @@ interface ExecutiveDashboard {
 }
 
 const PRIORITY_COLORS: Record<keyof PriorityCounts, string> = {
-  P1: "#b7463f",
-  P2: "#d18b39",
-  P3: "#547d8a",
-  P4: "#9aabb0",
+  P1: "#e11d48",
+  P2: "#d97706",
+  P3: "#2563eb",
+  P4: "#64748b",
 };
 
 const numberFormat = new Intl.NumberFormat("en-US");
@@ -72,28 +72,28 @@ function Metric({
   value,
   detail,
   icon: Icon,
-  tone = "teal",
+  tone = "blue",
 }: {
   label: string;
   value: string | number;
   detail?: string;
   icon: ComponentType<{ className?: string }>;
-  tone?: "teal" | "amber" | "red" | "slate";
+  tone?: "blue" | "amber" | "red" | "slate";
 }) {
   const tones = {
-    teal: "bg-[#e7f1ef] text-[#23665d]",
-    amber: "bg-[#f7efdf] text-[#9b6a22]",
-    red: "bg-[#f7e9e6] text-[#a6473d]",
-    slate: "bg-[#e9eff0] text-[#526a72]",
+    blue: "bg-blue-50 text-blue-700",
+    amber: "bg-amber-50 text-amber-700",
+    red: "bg-rose-50 text-rose-700",
+    slate: "bg-slate-100 text-slate-600",
   };
   return (
-    <div className="min-w-0 rounded-xl border border-[#dce6e4] bg-[#fbfcfa] p-4 transition-colors duration-200 hover:border-[#b7cfca]">
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors duration-200 hover:border-blue-200">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-[#697c7e]">{label}</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{label}</p>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
       </div>
-      <p className="mt-3 font-mono text-[28px] font-semibold leading-none tracking-tight text-[#1b3438]">{value}</p>
-      {detail && <p className="mt-2 text-xs text-[#748587]">{detail}</p>}
+      <p className="mt-3 font-mono text-[28px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
+      {detail && <p className="mt-2 text-xs text-muted-foreground">{detail}</p>}
     </div>
   );
 }
@@ -102,8 +102,8 @@ function SectionTitle({ kicker, title, aside }: { kicker: string; title: string;
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#66817f]">{kicker}</p>
-        <h2 className="mt-1 text-lg font-semibold tracking-tight text-[#1b3438]">{title}</h2>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">{kicker}</p>
+        <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       {aside}
     </div>
@@ -125,10 +125,10 @@ function BreakdownBar({ label, value, total, color }: { label: string; value: nu
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-[#52676a]">{label}</span>
-        <span className="font-mono font-semibold text-[#30494c]">{numberFormat.format(value)} <span className="font-sans font-normal text-[#839294]">· {percent.toFixed(0)}%</span></span>
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono font-semibold text-foreground">{numberFormat.format(value)} <span className="font-sans font-normal text-muted-foreground">· {percent.toFixed(0)}%</span></span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-[#e9efed]">
+      <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
         <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(percent, 100)}%`, backgroundColor: color }} />
       </div>
     </div>
@@ -136,7 +136,7 @@ function BreakdownBar({ label, value, total, color }: { label: string; value: nu
 }
 
 function EmptyChart({ children }: { children: ReactNode }) {
-  return <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[#dce6e4] bg-[#f8faf8] text-center text-sm text-[#758688]">{children}</div>;
+  return <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-center text-sm text-muted-foreground">{children}</div>;
 }
 
 export default function Dashboard() {
@@ -154,7 +154,7 @@ export default function Dashboard() {
   if (!isExecutiveViewer && user) return <PersonaDashboard user={user} />;
 
   return (
-    <div className="min-h-[100dvh] flex-1 overflow-y-auto bg-[#f1f5f2]">
+    <div className="min-h-[100dvh] flex-1 overflow-y-auto bg-background">
       <Header
         title="Executive dashboard"
         description="Operational posture across people, services, infrastructure, and spend."
@@ -164,12 +164,12 @@ export default function Dashboard() {
 
       {isLoading ? <LoadingDashboard /> : isError || !data ? (
         <main className="p-4 md:p-6">
-          <Card className="mx-auto max-w-2xl border-[#e3c5bf] bg-[#fbf3f1]">
+          <Card className="mx-auto max-w-2xl border-rose-200 bg-rose-50">
             <CardContent className="flex flex-col items-center px-6 py-12 text-center">
-              <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f5e2de] text-[#a6473d]"><AlertTriangle className="h-6 w-6" /></span>
-              <h2 className="text-lg font-semibold text-[#493c3a]">Executive data is unavailable</h2>
-              <p className="mt-2 max-w-md text-sm text-[#7c6865]">We could not retrieve the current operational snapshot. Try again in a moment.</p>
-              <Button onClick={() => refetch()} variant="outline" className="mt-5 border-[#d8b9b3] text-[#8d4239] hover:bg-[#f7e9e6]">
+              <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-100 text-rose-700"><AlertTriangle className="h-6 w-6" /></span>
+              <h2 className="text-lg font-semibold text-rose-950">Executive data is unavailable</h2>
+              <p className="mt-2 max-w-md text-sm text-rose-800/80">We could not retrieve the current operational snapshot. Try again in a moment.</p>
+              <Button onClick={() => refetch()} variant="outline" className="mt-5 border-rose-200 text-rose-700 hover:bg-rose-100">
                 <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> Retry
               </Button>
             </CardContent>
@@ -177,24 +177,24 @@ export default function Dashboard() {
         </main>
       ) : (
         <main className="space-y-7 p-4 pb-10 md:p-6" data-testid="executive-dashboard">
-          <section className="relative overflow-hidden rounded-2xl bg-[#18383b] px-5 py-6 text-[#f4f5ee] shadow-sm md:px-7 md:py-7">
+          <section className="relative overflow-hidden rounded-2xl bg-slate-900 px-5 py-6 text-slate-50 shadow-sm md:px-7 md:py-7">
             <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border border-white/10" />
             <div className="pointer-events-none absolute -right-2 -top-14 h-52 w-52 rounded-full border border-white/10" />
             <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-end">
               <div>
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[#a7c9bd]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#91c6a9]" /> Enterprise operations / live posture
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Enterprise operations / live posture
                 </div>
                 <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.035em] md:text-[34px]">Know where the operation<br className="hidden sm:block" /> needs you next.</h2>
-                <p className="mt-3 max-w-xl text-sm leading-relaxed text-[#c2d1ca]">A single view of service pressure, access exposure, infrastructure health, and near-term commitments.</p>
+                <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-300">A single view of service pressure, access exposure, infrastructure health, and near-term commitments.</p>
               </div>
               <div className="grid grid-cols-2 gap-2 md:min-w-[300px]">
                 <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#a7c9bd]">Active employees</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Active employees</p>
                   <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(data.identity.activeEmployees)}</p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#a7c9bd]">Open incidents</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Open incidents</p>
                   <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(Object.values(data.serviceDesk.openIncidentsByPriority).reduce((sum, n) => sum + n, 0))}</p>
                 </div>
               </div>
@@ -205,9 +205,9 @@ export default function Dashboard() {
             <SectionTitle kicker="01 / People & access" title="Identity exposure" />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Active employees" value={numberFormat.format(data.identity.activeEmployees)} detail="Current workforce" icon={BriefcaseBusiness} tone="slate" />
-              <Metric label="Offboarding clearance" value={numberFormat.format(data.identity.pendingOffboardingClearances)} detail="Pending removal checks" icon={ShieldCheck} tone={data.identity.pendingOffboardingClearances ? "amber" : "teal"} />
-              <Metric label="Grants expiring" value={numberFormat.format(data.identity.expiringAccessGrants)} detail="Access due to expire" icon={Clock3} tone={data.identity.expiringAccessGrants ? "amber" : "teal"} />
-              <Metric label="Expired grants" value={numberFormat.format(data.identity.expiredAccessGrants)} detail="Require review" icon={LockKeyhole} tone={data.identity.expiredAccessGrants ? "red" : "teal"} />
+              <Metric label="Offboarding clearance" value={numberFormat.format(data.identity.pendingOffboardingClearances)} detail="Pending removal checks" icon={ShieldCheck} tone={data.identity.pendingOffboardingClearances ? "amber" : "blue"} />
+              <Metric label="Grants expiring" value={numberFormat.format(data.identity.expiringAccessGrants)} detail="Access due to expire" icon={Clock3} tone={data.identity.expiringAccessGrants ? "amber" : "blue"} />
+              <Metric label="Expired grants" value={numberFormat.format(data.identity.expiredAccessGrants)} detail="Require review" icon={LockKeyhole} tone={data.identity.expiredAccessGrants ? "red" : "blue"} />
             </div>
           </section>
 
@@ -216,26 +216,26 @@ export default function Dashboard() {
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Server estate" value={numberFormat.format(data.infrastructure.totalServers)} detail={`${numberFormat.format(data.infrastructure.serversOnline)} online`} icon={Server} tone="slate" />
               <Metric label="In maintenance" value={numberFormat.format(data.infrastructure.serversMaintenance)} detail="Servers under maintenance" icon={Wrench} tone="amber" />
-              <Metric label="Offline servers" value={numberFormat.format(data.infrastructure.serversOffline)} detail="Outside expected state" icon={CloudCog} tone={data.infrastructure.serversOffline ? "red" : "teal"} />
-              <Metric label="Active applications" value={numberFormat.format(data.infrastructure.activeApplications)} detail={`${numberFormat.format(data.infrastructure.configurationFiles)} configuration files`} icon={Boxes} tone="teal" />
+              <Metric label="Offline servers" value={numberFormat.format(data.infrastructure.serversOffline)} detail="Outside expected state" icon={CloudCog} tone={data.infrastructure.serversOffline ? "red" : "blue"} />
+              <Metric label="Active applications" value={numberFormat.format(data.infrastructure.activeApplications)} detail={`${numberFormat.format(data.infrastructure.configurationFiles)} configuration files`} icon={Boxes} tone="blue" />
             </div>
           </section>
 
           <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <Card className="border-[#dce6e4] bg-[#fbfcfa] shadow-sm">
+            <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
-                <SectionTitle kicker="03 / Service management" title="Service desk pressure" aside={<TicketCheck className="h-4 w-4 text-[#6b8584]" />} />
+                <SectionTitle kicker="03 / Service management" title="Service desk pressure" aside={<TicketCheck className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-5 md:grid-cols-[1fr_1fr]">
                   <div>
-                    <p className="mb-3 text-xs font-semibold text-[#52676a]">Open incidents by priority</p>
+                    <p className="mb-3 text-xs font-semibold text-muted-foreground">Open incidents by priority</p>
                     <div className="h-48 w-full">
                       {Object.values(data.serviceDesk.openIncidentsByPriority).some((n) => n > 0) ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={priorityData(data.serviceDesk.openIncidentsByPriority)} margin={{ top: 8, right: 4, bottom: 0, left: -24 }}>
-                            <CartesianGrid stroke="#e5ece9" vertical={false} />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#728487", fontSize: 11 }} />
-                            <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#8a9899", fontSize: 10 }} />
-                            <Tooltip cursor={{ fill: "#edf3f0" }} contentStyle={{ border: "1px solid #dce6e4", borderRadius: 10, fontSize: 12 }} />
+                            <CartesianGrid stroke="#e2e8f0" vertical={false} />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#64748b", fontSize: 11 }} />
+                            <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: "#94a3b8", fontSize: 10 }} />
+                            <Tooltip cursor={{ fill: "#eff6ff" }} contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12 }} />
                             <Bar dataKey="value" name="Incidents" radius={[4, 4, 0, 0]} maxBarSize={34}>
                               {priorityData(data.serviceDesk.openIncidentsByPriority).map((item) => <Cell key={item.name} fill={item.fill} />)}
                             </Bar>
@@ -246,28 +246,28 @@ export default function Dashboard() {
                   </div>
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-[#f1f5f2] p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#728487]">CAB approvals</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold text-[#29494b]">{numberFormat.format(data.serviceDesk.pendingCabApprovals)}</p>
-                        <p className="text-[11px] text-[#829091]">awaiting decision</p>
+                      <div className="rounded-lg bg-blue-50 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700">CAB approvals</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold text-slate-900">{numberFormat.format(data.serviceDesk.pendingCabApprovals)}</p>
+                        <p className="text-[11px] text-slate-500">awaiting decision</p>
                       </div>
-                      <div className="rounded-lg bg-[#f8efdf] p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9b6a22]">SLA breach risk</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold text-[#8b6023]">{numberFormat.format(data.serviceDesk.slaBreachRiskCount)}</p>
-                        <p className="text-[11px] text-[#9e835b]">at-risk incidents</p>
+                      <div className="rounded-lg bg-amber-50 p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">SLA breach risk</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold text-amber-800">{numberFormat.format(data.serviceDesk.slaBreachRiskCount)}</p>
+                        <p className="text-[11px] text-amber-700/70">at-risk incidents</p>
                       </div>
                     </div>
-                    <div className="rounded-lg border border-[#e3ebe7] p-3.5">
+                    <div className="rounded-lg border border-border p-3.5">
                       <div className="mb-3 flex items-center justify-between">
-                        <p className="text-xs font-semibold text-[#52676a]">Resolution SLA</p>
-                        <span className="font-mono text-sm font-semibold text-[#29494b]">{percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}% within SLA</span>
+                        <p className="text-xs font-semibold text-muted-foreground">Resolution SLA</p>
+                        <span className="font-mono text-sm font-semibold text-foreground">{percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}% within SLA</span>
                       </div>
-                      <div className="flex h-2 overflow-hidden rounded-full bg-[#f1e5e1]">
-                        <div className="bg-[#478c75] transition-[width] duration-500" style={{ width: `${percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}%` }} />
+                      <div className="flex h-2 overflow-hidden rounded-full bg-rose-100">
+                        <div className="bg-emerald-600 transition-[width] duration-500" style={{ width: `${percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}%` }} />
                       </div>
                       <div className="mt-3 flex justify-between text-[11px]">
-                        <span className="flex items-center gap-1.5 text-[#627a73]"><span className="h-1.5 w-1.5 rounded-full bg-[#478c75]" />{numberFormat.format(data.serviceDesk.resolutionSla.withinSla)} within</span>
-                        <span className="flex items-center gap-1.5 text-[#a25a50]"><span className="h-1.5 w-1.5 rounded-full bg-[#bf6a5d]" />{numberFormat.format(data.serviceDesk.resolutionSla.breached)} breached</span>
+                        <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{numberFormat.format(data.serviceDesk.resolutionSla.withinSla)} within</span>
+                        <span className="flex items-center gap-1.5 text-rose-700"><span className="h-1.5 w-1.5 rounded-full bg-rose-600" />{numberFormat.format(data.serviceDesk.resolutionSla.breached)} breached</span>
                       </div>
                     </div>
                   </div>
@@ -275,9 +275,9 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card className="border-[#dce6e4] bg-[#fbfcfa] shadow-sm">
+            <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
-                <SectionTitle kicker="04 / Access governance" title="Access expiry posture" aside={<LockKeyhole className="h-4 w-4 text-[#6b8584]" />} />
+                <SectionTitle kicker="04 / Access governance" title="Access expiry posture" aside={<LockKeyhole className="h-4 w-4 text-primary" />} />
                 <div className="grid items-center gap-4 sm:grid-cols-[160px_1fr]">
                   <div className="relative mx-auto h-40 w-40">
                     {data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired > 0 ? (
@@ -286,19 +286,19 @@ export default function Dashboard() {
                           <Pie data={accessData(data.accessExpiry)} dataKey="value" nameKey="name" innerRadius={50} outerRadius={70} stroke="none" paddingAngle={3}>
                             {accessData(data.accessExpiry).map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
                           </Pie>
-                          <Tooltip contentStyle={{ border: "1px solid #dce6e4", borderRadius: 10, fontSize: 12 }} />
+                          <Tooltip contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12 }} />
                         </PieChart>
                       </ResponsiveContainer>
                     ) : <EmptyChart>No access grants reported.</EmptyChart>}
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="font-mono text-xl font-semibold text-[#29494b]">{numberFormat.format(data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired)}</span>
-                      <span className="text-[10px] uppercase tracking-[0.1em] text-[#819092]">grants</span>
+                      <span className="font-mono text-xl font-semibold text-foreground">{numberFormat.format(data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired)}</span>
+                      <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">grants</span>
                     </div>
                   </div>
                   <div className="space-y-4">
-                    <BreakdownBar label="Valid" value={data.accessExpiry.valid} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#478c75" />
-                    <BreakdownBar label="Expiring" value={data.accessExpiry.expiring} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#d18b39" />
-                    <BreakdownBar label="Expired" value={data.accessExpiry.expired} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#b7463f" />
+                    <BreakdownBar label="Valid" value={data.accessExpiry.valid} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#059669" />
+                    <BreakdownBar label="Expiring" value={data.accessExpiry.expiring} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#d97706" />
+                    <BreakdownBar label="Expired" value={data.accessExpiry.expired} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#e11d48" />
                   </div>
                 </div>
               </CardContent>
@@ -306,44 +306,44 @@ export default function Dashboard() {
           </div>
 
           <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-            <Card className="border-[#dce6e4] bg-[#fbfcfa] shadow-sm">
+            <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
-                <SectionTitle kicker="05 / Application portfolio" title="Criticality mix" aside={<FileCode2 className="h-4 w-4 text-[#6b8584]" />} />
+                <SectionTitle kicker="05 / Application portfolio" title="Criticality mix" aside={<FileCode2 className="h-4 w-4 text-primary" />} />
                 <div className="space-y-4">
                   {(["P1", "P2", "P3", "P4"] as const).map((priority) => (
                     <BreakdownBar key={priority} label={`${priority} · ${priorityLabel(priority)}`} value={data.applicationCriticality[priority]} total={Object.values(data.applicationCriticality).reduce((sum, count) => sum + count, 0)} color={PRIORITY_COLORS[priority]} />
                   ))}
                 </div>
-                <div className="mt-5 border-t border-[#e7eeeb] pt-4">
+                <div className="mt-5 border-t border-border pt-4">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-[#728487]">Tracked applications</span>
-                    <span className="font-mono font-semibold text-[#30494c]">{numberFormat.format(Object.values(data.applicationCriticality).reduce((sum, count) => sum + count, 0))}</span>
+                    <span className="text-muted-foreground">Tracked applications</span>
+                    <span className="font-mono font-semibold text-foreground">{numberFormat.format(Object.values(data.applicationCriticality).reduce((sum, count) => sum + count, 0))}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="border-[#dce6e4] bg-[#fbfcfa] shadow-sm">
+            <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
-                <SectionTitle kicker="06 / Asset & commercial management" title="Spend and commitments" aside={<Wallet className="h-4 w-4 text-[#6b8584]" />} />
+                <SectionTitle kicker="06 / Asset & commercial management" title="Spend and commitments" aside={<Wallet className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-[#edf3f0] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#68817a]">Hardware valuation</p>
-                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-[#234d45]">{currencyFormat.format(data.itam.hardwareAssetValuation)}</p>
-                    <p className="mt-1 text-[11px] text-[#7f908a]">asset portfolio value</p>
+                  <div className="rounded-xl bg-blue-50 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-blue-700">Hardware valuation</p>
+                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-slate-900">{currencyFormat.format(data.itam.hardwareAssetValuation)}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">asset portfolio value</p>
                   </div>
-                  <div className="rounded-xl bg-[#eef2f2] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#6d8283]">Software seats</p>
-                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-[#29494b]">{data.itam.softwareSeatUtilization}%</p>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#dbe5e2]">
-                      <div className="h-full rounded-full bg-[#527e78]" style={{ width: `${Math.max(0, Math.min(data.itam.softwareSeatUtilization, 100))}%` }} />
+                  <div className="rounded-xl bg-slate-100 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-600">Software seats</p>
+                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-slate-900">{data.itam.softwareSeatUtilization}%</p>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(0, Math.min(data.itam.softwareSeatUtilization, 100))}%` }} />
                     </div>
-                    <p className="mt-1 text-[11px] text-[#7f908a]">utilization</p>
+                    <p className="mt-1 text-[11px] text-slate-500">utilization</p>
                   </div>
-                  <div className="rounded-xl bg-[#f7efdf] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#9b6a22]">Renewals due</p>
-                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-[#795522]">{numberFormat.format(data.itam.contractsExpiring30Days)}</p>
-                    <p className="mt-1 text-[11px] text-[#9c835e]">contracts in 30 days</p>
+                  <div className="rounded-xl bg-amber-50 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-amber-700">Renewals due</p>
+                    <p className="mt-3 font-mono text-2xl font-semibold tracking-tight text-amber-900">{numberFormat.format(data.itam.contractsExpiring30Days)}</p>
+                    <p className="mt-1 text-[11px] text-amber-700/70">contracts in 30 days</p>
                   </div>
                 </div>
               </CardContent>
@@ -354,34 +354,34 @@ export default function Dashboard() {
             <SectionTitle
               kicker="07 / Prioritized action"
               title="Attention queue"
-              aside={<Badge variant="outline" className="border-[#d8e3df] bg-[#fbfcfa] text-[#627779]">{data.attentionQueue.length} {data.attentionQueue.length === 1 ? "item" : "items"}</Badge>}
+              aside={<Badge variant="outline" className="border-border bg-card text-muted-foreground">{data.attentionQueue.length} {data.attentionQueue.length === 1 ? "item" : "items"}</Badge>}
             />
-            <Card className="overflow-hidden border-[#dce6e4] bg-[#fbfcfa] shadow-sm">
+            <Card className="overflow-hidden border-border bg-card shadow-sm">
               {data.attentionQueue.length === 0 ? (
                 <CardContent className="flex flex-col items-center px-6 py-10 text-center">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f1ed] text-[#43846e]"><Check className="h-5 w-5" /></span>
-                  <p className="mt-3 text-sm font-semibold text-[#365852]">No items need attention</p>
-                  <p className="mt-1 text-xs text-[#80908d]">The queue is clear based on the latest operational data.</p>
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><Check className="h-5 w-5" /></span>
+                  <p className="mt-3 text-sm font-semibold text-emerald-900">No items need attention</p>
+                  <p className="mt-1 text-xs text-muted-foreground">The queue is clear based on the latest operational data.</p>
                 </CardContent>
               ) : (
-                <div className="divide-y divide-[#e8eeeb]">
+                <div className="divide-y divide-border">
                   {data.attentionQueue.map((item) => (
-                    <Link key={item.id} href={item.href} className="group flex items-center gap-3 px-4 py-4 transition-colors duration-150 hover:bg-[#f3f7f4] md:px-5">
+                    <Link key={item.id} href={item.href} className="group flex items-center gap-3 px-4 py-4 transition-colors duration-150 hover:bg-accent/60 md:px-5">
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${priorityTone(item.priority)}`}>
                         {isHighPriority(item.priority) ? <ShieldAlert className="h-4 w-4" /> : <CircleHelp className="h-4 w-4" />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-[#294448] group-hover:text-[#1c6c61]">{item.title}</p>
+                          <p className="truncate text-sm font-semibold text-foreground group-hover:text-primary">{item.title}</p>
                           <Badge variant="outline" className={`h-5 border px-1.5 text-[9px] font-bold uppercase tracking-[0.1em] ${priorityBadge(item.priority)}`}>{item.priority}</Badge>
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#849294]">{formatType(item.type)}</span>
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{formatType(item.type)}</span>
                         </div>
-                        <p className="mt-1 line-clamp-1 text-xs text-[#718184]">{item.description}</p>
+                        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{item.description}</p>
                       </div>
-                      <div className="hidden shrink-0 items-center gap-1.5 text-[11px] text-[#899697] sm:flex">
+                      <div className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
                         {item.createdAt && <><Clock3 className="h-3 w-3" />{formatRelative(item.createdAt)}</>}
                       </div>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-[#9aabaa] transition-transform group-hover:translate-x-0.5 group-hover:text-[#34766c]" />
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                     </Link>
                   ))}
                 </div>
@@ -400,9 +400,9 @@ function priorityData(counts: PriorityCounts) {
 
 function accessData(counts: ExecutiveDashboard["accessExpiry"]) {
   return [
-    { name: "Valid", value: counts.valid, fill: "#478c75" },
-    { name: "Expiring", value: counts.expiring, fill: "#d18b39" },
-    { name: "Expired", value: counts.expired, fill: "#b7463f" },
+    { name: "Valid", value: counts.valid, fill: "#059669" },
+    { name: "Expiring", value: counts.expiring, fill: "#d97706" },
+    { name: "Expired", value: counts.expired, fill: "#e11d48" },
   ].filter((entry) => entry.value > 0);
 }
 
@@ -415,15 +415,15 @@ function priorityLabel(priority: keyof PriorityCounts) {
 }
 
 function priorityTone(priority: string) {
-  if (priority.toUpperCase() === "P1" || priority.toLowerCase() === "critical") return "bg-[#f7e9e6] text-[#a6473d]";
-  if (priority.toUpperCase() === "P2" || priority.toLowerCase() === "high") return "bg-[#f7efdf] text-[#9b6a22]";
-  return "bg-[#e9eff0] text-[#597278]";
+  if (priority.toUpperCase() === "P1" || priority.toLowerCase() === "critical") return "bg-rose-50 text-rose-700";
+  if (priority.toUpperCase() === "P2" || priority.toLowerCase() === "high") return "bg-amber-50 text-amber-700";
+  return "bg-blue-50 text-blue-700";
 }
 
 function priorityBadge(priority: string) {
-  if (priority.toUpperCase() === "P1" || priority.toLowerCase() === "critical") return "border-[#e8c5bf] bg-[#fbf1ef] text-[#a6473d]";
-  if (priority.toUpperCase() === "P2" || priority.toLowerCase() === "high") return "border-[#ead8b7] bg-[#fbf5e9] text-[#926522]";
-  return "border-[#dce6e4] bg-[#f2f6f4] text-[#637a7d]";
+  if (priority.toUpperCase() === "P1" || priority.toLowerCase() === "critical") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (priority.toUpperCase() === "P2" || priority.toLowerCase() === "high") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
 function isHighPriority(priority: string) {

@@ -286,11 +286,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-card">
+    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Logo/Header */}
-      <div className="p-5 pr-10 md:pr-5 border-b border-border">
+      <div className="border-b border-sidebar-border p-5 pr-10 md:pr-5">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shrink-0">
+           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary shadow-sm">
             <Server className="text-primary-foreground w-5 h-5" />
           </div>
           <div className="min-w-0">
@@ -301,7 +301,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* Navigation Menu */}
-      <nav className="flex-1 p-3 space-y-5 overflow-y-auto" data-testid="navigation-menu">
+      <nav className="flex-1 space-y-5 overflow-y-auto p-3" data-testid="navigation-menu">
         {navigationSections
           .map(section => ({ ...section, items: section.items.filter(isItemAllowed) }))
           .filter((section) => section.items.length > 0)
@@ -313,7 +313,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               <div key={section.title}>
                 <button
                   onClick={() => toggleSection(section.title)}
-                  className="w-full flex items-center justify-between px-3 mb-1.5 group"
+                  className="group mb-1.5 flex w-full items-center justify-between rounded-lg px-3 py-1.5"
                   data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
                   aria-expanded={isSectionExpanded}
                 >
@@ -338,10 +338,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                             <button
                               onClick={() => setReportsExpanded(!reportsExpanded)}
                               className={cn(
-                                "w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium",
+                                 "w-full flex items-center justify-between rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
                                 item.current
-                                  ? "bg-primary/10 text-primary"
-                                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                   ? "border-primary bg-primary/10 text-primary"
+                                   : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                               )}
                               data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                               aria-expanded={isExpanded}
@@ -361,10 +361,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                     aria-current={subitem.current ? "page" : undefined}
                                     onClick={onNavigate}
                                     className={cn(
-                                      "flex items-center px-3 py-2 rounded-md text-sm",
+                                       "flex items-center rounded-lg border-l-2 px-3 py-2 text-sm transition-colors",
                                       subitem.current
-                                        ? "bg-primary/10 text-primary font-medium"
-                                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                                         ? "border-primary bg-primary/10 font-medium text-primary"
+                                         : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                                     )}
                                     data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
                                   >
@@ -384,10 +384,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                           aria-current={item.current ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                            "flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium",
+                             "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
                             item.current
-                              ? "bg-primary/10 text-primary"
-                              : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                               ? "border-primary bg-primary/10 text-primary"
+                               : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                           )}
                           data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                         >
@@ -404,9 +404,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       {/* User Profile */}
-      <div className="p-4 border-t border-border">
+      <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center shrink-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <User className="text-primary-foreground w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
@@ -446,7 +446,7 @@ export default function Sidebar() {
   return (
     <>
       {/* ── Mobile top header ── */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-40 h-14 bg-card border-b border-border flex items-center px-4 gap-3 shadow-xs">
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 shadow-sm md:hidden">
         <button
           onClick={() => setMobileOpen(true)}
           className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -466,7 +466,7 @@ export default function Sidebar() {
 
       {/* ── Mobile drawer ── */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent id="mobile-navigation" side="left" className="p-0 w-72 border-r">
+        <SheetContent id="mobile-navigation" side="left" className="w-72 border-r p-0">
           <SheetTitle className="sr-only">Main navigation</SheetTitle>
           <SheetDescription className="sr-only">Browse your authorized workspaces and reports. Select a destination to close this menu.</SheetDescription>
           <NavContent onNavigate={() => setMobileOpen(false)} />
@@ -474,7 +474,7 @@ export default function Sidebar() {
       </Sheet>
 
       {/* ── Desktop sidebar ── */}
-      <div className="hidden md:flex w-64 bg-card border-r border-border flex-col shrink-0" data-testid="sidebar">
+      <div className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex" data-testid="sidebar">
         <NavContent />
       </div>
     </>

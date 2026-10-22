@@ -167,10 +167,10 @@ export default function Settings() {
   }
 
   return (
-    <div className="flex-1 p-8">
+    <div className="flex-1 p-4 md:p-6">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <SettingsIcon className="h-8 w-8" />
+        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-3">
+          <SettingsIcon className="h-10 w-10 rounded-xl bg-blue-50 p-2 text-primary dark:bg-blue-950" />
           Settings
         </h1>
         <p className="text-muted-foreground mt-2">

@@ -37,3 +37,4 @@
 - [System data reset boundary](system-data-reset-boundary.md) — business resets preserve identity/configuration; destructive verification needs its own disposable test schema.
 - [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.
 - [Login visual direction](login-visual-direction.md) — preserve the original navy, white and blue enterprise styling; avoid serif typography and technical badge clutter.
+- [Internal design direction](internal-design-system.md) — align all internal modules with shared blue/slate styling, simple headers/filter bars and soft semantic accents.
