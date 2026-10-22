@@ -2,17 +2,20 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Shield, Users, BarChart3, Package, Settings, Ticket, LifeBuoy } from "lucide-react";
 import { Redirect } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { useQuery } from "@tanstack/react-query";
-import type { ComponentType } from "react";
+import {
+  Activity, Check, ChevronRight, CircleHelp, CreditCard, Eye, EyeOff,
+  HardDrive, LifeBuoy, Lock, Network, Server,
+  ShieldCheck, UserRound, Users, Loader2,
+  type LucideIcon,
+} from "lucide-react";
+import "@/components/auth/auth-page.css";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -20,233 +23,280 @@ const loginSchema = z.object({
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
-
-type SystemStatus = {
-  initialized: boolean;
-  userCount: number;
-  needsSetup: boolean;
-};
-
-type ModuleStatus = {
-  key: string;
-  name: string;
-  core: boolean;
-  enabled: boolean;
-};
-
+type SystemStatus = { initialized: boolean; userCount: number; needsSetup: boolean };
+type ModuleStatus = { key: string; name: string; core: boolean; enabled: boolean };
 type Highlight = {
-  icon: ComponentType<{ className?: string }>;
-  color: "blue" | "green" | "purple" | "orange" | "pink" | "indigo";
+  icon: LucideIcon;
   title: string;
   description: string;
+  module: "asset_management" | "itsm";
+  index: string;
 };
 
-// Feature highlights advertised on the login page, grouped by the module
-// that provides them. Only highlights whose module is enabled on this
-// deployment are shown, so the page reflects what the system can actually do.
-const MODULE_HIGHLIGHTS: Record<string, Highlight[]> = {
-  asset_management: [
-    { icon: Package, color: "blue", title: "Asset Tracking", description: "Complete lifecycle management for all IT equipment" },
-    { icon: Users, color: "green", title: "Employee Management", description: "Manage staff assignments and department structures" },
-    { icon: BarChart3, color: "purple", title: "Budget Planning", description: "Financial planning and expense tracking" },
-    { icon: Shield, color: "orange", title: "Maintenance", description: "Preventive maintenance and service records" },
-  ],
-  itsm: [
-    { icon: Ticket, color: "pink", title: "Incident Tickets", description: "Log and track IT incidents through to resolution" },
-    { icon: LifeBuoy, color: "indigo", title: "Service Requests", description: "Streamlined intake for employee service requests" },
-  ],
-};
-
-const COLOR_CLASSES: Record<Highlight["color"], { bg: string; icon: string }> = {
-  blue: { bg: "bg-blue-100 dark:bg-blue-900/30", icon: "text-blue-600 dark:text-blue-400" },
-  green: { bg: "bg-green-100 dark:bg-green-900/30", icon: "text-green-600 dark:text-green-400" },
-  purple: { bg: "bg-purple-100 dark:bg-purple-900/30", icon: "text-purple-600 dark:text-purple-400" },
-  orange: { bg: "bg-orange-100 dark:bg-orange-900/30", icon: "text-orange-600 dark:text-orange-400" },
-  pink: { bg: "bg-pink-100 dark:bg-pink-900/30", icon: "text-pink-600 dark:text-pink-400" },
-  indigo: { bg: "bg-indigo-100 dark:bg-indigo-900/30", icon: "text-indigo-600 dark:text-indigo-400" },
-};
+const HIGHLIGHTS: Highlight[] = [
+  {
+    icon: Server,
+    title: "Data Center & CMDB",
+    description: "Full lifecycle management for servers, racks, cloud infrastructure, and network topology.",
+    module: "asset_management",
+    index: "01",
+  },
+  {
+    icon: HardDrive,
+    title: "IT Asset Lifecycle",
+    description: "Complete hardware, endpoint, component, software, and license tracking.",
+    module: "asset_management",
+    index: "02",
+  },
+  {
+    icon: LifeBuoy,
+    title: "ITSM & Service Desk",
+    description: "Automated incident resolution, change workflows, problem management, and SLA tracking.",
+    module: "itsm",
+    index: "03",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Governance, Risk & Compliance",
+    description: "Audit-ready IT component registers, configuration baselines, and policy mappings.",
+    module: "asset_management",
+    index: "04",
+  },
+  {
+    icon: CreditCard,
+    title: "Financials & Procurement",
+    description: "Vendor management, purchase order tracking, budget planning, and depreciation analysis.",
+    module: "asset_management",
+    index: "05",
+  },
+  {
+    icon: Users,
+    title: "Employee Self-Service",
+    description: "Streamlined asset handovers, service requests, offboarding clearances, and approvals.",
+    module: "itsm",
+    index: "06",
+  },
+];
 
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
-
-  // Check system initialization status
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const { data: systemStatus, isLoading: statusLoading } = useQuery<SystemStatus>({
     queryKey: ["/api/system/status"],
     retry: false,
   });
-
-  // Only advertise capabilities this deployment actually has enabled
   const { data: moduleStatus } = useQuery<ModuleStatus[]>({
     queryKey: ["/api/module-status"],
     retry: false,
   });
 
-  const enabledModuleKeys = moduleStatus?.filter((m) => m.enabled).map((m) => m.key) ?? ["asset_management"];
-  const highlights = enabledModuleKeys.flatMap((key) => MODULE_HIGHLIGHTS[key] ?? []);
-  const hasItsm = enabledModuleKeys.includes("itsm");
-
+  // Keep the existing conservative fallback when module status is unavailable.
+  const enabledModuleKeys = moduleStatus?.filter((module) => module.enabled).map((module) => module.key) ?? ["asset_management"];
+  const highlights = HIGHLIGHTS.filter((highlight) => enabledModuleKeys.includes(highlight.module));
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      username: "",
-      password: "",
-    },
+    defaultValues: { username: "", password: "" },
   });
 
-  // Redirect if already logged in
-  if (user) {
-    return <Redirect to="/dashboard" />;
-  }
+  if (user) return <Redirect to="/dashboard" />;
 
-  // Show loading while checking system status
   if (statusLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-        <div className="flex flex-col items-center space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Checking system status...</p>
-        </div>
-      </div>
+      <main className="auth-shell auth-loading" aria-label="Loading sign-in">
+        <div className="auth-loading-mark" />
+        <div className="auth-loading-line" />
+        <p>Checking system status…</p>
+      </main>
     );
   }
 
-  // Redirect to initialization if system is not set up
-  if (systemStatus && !systemStatus.initialized) {
-    return <Redirect to="/initialize" />;
-  }
+  if (systemStatus && !systemStatus.initialized) return <Redirect to="/initialize" />;
 
   const onSubmit = (data: LoginFormData) => {
-    loginMutation.mutate(data);
+    if (loginMutation.isPending) return;
+    loginMutation.mutate({ username: data.username, password: data.password });
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 items-center">
-        {/* Left Column - Login Form */}
-        <div className="flex justify-center">
-          <Card className="w-full max-w-md">
-            <CardHeader className="space-y-1">
-              <div className="flex items-center justify-center mb-4">
-                <div className="rounded-full bg-primary p-3">
-                  <Shield className="w-6 h-6 text-primary-foreground" />
-                </div>
+    <main className="auth-shell">
+      <div className="auth-orbit auth-orbit-one" aria-hidden="true" />
+      <div className="auth-orbit auth-orbit-two" aria-hidden="true" />
+      <div className="auth-grain" aria-hidden="true" />
+
+      <div className="auth-layout">
+        <section className="auth-access" aria-labelledby="sign-in-title">
+          <div className="auth-brand">
+            <div className="auth-brand-mark" aria-hidden="true">
+              <Network className="auth-brand-network" />
+              <span />
+            </div>
+            <div>
+              <div className="auth-brand-name">YOUR ORGANIZATION</div>
+              <div className="auth-brand-caption">ENTERPRISE OPERATIONS PLATFORM</div>
+            </div>
+          </div>
+
+          <div className="auth-card">
+            <div className="auth-card-topline">
+              <span className="auth-status-dot" />
+              SECURE WORKSPACE
+              <span className="auth-card-code">AUTH.01</span>
+            </div>
+            <div className="auth-card-heading">
+              <div className="auth-card-emblem"><Lock aria-hidden="true" /></div>
+              <div>
+                <h2 id="sign-in-title">Sign in</h2>
+                <p>Use your organization credentials to continue.</p>
               </div>
-              <CardTitle className="text-2xl text-center">Sign In</CardTitle>
-              <CardDescription className="text-center">
-                Sign in to your IT Asset Management account
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="username"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Username</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="Enter your username"
-                            disabled={loginMutation.isPending}
-                            data-testid="input-username"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            type="password"
-                            placeholder="Enter your password"
-                            disabled={loginMutation.isPending}
-                            data-testid="input-password"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={loginMutation.isPending}
-                    data-testid="button-login"
-                  >
-                    {loginMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Signing In...
-                      </>
-                    ) : (
-                      "Sign In"
-                    )}
-                  </Button>
-                </form>
-              </Form>
-              
-              {loginMutation.error && (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertDescription>
-                    {loginMutation.error.message}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
 
-        {/* Right Column - Hero Section */}
-        <div className="text-center md:text-left space-y-6">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">
-              {hasItsm ? "IT Asset & Service Management System" : "IT Asset Management System"}
-            </h1>
-            <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">
-              {hasItsm
-                ? "Comprehensive solution for managing your organization's IT assets, employees, and support requests."
-                : "Comprehensive solution for managing your organization's IT assets, employees, and resources."}
-            </p>
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="auth-form"
+                aria-busy={loginMutation.isPending}
+              >
+                <FormField
+                  control={form.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem className="auth-field">
+                      <label htmlFor="auth-username" className="auth-label">Username</label>
+                        <div className="auth-input-wrap">
+                          <UserRound className="auth-input-icon" aria-hidden="true" />
+                          <FormControl>
+                            <Input
+                              {...field}
+                              id="auth-username"
+                              type="text"
+                              autoComplete="username"
+                              placeholder="Your username"
+                              disabled={loginMutation.isPending}
+                              data-testid="input-username"
+                              className="auth-input"
+                            />
+                          </FormControl>
+                        </div>
+                      <FormMessage className="auth-validation" />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem className="auth-field">
+                      <label htmlFor="auth-password" className="auth-label">Password</label>
+                        <div className="auth-input-wrap">
+                          <Lock className="auth-input-icon" aria-hidden="true" />
+                          <FormControl>
+                            <Input
+                              {...field}
+                              id="auth-password"
+                              type={passwordVisible ? "text" : "password"}
+                              autoComplete="current-password"
+                              placeholder="Your password"
+                              disabled={loginMutation.isPending}
+                              data-testid="input-password"
+                              className="auth-input auth-password-input"
+                            />
+                          </FormControl>
+                          <button
+                            type="button"
+                            className="auth-password-toggle"
+                            aria-label={passwordVisible ? "Hide password" : "Show password"}
+                            aria-pressed={passwordVisible}
+                            aria-controls="auth-password"
+                            disabled={loginMutation.isPending}
+                            onClick={() => setPasswordVisible((visible) => !visible)}
+                          >
+                            {passwordVisible
+                              ? <EyeOff aria-hidden="true" />
+                              : <Eye aria-hidden="true" />}
+                          </button>
+                        </div>
+                      <FormMessage className="auth-validation" />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  className="auth-submit"
+                  disabled={loginMutation.isPending}
+                  data-testid="button-login"
+                >
+                  {loginMutation.isPending ? (
+                    <>
+                      <Loader2 className="auth-submit-spinner" aria-hidden="true" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      Sign in
+                      <ChevronRight className="auth-submit-arrow" aria-hidden="true" />
+                    </>
+                  )}
+                </Button>
+                <span className="auth-sr-only" role="status" aria-live="polite">
+                  {loginMutation.isPending ? "Signing in. Please wait." : ""}
+                </span>
+              </form>
+            </Form>
+
+            {loginMutation.error && (
+              <Alert variant="destructive" className="auth-error" role="alert">
+                <CircleHelp className="auth-error-icon" aria-hidden="true" />
+                <AlertDescription>{loginMutation.error.message}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="auth-security-notice">
+              <div className="auth-security-icon"><Lock aria-hidden="true" /></div>
+              <p><strong>Secure Enterprise Portal</strong><br />Access restricted to authorized personnel. Contact IT Administration for provisioning.</p>
+            </div>
           </div>
+          <p className="auth-access-footnote"><Check aria-hidden="true" /> Protected access · Session activity is monitored</p>
+        </section>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {highlights.map((item) => {
-              const Icon = item.icon;
-              const colors = COLOR_CLASSES[item.color];
-              return (
-                <div key={item.title} className="flex items-start space-x-3">
-                  <div className={`rounded-lg ${colors.bg} p-2`}>
-                    <Icon className={`w-6 h-6 ${colors.icon}`} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">{item.title}</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      {item.description}
-                    </p>
-                  </div>
+        <section className="auth-overview" aria-labelledby="platform-title">
+          <div className="auth-kicker"><span /> ONE CONTROL PLANE <span className="auth-kicker-rule" /></div>
+          <h1 id="platform-title">Enterprise IT Service Management <em>&amp;</em> Asset Governance Platform</h1>
+          <p className="auth-subheading">
+            Unified ITSM, CMDB, Network Topology, and Governance framework engineered for end-to-end IT operations and compliance auditing.
+          </p>
+
+          <div className="auth-capabilities-head">
+            <span>PLATFORM CAPABILITIES</span>
+            <span className="auth-capability-count">{String(highlights.length).padStart(2, "0")} / 06</span>
+          </div>
+          <div className="auth-feature-grid">
+            {highlights.map(({ icon: Icon, title, description, index }) => (
+              <article className="auth-feature-card" key={title}>
+                <div className="auth-feature-card-top">
+                  <div className="auth-feature-icon"><Icon aria-hidden="true" /></div>
+                  <span className="auth-feature-index">{index}</span>
                 </div>
-              );
-            })}
+                <h3>{title}</h3>
+                <p>{description}</p>
+                <span className="auth-feature-accent" aria-hidden="true" />
+              </article>
+            ))}
           </div>
 
-          <div className="mt-8 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg border">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              <strong>Note:</strong> New user accounts are created by system administrators. 
-              Please contact your IT administrator if you need access to the system.
-            </p>
+          <div className="auth-overview-footer">
+            <div className="auth-footer-mark"><Activity aria-hidden="true" /></div>
+            <span>Operational clarity, from infrastructure to governance.</span>
+            <div className="auth-footer-line" />
+            <span className="auth-live"><i /> SYSTEM READY</span>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
+      <footer className="auth-page-footer">
+        <span>ENTERPRISE IT <span className="auth-footer-separator">/</span> OPERATIONS</span>
+        <span>AUTHORIZED USERS ONLY</span>
+      </footer>
+    </main>
   );
 }
