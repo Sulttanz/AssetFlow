@@ -50,6 +50,7 @@ import { serviceApprovalRoles } from "@shared/service-catalog";
 import { registerAssetHandoverRoutes } from "./asset-handovers";
 import { registerNetworkTopologyRoutes } from "./network-topology";
 import { registerBackupGovernanceRoutes } from "./backup-governance";
+import { registerItComponentsComplianceRoutes } from "./it-components-compliance-report";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -8051,6 +8052,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Knowledge Base ───────────────────────────────────────────────────────
   registerKnowledgeRoutes(app, requireAuth, diskUpload.single("file"));
   registerNetworkTopologyRoutes(app, requireAuth, requireModule("asset_management"));
+  registerItComponentsComplianceRoutes(
+    app,
+    requireAuth,
+    requireModule("asset_management"),
+    requireAnyPermission("asset_view", "asset_update", "cmdb_view", "compliance_view", "audit_view", "system_admin"),
+    requirePermission("asset_update"),
+  );
   registerBackupGovernanceRoutes(app, requireAuth, requireModule("asset_management"));
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));

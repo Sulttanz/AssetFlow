@@ -40,9 +40,10 @@ export function exportToPDF(
   data: any[][],
   columns: string[],
   title: string,
-  filename: string
+  filename: string,
+  orientation: "portrait" | "landscape" = "portrait",
 ) {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation });
   
   // Add title
   doc.setFontSize(16);

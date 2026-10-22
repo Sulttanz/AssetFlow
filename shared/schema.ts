@@ -772,6 +772,27 @@ export const insertNetworkZoneSchema = createInsertSchema(networkZones).omit({
 });
 export type NetworkZone = typeof networkZones.$inferSelect;
 
+export const itComponentComplianceReviews = pgTable("it_component_compliance_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  componentType: text("component_type").notNull(),
+  componentId: varchar("component_id").notNull(),
+  baselineStandard: text("baseline_standard"),
+  complianceStatus: text("compliance_status").notNull().default("pending_review"),
+  lastReviewedAt: date("last_reviewed_at"),
+  reviewFrequency: text("review_frequency").notNull().default("quarterly"),
+  findings: text("findings"),
+  remediationNotes: text("remediation_notes"),
+  reviewedById: varchar("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("it_component_compliance_reviews_component_unique").on(table.componentType, table.componentId),
+  index("it_component_compliance_reviews_status_idx").on(table.complianceStatus, table.lastReviewedAt),
+  check("it_component_compliance_reviews_status_check", sql`${table.complianceStatus} IN ('compliant', 'non_compliant', 'pending_review')`),
+  check("it_component_compliance_reviews_frequency_check", sql`${table.reviewFrequency} IN ('monthly', 'quarterly', 'annual')`),
+]);
+export type ItComponentComplianceReview = typeof itComponentComplianceReviews.$inferSelect;
+
 export const networkDevices = pgTable("network_devices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),

@@ -191,7 +191,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           submenu: [
             { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary" },
             { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle" },
-            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
+            { name: "IT Components & Compliance", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
             { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments" },
             { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance" },
             { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders" },

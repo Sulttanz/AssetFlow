@@ -88,6 +88,7 @@ describe("on-prem startup migrations", () => {
       "20261101_access_expiry_offboarding_clearances.sql",
       "20261102_cmdb_dependency_change_impact.sql",
       "20261107_network_backup_policy_compliance.sql",
+      "20261108_it_component_compliance_reviews.sql",
     ]) {
       const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
       expect(() => assertAdditiveMigration(migration, name)).not.toThrow();
