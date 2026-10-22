@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import {
@@ -497,7 +497,12 @@ export default function AccessGovernance() {
 
       <Dialog open={Boolean(editingRecord)} onOpenChange={open => { if (!open) setEditingRecord(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Edit Access Entitlement</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Edit Access Entitlement</DialogTitle>
+            <DialogDescription>
+              Update the privilege level, expiry date, and business justification for this employee’s access.
+            </DialogDescription>
+          </DialogHeader>
           {editingRecord && (
             <div className="space-y-4">
               <div className="rounded-md bg-muted p-3">

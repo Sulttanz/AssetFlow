@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -568,6 +568,11 @@ export default function Assets() {
               <DialogTitle>
                 {selectedAsset ? "Edit Asset" : "Add New Asset"}
               </DialogTitle>
+              <DialogDescription>
+                {selectedAsset
+                  ? "Update the asset details below and click save to apply changes."
+                  : "Enter the asset details below and save to add it to the asset register."}
+              </DialogDescription>
             </DialogHeader>
             <div className="overflow-y-auto flex-1 pr-1">
               <AssetForm
