@@ -116,6 +116,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees", permission: ["employee_update", "offboarding_approve", "system_admin"] },
         { name: "Access Governance", href: "/access-governance", icon: Shield, current: location === "/access-governance", permission: ["employee_update", "access_governance_view", "system_admin"] },
         { name: "Assignments", href: "/assignments", icon: LinkIcon, current: location === "/assignments" },
+        { name: "Asset Handovers", href: "/asset-handovers", icon: FileSignature, current: location === "/asset-handovers" || location.startsWith("/asset-handovers/"), permission: ["assignment_create", "assignment_return", "assignment_update", "asset_view", "system_admin"] },
         { name: "Asset Disposal", href: "/asset-disposal", icon: Trash2, current: location === "/asset-disposal" },
         { name: "Bookings", href: "/bookings", icon: CalendarRange, current: location === "/bookings" },
         { name: "Asset Requests", href: "/asset-requests", icon: ClipboardList, current: location === "/asset-requests" },

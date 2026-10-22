@@ -1,16 +1,18 @@
 import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Activity, ArrowDownRight, ArrowRight, BookOpen, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowRight, BookOpen, Check, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArticleDetailDialog } from "@/components/knowledge-base/article-detail-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { apiRequest, getQueryFn } from "@/lib/queryClient";
+import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { checkedResponse } from "@/components/service-catalog/types";
+import { formatDateTimeMinute } from "@/lib/date-utils";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type CatalogItem = {
   id: string; title: string; description?: string | null; category?: string;
@@ -21,6 +23,13 @@ type Incident = { id: string; incidentNumber: string; title: string; status: str
 type ServiceRequest = { id: string; requestNumber: string; title: string; requesterId: string; fulfillmentStage?: string | null; fulfillmentStatus?: string | null; approvalStatus?: string | null; createdAt?: string | null; targetFulfillmentDate?: string | null };
 type Change = { id: string; changeNumber: string; title: string; status: string; createdAt?: string | null; scheduledStart?: string | null; requestedById?: string | null };
 type ActivityRow = { id: string; ticket: string; title: string; type: string; status: string; createdAt?: string | null; target?: string | null };
+type CustodyReceipt = {
+  id: string; handoverNumber: string; type: string; employeeId: string; employeeNumber: string; employeeName: string;
+  employeeEmail: string; assetId: string; assetName: string; assetTag: string; assetType: string;
+  serialNumber: string; assignmentId: string; handoverDate: string; condition: string;
+  includedAccessories: string[]; notes: string; acknowledged: boolean; acknowledgedAt: string | null;
+  signatureData: string | null; createdAt: string; issuedByName: string; assignmentReturnedDate: string | null;
+};
 
 function dateLabel(value?: string | null) {
   if (!value) return "—";
@@ -47,6 +56,7 @@ export default function PortalPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [articleId, setArticleId] = useState<string | null>(null);
+  const [receiptToAcknowledge, setReceiptToAcknowledge] = useState<CustodyReceipt | null>(null);
   const queryTerm = search.trim();
   const kbQuery = useQuery<Article[]>({
     queryKey: ["/api/kb/search", user?.id, queryTerm],
@@ -66,6 +76,18 @@ export default function PortalPage() {
   const changesQuery = useQuery<{ changes: Change[]; total: number; page: number; pageSize: number }>({
     queryKey: ["/api/changes?page=1&pageSize=100"],
     queryFn: getQueryFn({ on401: "throw" }),
+  });
+  const custodyQuery = useQuery<CustodyReceipt[]>({
+    queryKey: ["/api/my/asset-handovers"],
+    queryFn: async () => (await apiRequest("GET", "/api/my/asset-handovers")).json(),
+    enabled: Boolean(user?.id),
+  });
+  const acknowledgeMutation = useMutation({
+    mutationFn: async (receipt: CustodyReceipt) => (await apiRequest("POST", `/api/my/asset-handovers/${receipt.id}/acknowledge`, { confirmed: true })).json(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/my/asset-handovers"] });
+      setReceiptToAcknowledge(null);
+    },
   });
 
   const catalog = (catalogQuery.data ?? []).filter(item => item.status === "Active");
@@ -109,6 +131,35 @@ export default function PortalPage() {
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#d4e5dc] text-[#326662]"><Headphones className="h-5 w-5" /></div><div><p className="text-sm font-semibold text-[#244847]">Need a person?</p><p className="text-xs text-[#69817d]">Our support team can help you find the right route.</p></div></div>
           <Link className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#2c6c67] hover:text-[#174c49]" href="/knowledge-base">Browse help articles <ArrowRight className="h-4 w-4" /></Link>
         </div>
+      </section>
+
+      <section className="mt-8 overflow-hidden rounded-[24px] border border-[#d4e2de] bg-[#fffdfa] shadow-[0_10px_38px_rgba(35,73,70,.045)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4ebe7] px-5 py-5 sm:px-7">
+          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Laptop className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#7a908c]">Equipment in your care</p><h2 className="text-xl font-semibold tracking-[-.03em]">My Assigned Assets</h2></div></div>
+          <span className="rounded-full border border-[#d7e5dd] bg-[#f3f8f4] px-3 py-1.5 text-xs font-medium text-[#55766c]">{custodyQuery.data?.length ?? 0} active receipt{custodyQuery.data?.length === 1 ? "" : "s"}</span>
+        </div>
+        {custodyQuery.isLoading ? <div className="space-y-3 p-5 sm:p-7" aria-label="Loading assigned assets">{[0,1].map(item => <div key={item} className="h-24 animate-pulse rounded-2xl bg-[#eff4f0]" />)}</div>
+          : custodyQuery.isError ? <div className="px-6 py-12 text-center"><p className="font-semibold">Your custody receipts could not load</p><p className="mt-1 text-sm text-[#7c908d]">Try again in a moment.</p><Button variant="outline" className="mt-4 rounded-full" onClick={() => void custodyQuery.refetch()}>Try again</Button></div>
+            : !custodyQuery.data?.length ? <div className="px-6 py-12 text-center"><div className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-[#edf4ef] text-[#64847b]"><Laptop className="h-5 w-5" /></div><h3 className="mt-3 font-semibold">No active custody receipts</h3><p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-[#7a8e8b]">Equipment assigned to you will appear here with its handover details and acknowledgement status.</p></div>
+              : <div className="divide-y divide-[#edf1ee]">{custodyQuery.data.map(receipt => <article key={receipt.id} className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+                <div className="flex min-w-0 items-start gap-4">
+                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#edf4ef] text-[#477a70]"><Laptop className="h-5 w-5" /></div>
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold tracking-[-.02em]">{receipt.assetName}</h3><span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${receipt.acknowledged ? "border-[#c7dfd2] bg-[#eaf5ee] text-[#3f7658]" : "border-[#ecdcb9] bg-[#fbf5e8] text-[#8a6a32]"}`}>{receipt.acknowledged ? "Acknowledged" : "Action needed"}</span></div>
+                    <p className="mt-1 font-mono text-xs text-[#69827b]">{receipt.assetTag} <span className="font-sans">· {receipt.assetType}</span></p>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#81938e]"><span>Receipt {receipt.handoverNumber}</span><span>{dateLabel(receipt.handoverDate)}</span><span>{receipt.condition} condition</span></div>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+                  {receipt.acknowledged ? <span className="inline-flex items-center gap-1.5 text-xs text-[#648174]"><Check className="h-3.5 w-3.5" /> Confirmed{receipt.acknowledgedAt ? ` · ${formatDateTimeMinute(receipt.acknowledgedAt)}` : ""}</span>
+                    : <Button size="sm" onClick={() => setReceiptToAcknowledge(receipt)} className="rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]">Review & acknowledge <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>}
+                </div>
+                <div className="w-full rounded-xl border border-[#e7ede9] bg-[#fafcf9] p-3 text-xs leading-5 text-[#6f8580] sm:hidden">
+                  <span className="font-semibold text-[#526f68]">Serial number:</span> {receipt.serialNumber || "Not recorded"}<br />
+                  <span className="font-semibold text-[#526f68]">Accessories:</span> {receipt.includedAccessories?.length ? receipt.includedAccessories.join(", ") : "None listed"}
+                  {receipt.notes && <><br /><span className="font-semibold text-[#526f68]">Notes:</span> {receipt.notes}</>}
+                </div>
+                <div className="hidden max-w-[290px] text-right text-xs leading-5 text-[#81938e] sm:block"><p>Serial <span className="font-mono text-[#59756e]">{receipt.serialNumber || "Not recorded"}</span></p><p className="truncate">{receipt.includedAccessories?.length ? receipt.includedAccessories.join(", ") : "No accessories listed"}</p></div>
+              </article>)}</div>}
       </section>
 
       <section className="mt-9 rounded-[26px] border border-[#d4e2de] bg-[#fffdfa] p-4 shadow-[0_18px_55px_rgba(35,73,70,.07)] sm:p-6">
@@ -169,7 +220,28 @@ export default function PortalPage() {
     </div>
 
     <ArticleDetailDialog articleId={articleId} open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }} />
+    <Dialog open={Boolean(receiptToAcknowledge)} onOpenChange={open => { if (!open) setReceiptToAcknowledge(null); }}>
+      <DialogContent className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
+        <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#6d8982]">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Review this handover</DialogTitle></DialogHeader>
+        {receiptToAcknowledge && <div className="space-y-4">
+          <p className="text-sm leading-6 text-[#6c837d]">Confirm that the equipment details below match the item in your care. Your acknowledgement will be recorded under <strong className="font-semibold text-[#31564f]">{receiptToAcknowledge.employeeName}</strong>.</p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-2xl border border-[#e2ebe6] bg-[#f6f9f6] p-4">
+            <CustodyDetail label="Equipment" value={receiptToAcknowledge.assetName} /><CustodyDetail label="Asset tag" value={receiptToAcknowledge.assetTag} />
+            <CustodyDetail label="Serial number" value={receiptToAcknowledge.serialNumber || "Not recorded"} /><CustodyDetail label="Handover date" value={dateLabel(receiptToAcknowledge.handoverDate)} />
+            <CustodyDetail label="Condition" value={receiptToAcknowledge.condition} /><CustodyDetail label="Accessories" value={receiptToAcknowledge.includedAccessories?.length ? receiptToAcknowledge.includedAccessories.join(", ") : "None listed"} />
+            {receiptToAcknowledge.notes && <div className="col-span-2"><CustodyDetail label="Notes" value={receiptToAcknowledge.notes} /></div>}
+          </div>
+          <p className="text-xs leading-5 text-[#82948e]">This is an explicit acknowledgement of the receipt. No drawn signature or name entry is required.</p>
+        </div>}
+        <DialogFooter className="mt-2 gap-2 sm:gap-2"><Button variant="outline" disabled={acknowledgeMutation.isPending} onClick={() => setReceiptToAcknowledge(null)} className="rounded-full border-[#d5e1db]">Not now</Button><Button disabled={!receiptToAcknowledge || acknowledgeMutation.isPending} onClick={() => receiptToAcknowledge && acknowledgeMutation.mutate(receiptToAcknowledge)} className="rounded-full bg-[#285f5d] hover:bg-[#1f514f]">{acknowledgeMutation.isPending ? "Recording…" : "Confirm acknowledgement"}</Button></DialogFooter>
+        {acknowledgeMutation.isError && <p role="alert" className="text-sm text-[#a15e49]">Could not record acknowledgement. Please try again.</p>}
+      </DialogContent>
+    </Dialog>
   </main>;
+}
+
+function CustodyDetail({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#849690]">{label}</p><p className="mt-1 text-sm font-medium text-[#34514c]">{value || "—"}</p></div>;
 }
 
 function SearchResults({ title, icon, loading, error, retry, empty, emptyLabel, children }: {

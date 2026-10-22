@@ -38,6 +38,20 @@ describe("persona access policy", () => {
     expect(isPersonaApiAllowed(["it_agent"], [], "/purchase-orders", "GET")).toBe(false);
   });
 
+  it("keeps custody workbench access for asset staff and scopes employee receipts to their own portal actions", () => {
+    expect(isPersonaPageAllowed(["it_agent"], [], "/asset-handovers")).toBe(true);
+    expect(isPersonaPageAllowed(["it_manager"], [], "/asset-handovers")).toBe(true);
+    expect(isPersonaPageAllowed(["end_user"], [], "/asset-handovers")).toBe(false);
+    expect(isPersonaApiAllowed(["it_agent"], [], "/asset-handovers", "POST")).toBe(true);
+    expect(isPersonaApiAllowed(["it_manager"], [], "/asset-handovers", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["cab_member"], [], "/asset-handovers", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/receipt-id/acknowledge", "POST")).toBe(true);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/receipt-id/acknowledge", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/receipt-id", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/asset-handovers", "GET")).toBe(false);
+  });
+
   it("grants CAB and manager access to change approvals, CMDB, and finance routes", () => {
     expect(isPersonaPageAllowed(["cab_member"], [], "/changes/tracker")).toBe(true);
     expect(isPersonaPageAllowed(["cab_member"], [], "/changes/new")).toBe(false);

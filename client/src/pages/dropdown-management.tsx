@@ -23,6 +23,8 @@ const categories = [
   { value: "assetType", label: "Asset Type" },
   { value: "status", label: "Asset Status" },
   { value: "assetCondition", label: "Asset Condition" },
+  { value: "handover_type", label: "Asset Handover Type" },
+  { value: "asset_condition", label: "Custody Receipt Condition" },
   { value: "consumable_category", label: "Consumable Category" },
   { value: "access_privilege_level", label: "Access Privilege Level" },
   { value: "access_application", label: "Access Systems — Applications" },

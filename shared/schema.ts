@@ -301,6 +301,32 @@ export const assignments = pgTable("assignments", {
   notes: text("notes"),
 });
 
+export const assetHandovers = pgTable("asset_handovers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  handoverNumber: text("handover_number").notNull().unique(),
+  type: text("type").notNull(),
+  employeeId: varchar("employee_id").notNull().references(() => employees.id, { onDelete: "restrict" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "restrict" }),
+  assignmentId: varchar("assignment_id").notNull().references(() => assignments.id, { onDelete: "restrict" }),
+  issuedByUserId: varchar("issued_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  handoverDate: date("handover_date").notNull(),
+  condition: text("condition").notNull(),
+  includedAccessories: jsonb("included_accessories").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  notes: text("notes"),
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  signatureData: text("signature_data"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => [
+  check("asset_handovers_type_check", sql`${table.type} IN ('Issue / Assignment', 'Return / Offboarding', 'Replacement / Swap')`),
+  check("asset_handovers_condition_check", sql`${table.condition} IN ('New', 'Excellent', 'Fair', 'Needs Repair')`),
+  check("asset_handovers_accessories_array_check", sql`jsonb_typeof(${table.includedAccessories}) = 'array'`),
+  check("asset_handovers_acknowledgement_check", sql`(${table.acknowledged} = false AND ${table.acknowledgedAt} IS NULL AND ${table.signatureData} IS NULL) OR (${table.acknowledged} = true AND ${table.acknowledgedAt} IS NOT NULL AND ${table.signatureData} IS NOT NULL)`),
+  index("asset_handovers_employee_created_idx").on(table.employeeId, table.createdAt),
+  index("asset_handovers_asset_created_idx").on(table.assetId, table.createdAt),
+  index("asset_handovers_assignment_idx").on(table.assignmentId),
+]);
+
 // Vendor Management
 export const vendors = pgTable("vendors", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1201,6 +1227,14 @@ export const insertEmployeeAccessRightSchema = createInsertSchema(employeeAccess
   status: z.enum(["active", "revoked", "expired"]).default("active"),
 }).omit({ id: true, revokedAt: true, revocationReason: true, createdAt: true, updatedAt: true });
 export const insertAssignmentSchema = createInsertSchema(assignments).omit({ id: true });
+export const insertAssetHandoverSchema = createInsertSchema(assetHandovers).omit({ id: true, handoverNumber: true, assignmentId: true, issuedByUserId: true, acknowledged: true, acknowledgedAt: true, signatureData: true, createdAt: true }).extend({
+  type: z.enum(["Issue / Assignment", "Return / Offboarding", "Replacement / Swap"]),
+  handoverDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  condition: z.enum(["New", "Excellent", "Fair", "Needs Repair"]),
+  includedAccessories: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
+});
+export type InsertAssetHandover = z.infer<typeof insertAssetHandoverSchema>;
+export type AssetHandover = typeof assetHandovers.$inferSelect;
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
 export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems, {

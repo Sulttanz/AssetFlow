@@ -21,6 +21,7 @@ const AccessGovernance = lazy(() => import("@/pages/access-governance"));
 const Applications = lazy(() => import("@/pages/applications"));
 const Servers = lazy(() => import("@/pages/servers"));
 const Assignments = lazy(() => import("@/pages/assignments"));
+const AssetHandovers = lazy(() => import("@/pages/asset-handovers"));
 const Locations = lazy(() => import("@/pages/locations"));
 const Departments = lazy(() => import("@/pages/departments"));
 const Vendors = lazy(() => import("@/pages/vendors"));
@@ -117,6 +118,7 @@ function Router() {
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />
                   <ProtectedRoute path="/audit-logs" component={AuditLogs} requiredAnyPermission={["audit_view", "system_admin"]} />
                   <ProtectedRoute path="/assignments" component={Assignments} requiredModule="asset_management" />
+                  <ProtectedRoute path="/asset-handovers" component={AssetHandovers} requiredModule="asset_management" requiredAnyPermission={["assignment_create", "assignment_return", "assignment_update", "asset_view", "system_admin"]} />
                   <ProtectedRoute path="/locations" component={Locations} requiredModule="asset_management" />
                   <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
                   <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />

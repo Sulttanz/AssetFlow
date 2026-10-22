@@ -47,6 +47,7 @@ import { catalogMutationError, catalogRequestHandler, isStructuredCatalogItem, l
 import { isGovernedVendorContract, normalizeVendorContacts, registerVendorContractRoutes } from "./vendor-contracts";
 import { vendorContracts, vendorContractAssets, type InsertVendor } from "@shared/schema";
 import { serviceApprovalRoles } from "@shared/service-catalog";
+import { registerAssetHandoverRoutes } from "./asset-handovers";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -111,6 +112,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/asset-disposal",
     "/asset-requests",
     "/asset-audits",
+    "/asset-handovers",
     "/employees",
     "/departments",
     "/locations",
@@ -427,7 +429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
     const moduleKey = moduleForApiPath(apiPath);
     const personaGuardedPaths = [
-      "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/dashboard/executive",
+      "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/my/asset-handovers", "/dashboard/executive",
       "/cmdb", "/consumables",
     ];
     const requiresPersonaCheck = moduleKey !== undefined ||
@@ -8047,6 +8049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
   registerVendorContractRoutes(app, requireAuth);
+  registerAssetHandoverRoutes(app);
 
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {

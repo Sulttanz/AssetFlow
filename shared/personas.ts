@@ -15,7 +15,7 @@ const ROLE_ALIASES: Record<PersonaRoleKey, readonly string[]> = {
 
 const IT_AGENT_PAGE_PREFIXES = [
   "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
-  "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits",
+  "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
   "/incidents", "/service-requests", "/problems", "/knowledge-base",
   "/service-catalog", "/reports/tickets", "/reports/problems",
 ];
@@ -135,7 +135,7 @@ function isTicketApiAllowed(path: string, method: string): boolean {
 const IT_AGENT_API_PREFIXES = [
   "/incidents", "/service-requests", "/tickets", "/problems", "/catalog", "/service-catalog",
   "/knowledge-base", "/kb", "/kb-articles", "/assets", "/assignments", "/maintenance",
-  "/maintenance-schedules", "/maintenance-records", "/asset-bookings",
+  "/maintenance-schedules", "/maintenance-records", "/asset-bookings", "/asset-handovers",
   "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
   "/warehouses", "/inventory", "/vendors", "/locations", "/departments",
 ];
@@ -164,14 +164,20 @@ export function isPersonaApiAllowed(
   return personas.some(persona => {
     if (persona === "end_user") {
       return (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+        (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
+        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST") ||
         (apiPath === "/consumables" && isReadMethod(upperMethod)) ||
         isTicketApiAllowed(apiPath, upperMethod);
     }
     if (persona === "it_agent") {
       if (apiPath === "/employees" && isReadMethod(upperMethod)) return true;
+      if (apiPath === "/my/asset-handovers") return isReadMethod(upperMethod);
+      if (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath)) return upperMethod === "POST";
       return IT_AGENT_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "it_manager") {
+      if (apiPath === "/my/asset-handovers") return isReadMethod(upperMethod);
+      if (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath)) return upperMethod === "POST";
       return apiPath === "/dashboard/executive" ||
         (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
