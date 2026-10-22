@@ -18,12 +18,9 @@ import express from "express"
 
 import 
 {
- Pool, neonConfig 
+ Pool 
 }
- from "@neondatabase/serverless"
-;
-
-import ws from "ws"
+ from "pg"
 ;
 
 import 
@@ -128,9 +125,6 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 {
 
     if (!originalUrl) throw new Error("DATABASE_URL is required for the CAB concurrency test")
-;
-
-    neonConfig.webSocketConstructor = ws
 ;
 
     setupPool = new Pool(

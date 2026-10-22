@@ -2,9 +2,8 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { Pool } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import ws from "ws";
 import { changeApprovals } from "@shared/schema";
 
 const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
@@ -18,7 +17,6 @@ describe("CAB assignment history lookup index", () => {
   beforeAll(async () => {
     if (!databaseIntegrationEnabled) return;
     if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB assignment planner test");
-    neonConfig.webSocketConstructor = ws;
     setupPool = new Pool({ connectionString: databaseUrl });
     await setupPool.query(`CREATE SCHEMA "${schema}"`);
 

@@ -1,8 +1,17 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { PoolClient } from "@neondatabase/serverless";
+import type { PoolClient } from "pg";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
-import * as applicationSchema from "@shared/schema";
+import * as applicationSchema from "../shared/schema";
+
+export function testDatabaseUrlForSchema(connectionString: string, schemaName: string): string {
+  if (!/^test_[a-z0-9_]{1,58}$/.test(schemaName)) {
+    throw new Error("Test schema names must start with test_ and be at most 63 safe characters");
+  }
+  const url = new URL(connectionString);
+  url.searchParams.set("options", `-c search_path=${schemaName}`);
+  return url.toString();
+}
 
 /**
  * Build a disposable, complete application schema instead of maintaining a

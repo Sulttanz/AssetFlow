@@ -2,10 +2,9 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
-import ws from "ws";
 import { changeApprovals, changes } from "@shared/schema";
 
 const databaseIntegrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";
@@ -134,7 +133,6 @@ describe("CAB alert storage query", () => {
 
     beforeAll(async () => {
       if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB alert planner test");
-      neonConfig.webSocketConstructor = ws;
       setupPool = new Pool({ connectionString: databaseUrl });
       await setupPool.query(`CREATE SCHEMA "${schema}"`);
 
