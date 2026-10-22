@@ -53,6 +53,7 @@ const DepreciationReport = lazy(() => import("@/pages/reports/depreciation"));
 const MissingDataReport = lazy(() => import("@/pages/reports/missing-data"));
 const AssignmentHistoryReport = lazy(() => import("@/pages/reports/assignment-history"));
 const ImportPage = lazy(() => import("@/pages/import"));
+const DataMigrationCenter = lazy(() => import("@/pages/data-migration-center"));
 const Settings = lazy(() => import("@/pages/settings"));
 const AssetDisposal = lazy(() => import("@/pages/asset-disposal"));
 const AssetBookings = lazy(() => import("@/pages/asset-bookings"));
@@ -147,6 +148,7 @@ function Router() {
                   <ProtectedRoute path="/reports/missing-data" component={MissingDataReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/assignment-history" component={AssignmentHistoryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/import" component={ImportPage} />
+                  <ProtectedRoute path="/migration" component={DataMigrationCenter} requiredModule="asset_management" requiredPermission="system_admin" />
                   <ProtectedRoute path="/settings" component={Settings} />
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
                   <ProtectedRoute path="/bookings" component={AssetBookings} requiredModule="asset_management" />

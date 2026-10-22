@@ -216,6 +216,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     {
       title: "Tools",
       items: [
+        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin" },
         { name: "Import Data", href: "/import", icon: Upload, current: location === "/import" },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]

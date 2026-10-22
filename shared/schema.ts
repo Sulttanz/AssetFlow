@@ -703,6 +703,28 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+export const dataMigrationBatches = pgTable("data_migration_batches", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  moduleKey: text("module_key").notNull(),
+  fileName: text("file_name").notNull(),
+  status: text("status").notNull().default("preview"),
+  totalRows: integer("total_rows").notNull(),
+  validRows: integer("valid_rows").notNull(),
+  invalidRows: integer("invalid_rows").notNull(),
+  importedRows: integer("imported_rows").notNull().default(0),
+  failedRows: integer("failed_rows").notNull().default(0),
+  previewData: jsonb("preview_data").$type<Array<Record<string, unknown>> | null>(),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  expiresAt: timestamp("expires_at").notNull(),
+  completedAt: timestamp("completed_at"),
+}, table => [
+  check("data_migration_batches_status_check", sql`${table.status} IN ('preview', 'imported', 'failed', 'expired')`),
+  check("data_migration_batches_counts_check", sql`${table.totalRows} >= 0 AND ${table.validRows} >= 0 AND ${table.invalidRows} >= 0 AND ${table.importedRows} >= 0 AND ${table.failedRows} >= 0`),
+  index("data_migration_batches_actor_date_idx").on(table.createdById, table.createdAt),
+  index("data_migration_batches_expiry_idx").on(table.status, table.expiresAt),
+]);
+
 export const cmdbApplications = pgTable("cmdb_applications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -802,6 +824,7 @@ export const networkDevices = pgTable("network_devices", {
   manufacturer: text("manufacturer"),
   model: text("model"),
   serialNumber: text("serial_number"),
+  firmwareVersion: text("firmware_version"),
   zoneId: varchar("zone_id").references(() => networkZones.id, { onDelete: "set null" }),
   assetId: varchar("asset_id").references(() => assets.id, { onDelete: "set null" }),
   status: text("status").notNull().default("active"),

@@ -33,6 +33,7 @@ const deviceInput = z.object({
   manufacturer: z.string().trim().max(120).nullable().optional(),
   model: z.string().trim().max(120).nullable().optional(),
   serialNumber: z.string().trim().max(120).nullable().optional(),
+  firmwareVersion: z.string().trim().max(120).nullable().optional(),
   zoneId: z.string().min(1).nullable().optional(),
   assetId: z.string().min(1).nullable().optional(),
   status: z.enum(["active", "maintenance", "retired"]).default("active"),

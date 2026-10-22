@@ -51,6 +51,7 @@ import { registerAssetHandoverRoutes } from "./asset-handovers";
 import { registerNetworkTopologyRoutes } from "./network-topology";
 import { registerBackupGovernanceRoutes } from "./backup-governance";
 import { registerItComponentsComplianceRoutes } from "./it-components-compliance-report";
+import { registerDataMigrationRoutes } from "./data-migration-center";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -127,6 +128,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/contracts",
     "/reports",
     "/import/assets",
+    "/data-migrations",
   ].map((prefix) => [prefix, "asset_management"] as [string, string]),
   ...[
     "/incidents",
@@ -8060,6 +8062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requirePermission("asset_update"),
   );
   registerBackupGovernanceRoutes(app, requireAuth, requireModule("asset_management"));
+  registerDataMigrationRoutes(app, requireAuth, requireModule("asset_management"), requirePermission("system_admin"));
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
   registerVendorContractRoutes(app, requireAuth);

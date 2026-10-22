@@ -1,0 +1,227 @@
+export type MigrationFieldKind = "string" | "email" | "date" | "number" | "integer" | "boolean" | "enum";
+
+export type MigrationField = {
+  key: string;
+  header: string;
+  required?: boolean;
+  kind?: MigrationFieldKind;
+  enumValues?: string[];
+  sample?: string | number | boolean;
+  note: string;
+};
+
+export type DataMigrationModule = {
+  key: string;
+  title: string;
+  summary: string;
+  fields: MigrationField[];
+};
+
+export const dataMigrationModules: DataMigrationModule[] = [
+  {
+    key: "assets",
+    title: "Assets & IT Components",
+    summary: "Hardware inventory, endpoint devices, serials, network identifiers, specifications, and audit baseline fields.",
+    fields: [
+      { key: "name", header: "Asset Name*", required: true, sample: "Sample laptop", note: "Required. Asset display name." },
+      { key: "assetTag", header: "Asset Tag", sample: "__SAMPLE__", note: "Optional unique asset tag." },
+      { key: "type", header: "Type*", required: true, sample: "laptop", note: "Required. Examples: laptop, desktop, server, router, software." },
+      { key: "category", header: "Category", sample: "Endpoint", note: "Optional asset category." },
+      { key: "serialNumber", header: "Serial Number", sample: "SN-EXAMPLE-01", note: "Optional serial identifier." },
+      { key: "manufacturer", header: "Manufacturer", sample: "Example Systems", note: "Optional manufacturer." },
+      { key: "model", header: "Model", sample: "Model A", note: "Optional model." },
+      { key: "status", header: "Status", sample: "available", note: "Optional; defaults to available." },
+      { key: "ipAddress", header: "IP Address", sample: "192.0.2.10", note: "Optional network address." },
+      { key: "operatingSystem", header: "Operating System", sample: "Windows 11", note: "Optional operating system." },
+      { key: "processor", header: "Processor", sample: "8-core CPU", note: "Optional processor specification." },
+      { key: "ram", header: "RAM", sample: "16 GB", note: "Optional memory specification." },
+      { key: "storage", header: "Storage", sample: "512 GB SSD", note: "Optional storage specification." },
+      { key: "version", header: "Version", sample: "1.0", note: "Optional software or firmware version." },
+      { key: "locationName", header: "Location", sample: "Sample Office", note: "Optional; must match an existing location name." },
+      { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department name." },
+      { key: "siteBuilding", header: "Site / Building", sample: "Building A", note: "Optional physical location details." },
+      { key: "configurationBaseline", header: "Configuration Baseline", sample: "ISO-Baseline v2.1", note: "Optional approved baseline." },
+      { key: "complianceStatus", header: "Compliance Status", sample: "pending_review", note: "Optional compliance status." },
+      { key: "lastAuditDate", header: "Last Audit Date", kind: "date", sample: "15-03-2026", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "auditFindings", header: "Audit Findings", sample: "Sample finding", note: "Optional audit observations." },
+      { key: "remediationStatus", header: "Remediation Status", sample: "planned", note: "Optional remediation state." },
+      { key: "antivirusEdrStatus", header: "Antivirus / EDR Status", sample: "protected", note: "Optional endpoint protection state." },
+      { key: "installedSoftware", header: "Installed Software", sample: "Office Suite 2026", note: "Optional installed software summary." },
+      { key: "licenseType", header: "License Type", sample: "per-user", note: "Optional software license type." },
+      { key: "licenseQuantity", header: "License Quantity", kind: "integer", sample: 10, note: "Optional non-negative license count." },
+      { key: "licenseExpiryDate", header: "License Expiry Date", kind: "date", sample: "15-03-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+    ],
+  },
+  {
+    key: "consumables",
+    title: "Consumables & Spare Parts",
+    summary: "Part numbers, opening stock, reorder levels, warehouse location, and supplier references.",
+    fields: [
+      { key: "name", header: "Item Name*", required: true, sample: "Sample toner cartridge", note: "Required item name." },
+      { key: "category", header: "Category", sample: "consumable", note: "Optional category." },
+      { key: "modelPartNumber", header: "Part Number", sample: "TN-1000", note: "Optional manufacturer or part number." },
+      { key: "quantityInStock", header: "Opening Quantity*", required: true, kind: "integer", sample: 25, note: "Required non-negative opening stock quantity." },
+      { key: "minReorderLevel", header: "Minimum Reorder Level", kind: "integer", sample: 5, note: "Optional non-negative threshold; defaults to zero." },
+      { key: "warehouseCode", header: "Warehouse Code*", required: true, sample: "WH-01", note: "Required; must match an active warehouse code." },
+      { key: "storageRoom", header: "Storage Room", sample: "Room 12", note: "Optional storage room." },
+      { key: "unitCost", header: "Unit Cost", kind: "number", sample: 12.5, note: "Optional non-negative cost." },
+      { key: "vendorCode", header: "Vendor Code", sample: "VEND-01", note: "Optional; must match an existing vendor code." },
+    ],
+  },
+  {
+    key: "employees",
+    title: "Employees & Access Governance",
+    summary: "Employee directory details. Access grants are not created by this import.",
+    fields: [
+      { key: "employeeId", header: "Employee ID", sample: "EMP-0001", note: "Optional unique employee identifier." },
+      { key: "firstName", header: "First Name*", required: true, sample: "Sam", note: "Required." },
+      { key: "lastName", header: "Last Name*", required: true, sample: "Example", note: "Required." },
+      { key: "email", header: "Email*", required: true, kind: "email", sample: "sam.example@example.invalid", note: "Required unique email address." },
+      { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department name." },
+      { key: "position", header: "Job Title*", required: true, sample: "IT Analyst", note: "Required job title." },
+      { key: "phone", header: "Phone", sample: "+10000000000", note: "Optional telephone." },
+      { key: "startDate", header: "Start Date", kind: "date", sample: "15-03-2026", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "salary", header: "Salary", kind: "number", sample: 75000, note: "Optional non-negative salary amount." },
+      { key: "locationName", header: "Location", sample: "Sample Office", note: "Optional; must match an existing location name." },
+    ],
+  },
+  {
+    key: "applications",
+    title: "Applications & CMDB",
+    summary: "Application catalog, criticality, hosting model, and business/technical ownership.",
+    fields: [
+      { key: "name", header: "Application Name*", required: true, sample: "Sample HR Suite", note: "Required unique name." },
+      { key: "category", header: "Category*", required: true, sample: "business", note: "Required active application_category dropdown value." },
+      { key: "vendor", header: "Vendor", sample: "Example Software Ltd", note: "Optional vendor name." },
+      { key: "businessOwnerEmail", header: "Business Owner Email", kind: "email", sample: "owner@example.invalid", note: "Optional; must match an employee email." },
+      { key: "technicalOwnerEmail", header: "Technical Owner Email", kind: "email", sample: "it.owner@example.invalid", note: "Optional; must match an employee email." },
+      { key: "hostingType", header: "Hosting Type*", required: true, kind: "enum", enumValues: ["saas", "on_prem", "hybrid"], sample: "saas", note: "Required: saas, on_prem, or hybrid." },
+      { key: "criticalityRating", header: "Criticality", kind: "enum", enumValues: ["P1", "P2", "P3", "P4"], sample: "P2", note: "Optional priority; defaults to P3." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["active", "inactive", "retired"], sample: "active", note: "Optional; defaults to active." },
+    ],
+  },
+  {
+    key: "servers",
+    title: "Servers & Infrastructure",
+    summary: "Server names, IP addresses, platform, environment, specifications, and location.",
+    fields: [
+      { key: "hostname", header: "Hostname*", required: true, sample: "srv-example-01", note: "Required unique hostname." },
+      { key: "ipAddress", header: "IP Address", sample: "192.0.2.20", note: "Optional IP address." },
+      { key: "osPlatform", header: "OS Platform*", required: true, sample: "Linux", note: "Required platform." },
+      { key: "environment", header: "Environment*", required: true, kind: "enum", enumValues: ["production", "staging", "development"], sample: "production", note: "Required environment." },
+      { key: "cpuRamSpecs", header: "CPU / RAM / Storage Specs", sample: "8 vCPU / 32 GB / 1 TB", note: "Optional server specification." },
+      { key: "location", header: "Location / Data Center", sample: "Data Center 1", note: "Optional location." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["online", "maintenance", "offline"], sample: "online", note: "Optional; defaults to online." },
+    ],
+  },
+  {
+    key: "network",
+    title: "Network Topology",
+    summary: "Network devices and zone assignments. Firewall rules are deliberately not imported by this template.",
+    fields: [
+      { key: "recordType", header: "Record Type*", required: true, kind: "enum", enumValues: ["device", "zone"], sample: "device", note: "Required: device or zone. For zone rows, populate Zone Code and Security Level instead of device fields." },
+      { key: "name", header: "Name*", required: true, sample: "Core Switch 01", note: "Required device or zone name." },
+      { key: "deviceType", header: "Device Type", kind: "enum", enumValues: ["firewall", "router", "switch", "access_point", "load_balancer", "other"], sample: "switch", note: "Required for device rows; blank for zone rows." },
+      { key: "hostname", header: "Hostname", sample: "sw-core-01.example.invalid", note: "Optional unique hostname." },
+      { key: "managementIp", header: "Management IP", sample: "192.0.2.30", note: "Optional management address." },
+      { key: "manufacturer", header: "Manufacturer", sample: "Example Networks", note: "Optional." },
+      { key: "model", header: "Model", sample: "Switch 48P", note: "Optional." },
+      { key: "serialNumber", header: "Serial Number", sample: "NET-EXAMPLE-01", note: "Optional." },
+      { key: "firmwareVersion", header: "Firmware Version", sample: "7.2.1", note: "Optional firmware version." },
+      { key: "zoneName", header: "Network Zone", sample: "Internal", note: "Optional; must match an existing network zone." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["active", "maintenance", "retired"], sample: "active", note: "Optional; defaults to active." },
+      { key: "notes", header: "Notes", sample: "Imported inventory record", note: "Optional." },
+      { key: "zoneCode", header: "Zone Code", sample: "INT", note: "Required for zone rows; must be unique." },
+      { key: "cidr", header: "CIDR / Address Range", sample: "10.0.0.0/16", note: "Optional for zone rows." },
+      { key: "securityLevel", header: "Security Level", kind: "enum", enumValues: ["public", "internal", "restricted", "dmz"], sample: "internal", note: "Required for zone rows." },
+      { key: "zoneDescription", header: "Zone Description", sample: "Internal corporate network", note: "Optional for zone rows." },
+      { key: "zoneActive", header: "Zone Active", kind: "boolean", sample: true, note: "Optional for zone rows; defaults to true." },
+    ],
+  },
+  {
+    key: "backups",
+    title: "Backup Schedules",
+    summary: "Backup cadence, retention, target, and ownership. Imports describe schedules; they do not run backup jobs.",
+    fields: [
+      { key: "name", header: "Schedule Name*", required: true, sample: "Daily database backup", note: "Required." },
+      { key: "targetType", header: "Target Type*", required: true, kind: "enum", enumValues: ["server", "application"], sample: "server", note: "Required: server or application." },
+      { key: "targetName", header: "Target Name*", required: true, sample: "srv-example-01", note: "Required; must match an existing server/application." },
+      { key: "backupType", header: "Backup Type", kind: "enum", enumValues: ["full", "incremental", "differential", "snapshot"], sample: "full", note: "Optional; defaults to full." },
+      { key: "frequency", header: "Frequency*", required: true, kind: "enum", enumValues: ["hourly", "daily", "weekly", "monthly", "custom"], sample: "daily", note: "Required schedule frequency." },
+      { key: "retentionDays", header: "Retention Days*", required: true, kind: "integer", sample: 90, note: "Required integer from 1 to 36500." },
+      { key: "retentionPolicy", header: "Retention Policy", sample: "Daily 30 / Monthly 12", note: "Optional retention detail." },
+      { key: "destination", header: "Destination*", required: true, sample: "Encrypted backup vault", note: "Required backup destination." },
+      { key: "ownerEmail", header: "Owner Email", kind: "email", sample: "backup.owner@example.invalid", note: "Optional; must match an active system user email." },
+      { key: "nextDueAt", header: "Next Due Date", kind: "date", sample: "15-03-2026", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+    ],
+  },
+  {
+    key: "vendors",
+    title: "Vendors & Contracts",
+    summary: "Vendor contacts and optional governed contract details. Contract dates and numbers are validated before import.",
+    fields: [
+      { key: "name", header: "Vendor Name*", required: true, sample: "Example Cloud Ltd", note: "Required unique vendor name." },
+      { key: "code", header: "Vendor Code", sample: "VEND-100", note: "Optional unique vendor code." },
+      { key: "category", header: "Category", sample: "Cloud Provider", note: "Optional active vendor_category dropdown value." },
+      { key: "primaryContactName", header: "Primary Contact", sample: "Alex Example", note: "Optional." },
+      { key: "primaryContactEmail", header: "Primary Contact Email", kind: "email", sample: "contact@example.invalid", note: "Optional valid email." },
+      { key: "primaryContactPhone", header: "Primary Contact Phone", sample: "+10000000000", note: "Optional." },
+      { key: "supportHotline", header: "Support Hotline", sample: "+10000000001", note: "Optional." },
+      { key: "website", header: "Website", sample: "https://example.invalid", note: "Optional URL." },
+      { key: "contractTitle", header: "Contract Title", sample: "Cloud Support SLA", note: "Optional; if provided, all contract fields marked below are required." },
+      { key: "contractNumber", header: "Contract Number", sample: "CTR-100", note: "Required when a contract title is supplied." },
+      { key: "contractType", header: "Contract Type", sample: "SLA Support", note: "Required with a contract; active contract_type dropdown value." },
+      { key: "startDate", header: "Contract Start Date", kind: "date", sample: "01-01-2026", note: "Required with a contract." },
+      { key: "endDate", header: "Contract End Date", kind: "date", sample: "31-12-2026", note: "Required with a contract and not before start date." },
+      { key: "renewalNoticeDays", header: "Renewal Notice Days", kind: "integer", sample: 60, note: "Optional contract notice days; defaults to 30." },
+      { key: "cost", header: "Contract Cost", kind: "number", sample: 12000, note: "Optional non-negative contract cost." },
+      { key: "currency", header: "Currency", sample: "USD", note: "Optional three-letter currency; defaults to USD." },
+      { key: "slaTier", header: "SLA Tier", sample: "24/7 4hr", note: "Optional." },
+      { key: "notes", header: "Vendor Notes", sample: "Sample vendor note", note: "Optional." },
+    ],
+  },
+  {
+    key: "finance",
+    title: "Purchase Orders & Budgets",
+    summary: "Purchase order lines and budgets. Imported purchase orders remain pending for normal approval.",
+    fields: [
+      { key: "recordType", header: "Record Type*", required: true, kind: "enum", enumValues: ["purchase_order_item", "budget"], sample: "purchase_order_item", note: "Required: purchase_order_item or budget." },
+      { key: "poNumber", header: "PO Number", sample: "PO-2026-100", note: "Required for purchase_order_item; repeated PO numbers group line items." },
+      { key: "vendorName", header: "Vendor Name", sample: "Example Cloud Ltd", note: "Optional for purchase orders; must match an existing vendor if supplied." },
+      { key: "orderDate", header: "Order Date", kind: "date", sample: "15-03-2026", note: "Required for purchase order lines." },
+      { key: "expectedDelivery", header: "Expected Delivery", kind: "date", sample: "30-03-2026", note: "Optional purchase order date." },
+      { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department." },
+      { key: "poNotes", header: "PO Notes", sample: "Imported for historical tracking", note: "Optional." },
+      { key: "itemDescription", header: "Item Description", sample: "Network switch", note: "Required for purchase order lines." },
+      { key: "assetType", header: "Asset Type", sample: "switch", note: "Optional purchase-order line type." },
+      { key: "itemType", header: "Item Type", kind: "enum", enumValues: ["asset", "consumable"], sample: "asset", note: "Optional; defaults to asset." },
+      { key: "modelPartNumber", header: "Model / Part Number", sample: "SW-48P", note: "Optional." },
+      { key: "quantity", header: "Quantity", kind: "integer", sample: 2, note: "Required positive integer for purchase order lines." },
+      { key: "unitPrice", header: "Unit Price", kind: "number", sample: 500, note: "Required non-negative unit price." },
+      { key: "budgetName", header: "Budget Name", sample: "Infrastructure FY2026", note: "Required for budget rows." },
+      { key: "fiscalYear", header: "Fiscal Year", kind: "integer", sample: 2026, note: "Required for budget rows." },
+      { key: "budgetAmount", header: "Budget Amount", kind: "number", sample: 50000, note: "Required for budget rows." },
+      { key: "budgetCategory", header: "Budget Category", sample: "hardware", note: "Required for budget rows." },
+      { key: "locationName", header: "Budget Location", sample: "Sample Office", note: "Optional; must match an existing location." },
+    ],
+  },
+  {
+    key: "knowledge",
+    title: "Knowledge Base & Policies",
+    summary: "Policy and knowledge articles. All imported articles are created as Draft and require normal review before publication.",
+    fields: [
+      { key: "title", header: "Article Title*", required: true, sample: "Sample access policy", note: "Required." },
+      { key: "slug", header: "Slug", sample: "sample-access-policy", note: "Optional unique URL slug; generated from title when blank." },
+      { key: "category", header: "Category*", required: true, sample: "Policy", note: "Required active kb_category dropdown value." },
+      { key: "content", header: "Content*", required: true, sample: "Replace with article content.", note: "Required article content." },
+      { key: "tags", header: "Tags", sample: "access,security", note: "Optional comma-separated tags." },
+      { key: "reviewDate", header: "Review Date", kind: "date", sample: "15-03-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "version", header: "Version", sample: "1.0", note: "Optional; defaults to 1.0." },
+      { key: "isPublic", header: "Public For Employees", kind: "boolean", sample: false, note: "Optional boolean; defaults to false." },
+    ],
+  },
+];
+
+export function getDataMigrationModule(key: string): DataMigrationModule | undefined {
+  return dataMigrationModules.find(module => module.key === key);
+}

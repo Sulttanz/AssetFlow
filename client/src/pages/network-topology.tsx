@@ -19,7 +19,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getPersonaRoleKeys } from "@shared/personas";
 
 type Zone = { id: string; name: string; code: string; cidr: string | null; securityLevel: string; description: string | null; isActive: boolean };
-type Device = { id: string; name: string; deviceType: string; hostname: string | null; managementIp: string | null; manufacturer: string | null; model: string | null; serialNumber: string | null; zoneId: string | null; zoneName: string | null; status: string; notes: string | null };
+type Device = { id: string; name: string; deviceType: string; hostname: string | null; managementIp: string | null; manufacturer: string | null; model: string | null; serialNumber: string | null; firmwareVersion: string | null; zoneId: string | null; zoneName: string | null; status: string; notes: string | null };
 type Link = { id: string; sourceDeviceId: string; targetDeviceId: string; linkType: string; sourceInterface: string | null; targetInterface: string | null; notes: string | null; sourceName: string; sourceHostname: string | null; targetName: string; targetHostname: string | null };
 type Rule = { id: string; ruleReference: string | null; name: string; firewallDeviceId: string; firewallDeviceName: string; firewallHostname: string | null; sourceZoneId: string | null; sourceZoneName: string | null; sourceAddresses: string; destinationZoneId: string | null; destinationZoneName: string | null; destinationAddresses: string; protocol: string; ports: string | null; action: string; businessJustification: string; ownerId: string | null; changeId: string | null; reviewIntervalDays: number; nextReviewDueAt: string | null; lastReviewedAt: string | null; status: string; latestReview: { outcome: string; reviewedAt: string; reviewerName: string | null; notes: string } | null };
 type Options = { zones: Pick<Zone, "id" | "name" | "code">[]; devices: Pick<Device, "id" | "name" | "deviceType" | "status">[]; owners: { id: string; name: string }[] };
@@ -78,7 +78,7 @@ export default function NetworkTopologyPage() {
         method = dialog.id ? "PUT" : "POST";
         body = {
           name: f.name, deviceType: f.deviceType, hostname: asNullable(String(f.hostname ?? "")), managementIp: asNullable(String(f.managementIp ?? "")),
-          manufacturer: asNullable(String(f.manufacturer ?? "")), model: asNullable(String(f.model ?? "")), serialNumber: asNullable(String(f.serialNumber ?? "")),
+          manufacturer: asNullable(String(f.manufacturer ?? "")), model: asNullable(String(f.model ?? "")), serialNumber: asNullable(String(f.serialNumber ?? "")), firmwareVersion: asNullable(String(f.firmwareVersion ?? "")),
           zoneId: asNullable(String(f.zoneId ?? noneValue)), status: f.status, notes: asNullable(String(f.notes ?? "")), assetId: null,
         };
       } else if (dialog.kind === "link") {
@@ -136,7 +136,7 @@ export default function NetworkTopologyPage() {
       initial = { name: zone.name, code: zone.code, cidr: zone.cidr ?? "", securityLevel: zone.securityLevel, description: zone.description ?? "", isActive: zone.isActive };
     } else if (kind === "device" && record) {
       const device = record as Device;
-      initial = { name: device.name, deviceType: device.deviceType, hostname: device.hostname ?? "", managementIp: device.managementIp ?? "", manufacturer: device.manufacturer ?? "", model: device.model ?? "", serialNumber: device.serialNumber ?? "", zoneId: device.zoneId ?? noneValue, status: device.status, notes: device.notes ?? "" };
+      initial = { name: device.name, deviceType: device.deviceType, hostname: device.hostname ?? "", managementIp: device.managementIp ?? "", manufacturer: device.manufacturer ?? "", model: device.model ?? "", serialNumber: device.serialNumber ?? "", firmwareVersion: device.firmwareVersion ?? "", zoneId: device.zoneId ?? noneValue, status: device.status, notes: device.notes ?? "" };
     } else if (kind === "rule" && record) {
       const rule = record as Rule;
       initial = { ruleReference: rule.ruleReference ?? "", name: rule.name, firewallDeviceId: rule.firewallDeviceId, sourceZoneId: rule.sourceZoneId ?? noneValue, sourceAddresses: rule.sourceAddresses, destinationZoneId: rule.destinationZoneId ?? noneValue, destinationAddresses: rule.destinationAddresses, protocol: rule.protocol, ports: rule.ports ?? "", action: rule.action, businessJustification: rule.businessJustification, ownerId: rule.ownerId ?? noneValue, reviewIntervalDays: String(rule.reviewIntervalDays), nextReviewDueAt: rule.nextReviewDueAt ?? "", status: rule.status };
@@ -144,7 +144,7 @@ export default function NetworkTopologyPage() {
       const rule = record as Rule;
       initial = { outcome: "approved", nextReviewDueAt: rule.nextReviewDueAt ?? "", notes: "" };
     } else if (kind === "device") {
-      initial = { name: "", deviceType: "firewall", hostname: "", managementIp: "", manufacturer: "", model: "", serialNumber: "", zoneId: noneValue, status: "active", notes: "" };
+      initial = { name: "", deviceType: "firewall", hostname: "", managementIp: "", manufacturer: "", model: "", serialNumber: "", firmwareVersion: "", zoneId: noneValue, status: "active", notes: "" };
     } else if (kind === "zone") {
       initial = { name: "", code: "", cidr: "", securityLevel: "internal", description: "", isActive: true };
     } else if (kind === "link") {
@@ -195,10 +195,10 @@ export default function NetworkTopologyPage() {
           <TabsTrigger value="rules">Firewall rules ({rules.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="devices"><DataPanel loading={loading} empty={!filteredDevices.length} emptyText="No network devices found.">
-          <Table><TableHeader><TableRow><TableHead>Device</TableHead><TableHead>Type</TableHead><TableHead>Management address</TableHead><TableHead>Zone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
+          <Table><TableHeader><TableRow><TableHead>Device</TableHead><TableHead>Type</TableHead><TableHead>Management address</TableHead><TableHead>Firmware</TableHead><TableHead>Zone</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
             {filteredDevices.map(device => <TableRow key={device.id}>
               <TableCell><div className="font-medium">{device.name}</div><div className="text-xs text-muted-foreground">{device.hostname || device.serialNumber || "No hostname"}</div></TableCell>
-              <TableCell>{labelize(device.deviceType)}</TableCell><TableCell>{device.managementIp || "—"}</TableCell><TableCell>{device.zoneName || "Unassigned"}</TableCell>
+              <TableCell>{labelize(device.deviceType)}</TableCell><TableCell>{device.managementIp || "—"}</TableCell><TableCell>{device.firmwareVersion || "—"}</TableCell><TableCell>{device.zoneName || "Unassigned"}</TableCell>
               <TableCell><Badge variant={device.status === "active" ? "secondary" : "outline"}>{labelize(device.status)}</Badge></TableCell>
               <TableCell className="text-right">{canManage && <Button size="sm" variant="ghost" onClick={() => openDialog("device", device)}><Pencil className="mr-1.5 h-3.5 w-3.5" />Edit</Button>}</TableCell>
             </TableRow>)}
@@ -266,6 +266,7 @@ export default function NetworkTopologyPage() {
           <Field label="Manufacturer" name="manufacturer" value={field("manufacturer")} onChange={setField} />
           <Field label="Model" name="model" value={field("model")} onChange={setField} />
           <Field label="Serial number" name="serialNumber" value={field("serialNumber")} onChange={setField} />
+          <Field label="Firmware version" name="firmwareVersion" value={field("firmwareVersion")} onChange={setField} />
           <SelectField label="Network zone" name="zoneId" value={field("zoneId")} onChange={setField} options={[{ value: noneValue, label: "No zone" }, ...options.zones.map(zone => ({ value: zone.id, label: `${zone.name} (${zone.code})` }))]} />
           <SelectField label="Status" name="status" value={field("status")} onChange={setField} options={["active", "maintenance", "retired"]} />
           <div className="sm:col-span-2"><Field label="Notes" name="notes" value={field("notes")} onChange={setField} /></div>
