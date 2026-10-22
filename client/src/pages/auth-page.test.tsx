@@ -41,6 +41,10 @@ describe("Enterprise sign-in", () => {
     ]) expect(screen.getByRole("heading", { name })).toBeTruthy();
     expect(screen.getByText(/Unified ITSM, CMDB, Network Topology, and Governance framework/)).toBeTruthy();
     expect(screen.getByText(/Access restricted to authorized personnel/)).toBeTruthy();
+    expect(screen.queryByText("AUTH.01")).toBeNull();
+    expect(screen.queryByText("ONE CONTROL PLANE")).toBeNull();
+    expect(screen.queryByText(/^\d{2}\s*\/\s*06$/)).toBeNull();
+    expect(screen.queryAllByText(/^0[1-6]$/)).toHaveLength(0);
   });
 
   it("toggles password visibility accessibly without submitting or losing the entered password", () => {

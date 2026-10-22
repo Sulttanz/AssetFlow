@@ -30,7 +30,6 @@ type Highlight = {
   title: string;
   description: string;
   module: "asset_management" | "itsm";
-  index: string;
 };
 
 const HIGHLIGHTS: Highlight[] = [
@@ -39,42 +38,36 @@ const HIGHLIGHTS: Highlight[] = [
     title: "Data Center & CMDB",
     description: "Full lifecycle management for servers, racks, cloud infrastructure, and network topology.",
     module: "asset_management",
-    index: "01",
   },
   {
     icon: HardDrive,
     title: "IT Asset Lifecycle",
     description: "Complete hardware, endpoint, component, software, and license tracking.",
     module: "asset_management",
-    index: "02",
   },
   {
     icon: LifeBuoy,
     title: "ITSM & Service Desk",
     description: "Automated incident resolution, change workflows, problem management, and SLA tracking.",
     module: "itsm",
-    index: "03",
   },
   {
     icon: ShieldCheck,
     title: "Governance, Risk & Compliance",
     description: "Audit-ready IT component registers, configuration baselines, and policy mappings.",
     module: "asset_management",
-    index: "04",
   },
   {
     icon: CreditCard,
     title: "Financials & Procurement",
     description: "Vendor management, purchase order tracking, budget planning, and depreciation analysis.",
     module: "asset_management",
-    index: "05",
   },
   {
     icon: Users,
     title: "Employee Self-Service",
     description: "Streamlined asset handovers, service requests, offboarding clearances, and approvals.",
     module: "itsm",
-    index: "06",
   },
 ];
 
@@ -137,11 +130,6 @@ export default function AuthPage() {
           </div>
 
           <div className="auth-card">
-            <div className="auth-card-topline">
-              <span className="auth-status-dot" />
-              SECURE WORKSPACE
-              <span className="auth-card-code">AUTH.01</span>
-            </div>
             <div className="auth-card-heading">
               <div className="auth-card-emblem"><Lock aria-hidden="true" /></div>
               <div>
@@ -261,7 +249,6 @@ export default function AuthPage() {
         </section>
 
         <section className="auth-overview" aria-labelledby="platform-title">
-          <div className="auth-kicker"><span /> ONE CONTROL PLANE <span className="auth-kicker-rule" /></div>
           <h1 id="platform-title">Enterprise IT Service Management <em>&amp;</em> Asset Governance Platform</h1>
           <p className="auth-subheading">
             Unified ITSM, CMDB, Network Topology, and Governance framework engineered for end-to-end IT operations and compliance auditing.
@@ -269,14 +256,12 @@ export default function AuthPage() {
 
           <div className="auth-capabilities-head">
             <span>PLATFORM CAPABILITIES</span>
-            <span className="auth-capability-count">{String(highlights.length).padStart(2, "0")} / 06</span>
           </div>
           <div className="auth-feature-grid">
-            {highlights.map(({ icon: Icon, title, description, index }) => (
+            {highlights.map(({ icon: Icon, title, description }) => (
               <article className="auth-feature-card" key={title}>
                 <div className="auth-feature-card-top">
                   <div className="auth-feature-icon"><Icon aria-hidden="true" /></div>
-                  <span className="auth-feature-index">{index}</span>
                 </div>
                 <h3>{title}</h3>
                 <p>{description}</p>
@@ -289,14 +274,9 @@ export default function AuthPage() {
             <div className="auth-footer-mark"><Activity aria-hidden="true" /></div>
             <span>Operational clarity, from infrastructure to governance.</span>
             <div className="auth-footer-line" />
-            <span className="auth-live"><i /> SYSTEM READY</span>
           </div>
         </section>
       </div>
-      <footer className="auth-page-footer">
-        <span>ENTERPRISE IT <span className="auth-footer-separator">/</span> OPERATIONS</span>
-        <span>AUTHORIZED USERS ONLY</span>
-      </footer>
     </main>
   );
 }
