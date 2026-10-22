@@ -5,6 +5,7 @@ import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@sh
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
+import { registerSystemClearDataRoute } from "./system-clear-data-route";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
@@ -2518,51 +2519,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Data management routes - for clearing system data
-  app.post("/api/system/clear-data", requireAuth, requirePermission('system_admin'), async (req, res) => {
-    try {
-      const { confirmPassword } = req.body;
-      if (!confirmPassword) {
-        return res.status(400).json({ message: "Password confirmation is required" });
-      }
-
-      // Get the current user from the session
-      const userId = (req.user as any)?.id;
-      if (!userId) {
-        return res.status(401).json({ message: "User not authenticated" });
-      }
-
-      // Get the user's stored password for verification
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Verify the provided password matches the user's current password
-      const { comparePasswords } = await import("./auth");
-      const passwordValid = await comparePasswords(confirmPassword, user.password);
-      if (!passwordValid) {
-        return res.status(403).json({ message: "Invalid password confirmation" });
-      }
-
-      // Clear all system data (except system settings)
-      const success = await storage.clearAllData();
-      if (!success) {
-        return res.status(500).json({ message: "Failed to clear system data" });
-      }
-
-      // Log the data clearing action for audit trail
-      console.log(`System data cleared at ${new Date().toISOString()}`);
-
-      res.json({ 
-        message: "All system data has been successfully cleared",
-        clearedAt: new Date().toISOString(),
-        clearedBy: user.username
-      });
-    } catch (error) {
-      console.error("Error clearing system data:", error);
-      res.status(500).json({ message: "Failed to clear system data" });
-    }
-  });
+  registerSystemClearDataRoute(
+    app, requireAuth, requirePermission("system_admin"), storage,
+    async (supplied, stored) => (await import("./auth")).comparePasswords(supplied, stored),
+  );
 
   // --------------------
   // EXISTING ROUTES

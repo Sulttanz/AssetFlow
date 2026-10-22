@@ -40,6 +40,8 @@ import { withStageRetryHistory } from "./change-stage-history";
 import { eq, isNull, and, or, inArray, sql, desc, ilike, lt, gte } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { EventEmitter } from "events";
+import { clearDatabaseBusinessData } from "./system-data-reset";
+import { systemDataResetAudit, type SystemDataResetActor } from "@shared/system-data-reset";
 
 function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
   if (impact && urgency && TICKET_PRIORITY_MATRIX[impact]?.[urgency]) {
@@ -377,7 +379,7 @@ export interface IStorage {
   updateChangePIR(changeId: string, pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined>;
 
   // Data Management
-  clearAllData(): Promise<boolean>;
+  clearAllData(actor: SystemDataResetActor): Promise<boolean>;
 
   // Session Store (for authentication)
   sessionStore: any; // session.SessionStore;
@@ -2758,23 +2760,16 @@ export class MemStorage implements IStorage {
   async updateChangePIR(_changeId: string, _pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined> { return undefined; }
 
   // Data Management
-  async clearAllData(): Promise<boolean> {
+  async clearAllData(actor: SystemDataResetActor): Promise<boolean> {
     this.assets.clear();
     this.employees.clear();
     this.assignments.clear();
-    this.locations.clear();
-    this.departments.clear();
     this.vendors.clear();
     this.purchaseOrders.clear();
     this.purchaseOrderItems.clear();
     this.budgets.clear();
     this.maintenanceSchedules.clear();
     this.maintenanceRecords.clear();
-    this.users.clear();
-    this.roles.clear();
-    this.permissions.clear();
-    this.userRoles.clear();
-    this.rolePermissions.clear();
     this.contracts.clear();
     this.assetBookings.clear();
     this.assetDisposalRecords.clear();
@@ -2782,8 +2777,13 @@ export class MemStorage implements IStorage {
     this.assetAuditItems.clear();
     this.assetRelationships.clear();
     this.assetRequests.clear();
-    this.dropdownOptions.clear();
-    // Note: Don't clear system settings as they may contain important configuration
+    this.incidents.clear();
+    this.serviceRequests.clear();
+    this.tickets.clear();
+    this.ticketComments.clear();
+    this.auditLogs.clear();
+    await this.createAuditLog(systemDataResetAudit(actor));
+    // Preserve accounts, authorization, settings, sessions and reference data.
     return true;
   }
 }
@@ -4752,21 +4752,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Clear all data (for DatabaseStorage compatibility with interface)
-  async clearAllData(): Promise<boolean> {
+  async clearAllData(actor: SystemDataResetActor): Promise<boolean> {
     try {
-      // Clear data from all tables except system settings and users
-      // Delete child tables first to avoid foreign key constraint violations
-      await db.delete(assignments);
-      await db.delete(maintenanceRecords);
-      await db.delete(maintenanceSchedules);
-      await db.delete(purchaseOrderItems); // Delete purchase order items before purchase orders
-      await db.delete(purchaseOrders);
-      await db.delete(budgets);
-      await db.delete(assets);
-      await db.delete(employees);
-      await db.delete(vendors);
-      await db.delete(departments);
-      await db.delete(locations);
+      await clearDatabaseBusinessData(actor);
       return true;
     } catch (error) {
       console.error("Error clearing data:", error);
