@@ -9,13 +9,17 @@ import { Button } from "./button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "./table";
 import Header from "@/components/layout/header";
 import Reports from "@/pages/reports";
+import { ChartContainer } from "./chart";
 
 vi.mock("@tanstack/react-query", async importOriginal => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQuery: () => ({ data: undefined, isLoading: false }),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("Shared enterprise design system", () => {
   it.each([
@@ -89,5 +93,32 @@ describe("Shared enterprise design system", () => {
     const history = within(categories).getByRole("tab", { name: /Assignment History/ });
     fireEvent.mouseDown(history, { button: 0, ctrlKey: false });
     await waitFor(() => expect(history.getAttribute("aria-selected")).toBe("true"));
+  });
+
+  it("escapes untrusted chart IDs and rejects CSS values and series keys that could break out of style markup", () => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    render(
+      <ChartContainer
+        id={'safe"></style><script id="chart-payload">alert(1)</script>'}
+        style={{ width: 640, height: 360 }}
+        config={{
+          safeKey: { label: "Safe", color: "#2563eb" },
+          unsafeValue: { label: "Unsafe", color: '</style><script id="value-payload">alert(1)</script>' },
+          "</style><script id='key-payload'>": { label: "Unsafe key", color: "#dc2626" },
+        }}
+      >
+        <div />
+      </ChartContainer>,
+    );
+
+    expect(document.querySelector("#chart-payload, #value-payload, #key-payload")).toBeNull();
+    const chart = document.querySelector('[data-chart^="chart-"]');
+    expect(chart?.getAttribute("data-chart")).toMatch(/^chart-[a-zA-Z0-9_-]+$/);
+    expect(chart?.querySelector("style")?.textContent).toContain("--color-safeKey: #2563eb");
+    expect(chart?.querySelector("style")?.textContent).not.toContain("<script");
   });
 });
