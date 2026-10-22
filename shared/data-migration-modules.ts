@@ -148,6 +148,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
       { key: "targetName", header: "Target Name*", required: true, sample: "srv-example-01", note: "Required; must match an existing server/application." },
       { key: "backupType", header: "Backup Type", kind: "enum", enumValues: ["full", "incremental", "differential", "snapshot"], sample: "full", note: "Optional; defaults to full." },
       { key: "frequency", header: "Frequency*", required: true, kind: "enum", enumValues: ["hourly", "daily", "weekly", "monthly", "custom"], sample: "daily", note: "Required schedule frequency." },
+      { key: "customFrequency", header: "Custom Frequency", sample: "", note: "Required when Frequency is custom; describe the approved cadence." },
       { key: "retentionDays", header: "Retention Days*", required: true, kind: "integer", sample: 90, note: "Required integer from 1 to 36500." },
       { key: "retentionPolicy", header: "Retention Policy", sample: "Daily 30 / Monthly 12", note: "Optional retention detail." },
       { key: "destination", header: "Destination*", required: true, sample: "Encrypted backup vault", note: "Required backup destination." },
@@ -218,6 +219,10 @@ export const dataMigrationModules: DataMigrationModule[] = [
       { key: "reviewDate", header: "Review Date", kind: "date", sample: "15-03-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
       { key: "version", header: "Version", sample: "1.0", note: "Optional; defaults to 1.0." },
       { key: "isPublic", header: "Public For Employees", kind: "boolean", sample: false, note: "Optional boolean; defaults to false." },
+      { key: "framework", header: "Baseline Standard / Framework", sample: "ISO 27001", note: "Optional compliance mapping for Policy, Technical SOP, or DR Plan. Supply Control ID and Control Title together." },
+      { key: "controlId", header: "Control ID", sample: "A.5.15", note: "Required when a baseline/framework is supplied." },
+      { key: "controlTitle", header: "Control Title", sample: "Access control", note: "Required when a baseline/framework is supplied." },
+      { key: "implementationNotes", header: "Control Implementation Notes", sample: "Access is reviewed quarterly.", note: "Optional compliance mapping notes." },
     ],
   },
 ];

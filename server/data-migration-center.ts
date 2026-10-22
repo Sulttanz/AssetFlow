@@ -17,6 +17,7 @@ import {
   dropdownOptions,
   employees,
   kbArticles,
+  kbArticleControlMappings,
   locations,
   networkDevices,
   networkZones,
@@ -60,7 +61,6 @@ type ParsedRecord = {
   normalized: Record<string, unknown> | null;
   errors: string[];
 };
-type BatchData = ParsedRecord[];
 type LookupContext = {
   locations: Map<string, string>;
   departments: Map<string, string>;
@@ -85,9 +85,7 @@ const textValue = (value: unknown) => {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value).trim();
 };
-const nullable = (value: unknown) => value == null || String(value).trim() === "" ? null : value;
 const slugify = (value: string) => value.normalize("NFKD").toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
-const displayName = (first: string, last: string) => `${first} ${last}`.trim();
 
 function cellValue(value: unknown): CellValue {
   if (value == null || value === "") return null;
@@ -172,7 +170,7 @@ async function parseUpload(file: Express.Multer.File, moduleKey: string) {
     if (key && headerIndexes.has(key)) duplicateHeaders.add(textValue(header));
     else if (key) headerIndexes.set(key, index);
   });
-  if (duplicateHeaders.size) throw new Error(`Duplicate column(s): ${[...duplicateHeaders].join(", ")}`);
+  if (duplicateHeaders.size) throw new Error(`Duplicate column(s): ${Array.from(duplicateHeaders).join(", ")}`);
   const expectedKeys = new Set(module.fields.map(field => normalizedKey(field.header).replace(/\s+/g, " ")));
   const unknownHeaders = headers.map(header => textValue(header)).filter(header =>
     header.trim() && !expectedKeys.has(normalizedKey(header).replace(/\s+/g, " ")),
@@ -321,12 +319,21 @@ function addUnique(
   context: LookupContext,
   errors: string[],
 ): void {
+  const labels: Record<string, string> = {
+    assetTag: "asset tag", employeeEmail: "employee email", employeeId: "employee ID",
+    applicationName: "application name", serverHostname: "server hostname", networkHostname: "network hostname",
+    networkZoneName: "network zone name", networkZoneCode: "network zone code",
+    vendorName: "vendor name", vendorCode: "vendor code", poNumber: "purchase order number",
+    contractNumber: "contract number", kbSlug: "knowledge article slug",
+  };
   for (const key of keys) {
-    const [kind, rawValue] = key.split(":", 2);
+    const separator = key.indexOf(":");
+    const kind = key.slice(0, separator);
+    const rawValue = key.slice(separator + 1);
     const value = normalizedKey(rawValue);
     if (!value) continue;
     if (context.existing[kind]?.has(value) || context.reserved.has(`${kind}:${value}`)) {
-      errors.push(`Duplicate ${kind === "assetTag" ? "asset tag" : kind === "employeeEmail" ? "employee email" : kind === "employeeId" ? "employee ID" : kind === "applicationName" ? "application name" : kind === "serverHostname" ? "server hostname" : kind === "networkHostname" ? "network hostname" : kind === "vendorName" ? "vendor name" : kind === "vendorCode" ? "vendor code" : kind === "poNumber" ? "purchase order number" : kind === "contractNumber" ? "contract number" : "knowledge article slug"} "${rawValue}".`);
+      errors.push(`Duplicate ${labels[kind] ?? kind} "${rawValue}".`);
     }
   }
 }
@@ -443,8 +450,10 @@ function buildNormalized(
       : resolve(context.applications, value("targetName"), "Application");
     const owner = resolve(context.users, value("ownerEmail"), "Owner");
     if (owner && !owner.isActive) errors.push(`Owner "${value("ownerEmail")}" is inactive.`);
+    if (Number(value("retentionDays")) < 1 || Number(value("retentionDays")) > 36500) errors.push("Retention days must be between 1 and 36500.");
+    if (value("frequency") === "custom") requireConditional("customFrequency");
     normalized = {
-      ...optional(["name", "backupType", "frequency", "retentionDays", "retentionPolicy", "destination"]),
+      ...optional(["name", "backupType", "frequency", "customFrequency", "retentionDays", "retentionPolicy", "destination"]),
       serverId: targetType === "server" ? (target as { id: string } | undefined)?.id ?? null : null,
       applicationId: targetType === "application" ? (target as { id: string } | undefined)?.id ?? null : null,
       ownerId: (owner as { id: string } | undefined)?.id ?? null,
@@ -453,9 +462,12 @@ function buildNormalized(
     };
   } else if (moduleKey === "vendors") {
     if (value("category") && !dropdownHas(context, "vendor_category", value("category"))) errors.push(`Category "${value("category")}" is not an active vendor_category dropdown value.`);
-    if (value("name")) uniqueKeys.push(`vendorName:${value("name")}`);
-    if (value("code")) uniqueKeys.push(`vendorCode:${value("code")}`);
+    const existingVendor = context.vendors.get(normalizedKey(value("name")));
+    if (value("name") && !existingVendor) uniqueKeys.push(`vendorName:${value("name")}`);
+    const codeOwner = value("code") ? context.vendorsByCode.get(normalizedKey(value("code"))) : undefined;
+    if (value("code") && (!existingVendor || codeOwner?.id !== existingVendor.id)) uniqueKeys.push(`vendorCode:${value("code")}`);
     const contractEntered = ["contractTitle", "contractNumber", "contractType", "startDate", "endDate", "renewalNoticeDays", "cost"].some(key => value(key) !== undefined);
+    if (existingVendor && !contractEntered) errors.push("Vendor already exists. Supply a new contract or edit the vendor in Vendor Management.");
     if (contractEntered) {
       for (const requiredKey of ["contractTitle", "contractNumber", "contractType", "startDate", "endDate"]) {
         if (!value(requiredKey)) errors.push(`${requiredKey} is required when importing a vendor contract.`);
@@ -467,6 +479,7 @@ function buildNormalized(
     normalized = {
       vendor: {
         ...optional(["name", "code", "category", "primaryContactName", "primaryContactEmail", "primaryContactPhone", "supportHotline", "website", "notes"]),
+        existingVendorId: existingVendor?.id,
         status: "active",
       },
       contract: contractEntered ? {
@@ -498,9 +511,9 @@ function buildNormalized(
     } else {
       ["poNumber", "orderDate", "itemDescription", "quantity", "unitPrice"].forEach(key => requireConditional(key));
       if (value("quantity") != null && Number(value("quantity")) < 1) errors.push("Purchase order quantity must be at least one.");
+      if (value("poNumber") && context.existing.poNumber.has(normalizedKey(value("poNumber")))) errors.push(`Duplicate purchase order number "${value("poNumber")}".`);
       const vendor = resolve(context.vendors, value("vendorName"), "Vendor");
       const department = resolve(context.departments, value("departmentName"), "Department");
-      if (value("poNumber")) uniqueKeys.push(`poNumber:${value("poNumber")}`);
       normalized = {
         recordType,
         poNumber: value("poNumber"),
@@ -523,6 +536,11 @@ function buildNormalized(
     const slug = String(value("slug") ?? slugify(String(value("title") ?? "")));
     if (!slug) errors.push("Article slug could not be generated from the title.");
     uniqueKeys.push(`kbSlug:${slug}`);
+    const hasMapping = ["framework", "controlId", "controlTitle", "implementationNotes"].some(key => value(key) !== undefined);
+    if (hasMapping) {
+      ["framework", "controlId", "controlTitle"].forEach(key => requireConditional(key));
+      if (!["policy", "technical sop", "dr plan"].includes(normalizedKey(value("category")))) errors.push("Baseline mappings require a Policy, Technical SOP, or DR Plan category.");
+    }
     normalized = {
       ...optional(["title", "category", "content", "tags", "reviewDate", "version", "isPublic"]),
       slug,
@@ -531,6 +549,7 @@ function buildNormalized(
       ownerId: actorId,
       version: value("version") ?? "1.0",
       isPublic: value("isPublic") ?? false,
+      controlMapping: hasMapping ? optional(["framework", "controlId", "controlTitle", "implementationNotes"]) : null,
     };
   }
 
@@ -543,7 +562,9 @@ function buildNormalized(
   addUnique(uniqueKeys, context, errors);
   if (errors.length === 0) {
     uniqueKeys.forEach(key => {
-      const [kind, raw] = key.split(":", 2);
+      const separator = key.indexOf(":");
+      const kind = key.slice(0, separator);
+      const raw = key.slice(separator + 1);
       context.reserved.add(`${kind}:${normalizedKey(raw)}`);
     });
   }
@@ -586,6 +607,15 @@ async function expirePreviews() {
     .where(and(eq(dataMigrationBatches.status, "preview"), sql`${dataMigrationBatches.expiresAt} <= now()`));
 }
 
+function importErrorMessage(error: unknown): string {
+  const cause = (error as { cause?: { code?: string } })?.cause ?? error as { code?: string };
+  if (cause?.code === "23505") return "A duplicate identifier was created since preview. Correct the duplicate and upload again.";
+  if (cause?.code === "23503") return "A related record is no longer available. Upload again to refresh validation.";
+  if (cause?.code === "23514" || cause?.code === "22003" || cause?.code === "22P02") return "The row does not satisfy database validation. Check its values and upload again.";
+  if (error instanceof Error && error.message === "Stock cannot be imported into a disabled or missing warehouse.") return error.message;
+  return "Database rejected this row. Check the data and upload again.";
+}
+
 function makeTemplate(moduleKey: string) {
   const module = getDataMigrationModule(moduleKey);
   if (!module) throw new Error("Unknown migration module.");
@@ -601,18 +631,22 @@ function makeTemplate(moduleKey: string) {
     field.key,
     index === 0 ? `__SAMPLE__ ${field.sample ?? "replace this row"}` : (field.sample ?? ""),
   ])));
+  module.fields.forEach((field, index) => { sheet.getCell(1, index + 1).note = `${field.key}: ${field.note}`; });
+  sheet.getCell("A2").note = "Example only. Rows whose first value starts with __SAMPLE__ are ignored. Replace the entire sample row with your data.";
   sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF174A4A" } };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
   const guide = workbook.addWorksheet("Field Guide");
   guide.columns = [
     { header: "Column", key: "header", width: 30 },
+    { header: "Backend Field", key: "key", width: 26 },
     { header: "Required", key: "required", width: 14 },
     { header: "Format", key: "format", width: 22 },
     { header: "Guidance", key: "note", width: 80 },
   ];
   guide.addRows(module.fields.map(field => ({
     header: field.header,
+    key: field.key,
     required: field.required ? "Yes" : "No",
     format: field.kind ?? "Text",
     note: field.note,
@@ -670,30 +704,37 @@ async function importOne(tx: any, moduleKey: string, row: Record<string, unknown
         createdById: actorId,
       });
     } else {
-      await tx.insert(networkDevices).values({ ...record, recordType: undefined, createdById: actorId });
+      const { recordType: _recordType, ...deviceValues } = record;
+      await tx.insert(networkDevices).values({ ...deviceValues, createdById: actorId });
     }
     return;
   }
   if (moduleKey === "backups") {
-    await tx.insert(backupSchedules).values({ ...(row as any), createdById: actorId });
+    await tx.insert(backupSchedules).values({ ...(row as any), nextDueAt: row.nextDueAt ? new Date(String(row.nextDueAt)) : null, createdById: actorId });
     return;
   }
   if (moduleKey === "vendors") {
     const record = row as { vendor: Record<string, unknown>; contract: Record<string, unknown> | null };
-    const [vendor] = await tx.insert(vendors).values(record.vendor as any).returning({ id: vendors.id, name: vendors.name });
+    let vendorId = record.vendor.existingVendorId as string | undefined;
+    if (!vendorId) {
+      const vendorValues = { ...record.vendor };
+      delete vendorValues.existingVendorId;
+      const [createdVendor] = await tx.insert(vendors).values(vendorValues as any).returning({ id: vendors.id });
+      vendorId = createdVendor.id;
+    }
     if (record.contract) {
       const [baseContract] = await tx.insert(contracts).values({
         name: record.contract.title,
         contractNumber: record.contract.contractNumber,
         contractType: record.contract.contractType,
-        vendorId: vendor.id,
+        vendorId,
         startDate: record.contract.startDate,
         endDate: record.contract.endDate,
         value: record.contract.cost,
         currency: record.contract.currency,
         status: "active",
       } as any).returning({ id: contracts.id });
-      await tx.insert(vendorContracts).values({ id: baseContract.id, vendorId: vendor.id, ...(record.contract as any) });
+      await tx.insert(vendorContracts).values({ id: baseContract.id, vendorId, ...(record.contract as any) });
     }
     return;
   }
@@ -712,7 +753,8 @@ async function importOne(tx: any, moduleKey: string, row: Record<string, unknown
       return;
     }
     const poNumber = String(row.poNumber);
-    let poId = poIds.get(poNumber);
+    const poKey = normalizedKey(poNumber);
+    let poId = poIds.get(poKey);
     let createdPo = false;
     if (!poId) {
       const groupTotal = Number(row.quantity) * Number(row.unitPrice);
@@ -745,11 +787,20 @@ async function importOne(tx: any, moduleKey: string, row: Record<string, unknown
       unitPrice: Number(row.unitPrice).toFixed(2),
       totalPrice: lineTotal.toFixed(2),
     } as any);
-    if (createdPo && poId) poIds.set(poNumber, poId);
+    if (createdPo && poId) poIds.set(poKey, poId);
     return;
   }
   if (moduleKey === "knowledge") {
-    await tx.insert(kbArticles).values(row as any);
+    const { controlMapping, ...articleValues } = row;
+    const [article] = await tx.insert(kbArticles).values(articleValues as any).returning({ id: kbArticles.id, version: kbArticles.version });
+    if (controlMapping) {
+      await tx.insert(kbArticleControlMappings).values({
+        ...(controlMapping as any),
+        articleId: article.id,
+        articleVersion: article.version,
+        mappedBy: actorId,
+      });
+    }
     return;
   }
   throw new Error("Unsupported migration module.");
@@ -845,7 +896,8 @@ export function registerDataMigrationRoutes(
         validRows,
         invalidRows: records.length - validRows,
         expiresAt,
-        rows: records.slice(0, 100).map(({ rowNumber, values, errors }) => ({ rowNumber, values, errors })),
+        rows: [...records.filter(record => record.errors.length > 0), ...records.filter(record => !record.errors.length)]
+          .slice(0, 100).map(({ rowNumber, values, errors }) => ({ rowNumber, values, errors })),
         previewLimit: 100,
       });
     } catch (error) {
@@ -890,7 +942,7 @@ export function registerDataMigrationRoutes(
             await tx.execute(sql`RELEASE SAVEPOINT data_migration_row`);
             rowErrors.push({
               rowNumber: record.rowNumber,
-              error: error instanceof Error ? error.message.slice(0, 300) : "Database rejected this row.",
+              error: importErrorMessage(error),
             });
           }
         }
