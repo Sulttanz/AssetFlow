@@ -129,7 +129,7 @@ export default function EmployeeOffboardingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Offboard {employee ? `${employee.firstName} ${employee.lastName}` : "Employee"}</DialogTitle>
         </DialogHeader>

@@ -338,7 +338,7 @@ export default function Employees() {
 
         {/* Employee Form Dialog */}
         <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto" data-testid="employee-form-dialog">
+        <DialogContent aria-describedby={undefined} className="max-h-[90vh] max-w-4xl overflow-y-auto" data-testid="employee-form-dialog">
             <DialogHeader>
               <DialogTitle>
                 {selectedEmployee ? (employeeFormTab === "access" ? "Access Entitlements" : "Edit Employee") : "Add New Employee"}
@@ -363,7 +363,7 @@ export default function Employees() {
             }
           }}
         >
-          <DialogContent>
+        <DialogContent aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>Reactivate {reactivationEmployee ? `${reactivationEmployee.firstName} ${reactivationEmployee.lastName}` : "Employee"}</DialogTitle>
             </DialogHeader>

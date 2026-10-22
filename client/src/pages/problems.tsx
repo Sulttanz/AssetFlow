@@ -224,7 +224,7 @@ export default function Problems() {
 
       {/* Problem Detail Dialog */}
       <Dialog open={!!selectedProblem && !dialogOpen} onOpenChange={open => { if (!open) setSelectedProblem(null); }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1">
               <span className="font-mono text-sm text-muted-foreground">{currentProblem?.problemNumber}</span>
@@ -288,7 +288,7 @@ export default function Problems() {
 
       {/* Create/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditingProblem(null); form.reset(); } }}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingProblem ? "Edit Problem" : "Log New Problem"}</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

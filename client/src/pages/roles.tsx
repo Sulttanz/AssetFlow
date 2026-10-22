@@ -241,7 +241,7 @@ export default function RolesPage() {
 
       {/* Role Form Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent aria-describedby={undefined} className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {selectedRole ? "Edit Role" : "Create New Role"}
@@ -258,7 +258,7 @@ export default function RolesPage() {
 
       {/* Role View Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent aria-describedby={undefined} className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Role Details</DialogTitle>
           </DialogHeader>

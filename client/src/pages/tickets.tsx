@@ -560,7 +560,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
 
       {/* Create Ticket Dialog */}
       <Dialog open={!isAssignedView && isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-lg w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto p-4 sm:p-6">
+      <DialogContent aria-describedby={undefined} className="max-w-lg w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>New Ticket</DialogTitle>
           </DialogHeader>
@@ -759,7 +759,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
 
       {/* Ticket Detail Dialog */}
       <Dialog open={!!selectedTicket} onOpenChange={(open) => !open && setSelectedTicket(null)}>
-        <DialogContent className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col p-0 gap-0">
+      <DialogContent aria-describedby={undefined} className="max-w-4xl w-[calc(100vw-2rem)] max-h-[90vh] flex flex-col p-0 gap-0">
           {selectedTicket && (
             <>
               <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
@@ -1207,7 +1207,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
       </Dialog>
 
       <Dialog open={isReopenOpen} onOpenChange={setIsReopenOpen}>
-        <DialogContent className="max-w-md">
+      <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Reopen Request</DialogTitle>
           </DialogHeader>
@@ -1245,7 +1245,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
         setIsCancelOpen(open);
         if (!open) setCancelReason("");
       }}>
-        <DialogContent className="max-w-md">
+      <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Cancel Request</DialogTitle>
           </DialogHeader>

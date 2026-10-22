@@ -309,7 +309,7 @@ export default function AssetRequests() {
 
       {/* New Request Dialog */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>New Asset Request</DialogTitle>
           </DialogHeader>
@@ -427,7 +427,7 @@ export default function AssetRequests() {
 
       {/* Reject Dialog */}
       <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Reject Request</DialogTitle>
           </DialogHeader>
@@ -456,7 +456,7 @@ export default function AssetRequests() {
 
       {/* Fulfill Dialog */}
       <Dialog open={isFulfillDialogOpen} onOpenChange={setIsFulfillDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Fulfill Request</DialogTitle>
           </DialogHeader>

@@ -158,7 +158,7 @@ export default function AssetHandovers() {
     </div>
 
     <Dialog open={creating} onOpenChange={open => { setCreating(open); if (!open) createMutation.reset(); }}>
-      <DialogContent className="max-w-2xl rounded-2xl border-[#d9e4df] bg-[#fffefa]">
+      <DialogContent aria-describedby={undefined} className="max-w-2xl rounded-2xl border-[#d9e4df] bg-[#fffefa]">
         <DialogHeader><p className="text-[11px] font-bold uppercase tracking-[.14em] text-[#6e8982]">New custody record</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Record a handover</DialogTitle></DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Handover type"><Select value={form.type} onValueChange={value => setForm(current => ({ ...current, type: value as HandoverType, employeeId: "", assetId: "" }))}><SelectTrigger className="h-11 rounded-xl border-[#d8e4df]"><SelectValue /></SelectTrigger><SelectContent>{(optionsQuery.data?.types?.length ? optionsQuery.data.types.map(item => item.value) : HANDOVER_TYPES).map(type => <SelectItem key={type} value={type}>{optionsQuery.data?.types?.find(item => item.value === type)?.label ?? type}</SelectItem>)}</SelectContent></Select></Field>
@@ -174,7 +174,7 @@ export default function AssetHandovers() {
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(viewReceipt)} onOpenChange={open => { if (!open) setViewReceipt(null); }}>
-      <DialogContent className="max-w-3xl rounded-2xl border-[#d9e4df] bg-[#f2f7f5] p-4 sm:p-6">
+      <DialogContent aria-describedby={undefined} className="max-w-3xl rounded-2xl border-[#d9e4df] bg-[#f2f7f5] p-4 sm:p-6">
         <DialogHeader className="flex-row items-center justify-between pr-8"><div><p className="text-[11px] font-bold uppercase tracking-[.14em] text-[#6e8982]">Receipt detail</p><DialogTitle className="mt-1 text-xl text-[#234343]">{selectedReceipt?.handoverNumber || "Handover receipt"}</DialogTitle></div><Button onClick={() => window.print()} variant="outline" className="rounded-xl border-[#cddcd5] bg-[#fffefa]"><Printer className="mr-2 h-4 w-4" /> Print / save PDF</Button></DialogHeader>
         {detailQuery.isLoading ? <div className="space-y-3"><Skeleton className="h-16 rounded-xl" /><Skeleton className="h-48 rounded-xl" /></div>
           : detailQuery.isError ? <div className="py-10 text-center text-sm text-[#718780]">Receipt details could not load. <button className="font-semibold text-[#34736b] underline" onClick={() => void detailQuery.refetch()}>Try again</button></div>

@@ -110,7 +110,7 @@ export default function AssetQRModal({ asset, open, onOpenChange }: AssetQRModal
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <DialogContent aria-describedby={undefined} className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Asset QR Code</DialogTitle>
         </DialogHeader>

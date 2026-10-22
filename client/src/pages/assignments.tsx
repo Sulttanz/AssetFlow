@@ -362,7 +362,7 @@ export default function Assignments() {
 
         {/* Assignment Form Dialog */}
         <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogContent className="max-w-2xl" data-testid="assignment-form-dialog">
+            <DialogContent aria-describedby={undefined} className="max-w-2xl" data-testid="assignment-form-dialog">
             <DialogHeader>
               <DialogTitle>
                 {selectedAssignment ? "Edit Assignment" : "Create New Assignment"}

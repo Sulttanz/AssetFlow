@@ -251,7 +251,7 @@ export default function EmployeeAccessEntitlements({
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+      <DialogContent aria-describedby={undefined}>
           <DialogHeader><DialogTitle>{editing ? "Edit Access Entitlement" : "Grant Application Access"}</DialogTitle></DialogHeader>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
@@ -313,7 +313,7 @@ export default function EmployeeAccessEntitlements({
       </Dialog>
 
       <Dialog open={Boolean(revoking)} onOpenChange={open => { if (!open) { setRevoking(null); setRevokeReason(""); } }}>
-        <DialogContent>
+      <DialogContent aria-describedby={undefined}>
           <DialogHeader><DialogTitle>Revoke Access</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">Enter the reason for revoking {revoking?.applicationName}. This will be retained in the immutable audit trail.</p>
           <div className="space-y-2">

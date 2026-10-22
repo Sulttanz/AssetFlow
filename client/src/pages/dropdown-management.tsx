@@ -405,7 +405,7 @@ export default function DropdownManagement() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent data-testid="dialog-add-option">
+        <DialogContent aria-describedby={undefined} data-testid="dialog-add-option">
           <DialogHeader>
             <DialogTitle>{editingId ? "Edit Option" : "Add New Option"}</DialogTitle>
           </DialogHeader>

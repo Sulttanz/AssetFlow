@@ -221,7 +221,7 @@ export default function PortalPage() {
 
     <ArticleDetailDialog articleId={articleId} open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }} />
     <Dialog open={Boolean(receiptToAcknowledge)} onOpenChange={open => { if (!open) setReceiptToAcknowledge(null); }}>
-      <DialogContent className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
+      <DialogContent aria-describedby={undefined} className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
         <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#6d8982]">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Review this handover</DialogTitle></DialogHeader>
         {receiptToAcknowledge && <div className="space-y-4">
           <p className="text-sm leading-6 text-[#6c837d]">Confirm that the equipment details below match the item in your care. Your acknowledgement will be recorded under <strong className="font-semibold text-[#31564f]">{receiptToAcknowledge.employeeName}</strong>.</p>

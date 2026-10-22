@@ -33,7 +33,7 @@ function ScheduleModal({ assetId, assetName, assetTag, onClose }: { assetId: str
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent aria-describedby={undefined} className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <TrendingDown className="h-5 w-5 text-blue-500" />

@@ -407,7 +407,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
 
       {/* Complete stage dialog */}
       <Dialog open={!!completeDialog} onOpenChange={o => { if (!o) setCompleteDialog(null); }}>
-        <DialogContent className="max-w-md">
+      <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Complete: {completeDialog && STAGE_META[completeDialog.environment]?.label}</DialogTitle>
           </DialogHeader>
@@ -433,7 +433,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
 
       {/* Assign + due date dialog */}
       <Dialog open={!!assignDialog} onOpenChange={o => { if (!o) setAssignDialog(null); }}>
-        <DialogContent className="max-w-sm">
+      <DialogContent aria-describedby={undefined} className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Assign: {assignDialog && STAGE_META[assignDialog.environment]?.label}</DialogTitle>
           </DialogHeader>
@@ -1147,7 +1147,7 @@ export default function Changes() {
 
       {/* ── Detail Dialog ────────────────────────────────────────────────── */}
       <Dialog open={!!selectedChange && !dialogOpen && !approvalChangeId} onOpenChange={open => { if (!open) setSelectedChange(null); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="font-mono text-sm text-muted-foreground">{currentChange?.changeNumber}</span>
@@ -1579,7 +1579,7 @@ export default function Changes() {
 
       {/* ── Assign Dialog ───────────────────────────────────────────────── */}
       <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
-        <DialogContent className="max-w-md">
+      <DialogContent aria-describedby={undefined} className="max-w-md">
           <DialogHeader><DialogTitle>Assign Change</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
@@ -1619,7 +1619,7 @@ export default function Changes() {
 
       {/* ── Create/Edit Dialog ──────────────────────────────────────────── */}
       <Dialog open={dialogOpen} onOpenChange={open => { setDialogOpen(open); if (!open) { setEditingChange(null); form.reset(); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Edit Change</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

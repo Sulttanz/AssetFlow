@@ -245,7 +245,7 @@ export default function MissingDataReport() {
       </div>
 
       <Dialog open={!!editingAssetId} onOpenChange={(open) => !open && setEditingAssetId(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
+        <DialogContent aria-describedby={undefined} className="max-w-3xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Update Asset</DialogTitle>
           </DialogHeader>

@@ -450,7 +450,7 @@ export default function AssetAudits() {
 
         {/* Audit Detail Dialog */}
         <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
-          <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0">
+          <DialogContent aria-describedby={undefined} className="max-w-5xl h-[90vh] flex flex-col p-0">
             <DialogHeader className="p-6 border-b">
               <div className="flex justify-between items-start">
                 <div>
@@ -602,7 +602,7 @@ export default function AssetAudits() {
 
         {/* Add Asset Dialog */}
         <Dialog open={isAddAssetDialogOpen} onOpenChange={setIsAddAssetDialogOpen}>
-          <DialogContent>
+          <DialogContent aria-describedby={undefined}>
             <DialogHeader>
               <DialogTitle>Add Asset to Audit</DialogTitle>
             </DialogHeader>
