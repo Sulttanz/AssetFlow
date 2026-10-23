@@ -98,25 +98,34 @@ try {
   const isolatedDatabaseUrl = applicationUrl.toString();
 
   console.log("Running Vitest against a disposable local PostgreSQL cluster; app database secrets are not passed to tests.");
-  const result = spawnSync(
+  const vitestCli = path.join(projectRoot, "node_modules/vitest/vitest.mjs");
+  const vitestEnvironment = testEnvironment({
+    DATABASE_URL: isolatedDatabaseUrl,
+    CAB_SCHEMA_SYNC_TEST_DATABASE_URL: adminUrl,
+    CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
+    RUN_DATABASE_INTEGRATION_TESTS: "1",
+    VITEST_NATIVE_PG: "1",
+    SESSION_SECRET: "isolated-full-vitest-session-secret",
+  });
+  const runVitest = (args) => spawnSync(
     process.execPath,
-    [path.join(projectRoot, "node_modules/vitest/vitest.mjs"), "run", "--config", "vitest.config.ts"],
+    [vitestCli, "run", "--config", "vitest.config.ts", ...args],
     {
       cwd: projectRoot,
       stdio: "inherit",
-      env: testEnvironment({
-        DATABASE_URL: isolatedDatabaseUrl,
-        CAB_SCHEMA_SYNC_TEST_DATABASE_URL: adminUrl,
-        CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
-        RUN_DATABASE_INTEGRATION_TESTS: "1",
-        VITEST_NATIVE_PG: "1",
-        SESSION_SECRET: "isolated-full-vitest-session-secret",
-      }),
+      env: vitestEnvironment,
     },
   );
-
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exitCode = result.status ?? 1;
+  const fullSuite = runVitest(["--exclude", "server/change-overview-plan.test.ts"]);
+  if (fullSuite.error) throw fullSuite.error;
+  if (fullSuite.status !== 0) {
+    process.exitCode = fullSuite.status ?? 1;
+  } else {
+    console.log("Running the CAB overview planner benchmark separately to avoid overlapping PostgreSQL snapshots.");
+    const isolatedPlannerSuite = runVitest(["server/change-overview-plan.test.ts"]);
+    if (isolatedPlannerSuite.error) throw isolatedPlannerSuite.error;
+    if (isolatedPlannerSuite.status !== 0) process.exitCode = isolatedPlannerSuite.status ?? 1;
+  }
 } finally {
   try {
     if (postgresStarted) {

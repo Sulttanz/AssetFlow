@@ -11,6 +11,8 @@ const integrationDatabaseUrl =
   process.env.NODE_ENV === "production" || process.env.REPLIT_DEPLOYMENT
     ? undefined
     : process.env.CAB_SCHEMA_SYNC_TEST_DATABASE_URL;
+const concurrentIndexBuildProbeEnabled =
+  process.env.CAB_SCHEMA_SYNC_TEST_WITH_LOCK_PROBE === "1";
 
 if (process.env.CAB_SCHEMA_SYNC_TEST_REQUIRED === "1" && !integrationDatabaseUrl) {
   throw new Error(
@@ -751,6 +753,159 @@ describe("development SQL migration sync against PostgreSQL", () => {
           await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`);
           client.release();
         }
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
+  // Keep this long-running scan out of the broad parallel suite: its active
+  // PostgreSQL snapshot can postpone VACUUM visibility-map updates elsewhere.
+  it.skipIf(!integrationDatabaseUrl || !concurrentIndexBuildProbeEnabled)(
+    "keeps CAB writes available and retries an interrupted concurrent history index build",
+    async () => {
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 4 });
+      const schemaName = `cab_concurrent_idx_${randomUUID().replaceAll("-", "")}`;
+      const quotedSchema = `"${schemaName}"`;
+      const migrationName = "20261018_cab_assignment_history_lookup_idx.sql";
+      const migrationSql = await readFile(path.resolve("migrations", migrationName), "utf8");
+      const migrationChecksum = createHash("sha256").update(migrationSql).digest("hex");
+      const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+      let migrationClient: Awaited<ReturnType<typeof pool.connect>> | undefined;
+      let lockClient: Awaited<ReturnType<typeof pool.connect>> | undefined;
+      let writerClient: Awaited<ReturnType<typeof pool.connect>> | undefined;
+      let observerClient: Awaited<ReturnType<typeof pool.connect>> | undefined;
+      let migrationPromise: Promise<unknown> | undefined;
+      let backendPid: number | undefined;
+      let writerLockOpen = false;
+
+      try {
+        migrationClient = await pool.connect();
+        lockClient = await pool.connect();
+        writerClient = await pool.connect();
+        observerClient = await pool.connect();
+
+        await migrationClient.query(`CREATE SCHEMA ${quotedSchema}`);
+        await migrationClient.query(`
+          CREATE TABLE ${quotedSchema}.change_approvals (
+            change_id varchar NOT NULL,
+            original_approver_id varchar NOT NULL
+          )
+        `);
+        await migrationClient.query(
+          `SET search_path TO ${quotedSchema}`,
+        );
+        await lockClient.query(`SET search_path TO ${quotedSchema}`);
+        await writerClient.query(`SET search_path TO ${quotedSchema}`);
+
+        await lockClient.query("BEGIN");
+        writerLockOpen = true;
+        await lockClient.query("LOCK TABLE change_approvals IN ROW EXCLUSIVE MODE");
+        const { rows: [backend] } = await migrationClient.query(
+          "SELECT pg_backend_pid() AS id",
+        );
+        backendPid = backend.id;
+
+        migrationPromise = applyDevSqlMigrations(migrationClient, {
+          directory,
+          ledgerSchema: schemaName,
+        });
+
+        let reachedWriterWait = false;
+        for (let attempt = 0; attempt < 2000; attempt += 1) {
+          const { rows: [progress] } = await observerClient.query(
+            `SELECT phase
+             FROM pg_stat_progress_create_index
+             WHERE pid = $1`,
+            [backendPid],
+          );
+          if (progress?.phase === "waiting for writers before build") {
+            reachedWriterWait = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(reachedWriterWait).toBe(true);
+
+        await writerClient.query("SET statement_timeout TO '3s'");
+        await expect(
+          writerClient.query(
+            `INSERT INTO change_approvals (change_id, original_approver_id)
+             VALUES ('write-during-index', 'cab-approver')`,
+          ),
+        ).resolves.toMatchObject({ rowCount: 1 });
+
+        const { rows: [cancelled] } = await observerClient.query(
+          "SELECT pg_cancel_backend($1) AS cancelled",
+          [backendPid],
+        );
+        expect(cancelled.cancelled).toBe(true);
+        await expect(migrationPromise).rejects.toThrow();
+        migrationPromise = undefined;
+        migrationClient.release();
+        migrationClient = undefined;
+
+        const { rows: [interruptedIndex] } = await observerClient.query(
+          `SELECT index_info.indisvalid
+           FROM pg_index AS index_info
+           JOIN pg_class AS index_class ON index_class.oid = index_info.indexrelid
+           JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
+           WHERE index_namespace.nspname = $1
+             AND index_class.relname = 'change_approvals_change_original_approver_idx'`,
+          [schemaName],
+        );
+        expect(interruptedIndex?.indisvalid).toBe(false);
+
+        await lockClient.query("COMMIT");
+        writerLockOpen = false;
+
+        const retryClient = await pool.connect();
+        try {
+          await retryClient.query(`SET search_path TO ${quotedSchema}`);
+          const retryResult = await applyDevSqlMigrations(retryClient, {
+            directory,
+            ledgerSchema: schemaName,
+          });
+          expect(retryResult).toEqual({
+            applied: [migrationName],
+            alreadyApplied: [],
+            deferred: null,
+          });
+          const { rows: [finishedIndex] } = await retryClient.query(
+            `SELECT index_info.indisvalid
+             FROM pg_index AS index_info
+             JOIN pg_class AS index_class ON index_class.oid = index_info.indexrelid
+             JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
+             WHERE index_namespace.nspname = $1
+               AND index_class.relname = 'change_approvals_change_original_approver_idx'`,
+            [schemaName],
+          );
+          expect(finishedIndex?.indisvalid).toBe(true);
+          const { rows: [ledgerEntry] } = await retryClient.query(
+            `SELECT checksum FROM "${schemaName}".sql_migrations WHERE migration_name = $1`,
+            [migrationName],
+          );
+          expect(ledgerEntry?.checksum).toBe(migrationChecksum);
+        } finally {
+          retryClient.release();
+        }
+      } finally {
+        if (migrationPromise && backendPid && observerClient) {
+          await observerClient.query("SELECT pg_cancel_backend($1)", [backendPid])
+            .catch(() => {});
+          await migrationPromise.catch(() => {});
+        }
+        if (writerLockOpen && lockClient) {
+          await lockClient.query("ROLLBACK").catch(() => {});
+        }
+        if (observerClient) {
+          await observerClient.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`)
+            .catch(() => {});
+        }
+        migrationClient?.release();
+        lockClient?.release();
+        writerClient?.release();
+        observerClient?.release();
         await pool.end();
       }
     },

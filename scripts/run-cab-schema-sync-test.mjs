@@ -46,6 +46,7 @@ function assertNoSkippedTests(report) {
     "rolls back partial schema changes and the ledger row, then applies the repaired migration once",
     "serializes concurrent runners and records each migration once",
     "preserves CAB history and schema across repeated syncs in a temporary legacy schema",
+    "keeps CAB writes available and retries an interrupted concurrent history index build",
   ];
   const assertions = report.testResults.flatMap((file) => file.assertionResults ?? []);
   const skipped = assertions.filter((test) => test.status !== "passed");
@@ -109,17 +110,23 @@ try {
         ...process.env,
         NODE_ENV: "test",
         CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
+        CAB_SCHEMA_SYNC_TEST_WITH_LOCK_PROBE: "1",
         CAB_SCHEMA_SYNC_TEST_DATABASE_URL:
           `postgresql://postgres@127.0.0.1:${port}/postgres`,
       },
     },
   );
   if (result.error) throw result.error;
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
   if (result.status !== 0) {
+    for (const test of report.testResults.flatMap((file) => file.assertionResults ?? [])) {
+      if (test.status === "failed") {
+        console.error(`${test.fullName}\n${test.failureMessages?.join("\n") ?? ""}`);
+      }
+    }
     throw new Error(`CAB schema sync integration tests failed with exit code ${result.status}`);
   }
 
-  const report = JSON.parse(await readFile(reportPath, "utf8"));
   assertNoSkippedTests(report);
   console.log("CAB schema sync PostgreSQL regression passed with no skipped tests.");
 } finally {

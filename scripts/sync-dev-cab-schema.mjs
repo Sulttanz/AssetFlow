@@ -9,6 +9,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const migrationDirectory = path.join(projectRoot, "migrations");
 const migrationLockId = 24761005;
 const missingSchemaErrorCodes = new Set(["42P01", "42703"]);
+const concurrentIndexMigrationName = "20261018_cab_assignment_history_lookup_idx.sql";
 
 function quoteSchemaIdentifier(identifier) {
   if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(identifier)) {
@@ -27,6 +28,113 @@ async function discoverMigrations(directory) {
 
 function migrationChecksum(sql) {
   return createHash("sha256").update(sql).digest("hex");
+}
+
+function quoteIdentifier(identifier) {
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+function getConcurrentIndexMigration(sql, name) {
+  if (name !== concurrentIndexMigrationName) return null;
+
+  // This migration is already checksum-recorded in existing workspaces. Keep
+  // its original SQL and checksum while opting its index build out of a tx.
+  const executableSql = sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n")
+    .trim();
+  const match = executableSql.match(
+    /^CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_]*)\s*\(\s*([a-z_][a-z0-9_]*)\s*,\s*([a-z_][a-z0-9_]*)\s*\)\s*;?$/i,
+  );
+  if (!match ||
+      match[1] !== "change_approvals_change_original_approver_idx" ||
+      match[2] !== "change_approvals" ||
+      match[3] !== "change_id" ||
+      match[4] !== "original_approver_id") {
+    throw new Error(
+      `Migration ${name} no longer matches the concurrent-index definition supported by the development runner.`,
+    );
+  }
+  return {
+    indexName: match[1],
+    tableName: match[2],
+    columns: [match[3], match[4]],
+    sql: executableSql.replace(/^CREATE\s+INDEX\s+/i, "CREATE INDEX CONCURRENTLY "),
+  };
+}
+
+async function prepareConcurrentIndexRetry(client, definition) {
+  const { rows: [existing] } = await client.query(`
+    SELECT table_namespace.nspname AS schema_name,
+      table_class.relname AS table_name,
+      index_class.relkind,
+      index_info.indisvalid,
+      index_info.indisready,
+      index_info.indisunique,
+      index_info.indnatts = index_info.indnkeyatts AS has_no_included_columns,
+      index_info.indexprs IS NULL AS has_no_expressions,
+      index_info.indpred IS NULL AS has_no_predicate,
+      access_method.amname AS access_method,
+      ARRAY(
+        SELECT attribute.attname::text
+        FROM unnest(index_info.indkey::smallint[]) WITH ORDINALITY AS key(attnum, ordinal_position)
+        JOIN pg_attribute AS attribute
+          ON attribute.attrelid = table_class.oid
+         AND attribute.attnum = key.attnum
+        WHERE key.ordinal_position <= index_info.indnkeyatts
+        ORDER BY key.ordinal_position
+      )::text[] AS columns
+    FROM pg_class AS table_class
+    JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
+    LEFT JOIN pg_class AS index_class
+      ON index_class.relnamespace = table_class.relnamespace
+     AND index_class.relname = $1
+    LEFT JOIN pg_index AS index_info ON index_info.indexrelid = index_class.oid
+    LEFT JOIN pg_am AS access_method ON access_method.oid = index_class.relam
+    WHERE table_class.oid = to_regclass($2)
+  `, [definition.indexName, definition.tableName]);
+
+  if (!existing || existing.relkind == null) return;
+
+  const matchesDefinition =
+    existing.relkind === "i" &&
+    existing.table_name === definition.tableName &&
+    existing.indisunique === false &&
+    existing.has_no_included_columns === true &&
+    existing.has_no_expressions === true &&
+    existing.has_no_predicate === true &&
+    existing.access_method === "btree" &&
+    JSON.stringify(existing.columns) === JSON.stringify(definition.columns);
+  if (!matchesDefinition) {
+    throw new Error(
+      `Index ${existing.schema_name}.${definition.indexName} exists with a different definition; refusing to replace it. Found ${JSON.stringify({
+        relkind: existing.relkind,
+        tableName: existing.table_name,
+        indisunique: existing.indisunique,
+        hasNoIncludedColumns: existing.has_no_included_columns,
+        hasNoExpressions: existing.has_no_expressions,
+        hasNoPredicate: existing.has_no_predicate,
+        accessMethod: existing.access_method,
+        columns: existing.columns,
+      })}; expected ${JSON.stringify({
+        relkind: "i",
+        tableName: definition.tableName,
+        indisunique: false,
+        hasNoIncludedColumns: true,
+        hasNoExpressions: true,
+        hasNoPredicate: true,
+        accessMethod: "btree",
+        columns: definition.columns,
+      })}.`,
+    );
+  }
+
+  if (existing.indisvalid && existing.indisready) return;
+
+  await client.query(
+    `DROP INDEX CONCURRENTLY IF EXISTS ${quoteIdentifier(existing.schema_name)}.${quoteIdentifier(definition.indexName)}`,
+  );
 }
 
 function assertMigrationHasNoTransactionWrapper(sql, name) {
@@ -106,6 +214,49 @@ export async function applyDevSqlMigrations(
       const sql = await readFile(path.join(directory, name), "utf8");
       assertMigrationHasNoTransactionWrapper(sql, name);
       const checksum = migrationChecksum(sql);
+      const concurrentIndex = getConcurrentIndexMigration(sql, name);
+
+      if (concurrentIndex) {
+        try {
+          const { rows: [existing] } = await client.query(
+            `SELECT checksum FROM ${migrationLedger} WHERE migration_name = $1`,
+            [name],
+          );
+          if (existing) {
+            if (existing.checksum !== checksum) {
+              throw new Error(
+                `Migration ${name} changed after it was recorded; add a new migration instead of editing an applied file.`,
+              );
+            }
+            result.alreadyApplied.push(name);
+            continue;
+          }
+
+          await prepareConcurrentIndexRetry(client, concurrentIndex);
+          await client.query(concurrentIndex.sql);
+          await client.query("BEGIN");
+          try {
+            await client.query(
+              `INSERT INTO ${migrationLedger} (migration_name, checksum) VALUES ($1, $2)`,
+              [name, checksum],
+            );
+            await client.query("COMMIT");
+          } catch (error) {
+            await client.query("ROLLBACK").catch(() => {});
+            throw error;
+          }
+          result.applied.push(name);
+        } catch (error) {
+          if (deferMissingSchema && missingSchemaErrorCodes.has(error?.code)) {
+            result.deferred = name;
+            break;
+          }
+          throw new Error(`Failed to apply SQL migration ${name}: ${error.message}`, {
+            cause: error,
+          });
+        }
+        continue;
+      }
 
       await client.query("BEGIN");
       try {
