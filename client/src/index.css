@@ -146,10 +146,183 @@
     scrollbar-width: thin;
   }
 
-  .app-workspace [data-radix-dialog-content] {
+  :is([data-radix-dialog-content], [data-radix-alert-dialog-content]):not([data-mobile-sheet]) {
     width: calc(100vw - 1rem);
     max-width: calc(100vw - 1rem);
-    max-height: calc(100dvh - 1rem);
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem);
     overflow-y: auto;
+  }
+
+  [data-mobile-sheet] {
+    max-width: calc(100vw - 1rem);
+    max-height: 100dvh;
+  }
+
+  [data-radix-popper-content-wrapper] {
+    max-width: calc(100vw - 1rem);
+  }
+
+  [data-radix-popper-content-wrapper] > * {
+    box-sizing: border-box;
+    max-width: calc(100vw - 1rem) !important;
+  }
+
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet], [data-radix-popper-content-wrapper]) :is(
+    button,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="option"],
+    [role="combobox"]
+  ) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  #mobile-navigation :is(button, a, [role="button"], [role="menuitem"]),
+  [data-radix-popper-content-wrapper] :is(button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="option"]) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet], [data-radix-popper-content-wrapper]) :is(
+    input[type="checkbox"],
+    input[type="radio"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"]
+  ) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet], [data-radix-popper-content-wrapper]) :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]),
+    select,
+    textarea,
+    [role="combobox"]
+  ) {
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 639px) {
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet]) form [class*="grid-cols-2"],
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet]) form [class*="grid-cols-3"],
+  :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet]) form [class*="grid-cols-4"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  div:has(> table[data-mobile-cards="true"]) {
+    overflow-x: visible !important;
+    border-color: transparent;
+  }
+
+  table[data-mobile-cards="true"] {
+    display: block;
+    width: 100%;
+    min-width: 0 !important;
+    border-collapse: separate;
+  }
+
+  table[data-mobile-cards="true"] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+    border: 0;
+  }
+
+  table[data-mobile-cards="true"] tbody,
+  table[data-mobile-cards="true"] tfoot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  table[data-mobile-cards="true"] tbody tr,
+  table[data-mobile-cards="true"] tfoot tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 10px 14px;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+  }
+
+  table[data-mobile-cards="true"] tbody td,
+  table[data-mobile-cards="true"] tfoot td {
+    display: grid;
+    grid-template-columns: minmax(84px, 36%) minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    border: 0;
+    padding: 6px 0;
+    text-align: left;
+  }
+
+  table[data-mobile-cards="true"] tbody td::before,
+  table[data-mobile-cards="true"] tfoot td::before {
+    content: attr(data-mobile-label);
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  table[data-mobile-cards="true"] tbody td[data-mobile-wide="true"],
+  table[data-mobile-cards="true"] tfoot td[data-mobile-wide="true"] {
+    display: block;
+  }
+
+  table[data-mobile-cards="true"] tbody td[data-mobile-wide="true"]::before,
+  table[data-mobile-cards="true"] tfoot td[data-mobile-wide="true"]::before {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  table[data-mobile-cards="true"] tbody td[data-mobile-actions="true"],
+  table[data-mobile-cards="true"] tfoot td[data-mobile-actions="true"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  table[data-mobile-cards="true"] tbody td[data-mobile-actions="true"]::before,
+  table[data-mobile-cards="true"] tfoot td[data-mobile-actions="true"]::before {
+    flex: 0 0 100%;
+  }
+
+  table[data-mobile-cards="true"] td.hidden {
+    display: none;
+  }
+
+  table[data-mobile-cards="true"] td[colspan] {
+    display: block;
+  }
+
+  table[data-mobile-cards="true"] td[colspan]::before {
+    display: none;
   }
 }

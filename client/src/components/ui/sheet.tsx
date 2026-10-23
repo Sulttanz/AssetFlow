@@ -61,6 +61,7 @@ const SheetContent = React.forwardRef<
     <SheetOverlay />
     <SheetPrimitive.Content
       ref={ref}
+      data-mobile-sheet=""
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
