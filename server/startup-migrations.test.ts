@@ -25,6 +25,9 @@ class MigrationClient {
     if (/^INSERT INTO settings\b/i.test(query.trim())) {
       this.executedSql.push(query);
     }
+    if (/CREATE INDEX IF NOT EXISTS\b/i.test(query)) {
+      this.executedSql.push(query);
+    }
     return { rows: [] };
   }
 }
@@ -93,6 +96,34 @@ describe("on-prem startup migrations", () => {
       const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
       expect(() => assertAdditiveMigration(migration, name)).not.toThrow();
     }
+  });
+
+  it("includes the CAB assignment history index in the additive deployment migrations", async () => {
+    const deployedMigration = await readFile(
+      path.resolve(process.cwd(), "migrations/onprem/20261110_cab_assignment_history_lookup_idx.sql"),
+      "utf8",
+    );
+    const developmentMigration = await readFile(
+      path.resolve(process.cwd(), "migrations/20261018_cab_assignment_history_lookup_idx.sql"),
+      "utf8",
+    );
+
+    expect(() => assertAdditiveMigration(
+      deployedMigration,
+      "20261110_cab_assignment_history_lookup_idx.sql",
+    )).not.toThrow();
+    expect(deployedMigration.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim())
+      .toBe(developmentMigration.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim());
+
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "onprem-cab-index-test-"));
+    const filename = "20261110_cab_assignment_history_lookup_idx.sql";
+    await writeFile(path.join(tempDirectory, filename), deployedMigration);
+    const client = new MigrationClient();
+    await expect(applyStartupMigrations(client, tempDirectory)).resolves.toMatchObject({
+      applied: [filename],
+      alreadyApplied: [],
+    });
+    expect(client.executedSql).toContain(deployedMigration);
   });
 
   it("compares configured release versions numerically", () => {

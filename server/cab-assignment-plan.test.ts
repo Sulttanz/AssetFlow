@@ -44,7 +44,7 @@ describe("CAB assignment history lookup index", () => {
     `);
 
     const migration = await readFile(
-      new URL("../migrations/20261018_cab_assignment_history_lookup_idx.sql", import.meta.url),
+      new URL("../migrations/onprem/20261110_cab_assignment_history_lookup_idx.sql", import.meta.url),
       "utf8",
     );
     await plannerPool.query(migration);
@@ -108,13 +108,19 @@ describe("CAB assignment history lookup index", () => {
     )).toBe(true);
 
     const indexDetails = await plannerPool.query(`
-      SELECT index_info.indisunique AS is_unique
+      SELECT
+        index_info.indisunique AS is_unique,
+        index_info.indisvalid AS is_valid,
+        pg_get_indexdef(index_info.indexrelid) AS definition
       FROM pg_index AS index_info
       JOIN pg_class AS index_class ON index_class.oid = index_info.indexrelid
       JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
       WHERE index_class.relname = $1 AND index_namespace.nspname = $2
     `, ["change_approvals_change_original_approver_idx", schema]);
-    expect(indexDetails.rows).toEqual([{ is_unique: false }]);
+    expect(indexDetails.rows).toHaveLength(1);
+    expect(indexDetails.rows[0].is_unique).toBe(false);
+    expect(indexDetails.rows[0].is_valid).toBe(true);
+    expect(indexDetails.rows[0].definition).toContain("(change_id, original_approver_id)");
   });
 });
 

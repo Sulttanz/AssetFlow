@@ -47,6 +47,7 @@ function assertNoSkippedTests(report) {
     "serializes concurrent runners and records each migration once",
     "preserves CAB history and schema across repeated syncs in a temporary legacy schema",
     "keeps CAB writes available and retries an interrupted concurrent history index build",
+    "uses the index and preserves duplicate historical assignment rows",
   ];
   const assertions = report.testResults.flatMap((file) => file.assertionResults ?? []);
   const skipped = assertions.filter((test) => test.status !== "passed");
@@ -100,6 +101,8 @@ try {
       "--config",
       "vitest.config.ts",
       "server/dev-cab-schema-sync.test.ts",
+      "server/startup-migrations.test.ts",
+      "server/cab-assignment-plan.test.ts",
       "--reporter=json",
       `--outputFile=${reportPath}`,
     ],
@@ -111,6 +114,9 @@ try {
         NODE_ENV: "test",
         CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
         CAB_SCHEMA_SYNC_TEST_WITH_LOCK_PROBE: "1",
+        RUN_DATABASE_INTEGRATION_TESTS: "1",
+        VITEST_NATIVE_PG: "1",
+        DATABASE_URL: `postgresql://postgres@127.0.0.1:${port}/postgres`,
         CAB_SCHEMA_SYNC_TEST_DATABASE_URL:
           `postgresql://postgres@127.0.0.1:${port}/postgres`,
       },
