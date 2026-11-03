@@ -3,7 +3,7 @@ import { z } from "zod";
 import { formatExportValue } from "@shared/date-format";
 
 export const reportExportSchema = z.object({
-  data: z.array(z.record(z.unknown())).max(100000),
+  data: z.array(z.record(z.string(), z.unknown())).max(100000),
   columns: z.array(z.object({
     header: z.string().max(500),
     key: z.string().min(1).max(200).refine(

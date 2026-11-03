@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { useToast } from "@/hooks/use-toast";
 import { 
   insertAssetBookingSchema, 
@@ -449,7 +449,7 @@ export default function AssetBookingsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Asset</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select asset" />
@@ -473,7 +473,7 @@ export default function AssetBookingsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Employee</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select employee" />
@@ -529,7 +529,7 @@ export default function AssetBookingsPage() {
                     <FormItem>
                       <FormLabel>Purpose</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Why is this asset being booked?" {...field} />
+                        <Textarea placeholder="Why is this asset being booked?" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -543,7 +543,7 @@ export default function AssetBookingsPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value ?? ""}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Status" />

@@ -1068,6 +1068,123 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 ;
 
 
+  it("keeps one accurate removal record when managers concurrently remove the same CAB assignment", async () => {
+    const managerAId = randomUUID();
+    const managerBId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+
+    await db.insert(users).values([
+      {
+        id: managerAId,
+        username: `manager-${managerAId}`,
+        email: `${managerAId}@example.invalid`,
+        password: "test-only",
+        firstName: "CAB",
+        lastName: "Manager A",
+      },
+      {
+        id: managerBId,
+        username: `manager-${managerBId}`,
+        email: `${managerBId}@example.invalid`,
+        password: "test-only",
+        firstName: "CAB",
+        lastName: "Manager B",
+      },
+      {
+        id: approverId,
+        username: `approver-${approverId}`,
+        email: `${approverId}@example.invalid`,
+        password: "test-only",
+        firstName: "CAB",
+        lastName: "Approver",
+      },
+    ]);
+
+    await db.insert(changes).values({
+      id: changeId,
+      changeNumber: `TEST-${changeId}`,
+      title: "Concurrent removal of one CAB assignment",
+      status: "submitted",
+    });
+
+    await db.insert(changeApprovals).values({
+      id: approvalId,
+      changeId,
+      approverId,
+      originalApproverId: approverId,
+      approverLabel: "CAB Approver",
+      decision: "pending",
+    });
+
+    // Ensure both route-level reads see the active assignment before either
+    // request reaches the real transactional removal.
+    const originalRead = storage.getChangeApprovals.bind(storage);
+    let readCount = 0;
+    let releaseReads!: () => void;
+    const bothRead = new Promise<void>(resolve => {
+      releaseReads = resolve;
+    });
+    const readSpy = vi.spyOn(storage, "getChangeApprovals").mockImplementation(async id => {
+      const rows = await originalRead(id);
+      if (id === changeId && readCount < 2) {
+        if (++readCount === 2) releaseReads();
+        await bothRead;
+      }
+      return rows;
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const remove = (managerId: string) => fetch(
+        `${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`,
+        { method: "DELETE", headers: { "x-test-user": managerId } },
+      );
+      const responses = await Promise.all([remove(managerAId), remove(managerBId)]);
+
+      expect(readCount).toBe(2);
+      expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+
+      const winnerIndex = responses.findIndex(response => response.status === 200);
+      const loserIndex = 1 - winnerIndex;
+      const winnerId = winnerIndex === 0 ? managerAId : managerBId;
+      const winnerLabel = winnerIndex === 0 ? "CAB Manager A" : "CAB Manager B";
+
+      expect(await responses[winnerIndex].json()).toEqual({ success: true });
+      expect(await responses[loserIndex].json()).toMatchObject({
+        message: "This CAB approval was already voted on or removed",
+      });
+
+      const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        id: approvalId,
+        decision: "pending",
+        removedById: winnerId,
+        removedByLabel: winnerLabel,
+      });
+      expect(history[0].removedAt).toBeInstanceOf(Date);
+      expect(await storage.getChangeApprovals(changeId)).toEqual([]);
+
+      expect(auditSpy).toHaveBeenCalledTimes(1);
+      expect(auditSpy.mock.calls[0][0]).toMatchObject({
+        userId: winnerId,
+        action: "DELETE",
+        tableName: "change_approvals",
+        recordId: approvalId,
+      });
+      expect(JSON.parse(auditSpy.mock.calls[0][0].newValues ?? "{}")).toMatchObject({
+        removedById: winnerId,
+      });
+    } finally {
+      readSpy.mockRestore();
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  }, 15_000);
+
   it("recalculates status after concurrent removals leave only approved CAB members", async () => 
 {
 

@@ -153,7 +153,7 @@ export function registerKnowledgeRoutes(
       try { await handler(req, res, await viewer(req)); }
       catch (error) {
         if (error instanceof KnowledgeError) return void res.status(error.status).json({ message: error.message });
-        if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid article data", errors: error.errors });
+        if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid article data", errors: error.issues });
         const code = (error as any)?.code ?? (error as any)?.cause?.code;
         if (code === "23505") return void res.status(409).json({ message: "A duplicate article, attachment, or control mapping already exists" });
         console.error("Knowledge governance request failed", error instanceof Error ? error.message : "Unknown error");

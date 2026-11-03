@@ -25,7 +25,7 @@ function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<
       if (!vendorPermissions(user).canRead) throw new VendorError(403, "Vendor management access required");
       await handler(req, res, user);
     } catch (error: any) {
-      if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid vendor or contract data", errors: error.errors }); return; }
+      if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid vendor or contract data", errors: error.issues }); return; }
       if (error instanceof VendorError) { res.status(error.status).json({ message: error.message }); return; }
       const code = error?.code ?? error?.cause?.code;
       if (code === "23505") { res.status(409).json({ message: "Vendor name, vendor code or contract number already exists" }); return; }

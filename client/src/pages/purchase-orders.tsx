@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { useToast } from "@/hooks/use-toast";
 import { useHasPermission } from "@/hooks/use-auth";
 import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Department, type Vendor } from "@shared/schema";

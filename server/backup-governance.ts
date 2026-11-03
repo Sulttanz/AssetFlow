@@ -142,7 +142,7 @@ export function registerBackupGovernanceRoutes(
       await handler(req, res, user);
     } catch (error) {
       if (error instanceof BackupError) return void res.status(error.status).json({ message: error.message });
-      if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid backup governance data", errors: error.errors });
+        if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid backup governance data", errors: error.issues });
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return void res.status(409).json({ message: "This backup record already exists" });
       if (code === "23503") return void res.status(409).json({ message: "This backup record is still referenced" });

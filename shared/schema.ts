@@ -2057,7 +2057,7 @@ export const kbTicketLinks = pgTable("kb_ticket_links", {
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {
   catalogSchemaSnapshot: z.array(catalogFieldSchema),
-  customFieldValues: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  customFieldValues: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   requestedQuantity: z.number().int().min(1).max(10000).default(1),
 }).omit({ id: true, requestNumber: true, createdAt: true, updatedAt: true });
 export type Incident = typeof incidents.$inferSelect;

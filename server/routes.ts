@@ -426,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.send(Buffer.from(buffer));
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid spreadsheet export data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid spreadsheet export data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to generate Excel report" });
     }
@@ -584,7 +584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating user:", error);
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid user data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create user", error: error instanceof Error ? error.message : 'Unknown error' });
     }
@@ -631,7 +631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(userWithoutPassword);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid user data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid user data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update user" });
     }
@@ -692,7 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(role);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid role data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid role data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create role" });
     }
@@ -716,7 +716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(role);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid role data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid role data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update role" });
     }
@@ -784,7 +784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'contracts', contract.id, contract.name, null, contract, req);
       res.status(201).json(contract);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.issues });
       res.status(500).json({ message: "Failed to create contract" });
     }
   });
@@ -809,7 +809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'contracts', contract.id, contract.name, oldContract, contract, req);
       res.json(contract);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.issues });
       res.status(500).json({ message: "Failed to update contract" });
     }
   });
@@ -844,7 +844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, null, booking, req);
       res.status(201).json(booking);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.issues });
       res.status(500).json({ message: "Failed to create booking" });
     }
   });
@@ -868,7 +868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, oldBooking, booking, req);
       res.json(booking);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.issues });
       res.status(500).json({ message: "Failed to update booking" });
     }
   });
@@ -906,7 +906,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'asset_disposal_records', record.id, `Disposal for ${record.assetId}`, null, record, req);
       res.status(201).json(record);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.issues });
       res.status(500).json({ message: "Failed to create disposal record" });
     }
   });
@@ -920,7 +920,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'asset_disposal_records', record.id, `Disposal for ${record.assetId}`, oldRecord, record, req);
       res.json(record);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.issues });
       res.status(500).json({ message: "Failed to update disposal record" });
     }
   });
@@ -945,7 +945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'asset_audit_sessions', session.id, session.name, null, session, req);
       res.status(201).json(session);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.issues });
       res.status(500).json({ message: "Failed to create audit session" });
     }
   });
@@ -969,7 +969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'asset_audit_sessions', session.id, session.name, oldSession, session, req);
       res.json(session);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.issues });
       res.status(500).json({ message: "Failed to update audit session" });
     }
   });
@@ -999,7 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(item);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.issues });
       res.status(500).json({ message: "Failed to upsert audit item" });
     }
   });
@@ -1023,7 +1023,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(item);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.issues });
       res.status(500).json({ message: "Failed to update audit item" });
     }
   });
@@ -1044,7 +1044,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const relationship = await storage.createAssetRelationship(validatedData);
       res.status(201).json(relationship);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid relationship data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid relationship data", errors: error.issues });
       res.status(500).json({ message: "Failed to create relationship" });
     }
   });
@@ -1076,7 +1076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'CREATE', 'asset_requests', request.id, `Request for ${request.assetType}`, null, request, req);
       res.status(201).json(request);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.issues });
       res.status(500).json({ message: "Failed to create asset request" });
     }
   });
@@ -1162,7 +1162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [project] = await db.insert(projects).values(projectData).returning({ id: projects.id, name: projects.name });
       res.status(201).json(project);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid project", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid project", errors: error.issues });
       res.status(409).json({ message: "A project with this name may already exist" });
     }
   });
@@ -1219,7 +1219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user.id, "CREATE", "incidents", incident.id, incident.title, null, incident, req);
       res.status(201).json(incident);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.issues });
       res.status(500).json({ message: "Failed to create incident" });
     }
   });
@@ -1240,7 +1240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assignee: ${assignedUser || "Unassigned"}` });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       res.status(500).json({ message: "Failed to update incident assignment" });
     }
   });
@@ -1268,7 +1268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Status changed", details: `${incident.status} → ${status}${resolutionCode ? ` · ${resolutionCode}` : ""}${resolutionNotes ? ` · ${resolutionNotes}` : ""}` });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.issues });
       res.status(500).json({ message: "Failed to update incident status" });
     }
   });
@@ -1303,7 +1303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(incident);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.issues });
       res.status(500).json({ message: "Failed to update incident" });
     }
   });
@@ -1475,7 +1475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(serviceRequestActivities).values({ serviceRequestId: request.id, actorId: req.user.id, action: "Request submitted", details: request.title });
       res.status(201).json(request);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.issues });
       res.status(500).json({ message: "Failed to create service request" });
     }
   });
@@ -1492,7 +1492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Request closed", details: closureNote });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "A closure note is required", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A closure note is required", errors: error.issues });
       res.status(500).json({ message: "Failed to close service request" });
     }
   });
@@ -1509,7 +1509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: decision === "approved" ? "Request approved" : "Request rejected" });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid approval decision", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid approval decision", errors: error.issues });
       res.status(500).json({ message: "Failed to review service request" });
     }
   });
@@ -1532,7 +1532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assigned to: ${assignedUser || "Unassigned"}` });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       res.status(500).json({ message: "Failed to update assignment" });
     }
   });
@@ -1568,7 +1568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Fulfillment stage changed", details: `${existing.fulfillmentStage ?? existing.fulfillmentStatus} → ${stage}` });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid fulfillment stage", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid fulfillment stage", errors: error.issues });
       if (error instanceof Error && error.message.includes("no longer in store")) return res.status(409).json({ message: error.message });
       res.status(500).json({ message: "Failed to update fulfillment stage" });
     }
@@ -1646,7 +1646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(result);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Select a source warehouse", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Select a source warehouse", errors: error.issues });
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to fulfill consumable request" });
@@ -1697,7 +1697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.issues });
       res.status(500).json({ message: "Failed to update service request" });
     }
   });
@@ -1784,7 +1784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'CREATE', 'tickets', ticket.id, ticket.title, null, ticket, req);
       res.status(201).json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
       res.status(500).json({ message: "Failed to create ticket" });
     }
   });
@@ -1812,7 +1812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'CREATE', 'tickets', ticket.id, ticket.title, null, ticket, req);
       res.status(201).json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
       res.status(500).json({ message: "Failed to create ticket" });
     }
   });
@@ -1857,7 +1857,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
       res.json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
       res.status(500).json({ message: "Failed to update ticket" });
     }
   });
@@ -1904,7 +1904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
       res.json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Cancellation reason cannot exceed 2000 characters", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Cancellation reason cannot exceed 2000 characters", errors: error.issues });
       res.status(500).json({ message: "Failed to cancel request" });
     }
   });
@@ -1932,7 +1932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
       res.json(ticket);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "A reopen reason of at least 5 characters is required", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A reopen reason of at least 5 characters is required", errors: error.issues });
       res.status(500).json({ message: "Failed to reopen ticket" });
     }
   });
@@ -1984,7 +1984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'CREATE', 'ticket_comments', comment.id, `Comment on ${ticket.ticketNumber}`, null, comment, req);
       res.status(201).json(comment);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid comment data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid comment data", errors: error.issues });
       res.status(500).json({ message: "Failed to create comment" });
     }
   });
@@ -2017,7 +2017,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, 'UPDATE', 'asset_requests', request.id, `Request for ${request.assetType}`, oldRequest, request, req);
       res.json(request);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.issues });
       res.status(500).json({ message: "Failed to update request" });
     }
   });
@@ -2173,7 +2173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(userRole);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid role assignment data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid role assignment data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to assign role to user" });
     }
@@ -2246,7 +2246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(validatedData);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid system settings", errors: error.errors });
+        return res.status(400).json({ message: "Invalid system settings", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update system settings" });
     }
@@ -2629,7 +2629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(asset);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid asset data", errors: error.issues });
       }
       if (error?.code === "23505") {
         return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
@@ -2677,7 +2677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid asset data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid asset data", errors: error.issues });
       }
       if (error?.code === "23505") {
         return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
@@ -2860,7 +2860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hostingType: z.enum(["all", "saas", "on_prem", "hybrid"]).default("all"),
         status: z.enum(["all", "active", "inactive", "retired"]).default("all"),
       }).safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid application filters", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid application filters", errors: parsed.error.issues });
       const { page, pageSize, search, category, hostingType, status } = parsed.data;
       const conditions = [];
       if (category) conditions.push(eq(cmdbApplications.category, category));
@@ -2913,7 +2913,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "cmdb_applications", row.id, row.name, null, row, req);
       res.status(201).json(row);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
       res.status(500).json({ message: "Failed to create application" });
     }
@@ -2932,7 +2932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "cmdb_applications", row.id, row.name, previous, row, req);
       res.json(row);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
       res.status(500).json({ message: "Failed to update application" });
     }
@@ -2966,7 +2966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         environment: z.enum(["all", "production", "staging", "development"]).default("all"),
         status: z.enum(["all", "online", "maintenance", "offline"]).default("all"),
       }).safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid server filters", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid server filters", errors: parsed.error.issues });
       const { page, pageSize, search, osPlatform, environment, status } = parsed.data;
       const conditions = [];
       if (osPlatform) conditions.push(eq(servers.osPlatform, osPlatform));
@@ -3011,7 +3011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "servers", row.id, row.hostname, null, row, req);
       res.status(201).json(row);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
       res.status(500).json({ message: "Failed to create server" });
     }
@@ -3038,7 +3038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "servers", row.id, row.hostname, previous, row, req);
       res.json(row);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
       res.status(500).json({ message: "Failed to update server" });
     }
@@ -3118,7 +3118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const fs = await import("fs");
         try { fs.unlinkSync(req.file.path); } catch {}
       }
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.issues });
       res.status(500).json({ message: "Failed to upload service request attachment" });
     }
   });
@@ -3288,7 +3288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       const fs = await import("fs");
       try { fs.unlinkSync(req.file.path); } catch {}
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document metadata", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document metadata", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A newer version was uploaded at the same time. Please retry." });
       return res.status(500).json({ message: "Failed to upload configuration document" });
     }
@@ -3388,7 +3388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'CREATE', 'ticket_attachments', row.id, req.file.originalname, null, row, req);
       res.status(201).json(row);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.issues });
       console.error("Upload ticket attachment error:", error);
       res.status(500).json({ message: "Failed to upload attachment" });
     }
@@ -3730,7 +3730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "employees", result.employee.id, `${result.employee.firstName} ${result.employee.lastName} offboarded`, result.previous, result.employee, req);
       res.json(result.employee);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Complete each clearance and enter a note for every waiver", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Complete each clearance and enter a note for every waiver", errors: error.issues });
       if (error?.review) return res.status(409).json({ message: error.message, review: error.review });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to offboard employee" });
@@ -3763,7 +3763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(result.employee);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a reactivation reason", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a reactivation reason", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to reactivate employee" });
     }
@@ -3791,7 +3791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         catalogSource: z.enum(["application", "server", "asset", "dropdown", "legacy"]).optional(),
         catalogItemId: z.string().trim().min(1).optional(),
       }).safeParse(req.query);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid access governance filters", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid access governance filters", errors: parsed.error.issues });
       const filters = parsed.data;
       if (Boolean(filters.catalogSource) !== Boolean(filters.catalogItemId)) {
         return res.status(400).json({ message: "Select both catalog source and system ID" });
@@ -3946,7 +3946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(row);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to grant employee access" });
     }
@@ -4019,7 +4019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(result.updated);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to update employee access" });
     }
@@ -4073,7 +4073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json({ ...result, expiryState: getAccessExpiryState(result.status, result.expiresAt) });
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Provide a valid extension period and business justification", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Provide a valid extension period and business justification", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to extend employee access" });
     }
@@ -4109,7 +4109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(result.revoked);
     } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "A revocation reason is required", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "A revocation reason is required", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
       res.status(500).json({ message: "Failed to revoke employee access" });
     }
@@ -4126,7 +4126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(employee);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid employee data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create employee" });
     }
@@ -4153,7 +4153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(employee);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid employee data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update employee" });
     }
@@ -4210,7 +4210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(assignment);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       }
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to create assignment" });
@@ -4241,7 +4241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(assignment);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid assignment data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       }
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to update assignment" });
@@ -4719,7 +4719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(location);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid location data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid location data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create location" });
     }
@@ -4743,7 +4743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(location);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid location data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid location data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update location" });
     }
@@ -4791,7 +4791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(department);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid department data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid department data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create department" });
     }
@@ -4815,7 +4815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(department);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid department data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid department data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update department" });
     }
@@ -4863,7 +4863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(vendor);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid vendor data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid vendor data", errors: error.issues });
       }
       if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
       res.status(500).json({ message: "Failed to create vendor" });
@@ -4900,7 +4900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(vendor);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid vendor data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid vendor data", errors: error.issues });
       }
       if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
       res.status(500).json({ message: "Failed to update vendor" });
@@ -4946,7 +4946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [created] = await db.insert(warehouseLocations).values(input).returning();
       res.status(201).json(created);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
       res.status(500).json({ message: "Failed to create warehouse location" });
     }
@@ -4962,7 +4962,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "warehouse_locations", updated.id, updated.name, previous, updated, req);
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
       res.status(500).json({ message: "Failed to update warehouse location" });
     }
@@ -5040,7 +5040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(created);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.issues });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
       res.status(500).json({ message: "Failed to create consumable" });
     }
@@ -5065,7 +5065,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) return res.status(404).json({ message: "Consumable not found" });
       res.json(updated);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.issues });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
       res.status(500).json({ message: "Failed to update consumable" });
     }
@@ -5136,7 +5136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "consumables", result.consumable.id, result.consumable.name, null, result, req);
       res.status(201).json(result);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid stock movement", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid stock movement", errors: error.issues });
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
       res.status(500).json({ message: "Failed to save stock movement" });
@@ -5270,7 +5270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Purchase order creation error:", error);
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid purchase order data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create purchase order" });
     }
@@ -5367,7 +5367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(purchaseOrder);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid purchase order data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update purchase order" });
     }
@@ -5581,7 +5581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(budget);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid budget data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid budget data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create budget" });
     }
@@ -5605,7 +5605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(budget);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid budget data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid budget data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update budget" });
     }
@@ -5653,7 +5653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to create maintenance schedule" });
     }
@@ -5677,7 +5677,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update maintenance schedule" });
     }
@@ -5729,7 +5729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(record);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid maintenance record data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid maintenance record data", errors: error.issues });
       }
       if (error instanceof Error && error.message === "Maintenance schedule not found.") {
         return res.status(404).json({ message: error.message });
@@ -5762,7 +5762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(record);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid maintenance record data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid maintenance record data", errors: error.issues });
       }
       res.status(500).json({ message: "Failed to update maintenance record" });
     }
@@ -7668,7 +7668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(option);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.issues });
       }
       if ((error?.code ?? error?.cause?.code) === "23505") {
         return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
@@ -7695,7 +7695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(option);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.errors });
+        return res.status(400).json({ message: "Invalid dropdown option data", errors: error.issues });
       }
       if ((error?.code ?? error?.cause?.code) === "23505") return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
       res.status(500).json({ message: "Failed to update dropdown option" });
@@ -8104,7 +8104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await syncLegacyCatalogItem(item.id);
       res.status(201).json(item);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.issues });
       res.status(500).json({ message: "Failed to create catalog item" });
     }
   });
@@ -8117,7 +8117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!item) return res.status(404).json({ message: "Item not found" });
       res.json(item);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.issues });
       res.status(500).json({ message: "Failed to update catalog item" });
     }
   });
@@ -8538,7 +8538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to create change:", err);
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.errors });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.issues });
       if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
       res.status(500).json({ message: "Failed to create change", detail: err instanceof Error ? err.message : String(err) });
     }
@@ -8593,7 +8593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to update change:", err);
-      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.errors });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.issues });
       if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
       res.status(500).json({ message: "Failed to update change", detail: err instanceof Error ? err.message : String(err) });
     }

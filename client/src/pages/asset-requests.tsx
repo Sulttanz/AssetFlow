@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { insertAssetRequestSchema, type AssetRequest, type Employee, type Asset } from "@shared/schema";
 import { ClipboardList, CheckCircle2, XCircle, PackageCheck, Search } from "lucide-react";
 import {
@@ -321,7 +321,7 @@ export default function AssetRequests() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Requested By</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value ?? ""}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select employee" />
@@ -360,7 +360,7 @@ export default function AssetRequests() {
                     <FormItem>
                       <FormLabel>Category</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. Hardware" {...field} />
+                        <Input placeholder="e.g. Hardware" {...field} value={field.value ?? ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -373,7 +373,7 @@ export default function AssetRequests() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Priority</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} defaultValue={field.value ?? ""}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select priority" />
@@ -397,7 +397,7 @@ export default function AssetRequests() {
                   <FormItem>
                     <FormLabel>Needed By Date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} />
+                      <Input type="date" {...field} value={field.value ?? ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

@@ -60,7 +60,7 @@ export function registerAssetHandoverRoutes(app: Express) {
           type: handoverTypeSchema.optional(),
           employeeId: z.string().uuid().optional(),
         }).safeParse(req.query);
-        if (!parsed.success) return res.status(400).json({ message: "Invalid handover options", errors: parsed.error.errors });
+        if (!parsed.success) return res.status(400).json({ message: "Invalid handover options", errors: parsed.error.issues });
         const type = parsed.data.type ?? "Issue / Assignment";
         const issue = isIssueType(type);
 
@@ -162,7 +162,7 @@ export function registerAssetHandoverRoutes(app: Express) {
           search: z.string().trim().max(120).optional(),
           type: handoverTypeSchema.optional(),
         }).safeParse(req.query);
-        if (!parsed.success) return res.status(400).json({ message: "Invalid handover filters", errors: parsed.error.errors });
+        if (!parsed.success) return res.status(400).json({ message: "Invalid handover filters", errors: parsed.error.issues });
         const conditions = [];
         if (parsed.data.type) conditions.push(eq(assetHandovers.type, parsed.data.type));
         const search = parsed.data.search?.replace(/[%_]/g, "\\$&");
@@ -268,7 +268,7 @@ export function registerAssetHandoverRoutes(app: Express) {
   app.post("/api/asset-handovers", requireAuth, requireAnyPermission("assignment_create", "assignment_return", "system_admin"), async (req, res) => {
     try {
       const parsed = insertAssetHandoverSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid handover data", errors: parsed.error.errors });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid handover data", errors: parsed.error.issues });
       const input = parsed.data;
       if (!validIsoDate(input.handoverDate)) return res.status(400).json({ message: "Enter a valid handover date in DD-MM-YYYY format" });
       const accessories = Array.from(new Set(input.includedAccessories.map(item => item.trim()).filter(Boolean)));
@@ -409,7 +409,7 @@ export function registerAssetHandoverRoutes(app: Express) {
       });
       res.status(201).json(created);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid handover data", errors: error.errors });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid handover data", errors: error.issues });
       if (errorStatus(error)) return res.status(errorStatus(error)!).json({ message: (error as Error).message });
       console.error("Failed to create asset handover:", error);
       res.status(500).json({ message: "Failed to create asset handover" });

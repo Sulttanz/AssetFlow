@@ -150,7 +150,7 @@ export function registerNetworkTopologyRoutes(
       await handler(req, res, user);
     } catch (error) {
       if (error instanceof NetworkError) return void res.status(error.status).json({ message: error.message });
-      if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid network governance data", errors: error.errors });
+      if (error instanceof z.ZodError) return void res.status(400).json({ message: "Invalid network governance data", errors: error.issues });
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return void res.status(409).json({ message: "A record with the same name or reference already exists" });
       if (code === "23503") return void res.status(409).json({ message: "This record is still referenced and cannot be removed" });

@@ -66,7 +66,7 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { useToast } from "@/hooks/use-toast";
 import { 
   insertAssetAuditSessionSchema, 
@@ -377,7 +377,7 @@ export default function AssetAudits() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Notes</FormLabel>
-                        <FormControl><Textarea {...field} /></FormControl>
+                        <FormControl><Textarea {...field} value={field.value ?? ""} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

@@ -272,7 +272,7 @@ export function registerItComponentsComplianceRoutes(
       const typeResult = z.enum(reviewTypes).safeParse(req.params.componentType);
       const input = reviewInput.safeParse(req.body);
       if (!typeResult.success || !input.success) {
-        return res.status(400).json({ message: "Invalid compliance review", errors: input.success ? [] : input.error.errors });
+        return res.status(400).json({ message: "Invalid compliance review", errors: input.success ? [] : input.error.issues });
       }
       if (!req.user?.id) return res.status(401).json({ message: "Authentication required" });
 

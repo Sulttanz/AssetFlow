@@ -43,7 +43,7 @@ export const catalogRequestInput = z.object({
   requestedQuantity: z.number().int().min(1).max(10000).optional(),
   targetFulfillmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
     .refine(value => Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, "Invalid calendar date").nullable().optional(),
-  fieldValues: z.record(z.union([z.string().max(10000), z.number().finite(), z.boolean()])).default({}),
+  fieldValues: z.record(z.string(), z.union([z.string().max(10000), z.number().finite(), z.boolean()])).default({}),
 }).strict();
 export const catalogDecisionInput = z.object({
   decision: z.enum(["Approved", "Rejected"]),

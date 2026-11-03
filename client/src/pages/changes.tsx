@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { z } from "zod";
 import { ChangeImpactSelector } from "@/components/cmdb/change-impact-selector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

@@ -2,7 +2,7 @@ import { toDateInputValue as appInputDate, formatDateDisplay } from "@/lib/date-
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { z } from "zod";
 import {
   Trash2, Edit, Plus, Wrench, Calendar, Clock,

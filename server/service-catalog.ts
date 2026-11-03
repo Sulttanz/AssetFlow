@@ -29,7 +29,7 @@ function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<
   return async (req, res) => {
     try { await handler(req, res, await loadCatalogViewer(req)); }
     catch (error) {
-      if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid catalog data", errors: error.errors }); return; }
+      if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid catalog data", errors: error.issues }); return; }
       if (error instanceof CatalogError) { res.status(error.status).json({ message: error.message }); return; }
       console.error("Service catalog operation failed:", error instanceof Error ? error.message : "Unknown error");
       res.status(500).json({ message: "Service catalog operation failed" });
