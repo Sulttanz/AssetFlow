@@ -93,7 +93,7 @@ export const CalendarDateField = React.forwardRef<HTMLInputElement, Props>(
           disabled={disabled}
           readOnly={readOnly}
           aria-invalid={Boolean(error) || props["aria-invalid"]}
-          className={cn(className, "pr-10")}
+           className={cn(className, "pr-12")}
           onChange={event => {
             const raw = event.target.value;
             const digitsBeforeCursor = raw.slice(0, event.target.selectionStart ?? raw.length).replace(/\D/g, "").length;
@@ -111,12 +111,12 @@ export const CalendarDateField = React.forwardRef<HTMLInputElement, Props>(
         {name && <input type="hidden" name={name} value={iso} disabled={disabled} />}
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <button type="button" aria-label="Choose date" disabled={disabled || readOnly}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+             <button type="button" aria-label="Choose date" disabled={disabled || readOnly}
+               className="absolute right-0 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
               <CalendarIcon className="h-4 w-4" />
             </button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-auto p-0">
+           <PopoverContent align="start" className="w-auto max-w-[calc(100vw-1.5rem)] p-0">
             <Calendar mode="single" initialFocus selected={parseDateValue(iso)}
               defaultMonth={parseDateValue(iso) ?? parseDateValue(minIso)}
               disabled={date => {

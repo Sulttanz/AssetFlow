@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectMutationSchema } from "@shared/project-management";
+import { projectMilestoneUpdateSchema, projectMutationSchema } from "@shared/project-management";
 
 const validProject = {
   title: "Identity platform rollout",
@@ -42,5 +42,11 @@ describe("project mutation validation", () => {
     expect(projectMutationSchema.safeParse({ ...validProject, startDate: "2027-05-01" }).success).toBe(false);
     expect(projectMutationSchema.safeParse({ ...validProject, status: "Blocked" }).success).toBe(false);
     expect(projectMutationSchema.safeParse({ ...validProject, budget: -1 }).success).toBe(false);
+  });
+
+  it("requires completion dates when a milestone is marked complete", () => {
+    expect(projectMilestoneUpdateSchema.safeParse({ status: "Completed", completionDate: null }).success).toBe(false);
+    expect(projectMilestoneUpdateSchema.safeParse({ status: "Completed", completionDate: "2027-01-15" }).success).toBe(true);
+    expect(projectMilestoneUpdateSchema.safeParse({ status: "In Progress", completionDate: null }).success).toBe(true);
   });
 });

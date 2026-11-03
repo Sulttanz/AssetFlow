@@ -75,4 +75,17 @@ export const projectMutationSchema = z.object({
   }
 });
 
+export const projectMilestoneUpdateSchema = z.object({
+  status: z.enum(PROJECT_MILESTONE_STATUSES),
+  completionDate: projectDate.nullable(),
+}).superRefine((milestone, context) => {
+  if (milestone.status === "Completed" && !milestone.completionDate) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["completionDate"],
+      message: "A completion date is required for completed milestones.",
+    });
+  }
+});
+
 export type ProjectMutation = z.infer<typeof projectMutationSchema>;

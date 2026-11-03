@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderKanban, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Check, FolderKanban, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { PROJECT_HEALTH_STATUSES, PROJECT_STATUSES, type ProjectMutation } from "@shared/project-management";
 import { isSystemAdministrator } from "@shared/personas";
 import { ProjectEditorDialog } from "@/components/projects/project-editor-dialog";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { formatDateDisplay } from "@/lib/date-utils";
+import { formatDateDisplay, toDateInputValue } from "@/lib/date-utils";
 import type { ProjectOptions, ProjectRecord } from "@/types/project-management";
 
 type Filters = {
@@ -37,16 +38,15 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 function projectStatusClass(status: string) {
-  if (status === "Active") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (status === "Active") return "border-amber-200 bg-amber-50 text-amber-800";
   if (status === "Completed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "On Hold") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "On Hold") return "border-slate-200 bg-slate-100 text-slate-700";
   if (status === "Cancelled") return "border-slate-200 bg-slate-100 text-slate-600";
-  return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
 function healthClass(health: string) {
   if (health === "On Track") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (health === "At Risk") return "border-amber-200 bg-amber-50 text-amber-800";
   return "border-rose-200 bg-rose-50 text-rose-700";
 }
 
@@ -59,6 +59,51 @@ function money(value: string | number) {
   return Number.isFinite(amount)
     ? new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount)
     : "—";
+}
+
+function primaryManager(project: ProjectRecord) {
+  return project.managers?.find(manager => manager.isPrimary)?.name ?? project.managers?.[0]?.name ?? "Unassigned";
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "?";
+}
+
+function ProjectOwnership({ project }: { project: ProjectRecord }) {
+  const managers = [...(project.managers ?? [])].sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
+  const managerNames = managers.map(manager => manager.name).join(", ");
+  const teamCount = project.teamCount ?? project.teamMembers?.length ?? 0;
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <div
+        role="img"
+        aria-label={managers.length ? `Project managers: ${managerNames}` : "No project managers assigned"}
+        className="flex shrink-0 items-center"
+      >
+        <div className="flex -space-x-2">
+          {managers.slice(0, 3).map(manager => (
+            <Avatar key={manager.userId} title={`${manager.name}${manager.isPrimary ? " (Primary)" : ""}`} aria-hidden="true"
+              className={`h-8 w-8 border-2 border-white ${manager.isPrimary ? "ring-1 ring-blue-300" : ""}`}>
+              <AvatarFallback className="bg-blue-100 text-xs font-semibold text-blue-800">{initials(manager.name)}</AvatarFallback>
+            </Avatar>
+          ))}
+          {managers.length > 3 && (
+            <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full border-2 border-white bg-slate-100 text-xs font-semibold text-slate-700">
+              +{managers.length - 3}
+            </span>
+          )}
+          {!managers.length && <span aria-hidden="true" className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs text-slate-500">—</span>}
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium">{primaryManager(project)}</p>
+        <p className="whitespace-nowrap text-xs text-muted-foreground">
+          {managers.length} {managers.length === 1 ? "manager" : "managers"} · {teamCount} team
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function ProjectsPage() {
@@ -137,6 +182,34 @@ export default function ProjectsPage() {
     onError: error => toast({ title: "Could not delete project", description: error.message, variant: "destructive" }),
   });
 
+  const milestoneMutation = useMutation({
+    mutationFn: async ({ project, milestoneId, completed }: {
+      project: ProjectRecord;
+      milestoneId: string;
+      completed: boolean;
+    }) => {
+      const completionDate = completed ? toDateInputValue(new Date()) : null;
+      const response = await fetch(`/api/projects/${project.id}/milestones/${milestoneId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: completed ? "Completed" : "In Progress",
+          completionDate,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message ?? "Milestone could not be updated.");
+      return body as ProjectRecord;
+    },
+    onSuccess: async updatedProject => {
+      setDetailProject(updatedProject);
+      await queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({ title: "Milestone updated", description: "The project tracker has been updated." });
+    },
+    onError: error => toast({ title: "Could not update milestone", description: error.message, variant: "destructive" }),
+  });
+
   const openEditor = async (project?: ProjectRecord) => {
     if (!project) {
       setEditingProject(undefined);
@@ -177,9 +250,6 @@ export default function ProjectsPage() {
   const canDelete = (project: ProjectRecord) => isAdmin ||
     project.managers?.some(manager => manager.isPrimary && manager.userId === user?.id);
 
-  const primaryManager = (project: ProjectRecord) =>
-    project.managers?.find(manager => manager.isPrimary)?.name ?? project.managers?.[0]?.name ?? "Unassigned";
-
   const summary = useMemo(() => ({
     total: projects.length,
     active: projects.filter(project => project.status === "Active").length,
@@ -188,14 +258,14 @@ export default function ProjectsPage() {
   }), [projects]);
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div className="min-h-full space-y-6 bg-[#F8FAFC] p-4 md:p-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <div className="mb-2 flex items-center gap-2 text-blue-700">
             <FolderKanban className="h-5 w-5" />
             <span className="text-sm font-medium">Portfolio delivery</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Project Management</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-[#0F172A] md:text-3xl">Project Management</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Plan delivery, assign accountable managers and teams, track milestones, budgets, and related assets.
           </p>
@@ -211,10 +281,10 @@ export default function ProjectsPage() {
         {[
           { label: "Projects shown", value: summary.total, tone: "text-blue-700 bg-blue-50" },
           { label: "Active", value: summary.active, tone: "text-indigo-700 bg-indigo-50" },
-          { label: "At risk / delayed", value: summary.atRisk, tone: "text-amber-800 bg-amber-50" },
+          { label: "At risk / delayed", value: summary.atRisk, tone: "text-rose-700 bg-rose-50" },
           { label: "Completed", value: summary.completed, tone: "text-emerald-700 bg-emerald-50" },
         ].map(card => (
-          <Card key={card.label} className="rounded-xl border-slate-200 shadow-sm">
+          <Card key={card.label} className="rounded-xl border-slate-200 bg-white shadow-sm">
             <CardContent className="flex items-center gap-3 p-4">
               <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${card.tone}`}>
                 <FolderKanban className="h-5 w-5" />
@@ -228,7 +298,7 @@ export default function ProjectsPage() {
         ))}
       </div>
 
-      <Card className="rounded-xl border-slate-200 shadow-sm">
+      <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
         <CardContent className="p-4">
           <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5 lg:col-span-1">
@@ -293,7 +363,7 @@ export default function ProjectsPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="rounded-xl border-slate-200 shadow-sm">
+        <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Project register <span className="ml-2 text-sm font-normal text-muted-foreground">{projects.length}</span></CardTitle>
           </CardHeader>
@@ -305,7 +375,7 @@ export default function ProjectsPage() {
                     <TableHead>Project</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Health</TableHead>
-                    <TableHead>Primary manager</TableHead>
+                    <TableHead>Managers &amp; team</TableHead>
                     <TableHead>Schedule</TableHead>
                     <TableHead className="text-right">Budget</TableHead>
                     <TableHead className="w-36 text-right">Actions</TableHead>
@@ -322,7 +392,7 @@ export default function ProjectsPage() {
                       </TableCell>
                       <TableCell><Badge variant="outline" className={projectStatusClass(project.status)}>{project.status}</Badge></TableCell>
                       <TableCell><Badge variant="outline" className={healthClass(project.healthStatus)}>{project.healthStatus}</Badge></TableCell>
-                      <TableCell>{primaryManager(project)}</TableCell>
+                      <TableCell><ProjectOwnership project={project} /></TableCell>
                       <TableCell className="whitespace-nowrap text-sm">
                         {date(project.startDate)} <span className="text-muted-foreground">to</span> {date(project.targetEndDate)}
                       </TableCell>
@@ -366,8 +436,8 @@ export default function ProjectsPage() {
                     <Badge variant="outline" className={healthClass(project.healthStatus)}>{project.healthStatus}</Badge>
                     <Badge variant="secondary">{money(project.budget)}</Badge>
                   </div>
+                  <ProjectOwnership project={project} />
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-                    <div><dt className="text-xs text-muted-foreground">Manager</dt><dd className="truncate">{primaryManager(project)}</dd></div>
                     <div><dt className="text-xs text-muted-foreground">Schedule</dt><dd>{date(project.startDate)} – {date(project.targetEndDate)}</dd></div>
                   </dl>
                   <div className="flex flex-wrap gap-2 border-t pt-3">
@@ -437,16 +507,68 @@ export default function ProjectsPage() {
                   </ul>
                 </section>
                 <section className="space-y-2">
-                  <h3 className="font-semibold">Milestones</h3>
-                  <div className="space-y-2">
-                    {(detailProject.milestones ?? []).map(milestone => (
-                      <div key={milestone.id} className="flex flex-col justify-between gap-2 rounded-md border p-3 sm:flex-row sm:items-center">
-                        <div><p className="font-medium">{milestone.title}</p><p className="text-xs text-muted-foreground">{milestone.description || "No notes"}</p></div>
-                        <div className="flex shrink-0 items-center gap-2 text-sm"><Badge variant="secondary">{milestone.status}</Badge><span>{date(milestone.dueDate)}</span></div>
-                      </div>
-                    ))}
-                    {!detailProject.milestones?.length && <p className="text-sm text-muted-foreground">No milestones recorded.</p>}
+                  <h3 className="font-semibold">Milestone tracker</h3>
+                  <div className="hidden sm:block">
+                    <Table>
+                      <TableHeader><TableRow><TableHead className="w-16">Done</TableHead><TableHead>Milestone</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {(detailProject.milestones ?? []).map(milestone => {
+                          const completed = milestone.status === "Completed";
+                          return (
+                            <TableRow key={milestone.id}>
+                              <TableCell>
+                                <Button type="button" size="icon" variant={completed ? "default" : "outline"}
+                                  role="checkbox" aria-checked={completed}
+                                  aria-label={`${completed ? "Reopen" : "Complete"} milestone ${milestone.title}`}
+                                  className="min-h-11 min-w-11"
+                                  disabled={!canEdit(detailProject) || milestoneMutation.isPending}
+                                  onClick={() => milestoneMutation.mutate({ project: detailProject, milestoneId: milestone.id, completed: !completed })}>
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                              <TableCell>
+                                <p className="font-medium">{milestone.title}</p>
+                                <p className="text-xs text-muted-foreground">{milestone.description || "No notes"}</p>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">{date(milestone.dueDate)}</TableCell>
+                              <TableCell><Badge variant="outline" className={milestone.status === "Completed"
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : milestone.status === "Delayed"
+                                  ? "border-rose-200 bg-rose-50 text-rose-700"
+                                  : milestone.status === "In Progress"
+                                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                                    : "border-blue-200 bg-blue-50 text-blue-700"}>{milestone.status}</Badge></TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
+                  <div className="space-y-2 sm:hidden">
+                    {(detailProject.milestones ?? []).map(milestone => {
+                      const completed = milestone.status === "Completed";
+                      return (
+                        <article key={milestone.id} className="flex items-center gap-3 rounded-lg border p-3">
+                          <Button type="button" size="icon" variant={completed ? "default" : "outline"}
+                            role="checkbox" aria-checked={completed}
+                            aria-label={`${completed ? "Reopen" : "Complete"} milestone ${milestone.title}`}
+                            className="min-h-11 min-w-11 shrink-0"
+                            disabled={!canEdit(detailProject) || milestoneMutation.isPending}
+                            onClick={() => milestoneMutation.mutate({ project: detailProject, milestoneId: milestone.id, completed: !completed })}>
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium">{milestone.title}</p>
+                            <p className="text-xs text-muted-foreground">Due {date(milestone.dueDate)}</p>
+                          </div>
+                          <Badge variant="secondary">{milestone.status}</Badge>
+                        </article>
+                      );
+                    })}
+                  </div>
+                  {!detailProject.milestones?.length && (
+                    <p className="text-sm text-muted-foreground">No milestones recorded. Add them from Edit project.</p>
+                  )}
                 </section>
                 <section className="space-y-2">
                   <h3 className="font-semibold">Linked assets</h3>

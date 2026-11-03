@@ -1,5 +1,5 @@
 import type { Express, Request, RequestHandler, Response } from "express";
-import { and, desc, eq, ilike, inArray, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, type SQL } from "drizzle-orm";
 import {
   assets,
   projectAssets,
@@ -9,7 +9,13 @@ import {
   projectTeamMembers,
   users,
 } from "@shared/schema";
-import { PROJECT_STATUSES, PROJECT_HEALTH_STATUSES, projectMutationSchema, type ProjectMutation } from "@shared/project-management";
+import {
+  PROJECT_HEALTH_STATUSES,
+  PROJECT_STATUSES,
+  projectMilestoneUpdateSchema,
+  projectMutationSchema,
+  type ProjectMutation,
+} from "@shared/project-management";
 import { isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
@@ -235,6 +241,7 @@ async function getProjectDetail(projectId: string) {
       name: displayName(row),
       username: row.username,
     })),
+    teamCount: memberRows.length,
     milestones,
     assets: assetRows,
   };
@@ -313,22 +320,32 @@ export function registerProjectManagementRoutes(
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(projects.updatedAt), desc(projects.createdAt));
       const ids = rows.map(row => row.id);
-      const managerRows = ids.length ? await db.select({
-        projectId: projectManagers.projectId,
-        userId: projectManagers.userId,
-        isPrimary: projectManagers.isPrimary,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        username: users.username,
-      }).from(projectManagers).innerJoin(users, eq(projectManagers.userId, users.id))
-        .where(inArray(projectManagers.projectId, ids)) : [];
+  const [managerRows, teamCountRows] = ids.length ? await Promise.all([
+    db.select({
+      projectId: projectManagers.projectId,
+      userId: projectManagers.userId,
+      isPrimary: projectManagers.isPrimary,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      username: users.username,
+    }).from(projectManagers).innerJoin(users, eq(projectManagers.userId, users.id))
+      .where(inArray(projectManagers.projectId, ids)),
+    db.select({
+      projectId: projectTeamMembers.projectId,
+      teamCount: count(),
+    }).from(projectTeamMembers)
+      .where(inArray(projectTeamMembers.projectId, ids))
+      .groupBy(projectTeamMembers.projectId),
+  ]) : [[], []];
       const managersByProject = new Map<string, typeof managerRows>();
       for (const row of managerRows) {
         managersByProject.set(row.projectId, [...(managersByProject.get(row.projectId) ?? []), row]);
       }
+  const teamCountsByProject = new Map(teamCountRows.map(row => [row.projectId, Number(row.teamCount)]));
       res.json(rows.map(project => ({
         ...project,
         title: project.title || project.name,
+    teamCount: teamCountsByProject.get(project.id) ?? 0,
         managers: (managersByProject.get(project.id) ?? []).map(manager => ({
           userId: manager.userId,
           name: displayName(manager),
@@ -412,6 +429,56 @@ export function registerProjectManagementRoutes(
       const detail = await getProjectDetail(req.params.id);
       await writeProjectAudit(userId, "UPDATE", req.params.id, parsed.data.title, req, current, detail);
       res.json(detail);
+    } catch (error) {
+      sendMutationError(error, res);
+    }
+  });
+
+  app.patch("/api/projects/:id/milestones/:milestoneId", requireAuth, enabled, async (req: AuthRequest, res) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "User not authenticated." });
+    const parsed = projectMilestoneUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid milestone update.", errors: parsed.error.issues });
+    }
+    try {
+      const [canManage, primaryManager] = await Promise.all([
+        userCanManageProjects(userId),
+        db.select({ userId: projectManagers.userId }).from(projectManagers)
+          .where(and(
+            eq(projectManagers.projectId, req.params.id),
+            eq(projectManagers.userId, userId),
+            eq(projectManagers.isPrimary, true),
+          )).limit(1),
+      ]);
+      if (!canManage && !primaryManager.length) {
+        return res.status(403).json({ message: "Only a project manager or the primary project manager can update milestones." });
+      }
+
+      const current = await getProjectDetail(req.params.id);
+      if (!current) return res.status(404).json({ message: "Project not found." });
+      const milestone = current.milestones.find(item => item.id === req.params.milestoneId);
+      if (!milestone) return res.status(404).json({ message: "Milestone not found." });
+
+      const [updated] = await db.update(projectMilestones).set({
+        status: parsed.data.status,
+        completionDate: projectDate(parsed.data.completionDate),
+      }).where(and(
+        eq(projectMilestones.id, req.params.milestoneId),
+        eq(projectMilestones.projectId, req.params.id),
+      )).returning({ id: projectMilestones.id });
+      if (!updated) return res.status(404).json({ message: "Milestone not found." });
+
+      await writeProjectAudit(
+        userId,
+        "UPDATE",
+        req.params.id,
+        current.title,
+        req,
+        { milestone },
+        { milestone: { ...milestone, ...parsed.data } },
+      );
+      res.json(await getProjectDetail(req.params.id));
     } catch (error) {
       sendMutationError(error, res);
     }

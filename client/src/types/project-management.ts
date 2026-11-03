@@ -51,6 +51,7 @@ export interface ProjectRecord {
   createdAt: string | Date;
   updatedAt: string | Date;
   managers: ProjectManagerView[];
+  teamCount?: number;
   teamMembers?: ProjectTeamMemberView[];
   milestones?: ProjectMilestoneView[];
   assets?: ProjectAssetView[];

@@ -119,6 +119,12 @@ export function ProjectEditorDialog({
   const updateAssetType = (assetId: string, associationType: typeof PROJECT_ASSET_ASSOCIATION_TYPES[number]) => {
     update("assets", form.assets.map(asset => asset.assetId === assetId ? { ...asset, associationType } : asset));
   };
+  const startDateError = form.startDate ? "" : "Enter a valid start date.";
+  const targetDateError = !form.targetEndDate
+    ? "Enter a valid target end date."
+    : form.startDate && form.targetEndDate < form.startDate
+      ? "Target end date must be on or after the start date."
+      : "";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,12 +161,16 @@ export function ProjectEditorDialog({
               <div className="space-y-2">
                 <Label htmlFor="project-start">Start date</Label>
                 <CalendarDateField id="project-start" required value={form.startDate}
+                  aria-invalid={Boolean(startDateError)} aria-describedby={startDateError ? "project-start-date-error" : undefined}
                   onChange={event => update("startDate", event.target.value)} className="min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                {startDateError && <p id="project-start-date-error" role="alert" className="text-xs text-rose-700">{startDateError}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="project-target-end">Target end date</Label>
                 <CalendarDateField id="project-target-end" required min={form.startDate} value={form.targetEndDate}
+                  aria-invalid={Boolean(targetDateError)} aria-describedby={targetDateError ? "project-target-date-error" : undefined}
                   onChange={event => update("targetEndDate", event.target.value)} className="min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                {targetDateError && <p id="project-target-date-error" role="alert" className="text-xs text-rose-700">{targetDateError}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="project-actual-end">Actual end date</Label>
