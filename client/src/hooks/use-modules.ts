@@ -16,6 +16,8 @@ export function useModules() {
   });
 
   const isModuleEnabled = (moduleKey: string): boolean => {
+    // Do not briefly expose disabled-module navigation while settings load.
+    if (!query.data && query.isLoading) return false;
     if (!query.data) return true;
     const found = query.data.find((m) => m.key === moduleKey);
     return found ? found.enabled : true;

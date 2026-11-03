@@ -110,13 +110,13 @@ function Router() {
                   <ProtectedRoute path="/reports/project-allocations" component={ProjectAllocationsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "asset_create", "compliance_view"]} />
-                  <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredPermission="my_assets_view" />
+                  <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredModule="asset_management" requiredPermission="my_assets_view" />
                   <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" requiredAnyPermission={["employee_update", "offboarding_approve", "system_admin"]} />
                   <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredAnyPermission={["employee_update", "access_governance_view", "system_admin"]} />
-                  <ProtectedRoute path="/applications" component={Applications} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
-                  <ProtectedRoute path="/servers" component={Servers} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
-                  <ProtectedRoute path="/network-topology" component={NetworkTopology} requiredModule="asset_management" requiredAnyPermission={["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"]} />
-                  <ProtectedRoute path="/backup-schedules" component={BackupSchedules} requiredModule="asset_management" requiredAnyPermission={["asset_update", "audit_view", "compliance_view", "system_admin"]} />
+                  <ProtectedRoute path="/applications" component={Applications} requiredModule="cmdb" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
+                  <ProtectedRoute path="/servers" component={Servers} requiredModule="cmdb" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
+                  <ProtectedRoute path="/network-topology" component={NetworkTopology} requiredModule="cmdb" requiredAnyPermission={["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"]} />
+                  <ProtectedRoute path="/backup-schedules" component={BackupSchedules} requiredModule="cmdb" requiredAnyPermission={["asset_update", "audit_view", "compliance_view", "system_admin"]} />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
@@ -149,7 +149,7 @@ function Router() {
                   <ProtectedRoute path="/reports/depreciation" component={DepreciationReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/missing-data" component={MissingDataReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/assignment-history" component={AssignmentHistoryReport} requiredModule="asset_management" />
-                  <ProtectedRoute path="/import" component={ImportPage} />
+                  <ProtectedRoute path="/import" component={ImportPage} requiredModule="asset_management" />
                   <ProtectedRoute path="/migration" component={DataMigrationCenter} requiredModule="asset_management" requiredPermission="system_admin" />
                   <ProtectedRoute path="/settings" component={Settings} />
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
@@ -176,7 +176,7 @@ function Router() {
                   <ProtectedRoute path="/changes/tracker" component={ChangeTracker} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/risks" component={RiskManagement} requiredModule="risk_management" />
                   <ProtectedRoute path="/risk-management" component={RiskManagement} requiredModule="risk_management" />
-                  <ProtectedRoute path="/kpis" component={KpiDashboard} />
+                  <ProtectedRoute path="/kpis" component={KpiDashboard} requiredModule="itsm" />
                   <Route component={NotFound} />
                 </Switch>
                 </Suspense>

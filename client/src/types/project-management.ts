@@ -157,6 +157,7 @@ export interface ProjectAllocationRecord {
 
 export interface ProjectOptions {
   users: Array<{ id: string; name: string; username: string }>;
+  assetsAvailable?: boolean;
   assets: Array<{
     id: string;
     name: string;

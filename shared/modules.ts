@@ -14,8 +14,16 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
     key: "asset_management",
     label: "Asset Management",
     description:
-      "Core asset tracking: assets, employees, assignments, budgets, purchase orders, maintenance, reports.",
-    core: true,
+      "Asset inventory, assignments, employees, consumables, maintenance, finance, and asset reports.",
+    core: false,
+    defaultEnabled: true,
+  },
+  {
+    key: "cmdb",
+    label: "CMDB & Infrastructure",
+    description:
+      "Applications, servers, network topology, configuration documents, and backup governance.",
+    core: false,
     defaultEnabled: true,
   },
   {

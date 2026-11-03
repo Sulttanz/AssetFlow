@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { projectApi } from "@/lib/project-management-api";
 import type { ProjectMutation } from "@shared/project-management";
 import type { ProjectOptions, ProjectRecord } from "@/types/project-management";
+import { useModules } from "@/hooks/use-modules";
 
 function statusTone(status: string) {
   if (status === "Active") return "border-amber-200 bg-amber-50 text-amber-800";
@@ -31,6 +32,7 @@ export default function ProjectWorkspacePage() {
   const { id = "" } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { user } = useAuth();
+  const { isModuleEnabled } = useModules();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editorOpen, setEditorOpen] = useState(false);
@@ -44,7 +46,8 @@ export default function ProjectWorkspacePage() {
     queryFn: () => projectApi("/api/projects/options"),
   });
   const project = projectQuery.data;
-  const options = optionsQuery.data ?? { users: [], assets: [] };
+  const options = optionsQuery.data ?? { users: [], assets: [], assetsAvailable: isModuleEnabled("asset_management") };
+  const assetsAvailable = options.assetsAvailable !== false && isModuleEnabled("asset_management");
   const isAdmin = user ? isSystemAdministrator(user) : false;
   const isProjectManager = project?.managers?.some(manager => manager.userId === user?.id) ?? false;
   const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
@@ -96,10 +99,10 @@ export default function ProjectWorkspacePage() {
           <TabsTrigger value="overview" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />Overview &amp; financials</TabsTrigger>
           <TabsTrigger value="tasks" className="min-h-11"><ClipboardList className="mr-2 h-4 w-4" />Task board</TabsTrigger>
           <TabsTrigger value="risks" className="min-h-11"><ShieldAlert className="mr-2 h-4 w-4" />Risk register</TabsTrigger>
-          <TabsTrigger value="changes" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />ITIL changes</TabsTrigger>
+          <TabsTrigger value="changes" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />Project changes</TabsTrigger>
           <TabsTrigger value="documents" className="min-h-11"><FileText className="mr-2 h-4 w-4" />Documents</TabsTrigger>
         </TabsList>
-        <TabsContent value="overview"><ProjectOverviewTab project={project} canManage={canManage} /></TabsContent>
+        <TabsContent value="overview"><ProjectOverviewTab project={project} canManage={canManage} assetsAvailable={assetsAvailable} /></TabsContent>
         <TabsContent value="tasks"><ProjectTasksTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
         <TabsContent value="risks"><ProjectRiskRegisterTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
         <TabsContent value="changes"><ProjectChangesTab project={project} canManage={canManage} /></TabsContent>

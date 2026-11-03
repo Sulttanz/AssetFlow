@@ -93,7 +93,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Overview",
       items: [
         { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
-        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isItsmStaff },
+        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isItsmStaff, moduleKey: "itsm" },
       ]
     },
     {
@@ -130,7 +130,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     },
     {
       title: "CMDB & Infrastructure",
-      moduleKey: "asset_management",
+      moduleKey: "cmdb",
       items: [
         { name: "Applications", href: "/applications", icon: Building2, current: location === "/applications", permission: ["asset_update", "cmdb_view", "system_admin"] },
         { name: "Servers", href: "/servers", icon: Laptop, current: location === "/servers", permission: ["asset_update", "cmdb_view", "system_admin"] },
@@ -140,6 +140,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     },
     {
       title: "Organization",
+      moduleKey: "asset_management",
       items: [
         { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
         { name: "Departments", href: "/departments", icon: Building2, current: location === "/departments" },
@@ -148,6 +149,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     },
     {
       title: "Financial",
+      moduleKey: "asset_management",
       items: [
         { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, current: location === "/purchase-orders" },
         { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
@@ -164,6 +166,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     },
     {
       title: "Operations",
+      moduleKey: "asset_management",
       items: [
         { name: "Maintenance", href: "/maintenance", icon: Wrench, current: location === "/maintenance" },
         { name: "Asset Audits", href: "/asset-audits", icon: ClipboardCheck, current: location === "/asset-audits" },
@@ -200,26 +203,27 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           icon: FileBarChart, 
           current: location.startsWith("/reports"),
           hasSubmenu: true,
+          visible: isModuleEnabled("asset_management") || isModuleEnabled("itsm"),
           submenu: [
-            { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary" },
-            { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle" },
-            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory" },
-            { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments" },
-            { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance" },
-            { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders" },
-            { name: "Budget Analysis", href: "/reports/budget", current: location === "/reports/budget" },
-            { name: "Department", href: "/reports/department", current: location === "/reports/department" },
-            { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties" },
-            { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis" },
-            { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets" },
-            { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation" },
-            { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data" },
-            { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history" },
+            { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary", moduleKey: "asset_management" },
+            { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle", moduleKey: "asset_management" },
+            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory", moduleKey: "asset_management" },
+            { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments", moduleKey: "asset_management" },
+            { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance", moduleKey: "asset_management" },
+            { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders", moduleKey: "asset_management" },
+            { name: "Budget Analysis", href: "/reports/budget", current: location === "/reports/budget", moduleKey: "asset_management" },
+            { name: "Department", href: "/reports/department", current: location === "/reports/department", moduleKey: "asset_management" },
+            { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties", moduleKey: "asset_management" },
+            { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis", moduleKey: "asset_management" },
+            { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets", moduleKey: "asset_management" },
+            { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation", moduleKey: "asset_management" },
+            { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data", moduleKey: "asset_management" },
+            { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history", moduleKey: "asset_management" },
             ...(isModuleEnabled("itsm") ? [
-              { name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets" },
-              { name: "Problem Report", href: "/reports/problems", current: location === "/reports/problems" },
-              { name: "Change Report", href: "/reports/changes", current: location === "/reports/changes" },
-              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles" },
+              { name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets", moduleKey: "itsm" },
+              { name: "Problem Report", href: "/reports/problems", current: location === "/reports/problems", moduleKey: "itsm" },
+              { name: "Change Report", href: "/reports/changes", current: location === "/reports/changes", moduleKey: "itsm" },
+              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles", moduleKey: "itsm" },
             ] : []),
           ]
         },
@@ -228,8 +232,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     {
       title: "Tools",
       items: [
-        { name: "Import Data", href: "/import", icon: Upload, current: location === "/import" },
-        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin" },
+        { name: "Import Data", href: "/import", icon: Upload, current: location === "/import", moduleKey: "asset_management" },
+        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin", moduleKey: "asset_management" },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]
     },
@@ -242,7 +246,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Dropdowns", href: "/system/dropdowns", icon: Settings, current: location === "/system/dropdowns" || location === "/dropdowns" },
         { name: "Audit Logs", href: "/audit-logs", icon: FileText, current: location === "/audit-logs" },
         { name: "System Settings", href: "/system-settings", icon: Settings, current: location === "/system-settings" },
-        { name: "SLA Policies", href: "/sla-policies", icon: Clock, current: location === "/sla-policies" },
+        { name: "SLA Policies", href: "/sla-policies", icon: Clock, current: location === "/sla-policies", moduleKey: "itsm" },
       ]
     }
   ];
@@ -286,11 +290,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
   const isItemAllowed = (item: any) => {
     if (!hasPermission(item.permission) || item.visible === false) return false;
+    if (item.moduleKey && !isModuleEnabled(item.moduleKey)) return false;
     if (item.name === "Approval Queue") return Boolean(catalogAccess?.canApprove);
     if (!personaScoped && !isDemoViewer(roleNames)) return true;
     if (item.hasSubmenu) {
       return isPersonaPageAllowed(roleNames, permissions, item.href) ||
-        item.submenu?.some((subitem: any) => isPersonaPageAllowed(roleNames, permissions, subitem.href));
+        item.submenu?.some((subitem: any) =>
+          (!subitem.moduleKey || isModuleEnabled(subitem.moduleKey)) &&
+          isPersonaPageAllowed(roleNames, permissions, subitem.href));
     }
     return isPersonaPageAllowed(roleNames, permissions, item.href);
   };
@@ -364,7 +371,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                             </button>
                             {isExpanded && item.submenu && (
                               <div className="ml-4 mt-0.5 space-y-0.5">
-                                {item.submenu.filter((subitem: any) => !personaScoped || isPersonaPageAllowed(roleNames, permissions, subitem.href)).map((subitem: any) => (
+                                {item.submenu.filter((subitem: any) =>
+                                  (!subitem.moduleKey || isModuleEnabled(subitem.moduleKey)) &&
+                                  (!personaScoped || isPersonaPageAllowed(roleNames, permissions, subitem.href))).map((subitem: any) => (
                                   <Link
                                     key={subitem.name}
                                     href={subitem.href}

@@ -20,6 +20,7 @@ import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
 import { registerProjectWorkspaceRoutes } from "./project-workspace";
+import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 
 type AuthRequest = Request & { user?: { id?: string } };
 type ProjectExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -56,7 +57,7 @@ async function userCanManageProject(userId: string, projectId: string) {
   return Boolean(manager);
 }
 
-async function validateReferences(executor: ProjectExecutor, input: ProjectMutation) {
+async function validateReferences(executor: ProjectExecutor, input: ProjectMutation, includeAssets: boolean) {
   const assignedUserIds = Array.from(new Set([
     ...input.managerIds,
     ...input.teamMembers.map(member => member.userId),
@@ -70,7 +71,7 @@ async function validateReferences(executor: ProjectExecutor, input: ProjectMutat
     }
   }
   const assetIds = Array.from(new Set(input.assets.map(asset => asset.assetId)));
-  if (assetIds.length) {
+  if (includeAssets && assetIds.length) {
     const existingAssets = await executor.select({ id: assets.id }).from(assets).where(inArray(assets.id, assetIds));
     if (existingAssets.length !== assetIds.length) {
       throw new ProjectInputError("One or more linked assets could not be found.");
@@ -78,7 +79,7 @@ async function validateReferences(executor: ProjectExecutor, input: ProjectMutat
   }
 }
 
-async function replaceAssignments(executor: ProjectExecutor, projectId: string, input: ProjectMutation) {
+async function replaceAssignments(executor: ProjectExecutor, projectId: string, input: ProjectMutation, includeAssets: boolean) {
   await executor.delete(projectManagers).where(eq(projectManagers.projectId, projectId));
   await executor.insert(projectManagers).values(input.managerIds.map(userId => ({
     projectId,
@@ -95,13 +96,15 @@ async function replaceAssignments(executor: ProjectExecutor, projectId: string, 
     })));
   }
 
-  await executor.delete(projectAssets).where(eq(projectAssets.projectId, projectId));
-  if (input.assets.length) {
-    await executor.insert(projectAssets).values(input.assets.map(asset => ({
-      projectId,
-      assetId: asset.assetId,
-      associationType: asset.associationType,
-    })));
+  if (includeAssets) {
+    await executor.delete(projectAssets).where(eq(projectAssets.projectId, projectId));
+    if (input.assets.length) {
+      await executor.insert(projectAssets).values(input.assets.map(asset => ({
+        projectId,
+        assetId: asset.assetId,
+        associationType: asset.associationType,
+      })));
+    }
   }
 }
 
@@ -205,6 +208,7 @@ function sendMutationError(error: unknown, res: Response) {
 async function getProjectDetail(projectId: string) {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) return undefined;
+  const assetsEnabled = await isFeatureEnabled("asset_management");
   const [managerRows, memberRows, milestones, assetRows] = await Promise.all([
     db.select({
       userId: projectManagers.userId,
@@ -226,7 +230,7 @@ async function getProjectDetail(projectId: string) {
     db.select().from(projectMilestones)
       .where(eq(projectMilestones.projectId, projectId))
       .orderBy(projectMilestones.dueDate),
-    db.select({
+    assetsEnabled ? db.select({
       assetId: projectAssets.assetId,
       associationType: projectAssets.associationType,
       assetTag: assets.assetTag,
@@ -235,6 +239,7 @@ async function getProjectDetail(projectId: string) {
       serialNumber: assets.serialNumber,
     }).from(projectAssets).innerJoin(assets, eq(projectAssets.assetId, assets.id))
       .where(eq(projectAssets.projectId, projectId)),
+      : Promise.resolve([]),
   ]);
 
   return {
@@ -268,6 +273,7 @@ export function registerProjectManagementRoutes(
 
   app.get("/api/projects/options", requireAuth, enabled, async (_req, res) => {
     try {
+      const assetsEnabled = await isFeatureEnabled("asset_management");
       const [people, availableAssets] = await Promise.all([
         db.select({
           id: users.id,
@@ -275,17 +281,19 @@ export function registerProjectManagementRoutes(
           firstName: users.firstName,
           lastName: users.lastName,
         }).from(users).where(eq(users.isActive, true)).orderBy(users.lastName, users.firstName, users.username),
-        db.select({
+        assetsEnabled ? db.select({
           id: assets.id,
           name: assets.name,
           assetTag: assets.assetTag,
           serialNumber: assets.serialNumber,
           status: assets.status,
         }).from(assets).orderBy(assets.assetTag, assets.name),
+          : Promise.resolve([]),
       ]);
       res.json({
         users: people.map(person => ({ ...person, name: displayName(person) })),
         assets: availableAssets,
+        assetsAvailable: assetsEnabled,
       });
     } catch (error) {
       sendMutationError(error, res);
@@ -390,12 +398,14 @@ export function registerProjectManagementRoutes(
       return res.status(400).json({ message: "Invalid project details.", errors: parsed.error.issues });
     }
     try {
+      const assetsEnabled = await isFeatureEnabled("asset_management");
+      if (!assetsEnabled && parsed.data.assets.length) return sendFeatureNotEnabled(res, "asset_management");
       const project = await db.transaction(async tx => {
-        await validateReferences(tx, parsed.data);
+        await validateReferences(tx, parsed.data, assetsEnabled);
         const [created] = await tx.insert(projects)
           .values({ ...coreValues(parsed.data, userId), createdBy: userId })
           .returning();
-        await replaceAssignments(tx, created.id, parsed.data);
+        await replaceAssignments(tx, created.id, parsed.data, assetsEnabled);
         await replaceMilestones(tx, created.id, parsed.data.milestones);
         return created;
       });
@@ -415,6 +425,8 @@ export function registerProjectManagementRoutes(
       return res.status(400).json({ message: "Invalid project details.", errors: parsed.error.issues });
     }
     try {
+      const assetsEnabled = await isFeatureEnabled("asset_management");
+      if (!assetsEnabled && parsed.data.assets.length) return sendFeatureNotEnabled(res, "asset_management");
       const current = await getProjectDetail(req.params.id);
       if (!current) return res.status(404).json({ message: "Project not found." });
       if (!await userCanManageProject(userId, req.params.id)) {
@@ -422,11 +434,11 @@ export function registerProjectManagementRoutes(
       }
 
       await db.transaction(async tx => {
-        await validateReferences(tx, parsed.data);
+        await validateReferences(tx, parsed.data, assetsEnabled);
         const [updated] = await tx.update(projects).set(coreValues(parsed.data))
           .where(eq(projects.id, req.params.id)).returning({ id: projects.id });
         if (!updated) throw new ProjectNotFoundError();
-        await replaceAssignments(tx, req.params.id, parsed.data);
+        await replaceAssignments(tx, req.params.id, parsed.data, assetsEnabled);
         await replaceMilestones(tx, req.params.id, parsed.data.milestones);
       });
       const detail = await getProjectDetail(req.params.id);

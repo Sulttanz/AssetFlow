@@ -41,6 +41,23 @@ export function ProtectedRoute({
     );
   }
 
+  // Resolve feature access before persona/permission redirects so direct URLs
+  // show the same disabled-feature state as API calls and navigation links.
+  if (requiredModule && !isModuleEnabled(requiredModule)) {
+    return (
+      <Route path={path}>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center" data-testid="module-not-enabled">
+            <PackageX className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+            <h1 className="text-2xl font-bold mb-2">Feature Not Enabled</h1>
+            <p className="text-gray-600">This feature is not enabled for this customer.</p>
+            <p className="text-sm text-gray-400 mt-2">Ask a system administrator to enable it in Settings.</p>
+          </div>
+        </div>
+      </Route>
+    );
+  }
+
   const roleNames = user.roles?.map(role => role.name) ?? [];
   const permissions = user.permissions ?? [];
   if (!isPersonaPageAllowed(roleNames, permissions, path)) {
@@ -73,22 +90,6 @@ export function ProtectedRoute({
           <div className="text-center">
             <h1 className="text-2xl font-bold text-red-600 mb-2">Access Denied</h1>
             <p className="text-gray-600">You don't have permission to access this page.</p>
-          </div>
-        </div>
-      </Route>
-    );
-  }
-
-  // Check the owning module is enabled for this deployment
-  if (requiredModule && !isModuleEnabled(requiredModule)) {
-    return (
-      <Route path={path}>
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center" data-testid="module-not-enabled">
-            <PackageX className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <h1 className="text-2xl font-bold mb-2">Module Not Enabled</h1>
-            <p className="text-gray-600">This feature is part of a module that isn't enabled for this deployment.</p>
-            <p className="text-sm text-gray-400 mt-2">Ask a system administrator to enable it in Settings.</p>
           </div>
         </div>
       </Route>

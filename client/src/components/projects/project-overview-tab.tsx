@@ -26,7 +26,7 @@ function ratio(value: number | null) {
   return value === null || !Number.isFinite(value) ? "—" : `${value.toFixed(2)}`;
 }
 
-export function ProjectOverviewTab({ project, canManage }: { project: ProjectRecord; canManage: boolean }) {
+export function ProjectOverviewTab({ project, canManage, assetsAvailable = true }: { project: ProjectRecord; canManage: boolean; assetsAvailable?: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const tasksQuery = useQuery<ProjectTaskRecord[]>({
@@ -173,7 +173,7 @@ export function ProjectOverviewTab({ project, canManage }: { project: ProjectRec
         </Card>
 
         <Card className="border-slate-200 bg-white shadow-sm">
-          <CardHeader className="pb-3"><CardTitle className="text-base">Project team &amp; linked CMDB assets</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardTitle className="text-base">Project team{assetsAvailable ? " & linked assets" : ""}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <section>
               <h3 className="mb-2 text-sm font-medium">Project managers</h3>
@@ -189,13 +189,13 @@ export function ProjectOverviewTab({ project, canManage }: { project: ProjectRec
                 {!project.teamMembers?.length && <p className="text-sm text-muted-foreground">No team members assigned.</p>}
               </div>
             </section>
-            <section className="space-y-2 border-t pt-3">
+            {assetsAvailable && <section className="space-y-2 border-t pt-3">
               <h3 className="text-sm font-medium">Associated assets</h3>
               {(project.assets ?? []).map(asset => <div key={asset.assetId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
                 <div className="min-w-0"><span className="font-medium">{asset.assetTag} · {asset.name}</span><span className="block text-xs text-muted-foreground">{asset.serialNumber || "No serial number"} · {asset.status}</span></div><Badge variant="outline">{asset.associationType}</Badge>
               </div>)}
               {!project.assets?.length && <p className="text-sm text-muted-foreground">No CMDB assets linked. Add associations from Edit project.</p>}
-            </section>
+            </section>}
           </CardContent>
         </Card>
       </div>

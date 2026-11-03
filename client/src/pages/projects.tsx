@@ -141,7 +141,7 @@ export default function ProjectsPage() {
     queryFn: () => getJson<ProjectOptions>("/api/projects/options"),
   });
   const projects = projectsQuery.data ?? [];
-  const options = optionsQuery.data ?? { users: [], assets: [] };
+  const options = optionsQuery.data ?? { users: [], assets: [], assetsAvailable: true };
   const isAdmin = user ? isSystemAdministrator(user) : false;
   const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
   const canManage = mayMutate && (isAdmin || !!user?.permissions?.includes("project_manage"));
@@ -224,7 +224,7 @@ export default function ProjectsPage() {
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-[#0F172A] md:text-3xl">Project Management</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Plan delivery, assign accountable managers and teams, track milestones, budgets, and related assets.
+            Plan delivery, assign accountable managers and teams, track milestones and budgets, with optional asset links.
           </p>
         </div>
         {canManage && (

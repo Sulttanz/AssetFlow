@@ -134,7 +134,7 @@ export function ProjectEditorDialog({
         <DialogHeader>
           <DialogTitle>{project ? "Edit project" : "Create project"}</DialogTitle>
           <DialogDescription>
-            Set ownership, schedule, delivery health, project financials, milestones, team, and related assets.
+            Set ownership, schedule, delivery health, project financials, milestones, team, and optional asset links.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-6">
@@ -285,7 +285,7 @@ export function ProjectEditorDialog({
             ))}
           </section>
 
-          <section className="space-y-3">
+          {options.assetsAvailable !== false && <section className="space-y-3">
             <h3 className="text-sm font-semibold">Linked assets</h3>
             <SearchableMultiPicker
               value={form.assets.map(asset => asset.assetId)}
@@ -309,7 +309,7 @@ export function ProjectEditorDialog({
                 );
               })}
             </div>
-          </section>
+          </section>}
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" className="min-h-11" onClick={() => onOpenChange(false)}>Cancel</Button>

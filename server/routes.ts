@@ -27,6 +27,7 @@ import {
   employeeOffboardingSubmissionSchema
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
+import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
 import { eq, and, inArray, isNull, sql, or, ilike, desc, asc } from "drizzle-orm";
@@ -94,10 +95,12 @@ const assetSpreadsheetColumns = [
 export function checkModuleEnabled(moduleKey: string) {
   return async (req: any, res: any, next: any) => {
     try {
-      const setting = await storage.getModuleSetting(moduleKey);
-      const enabled = setting?.enabled ?? getModuleDefinition(moduleKey)?.defaultEnabled ?? true;
+      if (!getModuleDefinition(moduleKey)) {
+        return res.status(404).json({ error: "Unknown Feature", code: "UNKNOWN_FEATURE", moduleKey });
+      }
+      const enabled = await isFeatureEnabled(moduleKey);
       if (!enabled) {
-        return res.status(403).json({ error: `Module ${moduleKey} is currently disabled.` });
+        return sendFeatureNotEnabled(res, moduleKey);
       }
       next();
     } catch (error) {
@@ -110,7 +113,16 @@ export const requireModule = checkModuleEnabled;
 
 const MODULE_API_PREFIXES: Array<[string, string]> = [
   ...[
+    "/applications",
+    "/servers",
+    "/network-topology",
+    "/backup-schedules",
+    "/cmdb",
+  ].map((prefix) => [prefix, "cmdb"] as [string, string]),
+  ...[
     "/assets",
+    "/my/assets",
+    "/dashboard/stats",
     "/assignments",
     "/maintenance",
     "/maintenance-schedules",
@@ -149,6 +161,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/reports/changes",
     "/reports/kb-articles",
   ].map((prefix) => [prefix, "itsm"] as [string, string]),
+  ["/kpis", "itsm"],
   ["/projects", "project_management"],
   ["/risks", "risk_management"],
   ["/risk-users", "risk_management"],
@@ -2851,7 +2864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  app.get("/api/cmdb/application-options", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (_req, res) => {
+  app.get("/api/cmdb/application-options", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (_req, res) => {
     try {
       const rows = await db.select({
         id: cmdbApplications.id,
@@ -2864,7 +2877,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applications", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
+  app.get("/api/applications", requireAuth, requireModule("cmdb"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const parsed = cmdbPageFilters.extend({
         category: z.string().trim().max(120).optional(),
@@ -2914,7 +2927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/applications", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+  app.post("/api/applications", requireAuth, requireModule("cmdb"), requirePermission("asset_create"), async (req, res) => {
     try {
       const input = insertCmdbApplicationSchema.parse(req.body);
       if (!(await hasActiveDropdownValue("application_category", input.category))) {
@@ -2930,7 +2943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/applications/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.put("/api/applications/:id", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try {
       const input = insertCmdbApplicationSchema.partial().parse(req.body);
       if (input.category && !(await hasActiveDropdownValue("application_category", input.category))) {
@@ -2949,7 +2962,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applications/:id/servers", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
+  app.get("/api/applications/:id/servers", requireAuth, requireModule("cmdb"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const [application] = await db.select({ id: cmdbApplications.id }).from(cmdbApplications).where(eq(cmdbApplications.id, req.params.id));
       if (!application) return res.status(404).json({ message: "Application not found" });
@@ -2970,7 +2983,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/servers", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
+  app.get("/api/servers", requireAuth, requireModule("cmdb"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const parsed = cmdbPageFilters.extend({
         osPlatform: z.string().trim().max(120).optional(),
@@ -3007,7 +3020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/servers", requireAuth, requireModule("asset_management"), requirePermission("asset_create"), async (req, res) => {
+  app.post("/api/servers", requireAuth, requireModule("cmdb"), requirePermission("asset_create"), async (req, res) => {
     try {
       const input = insertServerSchema.parse(req.body);
       const applicationIds = applicationIdListSchema.default([]).parse(req.body.applicationIds ?? []);
@@ -3028,7 +3041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/servers/:id", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.put("/api/servers/:id", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try {
       const input = insertServerSchema.partial().parse(req.body);
       const hasApplicationIds = Object.prototype.hasOwnProperty.call(req.body ?? {}, "applicationIds");
@@ -3055,7 +3068,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/servers/:id/applications", requireAuth, requireModule("asset_management"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
+  app.get("/api/servers/:id/applications", requireAuth, requireModule("cmdb"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
       const [server] = await db.select({ id: servers.id }).from(servers).where(eq(servers.id, req.params.id));
       if (!server) return res.status(404).json({ message: "Server not found" });
@@ -3322,25 +3335,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return res.download(document.filePath, document.originalName);
   };
 
-  app.get("/api/applications/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/applications/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await listConfigurationDocuments("application", req.params.id, res); }
     catch { res.status(500).json({ message: "Failed to load application documents" }); }
   });
-  app.post("/api/applications/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
+  app.post("/api/applications/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
     await uploadConfigurationDocument("application", req.params.id, req, res);
   });
-  app.get("/api/applications/:id/documents/:documentId", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/applications/:id/documents/:documentId", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await downloadConfigurationDocument("application", req.params.id, req.params.documentId, res); }
     catch { res.status(500).json({ message: "Failed to download application document" }); }
   });
-  app.get("/api/servers/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/servers/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await listConfigurationDocuments("server", req.params.id, res); }
     catch { res.status(500).json({ message: "Failed to load server documents" }); }
   });
-  app.post("/api/servers/:id/documents", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
+  app.post("/api/servers/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
     await uploadConfigurationDocument("server", req.params.id, req, res);
   });
-  app.get("/api/servers/:id/documents/:documentId", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
+  app.get("/api/servers/:id/documents/:documentId", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await downloadConfigurationDocument("server", req.params.id, req.params.documentId, res); }
     catch { res.status(500).json({ message: "Failed to download server document" }); }
   });
@@ -8025,7 +8038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Knowledge Base ───────────────────────────────────────────────────────
   registerKnowledgeRoutes(app, requireAuth, diskUpload.single("file"));
-  registerNetworkTopologyRoutes(app, requireAuth, requireModule("asset_management"));
+  registerNetworkTopologyRoutes(app, requireAuth, requireModule("cmdb"));
   registerItComponentsComplianceRoutes(
     app,
     requireAuth,
@@ -8033,7 +8046,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requireAnyPermission("asset_view", "asset_update", "cmdb_view", "compliance_view", "audit_view", "system_admin"),
     requirePermission("asset_update"),
   );
-  registerBackupGovernanceRoutes(app, requireAuth, requireModule("asset_management"));
+  registerBackupGovernanceRoutes(app, requireAuth, requireModule("cmdb"));
   registerDataMigrationRoutes(app, requireAuth, requireModule("asset_management"), requirePermission("system_admin"));
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
