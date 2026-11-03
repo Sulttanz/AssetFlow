@@ -3,6 +3,7 @@ import type { ComponentType, ReactNode } from "react";
 import { AlertTriangle, Boxes, BriefcaseBusiness, Check, ChevronRight, CircleHelp, Clock3, CloudCog, FileCode2, LockKeyhole, RefreshCw, Server, ShieldAlert, ShieldCheck, TicketCheck, Wallet, Wrench } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useModules } from "@/hooks/use-modules";
 import { getPersonaRoleKeys, isSystemAdministrator } from "@shared/personas";
 import { isDemoViewer } from "@shared/demo-viewer";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -142,23 +143,28 @@ function EmptyChart({ children }: { children: ReactNode }) {
 
 export default function Dashboard() {
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { isModuleEnabled, isLoading: isModulesLoading } = useModules();
+  const assetEnabled = isModuleEnabled("asset_management");
+  const cmdbEnabled = isModuleEnabled("cmdb");
+  const itsmEnabled = isModuleEnabled("itsm");
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const personaRoles = getPersonaRoleKeys(roleNames);
   const isExecutiveViewer = isSystemAdministrator(user) || isDemoViewer(roleNames) ||
     personaRoles.some(role => role === "it_manager" || role === "cab_member");
   const { data, isLoading, isError, refetch, isFetching } = useQuery<ExecutiveDashboard>({
     queryKey: ["/api/dashboard/executive"],
-    enabled: isExecutiveViewer && !isAuthLoading,
+    enabled: isExecutiveViewer && !isAuthLoading && !isModulesLoading,
+    refetchInterval: 15_000,
   });
 
-  if (isAuthLoading) return <LoadingDashboard />;
+  if (isAuthLoading || isModulesLoading) return <LoadingDashboard />;
   if (!isExecutiveViewer && user) return <PersonaDashboard user={user} />;
 
   return (
     <div className="min-h-[100dvh] flex-1 overflow-y-auto bg-background">
       <Header
         title="Executive dashboard"
-        description="Operational posture across people, services, infrastructure, and spend."
+        description="Operational posture across your enabled workspaces."
         showAddButton={false}
         showSearch={false}
       />
@@ -188,21 +194,25 @@ export default function Dashboard() {
                 </div>
                 <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.035em] md:text-[34px]">Know where the operation<br className="hidden sm:block" /> needs you next.</h2>
                 <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-300">A single view of service pressure, access exposure, infrastructure health, and near-term commitments.</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {isModuleEnabled("project_management") && <Button asChild><Link href="/projects">Project workspace</Link></Button>}
+                  {isModuleEnabled("risk_management") && <Button asChild variant="secondary"><Link href="/risks">Risk register</Link></Button>}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2 md:min-w-[300px]">
-                <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
+                {assetEnabled && <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Active employees</p>
                   <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(data.identity.activeEmployees)}</p>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
+                </div>}
+                {itsmEnabled && <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Open incidents</p>
                   <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(Object.values(data.serviceDesk.openIncidentsByPriority).reduce((sum, n) => sum + n, 0))}</p>
-                </div>
+                </div>}
               </div>
             </div>
           </section>
 
-          <section>
+          {assetEnabled && <section>
             <SectionTitle kicker="01 / People & access" title="Identity exposure" />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Active employees" value={numberFormat.format(data.identity.activeEmployees)} detail="Current workforce" icon={BriefcaseBusiness} tone="slate" />
@@ -210,9 +220,9 @@ export default function Dashboard() {
               <Metric label="Grants expiring" value={numberFormat.format(data.identity.expiringAccessGrants)} detail="Access due to expire" icon={Clock3} tone={data.identity.expiringAccessGrants ? "amber" : "blue"} />
               <Metric label="Expired grants" value={numberFormat.format(data.identity.expiredAccessGrants)} detail="Require review" icon={LockKeyhole} tone={data.identity.expiredAccessGrants ? "red" : "blue"} />
             </div>
-          </section>
+          </section>}
 
-          <section>
+          {cmdbEnabled && <section>
             <SectionTitle kicker="02 / Technology estate" title="Infrastructure health" />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Server estate" value={numberFormat.format(data.infrastructure.totalServers)} detail={`${numberFormat.format(data.infrastructure.serversOnline)} online`} icon={Server} tone="slate" />
@@ -220,10 +230,10 @@ export default function Dashboard() {
               <Metric label="Offline servers" value={numberFormat.format(data.infrastructure.serversOffline)} detail="Outside expected state" icon={CloudCog} tone={data.infrastructure.serversOffline ? "red" : "blue"} />
               <Metric label="Active applications" value={numberFormat.format(data.infrastructure.activeApplications)} detail={`${numberFormat.format(data.infrastructure.configurationFiles)} configuration files`} icon={Boxes} tone="blue" />
             </div>
-          </section>
+          </section>}
 
-          <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-            <Card className="border-border bg-card shadow-sm">
+          {(itsmEnabled || assetEnabled) && <div className={`grid gap-5 ${itsmEnabled && assetEnabled ? "xl:grid-cols-[1.05fr_0.95fr]" : ""}`}>
+            {itsmEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
                 <SectionTitle kicker="03 / Service management" title="Service desk pressure" aside={<TicketCheck className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-5 md:grid-cols-[1fr_1fr]">
@@ -274,9 +284,9 @@ export default function Dashboard() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+            </Card>}
 
-            <Card className="border-border bg-card shadow-sm">
+            {assetEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
                 <SectionTitle kicker="04 / Access governance" title="Access expiry posture" aside={<LockKeyhole className="h-4 w-4 text-primary" />} />
                 <div className="grid items-center gap-4 sm:grid-cols-[160px_1fr]">
@@ -303,11 +313,11 @@ export default function Dashboard() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
-          </div>
+            </Card>}
+          </div>}
 
-          <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-            <Card className="border-border bg-card shadow-sm">
+          {(cmdbEnabled || assetEnabled) && <section className={`grid gap-5 ${cmdbEnabled && assetEnabled ? "xl:grid-cols-[0.9fr_1.1fr]" : ""}`}>
+            {cmdbEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
                 <SectionTitle kicker="05 / Application portfolio" title="Criticality mix" aside={<FileCode2 className="h-4 w-4 text-primary" />} />
                 <div className="space-y-4">
@@ -322,9 +332,9 @@ export default function Dashboard() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+            </Card>}
 
-            <Card className="border-border bg-card shadow-sm">
+            {assetEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
                 <SectionTitle kicker="06 / Asset & commercial management" title="Spend and commitments" aside={<Wallet className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -348,10 +358,10 @@ export default function Dashboard() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
-          </section>
+            </Card>}
+          </section>}
 
-          <section>
+          {(assetEnabled || itsmEnabled) && <section>
             <SectionTitle
               kicker="07 / Prioritized action"
               title="Attention queue"
@@ -388,7 +398,7 @@ export default function Dashboard() {
                 </div>
               )}
             </Card>
-          </section>
+          </section>}
         </main>
       )}
     </div>

@@ -102,7 +102,10 @@ export function ProjectEditorDialog({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const parsed = projectMutationSchema.safeParse(form);
+    const parsed = projectMutationSchema.safeParse({
+      ...form,
+      assets: options.assetsAvailable === false ? [] : form.assets,
+    });
     if (!parsed.success) {
       toast({
         title: "Review project details",

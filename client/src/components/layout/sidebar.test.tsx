@@ -25,6 +25,19 @@ describe("Enterprise sidebar navigation", () => {
   });
   afterEach(() => { cleanup(); path("/"); });
 
+  it("keeps a project-only customer workspace free of disabled-module navigation", () => {
+    state.disabled = ["asset_management", "itsm", "cmdb", "risk_management"];
+    render(<Sidebar />);
+    expect(button("Project Management")).toBeTruthy();
+    fireEvent.click(button("Project Management"));
+    expect(screen.getByRole("link", { name: "Projects" })).toBeTruthy();
+    for (const title of ["Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
+      "Organization", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance", "Analytics & Reports"]) {
+      expect(screen.queryByRole("button", { name: title })).toBeNull();
+    }
+    expect(screen.queryByRole("link", { name: "KPI Dashboard" })).toBeNull();
+  });
+
   it("renders the exact section order, expands Overview and keeps collapse levels independent", () => {
     render(<Sidebar />);
     expect(screen.getAllByTestId(/^section-toggle-/).map(element => element.textContent)).toEqual([

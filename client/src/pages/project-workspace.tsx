@@ -42,12 +42,13 @@ export default function ProjectWorkspacePage() {
     enabled: Boolean(id),
   });
   const optionsQuery = useQuery<ProjectOptions>({
-    queryKey: ["/api/projects/options"],
+    queryKey: ["/api/projects/options", isModuleEnabled("asset_management")],
     queryFn: () => projectApi("/api/projects/options"),
   });
   const project = projectQuery.data;
-  const options = optionsQuery.data ?? { users: [], assets: [], assetsAvailable: isModuleEnabled("asset_management") };
-  const assetsAvailable = options.assetsAvailable !== false && isModuleEnabled("asset_management");
+  const rawOptions = optionsQuery.data ?? { users: [], assets: [] };
+  const assetsAvailable = rawOptions.assetsAvailable !== false && isModuleEnabled("asset_management");
+  const options = { ...rawOptions, assetsAvailable, assets: assetsAvailable ? rawOptions.assets : [] };
   const isAdmin = user ? isSystemAdministrator(user) : false;
   const isProjectManager = project?.managers?.some(manager => manager.userId === user?.id) ?? false;
   const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");

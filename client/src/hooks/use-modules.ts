@@ -13,6 +13,8 @@ export interface ModuleSettingView {
 export function useModules() {
   const query = useQuery<ModuleSettingView[]>({
     queryKey: ["/api/module-settings"],
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
 
   const isModuleEnabled = (moduleKey: string): boolean => {

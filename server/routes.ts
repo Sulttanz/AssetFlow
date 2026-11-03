@@ -465,6 +465,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return requireAuth(req, res, () => {
       void (async () => {
         try {
+          if (moduleKey && !await isFeatureEnabled(moduleKey)) return sendFeatureNotEnabled(res, moduleKey);
           const userId = (req.user as any)?.id;
           const [userRoles, userPermissions] = await Promise.all([
             storage.getUserRoles(userId),
@@ -474,8 +475,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!isPersonaApiAllowed(roleNames, userPermissions, apiPath, req.method)) {
             return res.status(403).json({ error: "This persona is not allowed to access this API" });
           }
-          if (!moduleKey) return next();
-          return checkModuleEnabled(moduleKey)(req, res, next);
+          return next();
         } catch (error) {
           console.error("Failed to verify API persona access:", error);
           return res.status(500).json({ error: "Failed to verify API access" });
@@ -1111,9 +1111,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const canViewAll = await canViewAllItsmRecords(req.user.id);
       const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id);
       const [projectRows, userRows, employeeRows] = await Promise.all([
-        db.select({ id: projects.id, name: projects.name }).from(projects),
+        isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects) : []),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
-        db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees),
+        isFeatureEnabled("asset_management").then(enabled => enabled ? db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees) : []),
       ]);
       const projectNames = new Map(projectRows.map(project => [project.id, project.name]));
       const userDetails = new Map(userRows.map(user => [user.id, {
@@ -1145,7 +1145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows] = await Promise.all([
-        db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)),
+        isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)) : []),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, roleName: roles.name })
           .from(users).innerJoin(userRoles, eq(userRoles.userId, users.id)).innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
         db.select({ id: slaPolicies.id, name: slaPolicies.name, priority: slaPolicies.priority, ticketType: slaPolicies.ticketType }).from(slaPolicies).where(eq(slaPolicies.isActive, true)),
@@ -1176,7 +1176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/incidents/projects", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
+  app.post("/api/incidents/projects", requireAuth, requireModule("itsm"), requireModule("project_management"), requirePermission("ticket_manage"), async (req, res) => {
     try {
       const projectData = insertProjectSchema.pick({ name: true, description: true }).parse(req.body);
       const [project] = await db.insert(projects).values({
@@ -1232,6 +1232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
+      if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
@@ -1306,6 +1307,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         closedAt: true,
         firstRespondedAt: true,
       }).parse(req.body);
+      if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
+      if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
       if (parsed.priority && !["P1", "P2", "P3", "P4"].includes(parsed.priority)) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
@@ -1362,10 +1367,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(row => !row.serviceCatalogItemId || row.fulfillmentStage !== "Pending Approval" ||
           row.requesterId === req.user.id || canReviewCatalog);
       const [projectRows, userRows, catalogRows, employeeRows] = await Promise.all([
-        db.select({ id: projects.id, name: projects.name }).from(projects),
+        isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects) : []),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
         db.select({ id: catalogItems.id, name: catalogItems.name, consumableId: catalogItems.consumableId }).from(catalogItems),
-        db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees),
+        isFeatureEnabled("asset_management").then(enabled => enabled ? db.select({ email: employees.email, phone: employees.phone, mobile: employees.mobile }).from(employees) : []),
       ]);
       const projectNames = new Map(projectRows.map(row => [row.id, row.name]));
       const userDetails = new Map(userRows.map(user => [user.id, {
@@ -1408,7 +1413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/service-requests/:id/consumable-options", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.get("/api/service-requests/:id/consumable-options", requireAuth, requireModule("itsm"), requireModule("asset_management"), requirePermission("ticket_manage"), async (req: any, res) => {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
@@ -1492,6 +1497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
       const parsed = insertServiceRequestSchema.parse({ ...req.body, serviceCatalogItemId: null, customFieldValues: {}, catalogSchemaSnapshot: [], creatorId: req.user.id, requesterId, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
       if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
+      if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
@@ -1582,6 +1588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Move the request to Ready for Delivery before completing it" });
       }
       if (stage === "Completed" && fulfilledAssetId) {
+        if (!await isFeatureEnabled("asset_management")) return sendFeatureNotEnabled(res, "asset_management");
         const [asset] = await db.select({ id: assets.id, status: assets.status }).from(assets).where(eq(assets.id, fulfilledAssetId));
         if (!asset || asset.status !== "In Store") return res.status(409).json({ message: "The selected asset is no longer in store" });
       }
@@ -1598,7 +1605,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/service-requests/:id/fulfill-consumable", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.post("/api/service-requests/:id/fulfill-consumable", requireAuth, requireModule("itsm"), requireModule("asset_management"), requirePermission("ticket_manage"), async (req: any, res) => {
     try {
       const { warehouseLocationId } = z.object({ warehouseLocationId: z.string().uuid() }).parse(req.body);
       const result = await db.transaction(async tx => {
@@ -1680,6 +1687,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/service-requests/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
       const parsed = insertServiceRequestSchema.partial().omit({ requesterId: true, creatorId: true, completedAt: true, serviceCatalogItemId: true, customFieldValues: true, catalogSchemaSnapshot: true }).parse(req.body);
+      if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
+      if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
       if (parsed.cost !== undefined && (!Number.isFinite(parsed.cost) || parsed.cost < 0)) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.fulfillmentStatus && !["Submitted", "Approved", "Fulfilling", "Completed", "Rejected"].includes(parsed.fulfillmentStatus)) {
         return res.status(400).json({ message: "Invalid fulfillment status" });
@@ -2879,6 +2890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/applications", requireAuth, requireModule("cmdb"), requireAnyPermission("asset_update", "cmdb_view", "system_admin"), async (req, res) => {
     try {
+      const employeeDirectoryEnabled = await isFeatureEnabled("asset_management");
       const parsed = cmdbPageFilters.extend({
         category: z.string().trim().max(120).optional(),
         hostingType: z.enum(["all", "saas", "on_prem", "hybrid"]).default("all"),
@@ -2908,9 +2920,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           category: cmdbApplications.category,
           vendor: cmdbApplications.vendor,
           businessOwner: cmdbApplications.businessOwner,
-          businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
+          businessOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})` : sql<string | null>`NULL`,
           technicalOwner: cmdbApplications.technicalOwner,
-          technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+          technicalOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})` : sql<string | null>`NULL`,
           hostingType: cmdbApplications.hostingType,
           criticalityRating: cmdbApplications.criticalityRating,
           status: cmdbApplications.status,
@@ -4371,6 +4383,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contractThrough.setDate(contractThrough.getDate() + 30);
       const contractThroughDate = toDateInputValue(contractThrough);
       const slaRiskThrough = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+      const [assetEnabled, cmdbEnabled, itsmEnabled] = await Promise.all([
+        isFeatureEnabled("asset_management"), isFeatureEnabled("cmdb"), isFeatureEnabled("itsm"),
+      ]);
 
       const [
         identityCounts,
@@ -4389,66 +4404,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pendingApprovals,
         expiredAccessItems,
       ] = await Promise.all([
-        db.select({
+        assetEnabled ? db.select({
           activeEmployees: sql<number>`count(*) FILTER (WHERE ${employees.status} = 'active')::int`,
-        }).from(employees),
-        db.select({
+        }).from(employees) : [],
+        cmdbEnabled ? db.select({
           total: sql<number>`count(*)::int`,
           online: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'online')::int`,
           maintenance: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'maintenance')::int`,
           offline: sql<number>`count(*) FILTER (WHERE lower(${servers.status}) = 'offline')::int`,
-        }).from(servers),
-        db.select({ total: sql<number>`count(*)::int` }).from(cmdbApplications)
-          .where(sql`lower(${cmdbApplications.status}) = 'active'`),
-        db.select({ total: sql<number>`count(*)::int` }).from(configurationDocuments).where(sql`
+        }).from(servers) : [],
+        cmdbEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(cmdbApplications)
+          .where(sql`lower(${cmdbApplications.status}) = 'active'`) : [],
+        cmdbEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(configurationDocuments).where(sql`
           lower(${configurationDocuments.documentType}) LIKE '%config%'
           OR lower(${configurationDocuments.originalName}) ~ '\\.(conf|ini|txt)$'
-        `),
-        db.select({
+        `) : [],
+        itsmEnabled ? db.select({
           P1: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P1' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
           P2: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P2' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
           P3: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P3' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
           P4: sql<number>`count(*) FILTER (WHERE ${incidents.priority} = 'P4' AND lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled'))::int`,
-        }).from(incidents),
-        db.select({
+        }).from(incidents) : [],
+        itsmEnabled ? db.select({
           withinSla: sql<number>`count(*) FILTER (WHERE ${incidents.resolvedAt} <= ${incidents.resolveDueAt})::int`,
           breached: sql<number>`count(*) FILTER (WHERE ${incidents.resolvedAt} > ${incidents.resolveDueAt})::int`,
         }).from(incidents).where(and(
           sql`${incidents.resolvedAt} IS NOT NULL`,
           sql`${incidents.resolveDueAt} IS NOT NULL`,
-        )),
-        db.select({ total: sql<number>`count(*)::int` }).from(changeApprovals).where(and(
+        )) : [],
+        itsmEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(changeApprovals).where(and(
           isNull(changeApprovals.removedAt),
           or(isNull(changeApprovals.decision), eq(changeApprovals.decision, "pending")),
-        )),
-        db.select({ total: sql<number>`count(*)::int` }).from(incidents).where(and(
+        )) : [],
+        itsmEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(incidents).where(and(
           sql`lower(${incidents.status}) NOT IN ('resolved', 'closed', 'cancelled')`,
           sql`${incidents.resolveDueAt} IS NOT NULL AND ${incidents.resolveDueAt} <= ${slaRiskThrough}`,
-        )),
-        db.select({
+        )) : [],
+        assetEnabled ? db.select({
           hardwareAssetValuation: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) <> 'software' THEN COALESCE(${assets.currentBookValue}, ${assets.currentValue}, ${assets.purchasePrice}, 0) ELSE 0 END), 0)::float8`,
           usedSeats: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) = 'software' THEN COALESCE(${assets.usedSeats}, 0) ELSE 0 END), 0)::float8`,
           totalSeats: sql<number>`COALESCE(SUM(CASE WHEN lower(${assets.type}) = 'software' THEN COALESCE(${assets.licenseQuantity}, 0) ELSE 0 END), 0)::float8`,
-        }).from(assets),
-        db.select({
+        }).from(assets) : [],
+        assetEnabled ? db.select({
           valid: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'active' AND (${employeeAccessRights.expiresAt} IS NULL OR ${employeeAccessRights.expiresAt} > ${accessThrough}::date))::int`,
           expiring: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} > ${today}::date AND ${employeeAccessRights.expiresAt} <= ${accessThrough}::date)::int`,
           expired: sql<number>`count(*) FILTER (WHERE ${employeeAccessRights.status} = 'expired' OR (${employeeAccessRights.status} = 'active' AND ${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date))::int`,
-        }).from(employeeAccessRights),
-        db.select({
+        }).from(employeeAccessRights) : [],
+        cmdbEnabled ? db.select({
           P1: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P1')::int`,
           P2: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P2')::int`,
           P3: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P3')::int`,
           P4: sql<number>`count(*) FILTER (WHERE upper(${cmdbApplications.criticalityRating}) = 'P4')::int`,
-        }).from(cmdbApplications).where(sql`lower(${cmdbApplications.status}) = 'active'`),
-        db.select({ total: sql<number>`count(*)::int` }).from(employees).where(and(
+        }).from(cmdbApplications).where(sql`lower(${cmdbApplications.status}) = 'active'`) : [],
+        assetEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(employees).where(and(
           eq(employees.status, "disabled"),
           sql`(SELECT count(DISTINCT c.clearance_type)
                FROM employee_offboarding_clearances c
                WHERE c.employee_id = ${employees.id}
                  AND c.offboarding_date = ${employees.offboardedDate}) < 3`,
-        )),
-        db.select({
+        )) : [],
+        assetEnabled ? db.select({
           id: employees.id,
           title: sql<string>`${employees.firstName} || ' ' || ${employees.lastName}`,
           createdAt: employees.offboardedDate,
@@ -4458,8 +4473,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                FROM employee_offboarding_clearances c
                WHERE c.employee_id = ${employees.id}
                  AND c.offboarding_date = ${employees.offboardedDate}) < 3`,
-        )).limit(8),
-        db.selectDistinct({
+        )).limit(8) : [],
+        itsmEnabled ? db.selectDistinct({
           id: changes.id,
           title: changes.title,
           changeNumber: changes.changeNumber,
@@ -4468,8 +4483,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).from(changeApprovals).innerJoin(changes, eq(changeApprovals.changeId, changes.id)).where(and(
           isNull(changeApprovals.removedAt),
           or(isNull(changeApprovals.decision), eq(changeApprovals.decision, "pending")),
-        )).orderBy(desc(changes.createdAt)).limit(8),
-        db.select({
+        )).orderBy(desc(changes.createdAt)).limit(8) : [],
+        assetEnabled ? db.select({
           id: employeeAccessRights.id,
           systemName: employeeAccessRights.applicationName,
           expiresAt: employeeAccessRights.expiresAt,
@@ -4480,14 +4495,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eq(employeeAccessRights.status, "active"),
             sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date`,
           ),
-        )).orderBy(asc(employeeAccessRights.expiresAt)).limit(8),
+        )).orderBy(asc(employeeAccessRights.expiresAt)).limit(8) : [],
       ]);
 
-      const [contractCount] = await db.select({ total: sql<number>`count(*)::int` })
+      const [contractCount] = assetEnabled ? await db.select({ total: sql<number>`count(*)::int` })
         .from(contracts).where(and(
           eq(contracts.status, "active"),
           sql`${contracts.endDate} IS NOT NULL AND ${contracts.endDate} >= ${today}::date AND ${contracts.endDate} <= ${contractThroughDate}::date`,
-        ));
+        )) : [];
 
       const incidentsByPriority = incidentPriorityCounts[0] ?? { P1: 0, P2: 0, P3: 0, P4: 0 };
       const seats = financialCounts[0] ?? { hardwareAssetValuation: 0, usedSeats: 0, totalSeats: 0 };
@@ -4554,13 +4569,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
       const currentUserId = (req.user as any).id;
+      const [assetEnabled, itsmEnabled] = await Promise.all([
+        isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"),
+      ]);
 
       const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges] = await Promise.all([
-        storage.getAssets(),
-        storage.getMaintenanceSchedules(),
-        storage.getBudgets(),
-        storage.getTickets(),
-        storage.getPendingCabAlertChanges(currentUserId),
+        assetEnabled ? storage.getAssets() : [],
+        assetEnabled ? storage.getMaintenanceSchedules() : [],
+        assetEnabled ? storage.getBudgets() : [],
+        itsmEnabled ? storage.getTickets() : [],
+        itsmEnabled ? storage.getPendingCabAlertChanges(currentUserId) : [],
       ]);
 
       const alerts: any[] = [];
@@ -8336,15 +8354,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const getChangeImpactAnalysis = async (changeId: string, executor: any = db) => {
+    if (!await isFeatureEnabled("cmdb")) {
+      return { selectedApplicationIds: [], selectedServerIds: [], applications: [], servers: [], affectedOwners: [] };
+    }
+    const employeeDirectoryEnabled = await isFeatureEnabled("asset_management");
     const applicationFields = {
       id: cmdbApplications.id,
       name: cmdbApplications.name,
       category: cmdbApplications.category,
       criticalityRating: cmdbApplications.criticalityRating,
       businessOwnerId: cmdbApplications.businessOwner,
-      businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
+      businessOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})` : sql<string | null>`NULL`,
       technicalOwnerId: cmdbApplications.technicalOwner,
-      technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+      technicalOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})` : sql<string | null>`NULL`,
     };
     const serverFields = {
       id: servers.id,
@@ -8464,16 +8486,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   };
 
-  app.get("/api/cmdb/change-options", requireAuth, requireModule("itsm"), async (_req, res) => {
+  app.get("/api/cmdb/change-options", requireAuth, requireModule("itsm"), requireModule("cmdb"), async (_req, res) => {
     try {
+      const employeeDirectoryEnabled = await isFeatureEnabled("asset_management");
       const [applicationRows, serverRows] = await Promise.all([
         db.select({
           id: cmdbApplications.id,
           name: cmdbApplications.name,
           category: cmdbApplications.category,
           criticalityRating: cmdbApplications.criticalityRating,
-          businessOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})`,
-          technicalOwnerName: sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})`,
+          businessOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.businessOwner})` : sql<string | null>`NULL`,
+          technicalOwnerName: employeeDirectoryEnabled ? sql<string | null>`(SELECT concat_ws(' ', first_name, last_name) FROM employees WHERE id = ${cmdbApplications.technicalOwner})` : sql<string | null>`NULL`,
         }).from(cmdbApplications).where(eq(cmdbApplications.status, "active")).orderBy(asc(cmdbApplications.name)),
         db.select({
           id: servers.id,
@@ -8536,6 +8559,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetIds = changeTargetSchema.parse(body);
       const targetApplicationIds = targetIds.targetApplicationIds ?? [];
       const targetServerIds = targetIds.targetServerIds ?? [];
+      const cmdbEnabled = await isFeatureEnabled("cmdb");
+      if (!cmdbEnabled && (targetApplicationIds.length || targetServerIds.length)) return sendFeatureNotEnabled(res, "cmdb");
       delete body.targetApplicationIds;
       delete body.targetServerIds;
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
@@ -8545,10 +8570,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // strip empty-string nullable FK fields so DB doesn't complain
       if (!body.assignedToId) body.assignedToId = null;
       if (!body.departmentId) body.departmentId = null;
+      if (body.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
-      await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
+      if (cmdbEnabled) await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
       // New changes always start as draft regardless of caller-supplied status
       body.status = "draft";
       // Compute authoritative cabRequired from type/risk on creation
@@ -8558,7 +8584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body.cabRequired = true;
       }
       const change = await storage.createChange({ ...body, requestedById: user.id });
-      await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
+      if (cmdbEnabled) await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
       res.status(201).json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to create change:", err);
@@ -8573,9 +8599,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const oldChange = await storage.getChange(req.params.id);
       const body = { ...req.body };
       const targetIds = changeTargetSchema.parse(body);
+      const cmdbEnabled = await isFeatureEnabled("cmdb");
+      if (!cmdbEnabled && (targetIds.targetApplicationIds?.length || targetIds.targetServerIds?.length)) return sendFeatureNotEnabled(res, "cmdb");
+      if (body.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
+      if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
+        return res.status(400).json({ message: "Project not found" });
+      }
       delete body.targetApplicationIds;
       delete body.targetServerIds;
-      const linkUpdateRequested = targetIds.targetApplicationIds !== undefined || targetIds.targetServerIds !== undefined;
+      const linkUpdateRequested = cmdbEnabled && (targetIds.targetApplicationIds !== undefined || targetIds.targetServerIds !== undefined);
       const currentLinks = linkUpdateRequested
         ? await db.select().from(changeCiLinks).where(eq(changeCiLinks.changeRequestId, req.params.id))
         : [];
@@ -9288,7 +9320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const [tickets, assets, problems, changeSummary] = await Promise.all([
         storage.getTickets(),
-        storage.getAssets(),
+        await isFeatureEnabled("asset_management") ? storage.getAssets() : [],
         storage.getProblems(),
         storage.getChangeReportSummary(startOfMonth),
       ]);

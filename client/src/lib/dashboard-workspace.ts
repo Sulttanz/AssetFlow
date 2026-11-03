@@ -17,8 +17,8 @@ export function dashboardWorkspace(user: UserWithDetails) {
     { title: "Access Governance", description: "Review employee entitlements and access expiry.", href: "/access-governance", moduleKey: "asset_management", permission: ["access_governance_view", "employee_update", "system_admin"] },
     { title: "Asset Inventory", description: "Inspect the asset register and ownership records.", href: "/assets", moduleKey: "asset_management" },
     { title: "Audit Logs", description: "Review recorded system activity.", href: "/audit-logs", permission: ["audit_view", "system_admin"] },
-    { title: "Network Topology", description: "Review network devices and firewall evidence.", href: "/network-topology", moduleKey: "asset_management", permission: ["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"] },
-    { title: "Backup & Restore", description: "Inspect backup compliance and restore verification.", href: "/backup-schedules", moduleKey: "asset_management", permission: ["asset_update", "audit_view", "compliance_view", "system_admin"] },
+    { title: "Network Topology", description: "Review network devices and firewall evidence.", href: "/network-topology", moduleKey: "cmdb", permission: ["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"] },
+    { title: "Backup & Restore", description: "Inspect backup compliance and restore verification.", href: "/backup-schedules", moduleKey: "cmdb", permission: ["asset_update", "audit_view", "compliance_view", "system_admin"] },
   ] : staff ? [
     { title: "Incident Tracker", description: "Review and manage incident workloads.", href: "/incidents/tracker", moduleKey: "itsm" },
     { title: "Request Tracker", description: "Review service request fulfillment.", href: "/service-requests/tracker", moduleKey: "itsm" },
@@ -31,6 +31,7 @@ export function dashboardWorkspace(user: UserWithDetails) {
     { title: "My Assigned Assets", description: "View your equipment and custody receipts.", href: "/my-assets", moduleKey: "asset_management", permission: ["my_assets_view", "system_admin"] },
     { title: "Knowledge Base", description: "Find published employee guides and policies.", href: "/knowledge-base", moduleKey: "itsm" },
   ];
+  links.push({ title: "Project Portfolio", description: "Manage project delivery, tasks, milestones, risks, changes, and budgets.", href: "/projects", moduleKey: "project_management" });
   return {
     description: auditor ? "Your compliance review workspace." : staff ? "Your IT operations workspace." : "Your employee support workspace.",
     links: links.filter(link => isPersonaPageAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], link.href) &&

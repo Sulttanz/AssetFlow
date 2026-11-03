@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
+import { useModules } from "@/hooks/use-modules";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateDisplay } from "@/lib/date-utils";
 import type { ProjectOptions, ProjectRecord } from "@/types/project-management";
@@ -109,6 +110,8 @@ function ProjectOwnership({ project }: { project: ProjectRecord }) {
 export default function ProjectsPage() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
+  const { isModuleEnabled } = useModules();
+  const assetEnabled = isModuleEnabled("asset_management");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>({
@@ -137,11 +140,13 @@ export default function ProjectsPage() {
     queryFn: () => getJson<ProjectRecord[]>(queryUrl),
   });
   const optionsQuery = useQuery<ProjectOptions>({
-    queryKey: ["/api/projects/options"],
+    queryKey: ["/api/projects/options", assetEnabled],
     queryFn: () => getJson<ProjectOptions>("/api/projects/options"),
   });
   const projects = projectsQuery.data ?? [];
-  const options = optionsQuery.data ?? { users: [], assets: [], assetsAvailable: true };
+  const rawOptions = optionsQuery.data ?? { users: [], assets: [] };
+  const options = { ...rawOptions, assetsAvailable: assetEnabled && rawOptions.assetsAvailable !== false,
+    assets: assetEnabled ? rawOptions.assets : [] };
   const isAdmin = user ? isSystemAdministrator(user) : false;
   const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
   const canManage = mayMutate && (isAdmin || !!user?.permissions?.includes("project_manage"));

@@ -238,7 +238,7 @@ async function getProjectDetail(projectId: string) {
       status: assets.status,
       serialNumber: assets.serialNumber,
     }).from(projectAssets).innerJoin(assets, eq(projectAssets.assetId, assets.id))
-      .where(eq(projectAssets.projectId, projectId)),
+      .where(eq(projectAssets.projectId, projectId))
       : Promise.resolve([]),
   ]);
 
@@ -287,7 +287,7 @@ export function registerProjectManagementRoutes(
           assetTag: assets.assetTag,
           serialNumber: assets.serialNumber,
           status: assets.status,
-        }).from(assets).orderBy(assets.assetTag, assets.name),
+        }).from(assets).orderBy(assets.assetTag, assets.name)
           : Promise.resolve([]),
       ]);
       res.json({

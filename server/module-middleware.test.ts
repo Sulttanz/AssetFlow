@@ -23,7 +23,10 @@ describe("module API guard", () => {
 
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith({
-      error: "Module risk_management is currently disabled.",
+      error: "Feature Not Enabled",
+      code: "FEATURE_NOT_ENABLED",
+      moduleKey: "risk_management",
+      message: "The risk_management feature is not enabled for this customer.",
     });
     expect(next).not.toHaveBeenCalled();
   });
@@ -49,6 +52,12 @@ describe("module API guard", () => {
     expect(moduleForApiPath("/maintenance-schedules")).toBe("asset_management");
     expect(moduleForApiPath("/reports/changes")).toBe("itsm");
     expect(moduleForApiPath("/risks")).toBe("risk_management");
+    expect(moduleForApiPath("/projects/project-1/tasks")).toBe("project_management");
+    expect(moduleForApiPath("/applications/app-1")).toBe("cmdb");
+    expect(moduleForApiPath("/servers/server-1/documents")).toBe("cmdb");
+    expect(moduleForApiPath("/cmdb/change-options")).toBe("cmdb");
+    expect(moduleForApiPath("/network-topology/zones")).toBe("cmdb");
+    expect(moduleForApiPath("/backup-schedules")).toBe("cmdb");
     expect(moduleForApiPath("/module-status")).toBeUndefined();
   });
 });

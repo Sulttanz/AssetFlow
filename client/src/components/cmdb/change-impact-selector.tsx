@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useModules } from "@/hooks/use-modules";
 
 type ApplicationOption = {
   id: string;
@@ -31,9 +32,12 @@ export function ChangeImpactSelector({
   serverIds: string[];
   onChange: (next: { applicationIds: string[]; serverIds: string[] }) => void;
 }) {
-  const { data, isLoading, isError } = useQuery<Options>({ queryKey: ["/api/cmdb/change-options"] });
+  const { isModuleEnabled } = useModules();
+  const enabled = isModuleEnabled("cmdb");
+  const { data, isLoading, isError } = useQuery<Options>({ queryKey: ["/api/cmdb/change-options"], enabled });
   const toggle = (current: string[], id: string) =>
     current.includes(id) ? current.filter(value => value !== id) : [...current, id];
+  if (!enabled) return null;
 
   return (
     <Card className="border-[#d8e4df] bg-white/80 shadow-none">

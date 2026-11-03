@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useModules } from "@/hooks/use-modules";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -86,7 +87,8 @@ export default function Applications() {
     },
   });
   const { data: categoryOptions = [] } = useQuery<Option[]>({ queryKey: ["/api/dropdowns/options/application_category"] });
-  const { data: employees = [] } = useQuery<EmployeeOption[]>({ queryKey: ["/api/employees"], enabled: canManageCmdb });
+  const { isModuleEnabled } = useModules();
+  const { data: employees = [] } = useQuery<EmployeeOption[]>({ queryKey: ["/api/employees"], enabled: canManageCmdb && isModuleEnabled("asset_management") });
   const { data: hostedServers = [], isLoading: hostedServersLoading } = useQuery<HostedServer[]>({
     queryKey: ["/api/applications", detailsFor?.id, "servers"],
     enabled: Boolean(detailsFor),

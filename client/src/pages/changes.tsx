@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow, differenceInHours, differenceInMinutes } from "date-fns";
 import { useAuth, useHasPermission } from "@/hooks/use-auth";
+import { useModules } from "@/hooks/use-modules";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -608,6 +609,7 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
 
 // ── Main Component ──────────────────────────────────────────────────────────────
 export default function Changes() {
+  const { isModuleEnabled } = useModules();
   const { toast } = useToast();
   const { user } = useAuth();
   const [, navigate] = useLocation();
@@ -699,7 +701,7 @@ export default function Changes() {
   });
   const canManageChange = isAdmin || isChangeManager;
   const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"], enabled: canManageChange });
-  const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange });
+  const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange && isModuleEnabled("asset_management") });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -1164,7 +1166,7 @@ export default function Changes() {
           <Tabs value={detailTab} onValueChange={setDetailTab}>
             <TabsList className="mb-2">
               <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="impact">Impact & Blast Radius</TabsTrigger>
+              {isModuleEnabled("cmdb") && <TabsTrigger value="impact">Impact & Blast Radius</TabsTrigger>}
               <TabsTrigger value="plans">Plans</TabsTrigger>
               <TabsTrigger value="environment">
                 Environment

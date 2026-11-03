@@ -11,6 +11,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useModules } from "@/hooks/use-modules";
 
 interface Alert {
   type: "warranty" | "maintenance" | "budget" | "license" | "ticket" | "cab";
@@ -75,11 +76,17 @@ export default function Header({
 }: HeaderProps) {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
+  const { isModuleEnabled } = useModules();
+  const assetEnabled = isModuleEnabled("asset_management");
+  const itsmEnabled = isModuleEnabled("itsm");
 
-  const { data: alerts = [] } = useQuery<Alert[]>({
+  const { data: allAlerts = [] } = useQuery<Alert[]>({
     queryKey: ["/api/alerts"],
     refetchInterval: 60_000,
+    enabled: assetEnabled || itsmEnabled,
   });
+  const alerts = allAlerts.filter(alert =>
+    ["ticket", "cab"].includes(alert.type) ? itsmEnabled : assetEnabled);
 
   const criticalCount = alerts.filter((a) => a.severity === "critical" || a.severity === "high").length;
   const badgeCount = alerts.length;
