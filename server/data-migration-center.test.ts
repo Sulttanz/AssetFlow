@@ -7,10 +7,11 @@ import ExcelJS from "exceljs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import {
-  assets, backupSchedules, budgets, cmdbApplications, consumables, consumableStockMovements,
-  dataMigrationBatches, departments, dropdownOptions, employees, kbArticleControlMappings,
-  kbArticles, locations, networkDevices, networkZones, purchaseOrderItems, purchaseOrders,
-  servers, users, vendorContracts, vendors, warehouseLocations,
+  assets, backupSchedules, budgets, catalogItems, cmdbApplications, consumables, consumableStockMovements,
+  dataMigrationBatches, departments, dropdownOptions, employees, incidents, incidentActivities, kbArticleControlMappings,
+  kbArticles, locations, networkDevices, networkZones, projectMilestones, projectTasks, projects,
+  purchaseOrderItems, purchaseOrders, roles, risks, serviceCatalogItems, serviceRequestActivities,
+  serviceRequests, serviceRequestsApprovals, servers, userRoles, users, vendorContracts, vendors, warehouseLocations,
 } from "@shared/schema";
 import { dataMigrationModules } from "@shared/data-migration-modules";
 import { db } from "./db";
@@ -29,15 +30,10 @@ let server: Server;
 let base = "";
 
 const quote = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-const next: RequestHandler = (_req, _res, done) => done();
 const auth: RequestHandler = (req, res, done) => {
   const actor = req.get("x-test-user");
   if (!actor) return void res.status(401).json({ message: "Authentication required" });
   req.user = { id: actor } as Express.User;
-  done();
-};
-const admin: RequestHandler = (req, res, done) => {
-  if (req.get("x-test-admin") !== "1") return void res.status(403).json({ message: "Administrator access required" });
   done();
 };
 const headers = (actor = actorId) => ({ "x-test-user": actor, "x-test-admin": "1" });
@@ -79,6 +75,9 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       { id: actorId, username: prefix, email: actorEmail, password: "not-a-login-credential", firstName: "Migration", lastName: "Tester" },
       { id: otherActorId, username: `${prefix}-other`, email: `${prefix}-other@example.test`, password: "not-a-login-credential", firstName: "Other", lastName: "Tester" },
     ]);
+    await db.insert(roles).values({ name: "IT Manager" }).onConflictDoNothing();
+    const [managerRole] = await db.select().from(roles).where(eq(roles.name, "IT Manager"));
+    await db.insert(userRoles).values({ userId: actorId, roleId: managerRole.id });
     await db.insert(departments).values({ name: departmentName });
     await db.insert(locations).values({ name: locationName });
     await db.insert(warehouseLocations).values({ name: `${prefix} Warehouse`, code: warehouseCode });
@@ -89,7 +88,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     ]).onConflictDoNothing();
     const app = express();
     app.use(express.json());
-    registerDataMigrationRoutes(app, auth, next, admin);
+    registerDataMigrationRoutes(app, auth);
     server = app.listen(0, "127.0.0.1");
     await new Promise<void>(resolve => server.on("listening", resolve));
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -100,15 +99,18 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
 
   it("requires authentication and administrator permission", async () => {
     expect((await fetch(`${base}/api/data-migrations/modules`)).status).toBe(401);
-    expect((await fetch(`${base}/api/data-migrations/modules`, { headers: { "x-test-user": actorId } })).status).toBe(403);
+    expect((await fetch(`${base}/api/data-migrations/modules`, { headers: { "x-test-user": otherActorId } })).status).toBe(403);
+    expect((await fetch(`${base}/api/import/modules`, { headers: headers(otherActorId) })).status).toBe(403);
   });
 
-  it("provides all ten guided templates and an additive staging migration", async () => {
+  it("provides all fifteen guided templates and an additive staging migration", async () => {
     const source = await readFile("migrations/onprem/20261109_data_migration_center.sql", "utf8");
     expect(() => assertAdditiveMigration(source, "data-migration-center")).not.toThrow();
-    expect(dataMigrationModules).toHaveLength(10);
+    expect(dataMigrationModules).toHaveLength(15);
+    const enabledModules = await (await fetch(`${base}/api/import/modules`, { headers: headers() })).json();
+    expect(enabledModules).toHaveLength(15);
     for (const module of dataMigrationModules) {
-      const response = await fetch(`${base}/api/data-migrations/${module.key}/template`, { headers: headers() });
+      const response = await fetch(`${base}/api/import/${module.key}/template`, { headers: headers() });
       expect(response.status).toBe(200);
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
@@ -223,6 +225,118 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     const [article] = await db.select().from(kbArticles).where(eq(kbArticles.slug, `${prefix}-policy`));
     expect(article).toMatchObject({ status: "draft", isPublic: false, reviewDate: "2027-03-15", content: "A policy, with commas\nand a new line." });
     expect(await db.select().from(kbArticleControlMappings).where(eq(kbArticleControlMappings.articleId, article.id))).toHaveLength(1);
+  });
+
+  it("imports project work, ITSM intake, and standalone risks without bypassing approvals or lifecycle", async () => {
+    const projectName = `${prefix}-project`;
+    const projectTitle = `${prefix} Project`;
+    await db.insert(projects).values({
+      name: projectName,
+      title: projectTitle,
+      startDate: new Date("2026-01-01T00:00:00.000Z"),
+      targetEndDate: new Date("2027-12-31T00:00:00.000Z"),
+    });
+
+    await importRows("project_tasks", [{
+      projectName,
+      title: `${prefix} Task`,
+      status: "In Progress",
+      priority: "High",
+      assigneeEmail: actorEmail,
+      estimatedHours: 4,
+      loggedHours: 1.5,
+      dueDate: "15-04-2027",
+    }]);
+    const [task] = await db.select().from(projectTasks).where(eq(projectTasks.title, `${prefix} Task`));
+    expect(task).toMatchObject({ assigneeId: actorId, status: "In Progress", priority: "High", estimatedHours: "4.00", loggedHours: "1.50" });
+
+    await importRows("project_milestones", [{
+      projectName: projectTitle,
+      title: `${prefix} Milestone`,
+      dueDate: "30-04-2027",
+      status: "Pending",
+    }]);
+    expect(await db.select().from(projectMilestones).where(eq(projectMilestones.title, `${prefix} Milestone`))).toHaveLength(1);
+
+    await importRows("incidents", [{
+      title: `${prefix} Incident`,
+      description: "A validated imported incident.",
+      requesterEmail: actorEmail,
+      projectName: projectTitle,
+      priority: "P2",
+    }]);
+    const [incident] = await db.select().from(incidents).where(eq(incidents.title, `${prefix} Incident`));
+    expect(incident).toMatchObject({ requesterId: actorId, creatorId: actorId, projectId: task.projectId, status: "New", priority: "P2", resolvedAt: null, closedAt: null });
+    expect(await db.select().from(incidentActivities).where(eq(incidentActivities.incidentId, incident.id))).toHaveLength(1);
+
+    const catalogId = randomUUID();
+    const catalogTitle = `${prefix} Approval Service`;
+    await db.insert(catalogItems).values({ id: catalogId, name: catalogTitle, category: "software" });
+    await db.insert(serviceCatalogItems).values({
+      id: catalogId, title: catalogTitle, category: "Software", requiresApproval: true, approverRole: "Manager",
+    });
+    await importRows("service_requests", [{
+      title: `${prefix} Service Request`,
+      description: "Approval must remain pending after import.",
+      requesterEmail: actorEmail,
+      catalogItemTitle: catalogTitle,
+      projectName: projectTitle,
+      requestedQuantity: 2,
+      targetFulfillmentDate: "30-05-2027",
+    }]);
+    const [request] = await db.select().from(serviceRequests).where(eq(serviceRequests.title, `${prefix} Service Request`));
+    expect(request).toMatchObject({
+      requesterId: actorId, creatorId: actorId, projectId: task.projectId, status: "Submitted",
+      approvalStatus: "pending", fulfillmentStage: "Pending Approval", fulfillmentStatus: "Submitted",
+    });
+    const [approval] = await db.select().from(serviceRequestsApprovals).where(eq(serviceRequestsApprovals.ticketId, request.id));
+    expect(approval).toMatchObject({ status: "Pending", approverRole: "Manager", approverId: null });
+    expect(await db.select().from(serviceRequestActivities).where(eq(serviceRequestActivities.serviceRequestId, request.id))).toHaveLength(1);
+
+    await importRows("risks", [{
+      title: `${prefix} Risk`,
+      category: "vendor",
+      likelihood: 3,
+      impact: 4,
+      ownerEmail: actorEmail,
+      status: "identified",
+    }]);
+    const [risk] = await db.select().from(risks).where(eq(risks.title, `${prefix} Risk`));
+    expect(risk).toMatchObject({ ownerId: actorId, likelihood: 3, impact: 4, riskScore: 12, status: "identified", createdById: actorId });
+  });
+
+  it("supports the /api/import preview and commit aliases and validates safe enum values and references", async () => {
+    const invalidRows = [
+      { title: `${prefix} Bad Priority`, description: "Description", requesterEmail: actorEmail, priority: "urgent", status: "Resolved" },
+      { title: `${prefix} Missing Project`, status: "Backlog" },
+    ];
+    const invalidCsv = [
+      dataMigrationModules.find(module => module.key === "incidents")!.fields.map(field => quote(field.header)).join(","),
+      dataMigrationModules.find(module => module.key === "incidents")!.fields.map(field => quote(invalidRows[0][field.key as keyof typeof invalidRows[0]])).join(","),
+    ].join("\r\n");
+    const invalidBody = new FormData();
+    invalidBody.append("file", new Blob([invalidCsv]), `${prefix}-invalid.csv`);
+    const invalidResponse = await fetch(`${base}/api/import/incidents/preview`, { method: "POST", headers: headers(), body: invalidBody });
+    expect(invalidResponse.status).toBe(201);
+    const invalidPreview = await invalidResponse.json();
+    expect(invalidPreview.validRows).toBe(0);
+    expect(invalidPreview.rows[0].errors.join(" ")).toMatch(/Priority|Status/);
+
+    const body = new FormData();
+    const csv = [
+      dataMigrationModules.find(module => module.key === "assets")!.fields.map(field => quote(field.header)).join(","),
+      dataMigrationModules.find(module => module.key === "assets")!.fields.map(field => quote(({
+        name: `${prefix} Alias Asset`, type: "laptop", assetTag: `${prefix}-alias`,
+      } as Record<string, unknown>)[field.key])).join(","),
+    ].join("\r\n");
+    body.append("file", new Blob([csv]), `${prefix}-alias.csv`);
+    const previewResponse = await fetch(`${base}/api/import/assets/preview`, { method: "POST", headers: headers(), body });
+    expect(previewResponse.status).toBe(201);
+    const preview = await previewResponse.json();
+    const committed = await post(`/api/import/assets/${preview.batchId}/commit`, { confirm: true });
+    expect(committed.status).toBe(200);
+    expect(await committed.json()).toMatchObject({ importedRows: 1, failedRows: 0 });
+    expect(await db.select().from(assets).where(eq(assets.assetTag, `${prefix}-alias`))).toHaveLength(1);
   });
 
   it("validates conditional fields and handles unsupported uploads with JSON errors", async () => {

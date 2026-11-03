@@ -24,7 +24,7 @@ const IT_AGENT_PAGE_PREFIXES = [
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
   "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
-  "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis", "/projects",
+  "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis", "/projects", "/migration", "/import",
 ];
 
 function normalize(value: string): string {
@@ -143,7 +143,7 @@ const IT_AGENT_API_PREFIXES = [
 const MANAGER_API_PREFIXES = [
   ...IT_AGENT_API_PREFIXES, "/changes", "/applications", "/servers",
   "/purchase-orders", "/budgets", "/contracts", "/employees", "/vendors",
-  "/locations", "/departments", "/vendor-management", "/vendor-contracts", "/projects",
+  "/locations", "/departments", "/vendor-management", "/vendor-contracts", "/projects", "/data-migrations", "/import",
 ];
 
 export function isPersonaApiAllowed(

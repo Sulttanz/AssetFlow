@@ -14,6 +14,7 @@ export type DataMigrationModule = {
   key: string;
   title: string;
   summary: string;
+  featureKey: string;
   fields: MigrationField[];
 };
 
@@ -22,6 +23,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "assets",
     title: "Assets & IT Components",
     summary: "Hardware inventory, endpoint devices, serials, network identifiers, specifications, and audit baseline fields.",
+    featureKey: "asset_management",
     fields: [
       { key: "name", header: "Asset Name*", required: true, sample: "Sample laptop", note: "Required. Asset display name." },
       { key: "assetTag", header: "Asset Tag", sample: "__SAMPLE__", note: "Optional unique asset tag." },
@@ -56,6 +58,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "consumables",
     title: "Consumables & Spare Parts",
     summary: "Part numbers, opening stock, reorder levels, warehouse location, and supplier references.",
+    featureKey: "asset_management",
     fields: [
       { key: "name", header: "Item Name*", required: true, sample: "Sample toner cartridge", note: "Required item name." },
       { key: "category", header: "Category", sample: "consumable", note: "Optional category." },
@@ -72,6 +75,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "employees",
     title: "Employees & Access Governance",
     summary: "Employee directory details. Access grants are not created by this import.",
+    featureKey: "asset_management",
     fields: [
       { key: "employeeId", header: "Employee ID", sample: "EMP-0001", note: "Optional unique employee identifier." },
       { key: "firstName", header: "First Name*", required: true, sample: "Sam", note: "Required." },
@@ -89,6 +93,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "applications",
     title: "Applications & CMDB",
     summary: "Application catalog, criticality, hosting model, and business/technical ownership.",
+    featureKey: "cmdb",
     fields: [
       { key: "name", header: "Application Name*", required: true, sample: "Sample HR Suite", note: "Required unique name." },
       { key: "category", header: "Category*", required: true, sample: "business", note: "Required active application_category dropdown value." },
@@ -104,6 +109,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "servers",
     title: "Servers & Infrastructure",
     summary: "Server names, IP addresses, platform, environment, specifications, and location.",
+    featureKey: "cmdb",
     fields: [
       { key: "hostname", header: "Hostname*", required: true, sample: "srv-example-01", note: "Required unique hostname." },
       { key: "ipAddress", header: "IP Address", sample: "192.0.2.20", note: "Optional IP address." },
@@ -118,6 +124,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "network",
     title: "Network Topology",
     summary: "Network devices and zone assignments. Firewall rules are deliberately not imported by this template.",
+    featureKey: "cmdb",
     fields: [
       { key: "recordType", header: "Record Type*", required: true, kind: "enum", enumValues: ["device", "zone"], sample: "device", note: "Required: device or zone. For zone rows, populate Zone Code and Security Level instead of device fields." },
       { key: "name", header: "Name*", required: true, sample: "Core Switch 01", note: "Required device or zone name." },
@@ -142,6 +149,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "backups",
     title: "Backup Schedules",
     summary: "Backup cadence, retention, target, and ownership. Imports describe schedules; they do not run backup jobs.",
+    featureKey: "cmdb",
     fields: [
       { key: "name", header: "Schedule Name*", required: true, sample: "Daily database backup", note: "Required." },
       { key: "targetType", header: "Target Type*", required: true, kind: "enum", enumValues: ["server", "application"], sample: "server", note: "Required: server or application." },
@@ -160,6 +168,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "vendors",
     title: "Vendors & Contracts",
     summary: "Vendor contacts and optional governed contract details. Contract dates and numbers are validated before import.",
+    featureKey: "asset_management",
     fields: [
       { key: "name", header: "Vendor Name*", required: true, sample: "Example Cloud Ltd", note: "Required unique vendor name." },
       { key: "code", header: "Vendor Code", sample: "VEND-100", note: "Optional unique vendor code." },
@@ -185,6 +194,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "finance",
     title: "Purchase Orders & Budgets",
     summary: "Purchase order lines and budgets. Imported purchase orders remain pending for normal approval.",
+    featureKey: "asset_management",
     fields: [
       { key: "recordType", header: "Record Type*", required: true, kind: "enum", enumValues: ["purchase_order_item", "budget"], sample: "purchase_order_item", note: "Required: purchase_order_item or budget." },
       { key: "poNumber", header: "PO Number", sample: "PO-2026-100", note: "Required for purchase_order_item; repeated PO numbers group line items." },
@@ -210,6 +220,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     key: "knowledge",
     title: "Knowledge Base & Policies",
     summary: "Policy and knowledge articles. All imported articles are created as Draft and require normal review before publication.",
+    featureKey: "itsm",
     fields: [
       { key: "title", header: "Article Title*", required: true, sample: "Sample access policy", note: "Required." },
       { key: "slug", header: "Slug", sample: "sample-access-policy", note: "Optional unique URL slug; generated from title when blank." },
@@ -223,6 +234,89 @@ export const dataMigrationModules: DataMigrationModule[] = [
       { key: "controlId", header: "Control ID", sample: "A.5.15", note: "Required when a baseline/framework is supplied." },
       { key: "controlTitle", header: "Control Title", sample: "Access control", note: "Required when a baseline/framework is supplied." },
       { key: "implementationNotes", header: "Control Implementation Notes", sample: "Access is reviewed quarterly.", note: "Optional compliance mapping notes." },
+    ],
+  },
+  {
+    key: "project_tasks",
+    title: "Project Tasks",
+    summary: "Tasks linked to existing projects. Imported tasks are created in a non-terminal workflow state.",
+    featureKey: "project_management",
+    fields: [
+      { key: "projectName", header: "Project Name*", required: true, sample: "Infrastructure Refresh", note: "Required; must match an existing project title or legacy project name." },
+      { key: "title", header: "Task Title*", required: true, sample: "Inventory current switches", note: "Required." },
+      { key: "description", header: "Description", sample: "Record model and firmware versions.", note: "Optional task details." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["Backlog", "To Do", "In Progress", "In Review"], sample: "Backlog", note: "Optional; terminal Done tasks cannot be created through import." },
+      { key: "priority", header: "Priority", kind: "enum", enumValues: ["Low", "Medium", "High", "Critical"], sample: "Medium", note: "Optional; defaults to Medium." },
+      { key: "assigneeEmail", header: "Assignee Email", kind: "email", sample: "analyst@example.invalid", note: "Optional; must match an active system user." },
+      { key: "estimatedHours", header: "Estimated Hours", kind: "number", sample: 4, note: "Optional non-negative estimate." },
+      { key: "loggedHours", header: "Logged Hours", kind: "number", sample: 0, note: "Optional non-negative total." },
+      { key: "dueDate", header: "Due Date", kind: "date", sample: "15-03-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+    ],
+  },
+  {
+    key: "project_milestones",
+    title: "Project Milestones",
+    summary: "Milestones linked to existing projects with validated dates and non-completed initial states.",
+    featureKey: "project_management",
+    fields: [
+      { key: "projectName", header: "Project Name*", required: true, sample: "Infrastructure Refresh", note: "Required; must match an existing project title or legacy project name." },
+      { key: "title", header: "Milestone Title*", required: true, sample: "Design approved", note: "Required." },
+      { key: "description", header: "Description", sample: "Architecture review complete.", note: "Optional." },
+      { key: "dueDate", header: "Due Date*", required: true, kind: "date", sample: "30-04-2027", note: "Required date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["Pending", "In Progress", "Delayed"], sample: "Pending", note: "Optional. Completed milestones are intentionally excluded from imports." },
+    ],
+  },
+  {
+    key: "incidents",
+    title: "Incidents",
+    summary: "New incidents only. Lifecycle state, resolution, assignment, and SLA timestamps remain governed by ITSM workflows.",
+    featureKey: "itsm",
+    fields: [
+      { key: "title", header: "Title*", required: true, sample: "VPN connection unavailable", note: "Required incident summary." },
+      { key: "description", header: "Description*", required: true, sample: "User cannot establish a VPN session.", note: "Required." },
+      { key: "requesterEmail", header: "Requester Email*", required: true, kind: "email", sample: "employee@example.invalid", note: "Required; must match an active system user." },
+      { key: "category", header: "Category", sample: "Network", note: "Optional incident category." },
+      { key: "priority", header: "Priority", kind: "enum", enumValues: ["P1", "P2", "P3", "P4"], sample: "P3", note: "Optional; defaults to P3." },
+      { key: "urgency", header: "Urgency", kind: "enum", enumValues: ["low", "medium", "high"], sample: "medium", note: "Optional; defaults to medium." },
+      { key: "impact", header: "Impact", kind: "enum", enumValues: ["low", "medium", "high"], sample: "medium", note: "Optional; defaults to medium." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["New"], sample: "New", note: "Optional; imported incidents always start New so resolution and SLA lifecycle controls cannot be bypassed." },
+      { key: "projectName", header: "Project Name", sample: "Infrastructure Refresh", note: "Optional; existing project reference is accepted only while Project Management is enabled." },
+      { key: "assetTag", header: "Asset Tag", sample: "ASSET-0001", note: "Optional; existing asset reference is accepted only while Asset Management is enabled." },
+    ],
+  },
+  {
+    key: "service_requests",
+    title: "Service Requests",
+    summary: "Submitted requests only. Required approval workflows are preserved and never imported as approved.",
+    featureKey: "itsm",
+    fields: [
+      { key: "title", header: "Title*", required: true, sample: "Request development software", note: "Required request summary." },
+      { key: "description", header: "Description*", required: true, sample: "Please provide the approved development editor.", note: "Required." },
+      { key: "requesterEmail", header: "Requester Email*", required: true, kind: "email", sample: "employee@example.invalid", note: "Required; must match an active system user." },
+      { key: "catalogItemTitle", header: "Service Catalog Item", sample: "Developer Software", note: "Optional; must match an active structured service catalog item. Its approval requirement will be initialized." },
+      { key: "projectName", header: "Project Name", sample: "Infrastructure Refresh", note: "Optional; existing project reference is accepted only while Project Management is enabled." },
+      { key: "category", header: "Category", sample: "Software", note: "Optional category; catalog category takes precedence." },
+      { key: "requestedQuantity", header: "Requested Quantity", kind: "integer", sample: 1, note: "Optional positive integer; defaults to 1." },
+      { key: "targetFulfillmentDate", header: "Target Fulfillment Date", kind: "date", sample: "30-04-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["Submitted"], sample: "Submitted", note: "Optional; imported requests remain Submitted and any catalog approval starts Pending." },
+    ],
+  },
+  {
+    key: "risks",
+    title: "Risk Register",
+    summary: "Standalone risks with validated 1–5 likelihood/impact scoring and computed risk scores.",
+    featureKey: "risk_management",
+    fields: [
+      { key: "title", header: "Risk Title*", required: true, sample: "Supplier delivery delay", note: "Required." },
+      { key: "description", header: "Description", sample: "Critical hardware may arrive after the rollout window.", note: "Optional." },
+      { key: "category", header: "Category", kind: "enum", enumValues: ["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"], sample: "operational", note: "Optional; defaults to operational." },
+      { key: "likelihood", header: "Likelihood*", required: true, kind: "integer", sample: 3, note: "Required integer from 1 to 5." },
+      { key: "impact", header: "Impact*", required: true, kind: "integer", sample: 4, note: "Required integer from 1 to 5." },
+      { key: "mitigation", header: "Mitigation", sample: "Confirm lead times and secure a second source.", note: "Optional mitigation plan." },
+      { key: "contingency", header: "Contingency Plan", sample: "Use the approved alternate supplier.", note: "Optional contingency plan." },
+      { key: "ownerEmail", header: "Owner Email", kind: "email", sample: "risk.owner@example.invalid", note: "Optional; must match an active system user." },
+      { key: "dueDate", header: "Due Date", kind: "date", sample: "15-05-2027", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
+      { key: "status", header: "Status", kind: "enum", enumValues: ["identified", "mitigating"], sample: "identified", note: "Optional; imports cannot accept or close a risk." },
     ],
   },
 ];

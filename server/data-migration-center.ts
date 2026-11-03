@@ -1,4 +1,5 @@
 import type { Express, Request, RequestHandler, Response } from "express";
+import { randomUUID } from "node:crypto";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -18,11 +19,21 @@ import {
   employees,
   kbArticles,
   kbArticleControlMappings,
+  incidentActivities,
+  incidents,
   locations,
   networkDevices,
   networkZones,
+  projectMilestones,
+  projectTasks,
+  projects,
   purchaseOrderItems,
   purchaseOrders,
+  risks,
+  serviceCatalogItems,
+  serviceRequestActivities,
+  serviceRequests,
+  serviceRequestsApprovals,
   servers,
   users,
   vendorContracts,
@@ -32,6 +43,9 @@ import {
 import { dataMigrationModules, getDataMigrationModule, type MigrationField } from "@shared/data-migration-modules";
 import { toSpreadsheetDateInput } from "@shared/date-format";
 import { db } from "./db";
+import { storage } from "./storage";
+import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
+import { isSystemAdministrator, getPersonaRoleKeys } from "@shared/personas";
 
 const MAX_ROWS = 5000;
 const PREVIEW_TTL_MS = 60 * 60 * 1000;
@@ -71,13 +85,18 @@ type LookupContext = {
   users: Map<string, { id: string; isActive: boolean }>;
   applications: Map<string, { id: string; name: string }>;
   servers: Map<string, { id: string; hostname: string }>;
+  projects: Map<string, { id: string; name: string; isActive: boolean }>;
+  assetsByTag: Map<string, { id: string; assetTag: string }>;
+  catalogItems: Map<string, { id: string; title: string; requiresApproval: boolean; approverRole: string | null; category: string; customFieldsSchema: unknown[]; slaHours: number }>;
   zones: Map<string, { id: string; isActive: boolean }>;
+  enabledFeatures: Set<string>;
   dropdowns: Map<string, Set<string>>;
   existing: Record<string, Set<string>>;
   reserved: Set<string>;
 };
 
 let expirySweep: NodeJS.Timeout | null = null;
+class MigrationFeatureError extends Error {}
 
 const normalizedKey = (value: unknown) => String(value ?? "").trim().toLocaleLowerCase();
 const textValue = (value: unknown) => {
@@ -245,27 +264,71 @@ function parseField(field: MigrationField, value: CellValue, errors: string[]): 
   return string;
 }
 
-async function loadLookups(): Promise<LookupContext> {
+async function loadLookups(moduleKey: string): Promise<LookupContext> {
+  const module = getDataMigrationModule(moduleKey);
+  if (!module) throw new Error("Unknown migration module.");
+  const assetEnabled = await isFeatureEnabled("asset_management");
+  const cmdbEnabled = await isFeatureEnabled("cmdb");
+  const projectEnabled = await isFeatureEnabled("project_management");
+  const itsmEnabled = await isFeatureEnabled("itsm");
+  const enabledFeatures = new Set<string>();
+  for (const [key, enabled] of [
+    ["asset_management", assetEnabled],
+    ["cmdb", cmdbEnabled],
+    ["project_management", projectEnabled],
+    ["itsm", itsmEnabled],
+    ["risk_management", await isFeatureEnabled("risk_management")],
+  ] as const) if (enabled) enabledFeatures.add(key);
+  const needsLocation = ["assets", "employees", "finance"].includes(moduleKey);
+  const needsDepartment = ["assets", "employees", "finance"].includes(moduleKey);
+  const needsWarehouse = moduleKey === "consumables";
+  const needsVendor = ["consumables", "vendors", "finance"].includes(moduleKey);
+  const needsEmployee = moduleKey === "employees" || (moduleKey === "applications" && assetEnabled);
+  const needsUser = ["backups", "project_tasks", "risks", "incidents", "service_requests"].includes(moduleKey);
+  const needsApplication = moduleKey === "backups";
+  const needsServer = moduleKey === "backups";
+  const needsZone = moduleKey === "network";
+  const needsDropdown = ["assets", "applications", "vendors", "knowledge"].includes(moduleKey);
+  const needsAssetTag = moduleKey === "assets" || (moduleKey === "incidents" && assetEnabled);
+  const needsProject = ["project_tasks", "project_milestones"].includes(moduleKey) ||
+    (["incidents", "service_requests"].includes(moduleKey) && projectEnabled);
+  const needsCatalog = moduleKey === "service_requests" && itsmEnabled;
+  const needsPurchaseOrder = moduleKey === "finance";
+  const needsContract = moduleKey === "vendors";
+  const needsArticle = moduleKey === "knowledge";
+
+  // Lookup reads are scoped to the selected import type and enabled feature
+  // dependencies. A single-module customer never queries unrelated modules.
   const [
     locationRows, departmentRows, warehouseRows, vendorRows, employeeRows, userRows,
-    applicationRows, serverRows, zoneRows, networkRows, dropdownRows, assetRows, purchaseOrderRows,
-    vendorContractRows, articleRows,
+    applicationRows, serverRows, zoneRows, networkRows, dropdownRows, assetRows,
+    purchaseOrderRows, vendorContractRows, articleRows, projectRows, catalogRows,
   ] = await Promise.all([
-    db.select({ id: locations.id, name: locations.name }).from(locations),
-    db.select({ id: departments.id, name: departments.name }).from(departments),
-    db.select({ id: warehouseLocations.id, code: warehouseLocations.code, isActive: warehouseLocations.isActive }).from(warehouseLocations),
-    db.select({ id: vendors.id, name: vendors.name, code: vendors.code }).from(vendors),
-    db.select({ id: employees.id, email: employees.email, employeeId: employees.employeeId, status: employees.status }).from(employees),
-    db.select({ id: users.id, email: users.email, isActive: users.isActive }).from(users),
-    db.select({ id: cmdbApplications.id, name: cmdbApplications.name }).from(cmdbApplications),
-    db.select({ id: servers.id, hostname: servers.hostname }).from(servers),
-    db.select({ id: networkZones.id, name: networkZones.name, code: networkZones.code, isActive: networkZones.isActive }).from(networkZones),
-    db.select({ hostname: networkDevices.hostname }).from(networkDevices),
-    db.select({ category: dropdownOptions.category, value: dropdownOptions.value, isActive: dropdownOptions.isActive }).from(dropdownOptions),
-    db.select({ id: assets.id, assetTag: assets.assetTag }).from(assets),
-    db.select({ poNumber: purchaseOrders.poNumber }).from(purchaseOrders),
-    db.select({ contractNumber: vendorContracts.contractNumber }).from(vendorContracts),
-    db.select({ slug: kbArticles.slug }).from(kbArticles),
+    needsLocation ? db.select({ id: locations.id, name: locations.name }).from(locations) : Promise.resolve([]),
+    needsDepartment ? db.select({ id: departments.id, name: departments.name }).from(departments) : Promise.resolve([]),
+    needsWarehouse ? db.select({ id: warehouseLocations.id, code: warehouseLocations.code, isActive: warehouseLocations.isActive }).from(warehouseLocations) : Promise.resolve([]),
+    needsVendor ? db.select({ id: vendors.id, name: vendors.name, code: vendors.code }).from(vendors) : Promise.resolve([]),
+    needsEmployee ? db.select({ id: employees.id, email: employees.email, employeeId: employees.employeeId, status: employees.status }).from(employees) : Promise.resolve([]),
+    needsUser ? db.select({ id: users.id, email: users.email, isActive: users.isActive }).from(users) : Promise.resolve([]),
+    needsApplication ? db.select({ id: cmdbApplications.id, name: cmdbApplications.name }).from(cmdbApplications) : Promise.resolve([]),
+    needsServer ? db.select({ id: servers.id, hostname: servers.hostname }).from(servers) : Promise.resolve([]),
+    needsZone ? db.select({ id: networkZones.id, name: networkZones.name, code: networkZones.code, isActive: networkZones.isActive }).from(networkZones) : Promise.resolve([]),
+    needsZone ? db.select({ hostname: networkDevices.hostname }).from(networkDevices) : Promise.resolve([]),
+    needsDropdown ? db.select({ category: dropdownOptions.category, value: dropdownOptions.value, isActive: dropdownOptions.isActive }).from(dropdownOptions) : Promise.resolve([]),
+    needsAssetTag ? db.select({ id: assets.id, assetTag: assets.assetTag }).from(assets) : Promise.resolve([]),
+    needsPurchaseOrder ? db.select({ poNumber: purchaseOrders.poNumber }).from(purchaseOrders) : Promise.resolve([]),
+    needsContract ? db.select({ contractNumber: vendorContracts.contractNumber }).from(vendorContracts) : Promise.resolve([]),
+    needsArticle ? db.select({ slug: kbArticles.slug }).from(kbArticles) : Promise.resolve([]),
+    needsProject ? db.select({ id: projects.id, name: projects.name, title: projects.title, isActive: projects.isActive }).from(projects) : Promise.resolve([]),
+    needsCatalog ? db.select({
+      id: serviceCatalogItems.id,
+      title: serviceCatalogItems.title,
+      requiresApproval: serviceCatalogItems.requiresApproval,
+      approverRole: serviceCatalogItems.approverRole,
+      category: serviceCatalogItems.category,
+      customFieldsSchema: serviceCatalogItems.customFieldsSchema,
+      slaHours: serviceCatalogItems.slaHours,
+    }).from(serviceCatalogItems).where(eq(serviceCatalogItems.status, "Active")) : Promise.resolve([]),
   ]);
   const dropdowns = new Map<string, Set<string>>();
   dropdownRows.filter(row => row.isActive).forEach(row => {
@@ -282,6 +345,14 @@ async function loadLookups(): Promise<LookupContext> {
   const usersByEmail = new Map(userRows.map(row => [normalizedKey(row.email), { id: row.id, isActive: Boolean(row.isActive) }]));
   const applicationsByName = new Map(applicationRows.map(row => [normalizedKey(row.name), { id: row.id, name: row.name }]));
   const serversByHostname = new Map(serverRows.map(row => [normalizedKey(row.hostname), { id: row.id, hostname: row.hostname }]));
+  const projectsByName = new Map<string, { id: string; name: string; isActive: boolean }>();
+  projectRows.forEach(row => {
+    const value = { id: row.id, name: row.title || row.name, isActive: Boolean(row.isActive) };
+    if (row.title) projectsByName.set(normalizedKey(row.title), value);
+    if (row.name) projectsByName.set(normalizedKey(row.name), value);
+  });
+  const assetsByTag = new Map(assetRows.filter(row => row.assetTag).map(row => [normalizedKey(row.assetTag), { id: row.id, assetTag: row.assetTag! }]));
+  const catalogItemsByTitle = new Map(catalogRows.map(row => [normalizedKey(row.title), row]));
   const zones = new Map(zoneRows.map(row => [normalizedKey(row.name), { id: row.id, isActive: row.isActive }]));
   return {
     locations: new Map(locationRows.map(row => [normalizedKey(row.name), row.id])),
@@ -293,7 +364,11 @@ async function loadLookups(): Promise<LookupContext> {
     users: usersByEmail,
     applications: applicationsByName,
     servers: serversByHostname,
+    projects: projectsByName,
+    assetsByTag,
+    catalogItems: catalogItemsByTitle,
     zones,
+    enabledFeatures,
     dropdowns,
     existing: {
       assetTag: new Set(assetRows.map(row => normalizedKey(row.assetTag)).filter(Boolean)),
@@ -369,10 +444,18 @@ function buildNormalized(
   if (moduleKey === "assets") {
     const location = resolve(context.locations, value("locationName"), "Location");
     const department = resolve(context.departments, value("departmentName"), "Department");
+    const assetStatus = value("status") ?? "available";
+    const configuredStatuses = context.dropdowns.get(normalizedKey("status"));
+    const baselineStatuses = new Set(["available", "assigned", "maintenance", "retired", "in store", "in maintenance"]);
+    if (value("status") && (configuredStatuses?.size
+      ? !configuredStatuses.has(normalizedKey(assetStatus))
+      : !baselineStatuses.has(normalizedKey(assetStatus)))) {
+      errors.push(`Status "${assetStatus}" is not a configured asset status.`);
+    }
     if (value("assetTag")) uniqueKeys.push(`assetTag:${value("assetTag")}`);
     normalized = {
       ...optional(["name", "type", "category", "assetTag", "serialNumber", "manufacturer", "model", "status", "ipAddress", "operatingSystem", "processor", "ram", "storage", "version", "siteBuilding", "configurationBaseline", "complianceStatus", "lastAuditDate", "auditFindings", "remediationStatus", "antivirusEdrStatus", "installedSoftware", "licenseType", "licenseQuantity", "licenseExpiryDate"]),
-      status: value("status") ?? "available",
+      status: assetStatus,
       locationId: location ?? null,
       departmentId: department ?? null,
     };
@@ -551,6 +634,118 @@ function buildNormalized(
       isPublic: value("isPublic") ?? false,
       controlMapping: hasMapping ? optional(["framework", "controlId", "controlTitle", "implementationNotes"]) : null,
     };
+  } else if (moduleKey === "project_tasks") {
+    const project = resolve(context.projects, value("projectName"), "Project");
+    if (project && !project.isActive) errors.push(`Project "${value("projectName")}" is inactive.`);
+    const assignee = resolve(context.users, value("assigneeEmail"), "Assignee");
+    if (assignee && !assignee.isActive) errors.push(`Assignee "${value("assigneeEmail")}" is inactive.`);
+    const estimatedHours = Number(value("estimatedHours") ?? 0);
+    const loggedHours = Number(value("loggedHours") ?? 0);
+    if (estimatedHours < 0 || loggedHours < 0) errors.push("Task hours cannot be negative.");
+    normalized = {
+      projectId: project?.id,
+      title: value("title"),
+      description: value("description") ?? null,
+      status: value("status") ?? "Backlog",
+      priority: value("priority") ?? "Medium",
+      assigneeId: assignee?.id ?? null,
+      estimatedHours: estimatedHours.toFixed(2),
+      loggedHours: loggedHours.toFixed(2),
+      dueDate: value("dueDate") ? `${value("dueDate")}T00:00:00.000Z` : null,
+    };
+  } else if (moduleKey === "project_milestones") {
+    const project = resolve(context.projects, value("projectName"), "Project");
+    if (project && !project.isActive) errors.push(`Project "${value("projectName")}" is inactive.`);
+    normalized = {
+      projectId: project?.id,
+      title: value("title"),
+      description: value("description") ?? null,
+      dueDate: value("dueDate") ? `${value("dueDate")}T00:00:00.000Z` : undefined,
+      status: value("status") ?? "Pending",
+    };
+  } else if (moduleKey === "incidents") {
+    const requester = resolve(context.users, value("requesterEmail"), "Requester");
+    if (requester && !requester.isActive) errors.push(`Requester "${value("requesterEmail")}" is inactive.`);
+    let project: { id: string; name: string; isActive: boolean } | undefined;
+    if (value("projectName")) {
+      if (!context.enabledFeatures.has("project_management")) errors.push("Project references require Project Management to be enabled.");
+      else {
+        project = resolve(context.projects, value("projectName"), "Project");
+        if (project && !project.isActive) errors.push(`Project "${value("projectName")}" is inactive.`);
+      }
+    }
+    let asset: { id: string; assetTag: string } | undefined;
+    if (value("assetTag")) {
+      if (!context.enabledFeatures.has("asset_management")) errors.push("Asset references require Asset Management to be enabled.");
+      else asset = resolve(context.assetsByTag, value("assetTag"), "Asset tag");
+    }
+    normalized = {
+      title: value("title"),
+      description: value("description"),
+      requesterId: requester?.id,
+      creatorId: actorId,
+      category: value("category") ?? null,
+      priority: value("priority") ?? "P3",
+      urgency: value("urgency") ?? "medium",
+      impact: value("impact") ?? "medium",
+      status: "New",
+      projectId: project?.id ?? null,
+      assetId: asset?.id ?? null,
+    };
+  } else if (moduleKey === "service_requests") {
+    const requester = resolve(context.users, value("requesterEmail"), "Requester");
+    if (requester && !requester.isActive) errors.push(`Requester "${value("requesterEmail")}" is inactive.`);
+    let project: { id: string; name: string; isActive: boolean } | undefined;
+    if (value("projectName")) {
+      if (!context.enabledFeatures.has("project_management")) errors.push("Project references require Project Management to be enabled.");
+      else {
+        project = resolve(context.projects, value("projectName"), "Project");
+        if (project && !project.isActive) errors.push(`Project "${value("projectName")}" is inactive.`);
+      }
+    }
+    const catalogItem = resolve(context.catalogItems, value("catalogItemTitle"), "Active service catalog item");
+    const quantity = Number(value("requestedQuantity") ?? 1);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) errors.push("Requested quantity must be an integer from 1 to 10000.");
+    normalized = {
+      title: value("title"),
+      description: value("description"),
+      requesterId: requester?.id,
+      creatorId: actorId,
+      serviceCatalogItemId: catalogItem?.id ?? null,
+      catalogItemId: catalogItem?.id ?? null,
+      projectId: project?.id ?? null,
+      category: catalogItem?.category ?? value("category") ?? null,
+      requestedQuantity: quantity,
+      targetFulfillmentDate: value("targetFulfillmentDate") ?? null,
+      status: "Submitted",
+      approvalStatus: catalogItem?.requiresApproval ? "pending" : "approved",
+      fulfillmentStage: catalogItem?.requiresApproval ? "Pending Approval" : "Submitted",
+      fulfillmentStatus: "Submitted",
+      catalogSchemaSnapshot: catalogItem?.customFieldsSchema ?? [],
+      requiresApproval: Boolean(catalogItem?.requiresApproval),
+      approverRole: catalogItem?.approverRole ?? null,
+      slaHours: catalogItem?.slaHours ?? null,
+    };
+  } else if (moduleKey === "risks") {
+    const owner = resolve(context.users, value("ownerEmail"), "Risk owner");
+    if (owner && !owner.isActive) errors.push(`Risk owner "${value("ownerEmail")}" is inactive.`);
+    const likelihood = Number(value("likelihood"));
+    const impact = Number(value("impact"));
+    if (!Number.isInteger(likelihood) || likelihood < 1 || likelihood > 5) errors.push("Likelihood must be an integer from 1 to 5.");
+    if (!Number.isInteger(impact) || impact < 1 || impact > 5) errors.push("Impact must be an integer from 1 to 5.");
+    normalized = {
+      title: value("title"),
+      description: value("description") ?? null,
+      category: value("category") ?? "operational",
+      likelihood,
+      impact,
+      riskScore: likelihood * impact,
+      mitigation: value("mitigation") ?? null,
+      contingency: value("contingency") ?? null,
+      ownerId: owner?.id ?? null,
+      dueDate: value("dueDate") ?? null,
+      status: value("status") ?? "identified",
+    };
   }
 
   if (moduleKey === "vendors" && normalized) {
@@ -572,7 +767,7 @@ function buildNormalized(
 }
 
 async function validateRecords(moduleKey: string, records: ParsedRecord[], actorId: string) {
-  const context = await loadLookups();
+  const context = await loadLookups(moduleKey);
   records.forEach(record => {
     const result = buildNormalized(moduleKey, record.values, context, actorId);
     record.normalized = result.normalized;
@@ -803,14 +998,69 @@ async function importOne(tx: any, moduleKey: string, row: Record<string, unknown
     }
     return;
   }
+  if (moduleKey === "project_tasks") {
+    await tx.insert(projectTasks).values(row as any);
+    return;
+  }
+  if (moduleKey === "project_milestones") {
+    await tx.insert(projectMilestones).values(row as any);
+    return;
+  }
+  if (moduleKey === "incidents") {
+    const incidentNumber = `INC-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const { status: _safeInitialStatus, ...incidentValues } = row as any;
+    const [incident] = await tx.insert(incidents).values({
+      ...incidentValues,
+      incidentNumber,
+      status: "New",
+    }).returning({ id: incidents.id, incidentNumber: incidents.incidentNumber, title: incidents.title });
+    await tx.insert(incidentActivities).values({
+      incidentId: incident.id,
+      actorId,
+      action: "Incident imported",
+      details: `Created through validated migration batch ${batchId}; incident lifecycle starts in New.`,
+    });
+    return;
+  }
+  if (moduleKey === "service_requests") {
+    const record = row as any;
+    const { requiresApproval, approverRole, slaHours, status: _safeInitialStatus, ...requestValues } = record;
+    const dueAt = slaHours ? new Date(Date.now() + Number(slaHours) * 60 * 60 * 1000) : null;
+    const [request] = await tx.insert(serviceRequests).values({
+      ...requestValues,
+      requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
+      fulfillmentDueAt: dueAt,
+      approvalStatus: requiresApproval ? "pending" : "approved",
+      fulfillmentStage: requiresApproval ? "Pending Approval" : "Submitted",
+      fulfillmentStatus: "Submitted",
+    }).returning({ id: serviceRequests.id, requestNumber: serviceRequests.requestNumber, title: serviceRequests.title });
+    if (requiresApproval && approverRole) {
+      await tx.insert(serviceRequestsApprovals).values({
+        ticketId: request.id,
+        approverRole,
+        status: "Pending",
+      });
+    }
+    await tx.insert(serviceRequestActivities).values({
+      serviceRequestId: request.id,
+      actorId,
+      action: "Service request imported",
+      details: requiresApproval
+        ? `Created through validated migration batch ${batchId}; awaiting ${approverRole} approval.`
+        : `Created through validated migration batch ${batchId}; submitted to the fulfillment queue.`,
+    });
+    return;
+  }
+  if (moduleKey === "risks") {
+    await tx.insert(risks).values({ ...(row as any), createdById: actorId });
+    return;
+  }
   throw new Error("Unsupported migration module.");
 }
 
 export function registerDataMigrationRoutes(
   app: Express,
   requireAuth: RequestHandler,
-  requireAssetManagement: RequestHandler,
-  requireSystemAdmin: RequestHandler,
 ) {
   if (!expirySweep) {
     expirySweep = setInterval(() => void expirePreviews().catch(error =>
@@ -818,13 +1068,52 @@ export function registerDataMigrationRoutes(
     ), 15 * 60 * 1000);
     expirySweep.unref?.();
   }
-  const guards = [requireAuth, requireAssetManagement, requireSystemAdmin] as const;
+  const requireManagerOrAdmin: RequestHandler = async (req, res, next) => {
+    if (!req.user?.id) return void res.status(401).json({ message: "Authentication required" });
+    try {
+      const [roles, permissions] = await Promise.all([
+        storage.getUserRoles(req.user.id),
+        storage.getUserPermissions(req.user.id),
+      ]);
+      const names = roles.map(role => role.name.trim().toLowerCase().replace(/[\s-]+/g, "_"));
+      const manager = names.some(name => ["manager", "it_manager"].includes(name)) ||
+        getPersonaRoleKeys(roles.map(role => role.name)).includes("it_manager");
+      if (!manager && !isSystemAdministrator({ roles, permissions })) {
+        return void res.status(403).json({ message: "Bulk imports are restricted to Managers and Administrators." });
+      }
+      next();
+    } catch {
+      res.status(500).json({ message: "Could not verify bulk import authorization." });
+    }
+  };
+  const requireEnabledModule: RequestHandler = async (req, res, next) => {
+    const module = getDataMigrationModule(req.params.moduleKey);
+    if (!module) return void res.status(404).json({ message: "Unknown import module." });
+    try {
+      if (!await isFeatureEnabled(module.featureKey)) return void sendFeatureNotEnabled(res, module.featureKey);
+      next();
+    } catch {
+      res.status(500).json({ message: "Could not verify the import module license." });
+    }
+  };
+  const guards = [requireAuth, requireManagerOrAdmin] as const;
 
-  app.get("/api/data-migrations/modules", ...guards, async (_req, res) => {
-    res.json(dataMigrationModules);
-  });
+  const moduleListHandler: RequestHandler = async (_req, res) => {
+    try {
+      const available = await Promise.all(dataMigrationModules.map(async module => ({
+        module,
+        enabled: await isFeatureEnabled(module.featureKey),
+      })));
+      res.json(available.filter(entry => entry.enabled).map(entry => entry.module));
+    } catch {
+      res.status(500).json({ message: "Failed to load available import modules." });
+    }
+  };
 
-  app.get("/api/data-migrations/history", ...guards, async (_req, res) => {
+  app.get("/api/data-migrations/modules", ...guards, moduleListHandler);
+  app.get("/api/import/modules", ...guards, moduleListHandler);
+
+  const historyHandler: RequestHandler = async (_req, res) => {
     try {
       await expirePreviews();
       const rows = await db.select({
@@ -854,9 +1143,11 @@ export function registerDataMigrationRoutes(
     } catch {
       res.status(500).json({ message: "Failed to load data migration history" });
     }
-  });
+  };
+  app.get("/api/data-migrations/history", ...guards, historyHandler);
+  app.get("/api/import/history", ...guards, historyHandler);
 
-  app.get("/api/data-migrations/:moduleKey/template", ...guards, async (req, res) => {
+  const templateHandler: RequestHandler = async (req, res) => {
     try {
       const workbook = makeTemplate(req.params.moduleKey);
       const buffer = await workbook.xlsx.writeBuffer();
@@ -866,9 +1157,11 @@ export function registerDataMigrationRoutes(
     } catch (error) {
       res.status(404).json({ message: error instanceof Error ? error.message : "Template not available" });
     }
-  });
+  };
+  app.get("/api/data-migrations/:moduleKey/template", ...guards, requireEnabledModule, templateHandler);
+  app.get("/api/import/:moduleKey/template", ...guards, requireEnabledModule, templateHandler);
 
-  app.post("/api/data-migrations/:moduleKey/preview", ...guards, parseMultipart, async (req: Request, res: Response) => {
+  const previewHandler: RequestHandler = async (req: Request, res: Response) => {
     if (!req.file) return void res.status(400).json({ message: "Choose an .xlsx or .csv file." });
     if (!req.user?.id) return void res.status(401).json({ message: "Authentication required" });
     try {
@@ -904,14 +1197,32 @@ export function registerDataMigrationRoutes(
       const message = error instanceof Error ? error.message : "Failed to preview migration file.";
       res.status(400).json({ message });
     }
-  });
+  };
+  app.post("/api/data-migrations/:moduleKey/preview", ...guards, requireEnabledModule, parseMultipart, previewHandler);
+  app.post("/api/import/:moduleKey/preview", ...guards, requireEnabledModule, parseMultipart, previewHandler);
 
-  app.post("/api/data-migrations/:batchId/import", ...guards, async (req: Request, res: Response) => {
+  const commitHandler: RequestHandler = async (req: Request, res: Response) => {
     if (!req.user?.id) return void res.status(401).json({ message: "Authentication required" });
     const confirmed = z.object({ confirm: z.literal(true) }).safeParse(req.body);
     if (!confirmed.success) return void res.status(400).json({ message: "Explicit import confirmation is required." });
     try {
       await expirePreviews();
+      const [batchSnapshot] = await db.select({
+        id: dataMigrationBatches.id,
+        moduleKey: dataMigrationBatches.moduleKey,
+      }).from(dataMigrationBatches).where(and(
+        eq(dataMigrationBatches.id, req.params.batchId),
+        eq(dataMigrationBatches.createdById, req.user.id),
+        eq(dataMigrationBatches.status, "preview"),
+      ));
+      const batchModule = batchSnapshot ? getDataMigrationModule(batchSnapshot.moduleKey) : undefined;
+      if (!batchSnapshot || !batchModule) {
+        return void res.status(409).json({ message: "This preview has expired or is not available. Upload the file again." });
+      }
+      if (req.params.moduleKey && req.params.moduleKey !== batchSnapshot.moduleKey) {
+        return void res.status(404).json({ message: "The preview does not belong to this import module." });
+      }
+      if (!await isFeatureEnabled(batchModule.featureKey)) return void sendFeatureNotEnabled(res, batchModule.featureKey);
       const batch = await db.transaction(async tx => {
         const [locked] = await tx.select().from(dataMigrationBatches)
           .where(and(
@@ -925,6 +1236,7 @@ export function registerDataMigrationRoutes(
         }
         const module = getDataMigrationModule(locked.moduleKey);
         if (!module) throw new Error("The migration module is no longer available.");
+        if (!await isFeatureEnabled(module.featureKey)) throw new MigrationFeatureError(module.featureKey);
         const records = locked.previewData as unknown as ParsedRecord[];
         const validRecords = records.filter(record => record.errors.length === 0 && record.normalized);
         if (!validRecords.length) throw new Error("There are no valid rows to import.");
@@ -978,7 +1290,10 @@ export function registerDataMigrationRoutes(
       });
       res.json(batch);
     } catch (error) {
+      if (error instanceof MigrationFeatureError) return void sendFeatureNotEnabled(res, error.message);
       res.status(409).json({ message: error instanceof Error ? error.message : "Import could not be completed." });
     }
-  });
+  };
+  app.post("/api/data-migrations/:batchId/import", ...guards, commitHandler);
+  app.post("/api/import/:moduleKey/:batchId/commit", ...guards, commitHandler);
 }

@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTimeMinute } from "@/lib/date-utils";
 import { apiRequest } from "@/lib/queryClient";
-import { dataMigrationModules } from "@shared/data-migration-modules";
+import type { DataMigrationModule } from "@shared/data-migration-modules";
 
 type PreviewRow = { rowNumber: number; values: Record<string, unknown>; errors: string[] };
 type PreviewResult = {
@@ -73,13 +73,15 @@ export default function DataMigrationCenter() {
   const [busy, setBusy] = useState<"template" | "preview" | "import" | null>(null);
   const [draggingModule, setDraggingModule] = useState<string | null>(null);
   const { toast } = useToast();
-  const historyQuery = useQuery<HistoryRow[]>({ queryKey: ["/api/data-migrations/history"] });
-  const activeModule = dataMigrationModules.find(module => module.key === selectedModule);
+  const modulesQuery = useQuery<DataMigrationModule[]>({ queryKey: ["/api/import/modules"] });
+  const modules = modulesQuery.data ?? [];
+  const historyQuery = useQuery<HistoryRow[]>({ queryKey: ["/api/import/history"] });
+  const activeModule = modules.find(module => module.key === selectedModule);
 
   const downloadTemplate = async (moduleKey: string) => {
     setBusy("template");
     try {
-      const response = await fetch(`/api/data-migrations/${moduleKey}/template`, { credentials: "include" });
+      const response = await fetch(`/api/import/${moduleKey}/template`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseError(response));
       saveBlob(await response.blob(), `${moduleKey}-import-template.xlsx`);
       toast({ title: "Template downloaded", description: "The Field Guide worksheet explains required columns and formats." });
@@ -115,7 +117,7 @@ export default function DataMigrationCenter() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await fetch(`/api/data-migrations/${selectedModule}/preview`, {
+      const response = await fetch(`/api/import/${selectedModule}/preview`, {
         method: "POST",
         credentials: "include",
         body,
@@ -139,7 +141,7 @@ export default function DataMigrationCenter() {
     if (!window.confirm(`Import ${preview.validRows} valid row(s) into ${activeModule?.title ?? "this module"}? Invalid rows will be skipped.`)) return;
     setBusy("import");
     try {
-      const response = await apiRequest("POST", `/api/data-migrations/${preview.batchId}/import`, { confirm: true });
+      const response = await apiRequest("POST", `/api/import/${preview.moduleKey}/${preview.batchId}/commit`, { confirm: true });
       const data = await response.json() as ImportResult;
       setResult(data);
       setPreview(null);
@@ -191,7 +193,16 @@ export default function DataMigrationCenter() {
             <p className="text-sm text-muted-foreground">Templates include the supported columns and a Field Guide worksheet.</p>
           </div>
           <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {dataMigrationModules.map((module, index) => {
+            {modulesQuery.isLoading ? (
+              <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground" aria-live="polite">Loading enabled import modules…</div>
+            ) : modulesQuery.isError ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+                <p className="text-sm text-destructive">Available import modules could not be loaded.</p>
+                <Button size="sm" variant="outline" className="mt-3" onClick={() => void modulesQuery.refetch()}>Retry</Button>
+              </div>
+            ) : modules.length === 0 ? (
+              <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No licensed modules are available for import.</div>
+            ) : modules.map((module, index) => {
               const active = selectedModule === module.key;
               const moduleFile = active ? file : null;
               const isDragging = draggingModule === module.key;
@@ -330,8 +341,13 @@ export default function DataMigrationCenter() {
                 </Table>
               </div>
               {preview.totalRows > preview.previewLimit && <p className="text-xs text-muted-foreground">Showing the first {preview.previewLimit} rows. Counts include all {preview.totalRows} rows in the file.</p>}
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="flex items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4 shrink-0" /> Preview expires at {formatDateTimeMinute(preview.expiresAt)}.</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-4 w-4 shrink-0" /> Preview expires at {formatDateTimeMinute(preview.expiresAt)}.</p>
+                  <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => { setPreview(null); setFile(null); }}>
+                    Choose a corrected file
+                  </Button>
+                </div>
                 <Button onClick={() => void importValidRows()} disabled={preview.validRows === 0 || busy !== null} className="sm:min-w-48">
                   {busy === "import" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                   Import Valid Rows ({preview.validRows})

@@ -232,8 +232,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     {
       title: "Tools",
       items: [
-        { name: "Import Data", href: "/import", icon: Upload, current: location === "/import", moduleKey: "asset_management" },
-        { name: "Data Migration Center", href: "/migration", icon: DatabaseBackup, current: location === "/migration", permission: "system_admin", moduleKey: "asset_management" },
+        {
+          name: "Data Migration Center",
+          href: "/import",
+          icon: DatabaseBackup,
+          current: location === "/import" || location === "/migration",
+          visible: (isSystemAdministrator(user) || personaRoles.includes("it_manager") || roleNames.some(name => name.trim().toLowerCase() === "manager")) &&
+            ["asset_management", "cmdb", "itsm", "project_management", "risk_management"].some(isModuleEnabled),
+        },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
       ]
     },

@@ -144,7 +144,6 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/contracts",
     "/reports",
     "/import/assets",
-    "/data-migrations",
   ].map((prefix) => [prefix, "asset_management"] as [string, string]),
   ...[
     "/incidents",
@@ -458,7 +457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const moduleKey = moduleForApiPath(apiPath);
     const personaGuardedPaths = [
       "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/my/asset-handovers", "/dashboard/executive",
-      "/cmdb", "/consumables",
+      "/cmdb", "/consumables", "/data-migrations", "/import",
     ];
     const requiresPersonaCheck = moduleKey !== undefined ||
       personaGuardedPaths.some(prefix => apiPath === prefix || apiPath.startsWith(`${prefix}/`));
@@ -7373,6 +7372,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Import data from Excel
+  // The former direct-write workbook importer bypassed preview validation,
+  // module licensing, and row audit summaries. Keep the old URL explicit but
+  // prevent it from remaining an alternate mutation path.
+  app.post("/api/import/excel", requireAuth, (_req, res) => {
+    res.status(410).json({
+      message: "Direct spreadsheet imports are retired. Use the validated Data Migration Center preview and commit flow.",
+      code: "IMPORT_FLOW_RETIRED",
+    });
+  });
+
   app.post("/api/import/excel", requireAuth, upload.single('file'), async (req, res) => {
     try {
       if (!req.file) {
@@ -8065,7 +8074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     requirePermission("asset_update"),
   );
   registerBackupGovernanceRoutes(app, requireAuth, requireModule("cmdb"));
-  registerDataMigrationRoutes(app, requireAuth, requireModule("asset_management"), requirePermission("system_admin"));
+  registerDataMigrationRoutes(app, requireAuth);
   registerServiceCatalogRoutes(app, requireAuth);
   app.use(["/api/vendor-management", "/api/vendor-contracts"], requireAuth, requireModule("asset_management"));
   registerVendorContractRoutes(app, requireAuth);

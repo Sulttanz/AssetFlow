@@ -53,6 +53,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use("/api", apiSecurityMiddleware());
 app.use("/api/data-migrations", dataMigrationRateLimit);
+app.use("/api/import", dataMigrationRateLimit);
 app.use("/api/system/clear-data", clearSystemDataRateLimit);
 
 app.use((req, res, next) => {

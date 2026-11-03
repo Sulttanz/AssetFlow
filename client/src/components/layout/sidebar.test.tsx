@@ -70,7 +70,7 @@ describe("Enterprise sidebar navigation", () => {
       expect(registered.has(pathname), `${link.textContent}: ${pathname}`).toBe(true);
     }
     const tools = button("Tools").parentElement!;
-    expect(Array.from(tools.querySelectorAll("a")).map(link => link.textContent)).toEqual(["Import Data", "Data Migration Center", "Settings"]);
+    expect(Array.from(tools.querySelectorAll("a")).map(link => link.textContent)).toEqual(["Data Migration Center", "Settings"]);
   });
 
   it("keeps operational navigation while hiding administration from the Demo Viewer", () => {
