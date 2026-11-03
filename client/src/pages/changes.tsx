@@ -700,7 +700,7 @@ export default function Changes() {
     refetchInterval: 60_000,
   });
   const canManageChange = isAdmin || isChangeManager;
-  const { data: allUsers = [] } = useQuery<UserSummary[]>({ queryKey: ["/api/users"], enabled: canManageChange });
+  const { data: allUsers = [], refetch: refetchUsers } = useQuery<UserSummary[]>({ queryKey: ["/api/users"], enabled: canManageChange });
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange && isModuleEnabled("asset_management") });
 
   const form = useForm<FormData>({
@@ -1469,7 +1469,11 @@ export default function Changes() {
                     <div className="rounded-md border border-dashed p-3 space-y-2 bg-muted/20">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assign Approver</p>
                       <div className="flex gap-2 items-center">
-                        <Select value={canAddSelectedApprover ? addApproverUserId : ""} onValueChange={setAddApproverUserId}>
+                        <Select
+                          value={canAddSelectedApprover ? addApproverUserId : ""}
+                          onValueChange={setAddApproverUserId}
+                          onOpenChange={open => { if (open) void refetchUsers(); }}
+                        >
                           <SelectTrigger className="flex-1 h-8 text-sm">
                             <SelectValue placeholder="Select a user…" />
                           </SelectTrigger>

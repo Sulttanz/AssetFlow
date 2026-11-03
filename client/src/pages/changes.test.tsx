@@ -78,6 +78,7 @@ beforeEach(() => {
     if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
     if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
     if (url === "/api/changes/change-1") return { ok: true, json: async () => (queryClient.getQueryData<{ changes: ReturnType<typeof change>[] }>(["/api/changes", 1, "", "all", "all"]))?.changes[0] };
+    if (url === "/api/users") return { ok: true, json: async () => queryClient.getQueryData(["/api/users"]) ?? [] };
     return { ok: true, json: async () => [] };
   }));
 });
@@ -550,6 +551,33 @@ describe("change detail CAB approvals", () => {
 
     expect(screen.getByRole("option", { name: "Active Reviewer" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Inactive Reviewer" })).toBeNull();
+  });
+
+  it("refreshes account eligibility each time the CAB approver picker opens", async () => {
+    auth.isAdmin = true;
+    const users = [
+      { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
+      { id: "reviewer", username: "reviewer", firstName: "Riley", lastName: "Reviewer", isActive: true },
+    ];
+    const { user, panel } = await openApprovals([], [], [], [], users);
+    let latestUsers = users;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/users") return { ok: true, json: async () => latestUsers };
+      if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === "/api/changes/change-1") return { ok: true, json: async () => queryClient.getQueryData<{ changes: ReturnType<typeof change>[] }>(["/api/changes", 1, "", "all", "all"])?.changes[0] };
+      return { ok: true, json: async () => [] };
+    }));
+
+    await user.click(within(panel).getByRole("combobox"));
+    expect(await screen.findByRole("option", { name: "Riley Reviewer" })).toBeTruthy();
+    await user.keyboard("{Escape}");
+    latestUsers = users.map(account => account.id === "reviewer" ? { ...account, isActive: false } : account);
+
+    await user.click(within(panel).getByRole("combobox"));
+
+    await waitFor(() => expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull());
+    expect(screen.getByRole("option", { name: "Alice" })).toBeTruthy();
   });
 
   it("hides self-assignment for a previously removed member", async () => {
