@@ -82,6 +82,7 @@ export function IncidentsPage() {
   const [search, setSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [resolutionCategory, setResolutionCategory] = useState("");
   const [resolutionCode, setResolutionCode] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [incidentAssignmentGroup, setIncidentAssignmentGroup] = useState("");
@@ -155,7 +156,7 @@ export function IncidentsPage() {
   });
   const updateStatus = useMutation({
     mutationFn: async (payload: { id: string; status: string }) =>
-      (await apiRequest("PATCH", `/api/incidents/${payload.id}/status`, { status: payload.status, resolutionCode: resolutionCode || null, resolutionNotes: resolutionNotes || null })).json(),
+      (await apiRequest("PATCH", `/api/incidents/${payload.id}/status`, { status: payload.status, category: resolutionCategory || null, resolutionCode: resolutionCode || null, resolutionNotes: resolutionNotes || null })).json(),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }); queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedId, "activity"] }); toast({ title: "Incident status updated" }); },
     onError: (error: Error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
   });
@@ -191,7 +192,7 @@ export function IncidentsPage() {
           const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
           const due = row.resolveDueAt ? new Date(row.resolveDueAt) : null;
           const overdue = Boolean(due && due.getTime() < Date.now() && !["Resolved", "Closed"].includes(row.status));
-           return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCode(row.resolutionCode ?? ""); setResolutionNotes((row as any).resolutionNotes ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
+            return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCategory(row.category ?? ""); setResolutionCode(row.resolutionCode ?? ""); setResolutionNotes((row as any).resolutionNotes ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.incidentNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell><Badge className={row.priority === "P1" ? "border-red-200 bg-red-100 text-red-800" : row.priority === "P2" ? "border-orange-200 bg-orange-100 text-orange-800" : row.priority === "P3" ? "border-amber-200 bg-amber-100 text-amber-800" : "border-blue-200 bg-blue-100 text-blue-800"}>{row.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline">{row.status}</Badge></TableCell><TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell>
@@ -208,9 +209,21 @@ export function IncidentsPage() {
               <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={updateAssignment.isPending}>Save assignment</Button>
             </section>
-             <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
+              <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Incident / resolution category<Input value={resolutionCategory} onChange={e => setResolutionCategory(e.target.value)} placeholder="e.g. Hardware, Network, Access" /></label><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
                <label className="grid gap-1 text-sm">Resolution / closure note<Textarea value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} placeholder="Record the outcome and reason for resolving or closing this incident." /></label>
-               <div className="flex flex-wrap gap-2">{["New", "In Progress", "Pending", "Resolved", "Closed"].map(status => <Button key={status} size="sm" variant={selected.status === status ? "default" : "outline"} onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || selected.status === status || (["Resolved", "Closed"].includes(status) && !resolutionNotes.trim()) || (status === "Resolved" && !resolutionCode)}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div><p className="text-xs text-muted-foreground">A resolution code and note are required to resolve; a closure note is required to close.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
+                {(() => {
+                  const state = selected.status.toLowerCase().replaceAll("_", " ");
+                  const normalized = state === "open" ? "New" : state === "in progress" ? "In Progress" : state === "new" ? "New" : state === "pending" ? "Pending" : state === "resolved" ? "Resolved" : state === "closed" ? "Closed" : "";
+                  const next = ({
+                    New: ["In Progress"],
+                    "In Progress": ["Pending", "Resolved"],
+                    Pending: ["In Progress", "Resolved"],
+                    Resolved: ["In Progress", "Closed"],
+                    Closed: [],
+                  } as Record<string, string[]>)[normalized] ?? [];
+                  return <div className="flex flex-wrap gap-2">{next.map(status => <Button key={status} size="sm" variant="outline" onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || (["Resolved", "Closed"].includes(status) && (!resolutionCategory.trim() || !resolutionCode || !resolutionNotes.trim()))}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div>;
+                })()}
+                <p className="text-xs text-muted-foreground">Only valid lifecycle transitions are available. Resolving or closing requires a category, resolution code, and notes; SLA target results are added to activity.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
             </section>
           </>}
           {canManageKnowledge(user) && <TicketKnowledgeLinks ticketType="incidents" ticketId={selected.id} />}

@@ -12,12 +12,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { DateInput } from "@/components/ui/date-input";
 import { useToast } from "@/hooks/use-toast";
 import { projectApi } from "@/lib/project-management-api";
+import { formatDateDisplay } from "@/lib/date-utils";
 import type { ProjectOptions, ProjectRecord, ProjectRiskRecord, ProjectRiskStatus } from "@/types/project-management";
 
 function emptyRisk(): ProjectRiskInput {
-  return { title: "", description: "", category: "Technical", probability: 3, impact: 3, mitigationStrategy: "", status: "Identified", ownerId: null };
+  return {
+    title: "", description: "", category: "Technical", probability: 3, impact: 3,
+    residualProbability: null, residualImpact: null, mitigationStrategy: "",
+    contingencyPlan: "", reviewDate: null, status: "Identified", ownerId: null,
+  };
 }
 
 function riskInput(risk?: ProjectRiskRecord): ProjectRiskInput {
@@ -27,7 +33,11 @@ function riskInput(risk?: ProjectRiskRecord): ProjectRiskInput {
     category: risk.category,
     probability: risk.probability,
     impact: risk.impact,
+    residualProbability: risk.residualProbability ?? null,
+    residualImpact: risk.residualImpact ?? null,
     mitigationStrategy: risk.mitigationStrategy ?? "",
+    contingencyPlan: risk.contingencyPlan ?? "",
+    reviewDate: risk.reviewDate ?? null,
     status: risk.status,
     ownerId: risk.ownerId ?? null,
   } : emptyRisk();
@@ -158,16 +168,20 @@ export function ProjectRiskRegisterTab({
         <CardContent className="p-0">
           <div className="hidden lg:block">
             <Table>
-              <TableHeader><TableRow><TableHead>Risk</TableHead><TableHead>Category</TableHead><TableHead>P × I</TableHead><TableHead>Owner</TableHead><TableHead>Status</TableHead><TableHead>Mitigation</TableHead>{canManage && <TableHead className="text-right">Actions</TableHead>}</TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Risk</TableHead><TableHead>Category</TableHead><TableHead>P × I</TableHead><TableHead>Residual P × I</TableHead><TableHead>Owner / Review</TableHead><TableHead>Status</TableHead><TableHead>Mitigation / Contingency</TableHead>{canManage && <TableHead className="text-right">Actions</TableHead>}</TableRow></TableHeader>
               <TableBody>
                 {filteredRisks.map(risk => <TableRow key={risk.id}>
                   <TableCell className="max-w-64"><span className="font-medium">{risk.title}</span><span className="block truncate text-xs text-muted-foreground">{risk.description}</span></TableCell>
                   <TableCell>{risk.category}</TableCell>
                   <TableCell><Badge variant="outline" className={scoreTone(risk.riskScore)}>{risk.probability} × {risk.impact} = {risk.riskScore}</Badge></TableCell>
-                  <TableCell>{risk.ownerName ?? "Unassigned"}</TableCell>
+                  <TableCell>{risk.residualProbability && risk.residualImpact
+                    ? <Badge variant="outline" className={scoreTone(risk.residualProbability * risk.residualImpact)}>{risk.residualProbability} × {risk.residualImpact} = {risk.residualProbability * risk.residualImpact}</Badge>
+                    : <span className="text-sm text-muted-foreground">Not assessed</span>}</TableCell>
+                  <TableCell>{risk.ownerName ?? "Unassigned"}<span className="block text-xs text-muted-foreground">Review {risk.reviewDate ? formatDateDisplay(risk.reviewDate) : "not scheduled"}</span></TableCell>
                   <TableCell>{risk.status}</TableCell>
                   <TableCell className="max-w-80">
                     {risk.mitigationStrategy ? <p className="mb-2 line-clamp-2 text-sm" title={risk.mitigationStrategy}>{risk.mitigationStrategy}</p> : <p className="mb-2 text-sm text-muted-foreground">No mitigation recorded</p>}
+                    {risk.contingencyPlan && <p className="line-clamp-2 text-xs text-muted-foreground" title={risk.contingencyPlan}>Contingency: {risk.contingencyPlan}</p>}
                     {!canManage && risk.ownerId === userId && <OwnerResponse risk={risk} value={mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? ""}
                       pending={ownerUpdateMutation.isPending}
                       onChange={value => setMitigationDrafts(current => ({ ...current, [risk.id]: value }))}
@@ -177,7 +191,7 @@ export function ProjectRiskRegisterTab({
                     if (window.confirm(`Delete risk "${risk.title}"?`)) deleteMutation.mutate(risk);
                   }}><Trash2 className="h-4 w-4" /></Button></div></TableCell>}
                 </TableRow>)}
-                {!risksQuery.isLoading && !risksQuery.isError && !filteredRisks.length && <TableRow><TableCell colSpan={canManage ? 7 : 6} className="py-10 text-center text-muted-foreground">No risks match this view.</TableCell></TableRow>}
+                {!risksQuery.isLoading && !risksQuery.isError && !filteredRisks.length && <TableRow><TableCell colSpan={canManage ? 8 : 7} className="py-10 text-center text-muted-foreground">No risks match this view.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
@@ -188,6 +202,8 @@ export function ProjectRiskRegisterTab({
                 <div className="flex items-start justify-between gap-2"><div><h3 className="font-medium">{risk.title}</h3><p className="text-xs text-muted-foreground">{risk.category} · {risk.ownerName ?? "Unassigned"}</p></div><Badge variant="outline" className={scoreTone(risk.riskScore)}>{risk.riskScore}</Badge></div>
                 <p className="text-sm text-muted-foreground">{risk.description || "No description"}</p>
                 <p className="text-sm"><span className="font-medium">Mitigation:</span> {risk.mitigationStrategy || "Not recorded"}</p>
+                <p className="text-sm"><span className="font-medium">Residual exposure:</span> {risk.residualProbability && risk.residualImpact ? `${risk.residualProbability} × ${risk.residualImpact} = ${risk.residualProbability * risk.residualImpact}` : "Not assessed"} · Review {risk.reviewDate ? formatDateDisplay(risk.reviewDate) : "not scheduled"}</p>
+                {risk.contingencyPlan && <p className="text-sm"><span className="font-medium">Contingency:</span> {risk.contingencyPlan}</p>}
                 {canManage && <div className="flex gap-2"><Button variant="outline" className="min-h-11" onClick={() => openEdit(risk)}>Edit risk</Button><Button variant="outline" className="min-h-11 text-rose-700" onClick={() => {
                   if (window.confirm(`Delete risk "${risk.title}"?`)) deleteMutation.mutate(risk);
                 }}>Delete</Button></div>}
@@ -213,10 +229,14 @@ export function ProjectRiskRegisterTab({
               <div className="space-y-1.5"><Label>Owner</Label><SearchablePicker value={form.ownerId ?? ""} onChange={value => update("ownerId", value || null)} options={options.users.map(person => ({ value: person.id, label: person.name, description: person.username }))} placeholder="Unassigned" searchPlaceholder="Search users…" ariaLabel="Risk owner" /></div>
               <div className="space-y-1.5"><Label>Probability (1–5)</Label><Select value={String(form.probability)} onValueChange={value => update("probability", Number(value))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{[1, 2, 3, 4, 5].map(value => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1.5"><Label>Impact (1–5)</Label><Select value={String(form.impact)} onValueChange={value => update("impact", Number(value))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{[1, 2, 3, 4, 5].map(value => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5"><Label>Residual probability (1–5)</Label><Select value={form.residualProbability ? String(form.residualProbability) : "none"} onValueChange={value => update("residualProbability", value === "none" ? null : Number(value))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not assessed</SelectItem>{[1, 2, 3, 4, 5].map(value => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1.5"><Label>Residual impact (1–5)</Label><Select value={form.residualImpact ? String(form.residualImpact) : "none"} onValueChange={value => update("residualImpact", value === "none" ? null : Number(value))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not assessed</SelectItem>{[1, 2, 3, 4, 5].map(value => <SelectItem key={value} value={String(value)}>{value}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-1.5"><Label>Status</Label><Select value={form.status} onValueChange={value => update("status", value as ProjectRiskStatus)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{PROJECT_RISK_STATUSES.map(item => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-1.5"><Label>Calculated risk score</Label><Input readOnly className="min-h-11" value={form.probability * form.impact} /></div>
+              <div className="space-y-1.5"><Label>Calculated inherent score</Label><Input readOnly className="min-h-11" value={form.probability * form.impact} /></div>
+              <div className="space-y-1.5"><Label>Review date</Label><DateInput className="min-h-11" value={form.reviewDate ?? ""} onChange={value => update("reviewDate", value || null)} aria-label="Risk review date" /></div>
             </div>
             <div className="space-y-1.5"><Label htmlFor="project-risk-mitigation">Mitigation strategy</Label><Textarea id="project-risk-mitigation" rows={3} value={form.mitigationStrategy ?? ""} onChange={event => update("mitigationStrategy", event.target.value)} /></div>
+            <div className="space-y-1.5"><Label htmlFor="project-risk-contingency">Contingency plan</Label><Textarea id="project-risk-contingency" rows={3} value={form.contingencyPlan ?? ""} onChange={event => update("contingencyPlan", event.target.value)} /></div>
             <DialogFooter><Button type="button" variant="outline" className="min-h-11" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" className="min-h-11" disabled={saveMutation.isPending}>Save risk</Button></DialogFooter>
           </form>
         </DialogContent>

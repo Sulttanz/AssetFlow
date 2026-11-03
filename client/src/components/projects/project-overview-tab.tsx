@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { projectApi } from "@/lib/project-management-api";
 import { formatDateDisplay, toDateInputValue } from "@/lib/date-utils";
+import { ProjectBaselinePanel } from "./project-baseline-panel";
 import type { ProjectChangeRecord, ProjectRecord, ProjectRiskRecord, ProjectTaskRecord } from "@/types/project-management";
 
 function amount(value: string | number) {
@@ -100,6 +101,8 @@ export function ProjectOverviewTab({ project, canManage, assetsAvailable = true 
           </Card>
         ))}
       </div>
+
+      <ProjectBaselinePanel project={project} canManage={canManage} />
 
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">

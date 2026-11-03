@@ -373,7 +373,11 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
           category: input.category,
           probability: input.probability,
           impact: input.impact,
+          residualProbability: input.residualProbability ?? null,
+          residualImpact: input.residualImpact ?? null,
           mitigationStrategy: input.mitigationStrategy || null,
+          contingencyPlan: input.contingencyPlan || null,
+          reviewDate: input.reviewDate || null,
           status: input.status,
           ownerId: input.ownerId ?? null,
         }).returning();
@@ -398,16 +402,23 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
         return res.status(403).json({ message: "Only a project manager or the risk owner can update this risk." });
       }
       const input = projectRiskUpdateSchema.parse(req.body);
-      if (!canManage && Object.keys(input).some(key => !["mitigationStrategy", "status"].includes(key))) {
-        return res.status(403).json({ message: "Risk owners may update mitigation notes and status only." });
+      if (!canManage && Object.keys(input).some(key => ![
+        "mitigationStrategy", "contingencyPlan", "residualProbability", "residualImpact", "reviewDate", "status",
+      ].includes(key))) {
+        return res.status(403).json({ message: "Risk owners may update response plans, residual exposure, review date, and status only." });
       }
       if (canManage) await validateActiveUser(input.ownerId, "Choose an active risk owner.");
       const values: Record<string, unknown> = { updatedAt: new Date() };
-      for (const key of ["title", "category", "probability", "impact", "status"] as const) {
+      for (const key of [
+        "title", "category", "probability", "impact", "residualProbability",
+        "residualImpact", "status",
+      ] as const) {
         if (input[key] !== undefined) values[key] = input[key];
       }
       if (input.description !== undefined) values.description = input.description || null;
       if (input.mitigationStrategy !== undefined) values.mitigationStrategy = input.mitigationStrategy || null;
+      if (input.contingencyPlan !== undefined) values.contingencyPlan = input.contingencyPlan || null;
+      if (input.reviewDate !== undefined) values.reviewDate = input.reviewDate || null;
       if (input.ownerId !== undefined) values.ownerId = input.ownerId;
       const [updated] = await db.transaction(async tx => {
         const [row] = await tx.update(projectRisks).set(values).where(and(

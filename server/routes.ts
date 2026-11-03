@@ -56,6 +56,7 @@ import { registerBackupGovernanceRoutes } from "./backup-governance";
 import { registerItComponentsComplianceRoutes } from "./it-components-compliance-report";
 import { registerDataMigrationRoutes } from "./data-migration-center";
 import { registerProjectManagementRoutes } from "./project-management";
+import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -1272,28 +1273,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/incidents/:id/status", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
     try {
-      const { status, resolutionCode, resolutionNotes } = z.object({
+      const { status, category, resolutionCode, resolutionNotes } = z.object({
         status: z.enum(["New", "In Progress", "Pending", "Resolved", "Closed"]),
+        category: z.string().trim().max(120).nullable().optional(),
         resolutionCode: z.string().trim().max(120).nullable().optional(),
         resolutionNotes: z.string().trim().max(4000).nullable().optional(),
       }).parse(req.body);
-      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
-      if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (["Resolved", "Closed"].includes(status) && !resolutionNotes?.trim() && !incident.resolutionNotes?.trim()) {
-        return res.status(400).json({ message: "A resolution or closure note is required" });
-      }
-      const now = new Date();
-      const updated = await storage.updateIncident(incident.id, {
+      const updated = await transitionIncident({
+        incidentId: req.params.id,
+        actorId: req.user.id,
         status,
-        ...(resolutionCode !== undefined ? { resolutionCode: resolutionCode || null } : {}),
-        ...(resolutionNotes !== undefined ? { resolutionNotes: resolutionNotes || null } : {}),
-        ...(status === "Resolved" && incident.status !== "Resolved" ? { resolvedAt: now } : {}),
-        ...(status === "Closed" && incident.status !== "Closed" ? { closedAt: now } : {}),
+        category,
+        resolutionCode,
+        resolutionNotes,
       });
-      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Status changed", details: `${incident.status} → ${status}${resolutionCode ? ` · ${resolutionCode}` : ""}${resolutionNotes ? ` · ${resolutionNotes}` : ""}` });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.issues });
+      if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
       res.status(500).json({ message: "Failed to update incident status" });
     }
   });
@@ -1317,22 +1314,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.status && !["New", "In Progress", "Pending", "Resolved", "Closed"].includes(parsed.status)) {
         return res.status(400).json({ message: "Invalid incident status" });
       }
-      const oldIncident = (await storage.getIncidents()).find(row => row.id === req.params.id);
-      if (parsed.status === "Resolved" && !parsed.resolutionCode?.trim() && !oldIncident?.resolutionCode) {
-        return res.status(400).json({ message: "A resolution code is required before resolving an incident" });
+      if (parsed.status) {
+        const { status, ...rest } = parsed;
+        const incident = await transitionIncident({
+          incidentId: req.params.id,
+          actorId: (req as any).user.id,
+          status,
+          category: parsed.category,
+          resolutionCode: parsed.resolutionCode,
+          resolutionNotes: parsed.resolutionNotes,
+          updates: rest as Partial<typeof incidents.$inferSelect>,
+        });
+        return res.json(incident);
       }
-      const lifecycleFields = parsed.status ? {
-        ...(parsed.status === "Resolved" && oldIncident?.status !== "Resolved" ? { resolvedAt: new Date() } : {}),
-        ...(parsed.status === "Closed" && oldIncident?.status !== "Closed" ? { closedAt: new Date() } : {}),
-      } : {};
-      const incident = await storage.updateIncident(req.params.id, { ...parsed, ...lifecycleFields });
+      const incident = await storage.updateIncident(req.params.id, parsed);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (parsed.status && oldIncident?.status !== parsed.status) {
-        await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: (req as any).user.id, action: "Status changed", details: `${oldIncident?.status ?? "Unknown"} → ${parsed.status}` });
-      }
       res.json(incident);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.issues });
+      if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
       res.status(500).json({ message: "Failed to update incident" });
     }
   });

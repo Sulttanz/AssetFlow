@@ -1,8 +1,9 @@
 import type { Express, Request, RequestHandler, Response } from "express";
-import { and, count, desc, eq, ilike, inArray, or, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
   assets,
   projectAssets,
+  projectBaselines,
   projectManagers,
   projectMilestones,
   projects,
@@ -21,16 +22,59 @@ import { db } from "./db";
 import { storage } from "./storage";
 import { registerProjectWorkspaceRoutes } from "./project-workspace";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
+import { z } from "zod";
 
 type AuthRequest = Request & { user?: { id?: string } };
 type ProjectExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 class ProjectInputError extends Error {}
 class ProjectNotFoundError extends Error {}
+class ProjectApprovalError extends Error {}
 
 function projectDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00.000Z` : value);
+}
+
+function calendarDate(value: Date | string): string {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+export function nextProjectBaselineVersion(current?: string | null): string {
+  if (!current) return "v1.0";
+  const match = /^v(\d+)\.(\d+)$/.exec(current);
+  if (!match) throw new ProjectInputError("The current project baseline version is invalid.");
+  return `v${Number(match[1])}.${Number(match[2]) + 1}`;
+}
+
+export function calculateProjectBaselineVariance(
+  project: Pick<typeof projects.$inferSelect, "budget" | "actualSpend" | "targetEndDate" | "actualEndDate">,
+  baseline: Pick<typeof projectBaselines.$inferSelect, "baselineBudget" | "baselineStartDate" | "baselineTargetEndDate">,
+) {
+  const baselineBudget = Number(baseline.baselineBudget);
+  const currentBudget = Number(project.budget);
+  const actualSpend = Number(project.actualSpend);
+  const forecastEndDate = calendarDate(project.actualEndDate ?? project.targetEndDate);
+  const baselineEndDate = calendarDate(baseline.baselineTargetEndDate);
+  const utcDays = (value: string) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return Date.UTC(year, month - 1, day) / 86_400_000;
+  };
+  return {
+    baselineBudget,
+    currentBudget,
+    actualSpend,
+    // Positive means under the approved budget; negative means overspend.
+    budgetVariance: baselineBudget - actualSpend,
+    // Positive means the current plan's budget is higher than the baseline.
+    budgetChange: currentBudget - baselineBudget,
+    baselineStartDate: calendarDate(baseline.baselineStartDate),
+    baselineTargetEndDate: baselineEndDate,
+    forecastEndDate,
+    // Positive means forecast/actual completion is earlier than the baseline.
+    scheduleVarianceDays: utcDays(baselineEndDate) - utcDays(forecastEndDate),
+  };
 }
 
 function displayName(person: { firstName?: string | null; lastName?: string | null; username?: string | null }) {
@@ -189,6 +233,9 @@ async function writeProjectAudit(
 }
 
 function sendMutationError(error: unknown, res: Response) {
+  if (error instanceof ProjectApprovalError) {
+    return res.status(409).json({ message: error.message });
+  }
   if (error instanceof ProjectInputError) {
     return res.status(400).json({ message: error.message });
   }
@@ -382,6 +429,74 @@ export function registerProjectManagementRoutes(
       const project = await getProjectDetail(req.params.id);
       if (!project) return res.status(404).json({ message: "Project not found." });
       res.json(project);
+    } catch (error) {
+      sendMutationError(error, res);
+    }
+  });
+
+  app.get("/api/projects/:id/baselines", requireAuth, enabled, async (req, res) => {
+    try {
+      const [project] = await db.select().from(projects).where(eq(projects.id, req.params.id)).limit(1);
+      if (!project) return res.status(404).json({ message: "Project not found." });
+      const rows = await db.select({
+        baseline: projectBaselines,
+        approvedByName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${users.username})`,
+      }).from(projectBaselines).leftJoin(users, eq(projectBaselines.approvedBy, users.id))
+        .where(eq(projectBaselines.projectId, project.id))
+        .orderBy(desc(projectBaselines.createdAt), desc(projectBaselines.id));
+      const baselines = rows.map(({ baseline, approvedByName }) => ({ ...baseline, approvedByName }));
+      const activeBaseline = baselines[0] ?? null;
+      res.json({
+        baselines,
+        activeBaseline,
+        variance: activeBaseline ? calculateProjectBaselineVariance(project, activeBaseline) : null,
+      });
+    } catch (error) {
+      sendMutationError(error, res);
+    }
+  });
+
+  app.post("/api/projects/:id/baselines", requireAuth, enabled, async (req: AuthRequest, res) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "User not authenticated." });
+    if (!await userCanManageProject(userId, req.params.id)) {
+      return res.status(403).json({ message: "Only an assigned project manager or an administrator can approve and lock a project baseline." });
+    }
+    const bodySchema = z.object({
+      approvalConfirmed: z.literal(true),
+      revisionNote: z.string().trim().max(2000).optional(),
+    }).strict();
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Confirm approval of the plan before locking its baseline.", errors: parsed.error.issues });
+
+    try {
+      const baseline = await db.transaction(async tx => {
+        const [project] = await tx.select().from(projects).where(eq(projects.id, req.params.id)).for("update");
+        if (!project) throw new ProjectNotFoundError();
+        const [latest] = await tx.select().from(projectBaselines)
+          .where(eq(projectBaselines.projectId, project.id))
+          .orderBy(desc(projectBaselines.createdAt), desc(projectBaselines.id))
+          .limit(1);
+        const revisionNote = parsed.data.revisionNote?.trim();
+        if (latest && (!revisionNote || revisionNote.length < 10)) {
+          throw new ProjectApprovalError("A reason of at least 10 characters is required when approving a revised baseline.");
+        }
+        const [created] = await tx.insert(projectBaselines).values({
+          projectId: project.id,
+          versionNumber: nextProjectBaselineVersion(latest?.versionNumber),
+          baselineBudget: project.budget,
+          baselineStartDate: calendarDate(project.startDate),
+          baselineTargetEndDate: calendarDate(project.targetEndDate),
+          approvedBy: userId,
+          revisionNote: revisionNote || "Initial planning approval",
+        }).returning();
+        return created;
+      });
+      await writeProjectAudit(
+        userId, "UPDATE", req.params.id, `${baseline.versionNumber} baseline locked`,
+        req, undefined, baseline,
+      );
+      res.status(201).json(baseline);
     } catch (error) {
       sendMutationError(error, res);
     }

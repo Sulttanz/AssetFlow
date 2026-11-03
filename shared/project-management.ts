@@ -131,7 +131,11 @@ export const projectRiskInputSchema = z.object({
   category: z.enum(PROJECT_RISK_CATEGORIES).default("Technical"),
   probability: z.coerce.number().int().min(1).max(5),
   impact: z.coerce.number().int().min(1).max(5),
+  residualProbability: z.coerce.number().int().min(1).max(5).nullable().optional(),
+  residualImpact: z.coerce.number().int().min(1).max(5).nullable().optional(),
   mitigationStrategy: z.string().trim().max(10000).nullable().optional(),
+  contingencyPlan: z.string().trim().max(10000).nullable().optional(),
+  reviewDate: projectDate.nullable().optional(),
   status: z.enum(PROJECT_RISK_STATUSES).default("Identified"),
   ownerId: z.string().trim().min(1).nullable().optional(),
 }).strict();

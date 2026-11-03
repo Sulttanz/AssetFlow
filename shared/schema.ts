@@ -113,6 +113,23 @@ export const projects = pgTable("projects", {
   index("projects_created_by_idx").on(table.createdBy),
 ]);
 
+export const projectBaselines = pgTable("project_baselines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  versionNumber: varchar("version_number", { length: 20 }).notNull(),
+  baselineBudget: decimal("baseline_budget", { precision: 12, scale: 2 }).notNull(),
+  baselineStartDate: date("baseline_start_date").notNull(),
+  baselineTargetEndDate: date("baseline_target_end_date").notNull(),
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: "set null" }),
+  revisionNote: text("revision_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("project_baselines_project_version_uq").on(table.projectId, table.versionNumber),
+  index("project_baselines_project_created_idx").on(table.projectId, table.createdAt),
+  check("project_baselines_budget_nonnegative_check", sql`${table.baselineBudget} >= 0`),
+  check("project_baselines_target_after_start_check", sql`${table.baselineTargetEndDate} >= ${table.baselineStartDate}`),
+]);
+
 export const projectManagers = pgTable("project_managers", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -188,7 +205,11 @@ export const projectRisks = pgTable("project_risks", {
   probability: integer("probability").notNull(),
   impact: integer("impact").notNull(),
   riskScore: integer("risk_score").generatedAlwaysAs(sql`probability * impact`),
+  residualProbability: integer("residual_probability"),
+  residualImpact: integer("residual_impact"),
   mitigationStrategy: text("mitigation_strategy"),
+  contingencyPlan: text("contingency_plan"),
+  reviewDate: date("review_date"),
   status: varchar("status", { length: 50 }).notNull().default("Identified"),
   ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
@@ -197,6 +218,8 @@ export const projectRisks = pgTable("project_risks", {
   check("project_risks_category_check", sql`${table.category} IN ('Technical', 'Financial', 'Operational', 'Schedule', 'Compliance')`),
   check("project_risks_probability_check", sql`${table.probability} BETWEEN 1 AND 5`),
   check("project_risks_impact_check", sql`${table.impact} BETWEEN 1 AND 5`),
+  check("project_risks_residual_probability_check", sql`${table.residualProbability} IS NULL OR ${table.residualProbability} BETWEEN 1 AND 5`),
+  check("project_risks_residual_impact_check", sql`${table.residualImpact} IS NULL OR ${table.residualImpact} BETWEEN 1 AND 5`),
   check("project_risks_status_check", sql`${table.status} IN ('Identified', 'Mitigated', 'Accepted', 'Closed')`),
   index("project_risks_project_status_idx").on(table.projectId, table.status),
   index("project_risks_owner_project_idx").on(table.ownerId, table.projectId),

@@ -100,12 +100,47 @@ export interface ProjectRiskRecord {
   probability: number;
   impact: number;
   riskScore: number;
+  residualProbability?: number | null;
+  residualImpact?: number | null;
   mitigationStrategy?: string | null;
+  contingencyPlan?: string | null;
+  reviewDate?: string | null;
   status: ProjectRiskStatus;
   ownerId?: string | null;
   ownerName?: string | null;
   createdAt: string | Date;
   updatedAt: string | Date;
+}
+
+export interface ProjectBaselineRecord {
+  id: string;
+  projectId: string;
+  versionNumber: string;
+  baselineBudget: string | number;
+  baselineStartDate: string;
+  baselineTargetEndDate: string;
+  approvedBy?: string | null;
+  approvedByName?: string | null;
+  revisionNote?: string | null;
+  createdAt: string | Date;
+}
+
+export interface ProjectBaselineVariance {
+  baselineBudget: number;
+  currentBudget: number;
+  actualSpend: number;
+  budgetVariance: number;
+  budgetChange: number;
+  baselineStartDate: string;
+  baselineTargetEndDate: string;
+  forecastEndDate: string;
+  scheduleVarianceDays: number;
+}
+
+export interface ProjectBaselinesResponse {
+  baselines: ProjectBaselineRecord[];
+  activeBaseline: ProjectBaselineRecord | null;
+  variance: ProjectBaselineVariance | null;
 }
 
 export interface ProjectChangeRecord {

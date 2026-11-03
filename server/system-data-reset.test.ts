@@ -106,6 +106,15 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.employeeAccessRights, { employeeId: employee, applicationName: "Fixture", privilegeLevel: "Viewer", businessJustification: "Integration fixture" });
     await seed(s.employeeOffboardingClearances, { employeeId: employee, offboardingDate: "2026-10-22", clearanceType: "physical_asset_return", status: "verified", signedBy: adminId });
     const project = await seed(s.projects, { name: "Fixture project" });
+    await seed(s.projectBaselines, {
+      projectId: project,
+      versionNumber: "v1.0",
+      baselineBudget: "100.00",
+      baselineStartDate: "2026-10-01",
+      baselineTargetEndDate: "2026-12-31",
+      approvedBy: adminId,
+      revisionNote: "Initial planning approval",
+    });
     await seed(s.projectManagers, { projectId: project, userId: adminId, isPrimary: true });
     await seed(s.projectTeamMembers, { projectId: project, userId: otherId, roleTitle: "Fixture analyst" });
     await seed(s.projectMilestones, { projectId: project, title: "Fixture milestone", dueDate: new Date("2026-11-01T12:00:00.000Z") });
