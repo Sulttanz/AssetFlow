@@ -54,6 +54,7 @@ import { registerNetworkTopologyRoutes } from "./network-topology";
 import { registerBackupGovernanceRoutes } from "./backup-governance";
 import { registerItComponentsComplianceRoutes } from "./it-components-compliance-report";
 import { registerDataMigrationRoutes } from "./data-migration-center";
+import { registerProjectManagementRoutes } from "./project-management";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -148,6 +149,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/reports/changes",
     "/reports/kb-articles",
   ].map((prefix) => [prefix, "itsm"] as [string, string]),
+  ["/projects", "project_management"],
   ["/risks", "risk_management"],
   ["/risk-users", "risk_management"],
 ];
@@ -308,6 +310,8 @@ const PERSONA_PERMISSION_DEFINITIONS = [
   { name: "change_view_all", description: "View all change requests and CAB impact summaries", resource: "changes", action: "view" },
   { name: "change_approve", description: "Approve or reject assigned change requests", resource: "changes", action: "approve" },
   { name: "change_manage", description: "Manage change requests and CAB assignments", resource: "changes", action: "manage" },
+  { name: "project_view", description: "View project plans, members, milestones, and linked assets", resource: "projects", action: "view" },
+  { name: "project_manage", description: "Create and update project plans, assignments, milestones, and linked assets", resource: "projects", action: "manage" },
 ] as const;
 
 const PERSONA_ROLE_PERMISSIONS = {
@@ -329,6 +333,7 @@ const PERSONA_ROLE_PERMISSIONS = {
     "change_view_all", "change_approve", "change_manage", "cmdb_view", "finance_view",
     "purchase_order_create", "purchase_order_update", "purchase_order_delete",
     "budget_create", "budget_update", "budget_delete",
+    "project_view", "project_manage",
   ],
   auditor: ["asset_view", "access_governance_view", "audit_view"],
 } as const;
@@ -465,6 +470,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })();
     });
   });
+
+  registerProjectManagementRoutes(app, requireAuth, requireModule);
 
   const createCabEventStreamHandler = (eventType: "cab" | "access") =>
     async (req: any, res: any) => {
@@ -1159,7 +1166,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/incidents/projects", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
     try {
       const projectData = insertProjectSchema.pick({ name: true, description: true }).parse(req.body);
-      const [project] = await db.insert(projects).values(projectData).returning({ id: projects.id, name: projects.name });
+      const [project] = await db.insert(projects).values({
+        ...projectData,
+        title: projectData.name,
+        createdBy: req.user?.id ?? null,
+      }).returning({ id: projects.id, name: projects.name });
       res.status(201).json(project);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid project", errors: error.issues });

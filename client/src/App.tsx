@@ -14,6 +14,7 @@ import Sidebar from "@/components/layout/sidebar";
 import { getPersonaHomePath } from "@shared/personas";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
+const Projects = lazy(() => import("@/pages/projects"));
 const Assets = lazy(() => import("@/pages/assets"));
 const Employees = lazy(() => import("@/pages/employees"));
 const AccessGovernance = lazy(() => import("@/pages/access-governance"));
@@ -102,6 +103,7 @@ function Router() {
                 <Switch>
                   <ProtectedRoute path="/" component={HomeRedirect} />
                   <ProtectedRoute path="/dashboard" component={Dashboard} />
+                  <ProtectedRoute path="/projects" component={Projects} requiredModule="project_management" />
                   <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "asset_create", "compliance_view"]} />
                   <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredPermission="my_assets_view" />

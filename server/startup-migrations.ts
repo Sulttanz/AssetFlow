@@ -17,13 +17,55 @@ function quoteSchemaIdentifier(identifier: string): string {
 }
 
 export function assertAdditiveMigration(sql: string, name: string): void {
-  const executableSql = sql
-    .replace(/--[^\n]*/g, "")
-    .trim();
-  const statements = executableSql
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
+  const executableSql = sql.replace(/--[^\n]*/g, "").trim();
+  const statements: string[] = [];
+  let statement = "";
+  let dollarTag: string | undefined;
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < executableSql.length; index += 1) {
+    const char = executableSql[index];
+    if (dollarTag) {
+      if (executableSql.startsWith(dollarTag, index)) {
+        statement += dollarTag;
+        index += dollarTag.length - 1;
+        dollarTag = undefined;
+      } else {
+        statement += char;
+      }
+      continue;
+    }
+    if (quote) {
+      statement += char;
+      if (char === quote && executableSql[index + 1] === quote) {
+        statement += executableSql[index + 1];
+        index += 1;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      statement += char;
+      continue;
+    }
+    if (char === "$") {
+      const tag = /^\$[a-z_][a-z0-9_]*\$|^\$\$/i.exec(executableSql.slice(index))?.[0];
+      if (tag) {
+        dollarTag = tag;
+        statement += tag;
+        index += tag.length - 1;
+        continue;
+      }
+    }
+    if (char === ";") {
+      if (statement.trim()) statements.push(statement.trim());
+      statement = "";
+    } else {
+      statement += char;
+    }
+  }
+  if (statement.trim()) statements.push(statement.trim());
 
   if (!statements.length) throw new Error(`Migration ${name} is empty.`);
 
@@ -38,10 +80,13 @@ export function assertAdditiveMigration(sql: string, name: string): void {
       /^CREATE TABLE IF NOT EXISTS\b/i.test(statement) ||
       /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\b/i.test(statement) ||
       /^ALTER TABLE\b[\s\S]*\bADD COLUMN IF NOT EXISTS\b/i.test(statement) ||
-      /^INSERT INTO\b[\s\S]*\bON CONFLICT\b[\s\S]*\bDO NOTHING$/i.test(statement);
+      /^INSERT INTO\b[\s\S]*\bON CONFLICT\b[\s\S]*\bDO NOTHING$/i.test(statement) ||
+      /^INSERT INTO module_settings\s*\(module_key,\s*enabled\)\s*VALUES\s*\('project_management',\s*true\)\s*ON CONFLICT\s*\(module_key\)\s*DO UPDATE SET enabled = true\s+WHERE module_settings\.updated_by IS NULL$/i.test(statement) ||
+      /^CREATE OR REPLACE FUNCTION project_management_touch_updated_at\(\)\s+RETURNS trigger\s+LANGUAGE plpgsql\s+AS \$\$\s*BEGIN\s*NEW\.updated_at\s*:=\s*CURRENT_TIMESTAMP;\s*RETURN NEW;\s*END;\s*\$\$$/i.test(statement) ||
+      /^DO \$project_management\$\s*BEGIN\s*IF NOT EXISTS\s*\(\s*SELECT 1 FROM pg_trigger\s+WHERE tgname = 'project_management_updated_at'\s+AND tgrelid = 'projects'::regclass\s*\)\s*THEN\s*CREATE TRIGGER project_management_updated_at\s+BEFORE UPDATE ON projects\s+FOR EACH ROW\s+EXECUTE FUNCTION project_management_touch_updated_at\(\);\s*END IF;\s*END;\s*\$project_management\$$/i.test(statement);
     if (!allowed) {
       throw new Error(
-        `Migration ${name} contains a non-additive or unsupported statement. Only CREATE ... IF NOT EXISTS, ALTER TABLE ... ADD COLUMN IF NOT EXISTS, and INSERT ... ON CONFLICT DO NOTHING are allowed.`,
+        `Migration ${name} contains a non-additive or unsupported statement: ${statement.slice(0, 180)}. Only approved additive schema statements and explicitly allowlisted updates are allowed.`,
       );
     }
   }

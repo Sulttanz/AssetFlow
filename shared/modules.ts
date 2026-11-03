@@ -37,9 +37,9 @@ export const MODULE_REGISTRY: ModuleDefinition[] = [
   {
     key: "project_management",
     label: "Project Management",
-    description: "Upcoming project planning and tracking module.",
+    description: "Plan projects, milestones, teams, budgets, and linked IT assets.",
     core: false,
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
 ];
 

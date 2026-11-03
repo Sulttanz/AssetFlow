@@ -5,6 +5,7 @@
  */
 export const RESET_BUSINESS_TABLES = [
   "employee_access_rights", "employee_offboarding_clearances", "employees",
+  "project_milestones", "project_managers", "project_team_members", "project_assets",
   "projects", "assets", "software_license_allocations", "assignments", "asset_handovers",
   "vendors", "consumables", "consumable_stock_movements", "consumable_dispatch_log",
   "purchase_orders", "purchase_order_items", "purchase_order_item_receipts", "budgets",

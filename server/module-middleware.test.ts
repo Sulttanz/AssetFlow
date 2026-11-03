@@ -28,7 +28,7 @@ describe("module API guard", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("uses the registry default when no database setting exists", async () => {
+  it("enables project management by default when no database setting exists", async () => {
     getModuleSetting.mockResolvedValue(undefined);
     const status = vi.fn();
     const json = vi.fn();
@@ -40,10 +40,8 @@ describe("module API guard", () => {
       next,
     );
 
-    expect(json).toHaveBeenCalledWith({
-      error: "Module project_management is currently disabled.",
-    });
-    expect(next).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+    expect(json).not.toHaveBeenCalled();
   });
 
   it("maps module API namespaces including older endpoint families", () => {

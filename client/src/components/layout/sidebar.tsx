@@ -45,6 +45,7 @@ import {
   Boxes,
   Network,
   DatabaseBackup,
+  FolderKanban,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -152,6 +153,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
         { name: "Contracts", href: "/contracts", icon: FileSignature, current: location === "/contracts" },
       ]
+    },
+    {
+      title: "Project Management",
+      moduleKey: "project_management",
+      items: [
+        { name: "Projects", href: "/projects", icon: FolderKanban, current: location === "/projects" },
+      ],
     },
     {
       title: "Operations",

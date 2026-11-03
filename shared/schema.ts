@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { catalogFieldSchema, type CatalogField } from "./service-catalog";
@@ -87,14 +87,81 @@ export const departments = pgTable("departments", {
 
 export const projects = pgTable("projects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // `name` remains for older ITSM intake records; new project work uses title.
   name: text("name").notNull().unique(),
+  title: varchar("title", { length: 255 }).notNull().default(""),
   description: text("description"),
+  status: varchar("status", { length: 50 }).notNull().default("Planning"),
+  healthStatus: varchar("health_status", { length: 50 }).notNull().default("On Track"),
+  startDate: timestamp("start_date", { withTimezone: true }).notNull().default(sql`now()`),
+  targetEndDate: timestamp("target_end_date", { withTimezone: true }).notNull().default(sql`now()`),
+  actualEndDate: timestamp("actual_end_date", { withTimezone: true }),
+  budget: decimal("budget", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").default(sql`now()`),
-});
-export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true });
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("projects_status_check", sql`${table.status} IN ('Planning', 'Active', 'On Hold', 'Completed', 'Cancelled')`),
+  check("projects_health_status_check", sql`${table.healthStatus} IN ('On Track', 'At Risk', 'Delayed')`),
+  check("projects_target_end_after_start_check", sql`${table.targetEndDate} >= ${table.startDate}`),
+  check("projects_budget_nonnegative_check", sql`${table.budget} >= 0`),
+  index("projects_status_idx").on(table.status),
+  index("projects_health_status_idx").on(table.healthStatus),
+  index("projects_created_by_idx").on(table.createdBy),
+]);
+
+export const projectManagers = pgTable("project_managers", {
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  isPrimary: boolean("is_primary").notNull().default(false),
+}, table => [
+  primaryKey({ columns: [table.projectId, table.userId], name: "project_managers_pk" }),
+  uniqueIndex("project_managers_one_primary_idx").on(table.projectId).where(sql`${table.isPrimary} = true`),
+  index("project_managers_user_project_idx").on(table.userId, table.projectId),
+]);
+
+export const projectTeamMembers = pgTable("project_team_members", {
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  roleTitle: varchar("role_title", { length: 100 }).notNull().default("Team Member"),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  primaryKey({ columns: [table.projectId, table.userId], name: "project_team_members_pk" }),
+  index("project_team_members_user_project_idx").on(table.userId, table.projectId),
+]);
+
+export const projectMilestones = pgTable("project_milestones", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  dueDate: timestamp("due_date", { withTimezone: true }).notNull(),
+  completionDate: timestamp("completion_date", { withTimezone: true }),
+  status: varchar("status", { length: 50 }).notNull().default("Pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("project_milestones_status_check", sql`${table.status} IN ('Pending', 'In Progress', 'Completed', 'Delayed')`),
+  index("project_milestones_project_due_idx").on(table.projectId, table.dueDate),
+]);
+
+export const projectAssets = pgTable("project_assets", {
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  associationType: varchar("association_type", { length: 50 }).notNull().default("Deployed"),
+}, table => [
+  primaryKey({ columns: [table.projectId, table.assetId], name: "project_assets_pk" }),
+  check("project_assets_association_type_check", sql`${table.associationType} IN ('Deployed', 'Decommissioned', 'Upgraded')`),
+  index("project_assets_asset_project_idx").on(table.assetId, table.projectId),
+]);
+
+export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true, updatedAt: true });
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = z.infer<typeof insertProjectSchema>;
+export type ProjectManager = typeof projectManagers.$inferSelect;
+export type ProjectTeamMember = typeof projectTeamMembers.$inferSelect;
+export type ProjectMilestone = typeof projectMilestones.$inferSelect;
+export type ProjectAsset = typeof projectAssets.$inferSelect;
 
 export const assets = pgTable("assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

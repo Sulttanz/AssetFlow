@@ -86,4 +86,15 @@ describe("persona access policy", () => {
     expect(isPersonaApiAllowed(["end_user"], [], "/dashboard/executive", "GET")).toBe(false);
     expect(isPersonaApiAllowed(["auditor"], [], "/dashboard/executive", "GET")).toBe(false);
   });
+
+  it("grants project workspace access to IT managers while keeping end users out", () => {
+    expect(isPersonaPageAllowed(["it_manager"], [], "/projects")).toBe(true);
+    expect(isPersonaApiAllowed(["it_manager"], [], "/projects", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["it_manager"], [], "/projects", "POST")).toBe(true);
+    expect(isPersonaPageAllowed(["end_user"], [], "/projects")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/projects", "GET")).toBe(false);
+    expect(isPersonaPageAllowed(["Demo Viewer"], [], "/projects")).toBe(true);
+    expect(isPersonaApiAllowed(["Demo Viewer"], [], "/projects", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["Demo Viewer"], [], "/projects", "DELETE")).toBe(false);
+  });
 });

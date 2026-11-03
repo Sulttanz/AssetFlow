@@ -106,12 +106,16 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.employeeAccessRights, { employeeId: employee, applicationName: "Fixture", privilegeLevel: "Viewer", businessJustification: "Integration fixture" });
     await seed(s.employeeOffboardingClearances, { employeeId: employee, offboardingDate: "2026-10-22", clearanceType: "physical_asset_return", status: "verified", signedBy: adminId });
     const project = await seed(s.projects, { name: "Fixture project" });
+    await seed(s.projectManagers, { projectId: project, userId: adminId, isPrimary: true });
+    await seed(s.projectTeamMembers, { projectId: project, userId: otherId, roleTitle: "Fixture analyst" });
+    await seed(s.projectMilestones, { projectId: project, title: "Fixture milestone", dueDate: new Date("2026-11-01T12:00:00.000Z") });
     const vendor = await seed(s.vendors, { name: "Fixture vendor" });
     const po = await seed(s.purchaseOrders, { poNumber: "RESET-PO", orderDate: "2026-10-22", totalAmount: "10.00", vendorId: vendor });
     const item = await seed(s.purchaseOrderItems, { purchaseOrderId: po, description: "Fixture", unitPrice: "10.00", totalPrice: "10.00" });
     await seed(s.purchaseOrderItemReceipts, { purchaseOrderId: po, purchaseOrderItemId: item });
     await seed(s.budgets, { name: "Fixture budget", fiscalYear: 2026, budgetAmount: "100.00", category: "hardware" });
     const asset = await seed(s.assets, { name: "Fixture asset", type: "laptop", locationId: ids.locations, departmentId: ids.departments });
+    await seed(s.projectAssets, { projectId: project, assetId: asset, associationType: "Deployed" });
     await seed(s.softwareLicenseAllocations, { assetId: asset, employeeId: employee });
     const assignment = await seed(s.assignments, { assetId: asset, employeeId: employee, assignedDate: "2026-10-22" });
     await seed(s.assetHandovers, { handoverNumber: "HO-RESET", type: "Issue / Assignment", employeeId: employee, assetId: asset, assignmentId: assignment, handoverDate: "2026-10-22", condition: "New" });

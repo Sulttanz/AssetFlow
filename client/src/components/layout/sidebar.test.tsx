@@ -29,7 +29,7 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     expect(screen.getAllByTestId(/^section-toggle-/).map(element => element.textContent)).toEqual([
       "Overview", "Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
-      "Organization", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance",
+      "Organization", "Financial", "Project Management", "Operations", "IT Service Management", "Risk Management & Compliance",
       "Analytics & Reports", "Tools", "System",
     ]);
     expect(button("Overview").getAttribute("aria-expanded")).toBe("true");

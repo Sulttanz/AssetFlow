@@ -21,7 +21,7 @@ describe("Demo Viewer restrictions", () => {
       expect(isDemoApiAllowed(path, "GET")).toBe(true);
     }
     for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-      for (const path of ["/api/assets/1", "/api/users/1", "/api/incidents/1", "/api/network-topology/rules/1", "/api/system/clear-data"]) {
+      for (const path of ["/api/assets/1", "/api/users/1", "/api/incidents/1", "/api/network-topology/rules/1", "/api/projects/1", "/api/system/clear-data"]) {
         expect(isDemoApiAllowed(path, method)).toBe(false);
       }
     }
