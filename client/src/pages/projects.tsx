@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, FolderKanban, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { PROJECT_HEALTH_STATUSES, PROJECT_STATUSES, type ProjectMutation } from "@shared/project-management";
-import { isSystemAdministrator } from "@shared/personas";
+import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { useLocation } from "wouter";
 import { ProjectEditorDialog } from "@/components/projects/project-editor-dialog";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
@@ -143,7 +143,8 @@ export default function ProjectsPage() {
   const projects = projectsQuery.data ?? [];
   const options = optionsQuery.data ?? { users: [], assets: [] };
   const isAdmin = user ? isSystemAdministrator(user) : false;
-  const canManage = isAdmin || !!user?.permissions?.includes("project_manage");
+  const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
+  const canManage = mayMutate && (isAdmin || !!user?.permissions?.includes("project_manage"));
 
   const saveMutation = useMutation({
     mutationFn: async ({ id, input }: { id?: string; input: ProjectMutation }) => {
@@ -201,10 +202,10 @@ export default function ProjectsPage() {
 
   const openDetails = (project: ProjectRecord) => setLocation(`/projects/${project.id}`);
 
-  const canEdit = (project: ProjectRecord) => canManage ||
-    project.managers?.some(manager => manager.isPrimary && manager.userId === user?.id);
-  const canDelete = (project: ProjectRecord) => isAdmin ||
-    project.managers?.some(manager => manager.isPrimary && manager.userId === user?.id);
+  const canEdit = (project: ProjectRecord) => mayMutate && (canManage ||
+    project.managers?.some(manager => manager.userId === user?.id));
+  const canDelete = (project: ProjectRecord) => mayMutate && (isAdmin ||
+    project.managers?.some(manager => manager.isPrimary && manager.userId === user?.id));
 
   const summary = useMemo(() => ({
     total: projects.length,

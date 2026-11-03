@@ -16,7 +16,7 @@ import {
   projectMutationSchema,
   type ProjectMutation,
 } from "@shared/project-management";
-import { isSystemAdministrator } from "@shared/personas";
+import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
 import { registerProjectWorkspaceRoutes } from "./project-workspace";
@@ -42,11 +42,13 @@ async function userCanManageProjects(userId: string) {
     storage.getUserRoles(userId),
     storage.getUserPermissions(userId),
   ]);
-  return permissions.includes("project_manage") ||
-    isSystemAdministrator({ roles, permissions });
+  return isPersonaApiAllowed(roles.map(role => role.name), permissions, "/projects", "POST") &&
+    (permissions.includes("project_manage") || isSystemAdministrator({ roles, permissions }));
 }
 
 async function userCanManageProject(userId: string, projectId: string) {
+  const [roles, permissions] = await Promise.all([storage.getUserRoles(userId), storage.getUserPermissions(userId)]);
+  if (!isPersonaApiAllowed(roles.map(role => role.name), permissions, "/projects", "POST")) return false;
   if (await userCanManageProjects(userId)) return true;
   const [manager] = await db.select({ userId: projectManagers.userId }).from(projectManagers)
     .where(and(eq(projectManagers.projectId, projectId), eq(projectManagers.userId, userId)))
@@ -480,6 +482,9 @@ export function registerProjectManagementRoutes(
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "User not authenticated." });
     try {
+      if (!await userCanManageProject(userId, req.params.id)) {
+        return res.status(403).json({ message: "A project-management role is required to delete this project." });
+      }
       const current = await getProjectDetail(req.params.id);
       if (!current) return res.status(404).json({ message: "Project not found." });
       const [admin, primaryManager] = await Promise.all([

@@ -126,6 +126,6 @@ describe("Project command center", () => {
     });
     fireEvent.click(matrixCell);
     expect(matrixCell.getAttribute("aria-pressed")).toBe("true");
-    expect(await screen.findByText("Production outage during cutover")).toBeTruthy();
+    expect((await screen.findAllByText("Production outage during cutover")).length).toBeGreaterThan(0);
   });
 });

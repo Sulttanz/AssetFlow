@@ -119,6 +119,8 @@ export function ProjectRiskRegisterTab({
 
   return (
     <div className="space-y-5">
+      {risksQuery.isLoading && <div role="status" className="rounded-lg border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">Loading project risks…</div>}
+      {risksQuery.isError && <div role="alert" className="flex flex-col gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between"><span>Risk register could not be loaded. {risksQuery.error instanceof Error ? risksQuery.error.message : "Try again."}</span><Button variant="outline" className="min-h-11 border-rose-300 bg-white text-rose-800" onClick={() => risksQuery.refetch()}>Retry</Button></div>}
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
           <div><CardTitle className="text-base">5 × 5 probability / impact matrix</CardTitle><p className="mt-1 text-sm text-muted-foreground">Select a cell to filter the register by risk score.</p></div>
@@ -164,17 +166,23 @@ export function ProjectRiskRegisterTab({
                   <TableCell><Badge variant="outline" className={scoreTone(risk.riskScore)}>{risk.probability} × {risk.impact} = {risk.riskScore}</Badge></TableCell>
                   <TableCell>{risk.ownerName ?? "Unassigned"}</TableCell>
                   <TableCell>{risk.status}</TableCell>
-                  <TableCell className="max-w-64 truncate" title={risk.mitigationStrategy ?? ""}>{risk.mitigationStrategy || "No mitigation recorded"}</TableCell>
+                  <TableCell className="max-w-80">
+                    {risk.mitigationStrategy ? <p className="mb-2 line-clamp-2 text-sm" title={risk.mitigationStrategy}>{risk.mitigationStrategy}</p> : <p className="mb-2 text-sm text-muted-foreground">No mitigation recorded</p>}
+                    {!canManage && risk.ownerId === userId && <OwnerResponse risk={risk} value={mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? ""}
+                      pending={ownerUpdateMutation.isPending}
+                      onChange={value => setMitigationDrafts(current => ({ ...current, [risk.id]: value }))}
+                      onSave={status => ownerUpdateMutation.mutate({ riskId: risk.id, status, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
+                  </TableCell>
                   {canManage && <TableCell><div className="flex justify-end gap-1"><Button variant="outline" className="min-h-11" onClick={() => openEdit(risk)}>Edit</Button><Button variant="ghost" size="icon" aria-label={`Delete risk ${risk.title}`} className="min-h-11 min-w-11 text-rose-700" onClick={() => {
                     if (window.confirm(`Delete risk "${risk.title}"?`)) deleteMutation.mutate(risk);
                   }}><Trash2 className="h-4 w-4" /></Button></div></TableCell>}
                 </TableRow>)}
-                {!filteredRisks.length && <TableRow><TableCell colSpan={canManage ? 7 : 6} className="py-10 text-center text-muted-foreground">No risks match this view.</TableCell></TableRow>}
+                {!risksQuery.isLoading && !risksQuery.isError && !filteredRisks.length && <TableRow><TableCell colSpan={canManage ? 7 : 6} className="py-10 text-center text-muted-foreground">No risks match this view.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>
           <div className="space-y-3 p-3 lg:hidden">
-            {filteredRisks.map(risk => {
+            {!risksQuery.isLoading && !risksQuery.isError && filteredRisks.map(risk => {
               const isOwner = risk.ownerId === userId;
               return <article key={risk.id} className="space-y-3 rounded-lg border border-slate-200 p-3">
                 <div className="flex items-start justify-between gap-2"><div><h3 className="font-medium">{risk.title}</h3><p className="text-xs text-muted-foreground">{risk.category} · {risk.ownerName ?? "Unassigned"}</p></div><Badge variant="outline" className={scoreTone(risk.riskScore)}>{risk.riskScore}</Badge></div>
@@ -184,11 +192,12 @@ export function ProjectRiskRegisterTab({
                   if (window.confirm(`Delete risk "${risk.title}"?`)) deleteMutation.mutate(risk);
                 }}>Delete</Button></div>}
                 {!canManage && isOwner && <OwnerResponse risk={risk} value={mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? ""}
+                  pending={ownerUpdateMutation.isPending}
                   onChange={value => setMitigationDrafts(current => ({ ...current, [risk.id]: value }))}
                   onSave={status => ownerUpdateMutation.mutate({ riskId: risk.id, status, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
               </article>;
             })}
-            {!filteredRisks.length && <p className="py-8 text-center text-sm text-muted-foreground">No risks match this view.</p>}
+            {!risksQuery.isLoading && !risksQuery.isError && !filteredRisks.length && <p className="py-8 text-center text-sm text-muted-foreground">No risks match this view.</p>}
           </div>
         </CardContent>
       </Card>
@@ -216,11 +225,12 @@ export function ProjectRiskRegisterTab({
   );
 }
 
-function OwnerResponse({ risk, value, onChange, onSave }: {
+function OwnerResponse({ risk, value, onChange, onSave, pending }: {
   risk: ProjectRiskRecord;
   value: string;
   onChange: (value: string) => void;
   onSave: (status: ProjectRiskStatus) => void;
+  pending: boolean;
 }) {
   const [status, setStatus] = useState<ProjectRiskStatus>(risk.status);
   return <div className="space-y-2 border-t pt-3">
@@ -228,7 +238,7 @@ function OwnerResponse({ risk, value, onChange, onSave }: {
     <Textarea id={`owner-mitigation-${risk.id}`} value={value} onChange={event => onChange(event.target.value)} />
     <div className="flex flex-wrap items-end gap-2">
       <div className="min-w-40 flex-1 space-y-1"><Label>Status</Label><Select value={status} onValueChange={value => setStatus(value as ProjectRiskStatus)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{PROJECT_RISK_STATUSES.map(item => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>
-      <Button className="min-h-11" onClick={() => onSave(status)}>Save response</Button>
+       <Button className="min-h-11" disabled={pending} onClick={() => onSave(status)}>{pending ? "Saving…" : "Save response"}</Button>
     </div>
   </div>;
 }

@@ -95,6 +95,7 @@ describe("on-prem startup migrations", () => {
       "20261111_enterprise_project_management.sql",
       "20261112_project_delivery_governance.sql",
       "20261113_project_document_versions.sql",
+      "20261114_project_workspace_timestamps.sql",
     ]) {
       const migration = await readFile(path.resolve(process.cwd(), "migrations/onprem", name), "utf8");
       expect(() => assertAdditiveMigration(migration, name)).not.toThrow();

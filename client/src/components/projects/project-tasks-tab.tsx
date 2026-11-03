@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2, UserRound } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { PROJECT_TASK_PRIORITIES, PROJECT_TASK_STATUSES, projectTaskInputSchema, type ProjectTaskInput } from "@shared/project-management";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarDateField } from "@/components/ui/calendar-date-field";
@@ -50,6 +51,11 @@ function priorityTone(priority: string) {
   if (priority === "High") return "border-amber-200 bg-amber-50 text-amber-800";
   if (priority === "Low") return "border-slate-200 bg-slate-100 text-slate-700";
   return "border-blue-200 bg-blue-50 text-blue-700";
+}
+
+function initials(name?: string | null) {
+  if (!name?.trim()) return "UN";
+  return name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
 }
 
 export function ProjectTasksTab({
@@ -140,7 +146,12 @@ export function ProjectTasksTab({
         {canManage && <Button className="min-h-11" onClick={openNew}><Plus className="mr-2 h-4 w-4" />Add task</Button>}
       </div>
 
-      {tasksQuery.isLoading ? <p role="status" className="py-8 text-center text-sm text-muted-foreground">Loading tasks…</p> : (
+      {tasksQuery.isLoading ? <div role="status" className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">{PROJECT_TASK_STATUSES.map(status => <Card key={status} className="min-h-48 animate-pulse border-blue-100 bg-blue-50/40 shadow-none"><CardHeader className="p-3"><CardTitle className="text-sm text-blue-900/50">{status}</CardTitle></CardHeader><CardContent className="space-y-2 p-2"><div className="h-20 rounded-lg bg-blue-100/60" /><div className="h-20 rounded-lg bg-blue-100/60" /></CardContent></Card>)}</div> : tasksQuery.isError ? (
+        <div role="alert" className="flex flex-col gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 sm:flex-row sm:items-center sm:justify-between">
+          <span>Tasks could not be loaded. {tasksQuery.error instanceof Error ? tasksQuery.error.message : "Try again."}</span>
+          <Button variant="outline" className="min-h-11 border-rose-300 bg-white text-rose-800" onClick={() => tasksQuery.refetch()}>Retry</Button>
+        </div>
+      ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {PROJECT_TASK_STATUSES.map(status => {
             const items = visibleTasks.filter(task => task.status === status);
@@ -167,7 +178,12 @@ export function ProjectTasksTab({
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline" className={priorityTone(task.priority)}>{task.priority}</Badge>
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground"><UserRound className="h-3.5 w-3.5" />{task.assigneeName || "Unassigned"}</span>
+                          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                            <Avatar className="h-7 w-7 shrink-0 border border-blue-100 bg-blue-50 text-[10px] font-semibold text-blue-800">
+                              <AvatarFallback className="bg-blue-50 text-blue-800">{initials(task.assigneeName)}</AvatarFallback>
+                            </Avatar>
+                            <span className="truncate">{task.assigneeName || "Unassigned"}</span>
+                          </span>
                         </div>
                         {canUpdate && <Select value={task.status} onValueChange={value => patchMutation.mutate({ taskId: task.id, values: { status: value as ProjectTaskStatus } })}>
                           <SelectTrigger aria-label={`Status for ${task.title}`} className="min-h-11"><SelectValue /></SelectTrigger>

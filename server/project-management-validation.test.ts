@@ -5,7 +5,9 @@ import {
   projectMilestoneUpdateSchema,
   projectMutationSchema,
   projectRiskInputSchema,
+  projectRiskUpdateSchema,
   projectTaskInputSchema,
+  projectTaskUpdateSchema,
   projectTaskWorkUpdateSchema,
 } from "@shared/project-management";
 
@@ -72,6 +74,8 @@ describe("project mutation validation", () => {
     expect(projectTaskInputSchema.safeParse({ title: "Bad estimate", estimatedHours: -1 }).success).toBe(false);
     expect(projectTaskWorkUpdateSchema.safeParse({ status: "In Progress", loggedHours: 2 }).success).toBe(true);
     expect(projectTaskWorkUpdateSchema.safeParse({ assigneeId: "another-user" }).success).toBe(false);
+    expect(projectTaskUpdateSchema.parse({ status: "Done" })).toEqual({ status: "Done" });
+    expect(projectRiskUpdateSchema.parse({ mitigationStrategy: "Rollback tested" })).toEqual({ mitigationStrategy: "Rollback tested" });
   });
 
   it("calculates risk scores only from bounded probability and impact values", () => {

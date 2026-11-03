@@ -107,7 +107,15 @@ export const projectTaskInputSchema = z.object({
   sortOrder: z.coerce.number().int().min(0).max(1_000_000).default(0),
 }).strict();
 
-export const projectTaskUpdateSchema = projectTaskInputSchema.partial().strict();
+// PATCH must not apply creation defaults to omitted fields (Zod preserves
+// defaults inside optional fields). A status change must never reset hours.
+export const projectTaskUpdateSchema = projectTaskInputSchema.partial().extend({
+  status: z.enum(PROJECT_TASK_STATUSES).optional(),
+  priority: z.enum(PROJECT_TASK_PRIORITIES).optional(),
+  estimatedHours: z.coerce.number().finite().min(0).max(9999.99).optional(),
+  loggedHours: z.coerce.number().finite().min(0).max(9999.99).optional(),
+  sortOrder: z.coerce.number().int().min(0).max(1_000_000).optional(),
+}).strict().refine(value => Object.keys(value).length > 0, "Provide a task update.");
 export const projectTaskWorkUpdateSchema = z.object({
   status: z.enum(PROJECT_TASK_STATUSES).optional(),
   loggedHours: z.coerce.number().finite().min(0).max(9999.99).optional(),
@@ -128,7 +136,10 @@ export const projectRiskInputSchema = z.object({
   ownerId: z.string().trim().min(1).nullable().optional(),
 }).strict();
 
-export const projectRiskUpdateSchema = projectRiskInputSchema.partial().strict();
+export const projectRiskUpdateSchema = projectRiskInputSchema.partial().extend({
+  category: z.enum(PROJECT_RISK_CATEGORIES).optional(),
+  status: z.enum(PROJECT_RISK_STATUSES).optional(),
+}).strict().refine(value => Object.keys(value).length > 0, "Provide a risk update.");
 export const projectChangeInputSchema = z.object({
   rfcNumber: z.string().trim().min(1).max(50),
   title: z.string().trim().min(1).max(255),
@@ -148,6 +159,11 @@ export const projectDocumentMetadataSchema = z.object({
   version: z.string().trim().min(1).max(50).default("1.0"),
   category: z.enum(PROJECT_DOCUMENT_CATEGORIES).default("Charter"),
 }).strict();
+export const projectDocumentUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  version: z.string().trim().min(1).max(50).optional(),
+  category: z.enum(PROJECT_DOCUMENT_CATEGORIES).optional(),
+}).strict().refine(value => Object.keys(value).length > 0, "Provide a document metadata update.");
 
 export type ProjectMutation = z.infer<typeof projectMutationSchema>;
 export type ProjectTaskInput = z.infer<typeof projectTaskInputSchema>;

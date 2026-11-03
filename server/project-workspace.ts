@@ -1,7 +1,7 @@
 import type { Express, Request, RequestHandler, Response } from "express";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { and, count, desc, eq, getTableColumns, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -22,6 +22,7 @@ import {
   projectChangeStatusSchema,
   projectChangeUpdateSchema,
   projectDocumentMetadataSchema,
+  projectDocumentUpdateSchema,
   projectRiskInputSchema,
   projectRiskUpdateSchema,
   projectTaskInputSchema,
@@ -29,7 +30,7 @@ import {
   projectTaskUpdateSchema,
   projectTaskWorkUpdateSchema,
 } from "@shared/project-management";
-import { isSystemAdministrator } from "@shared/personas";
+import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
 
@@ -78,6 +79,7 @@ async function access(userId: string) {
   return {
     roles,
     permissions,
+    mutable: isPersonaApiAllowed(roles.map(role => role.name), permissions, "/projects", "POST"),
     admin: isSystemAdministrator({ roles, permissions }),
     globalManager: permissions.includes("project_manage") || isSystemAdministrator({ roles, permissions }),
     globalViewer: permissions.includes("project_view") || permissions.includes("project_manage") ||
@@ -108,7 +110,9 @@ async function canViewProject(userId: string, projectId: string) {
 }
 
 async function canManageProject(userId: string, projectId: string) {
-  if ((await access(userId)).globalManager) return true;
+  const rights = await access(userId);
+  if (!rights.mutable) return false;
+  if (rights.globalManager) return true;
   const [manager] = await db.select({ projectId: projectManagers.projectId }).from(projectManagers)
     .where(and(eq(projectManagers.projectId, projectId), eq(projectManagers.userId, userId)))
     .limit(1);
@@ -120,11 +124,14 @@ async function requireProjectView(userId: string | undefined, projectId: string,
     res.status(401).json({ message: "Authentication required." });
     return false;
   }
-  if (!await canViewProject(userId, projectId)) {
+  try {
+    if (await canViewProject(userId, projectId)) return true;
     res.status(403).json({ message: "Project access is required." });
     return false;
+  } catch (error) {
+    sendError(error, res);
+    return false;
   }
-  return true;
 }
 
 async function requireProjectManager(userId: string | undefined, projectId: string, res: Response) {
@@ -132,11 +139,14 @@ async function requireProjectManager(userId: string | undefined, projectId: stri
     res.status(401).json({ message: "Authentication required." });
     return false;
   }
-  if (!await canManageProject(userId, projectId)) {
+  try {
+    if (await canManageProject(userId, projectId)) return true;
     res.status(403).json({ message: "Only an assigned project manager or administrator can make this change." });
     return false;
+  } catch (error) {
+    sendError(error, res);
+    return false;
   }
-  return true;
 }
 
 async function writeAudit(
@@ -162,7 +172,6 @@ async function writeAudit(
     userAgent: req.get("user-agent") ?? null,
   });
 }
-
 function sendError(error: unknown, res: Response) {
   if (error instanceof WorkspaceError) return res.status(error.status).json({ message: error.message });
   if (error instanceof z.ZodError) return res.status(400).json({ message: error.issues[0]?.message ?? "Invalid project data.", errors: error.issues });
@@ -276,6 +285,7 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
     const actorId = req.user?.id;
     if (!actorId) return res.status(401).json({ message: "Authentication required." });
     try {
+      if (!(await access(actorId)).mutable) return res.status(403).json({ message: "Read-only accounts cannot update project tasks." });
       const [current] = await db.select().from(projectTasks).where(and(
         eq(projectTasks.id, req.params.taskId), eq(projectTasks.projectId, req.params.id),
       )).limit(1);
@@ -378,6 +388,7 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
     const actorId = req.user?.id;
     if (!actorId) return res.status(401).json({ message: "Authentication required." });
     try {
+      if (!(await access(actorId)).mutable) return res.status(403).json({ message: "Read-only accounts cannot update project risks." });
       const [current] = await db.select().from(projectRisks).where(and(
         eq(projectRisks.id, req.params.riskId), eq(projectRisks.projectId, req.params.id),
       )).limit(1);
@@ -466,6 +477,9 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
         eq(projectChanges.id, req.params.changeId), eq(projectChanges.projectId, req.params.id),
       )).limit(1);
       if (!current) return res.status(404).json({ message: "Project RFC not found." });
+      if (!["Draft", "Rejected"].includes(current.status)) {
+        return res.status(409).json({ message: "Only draft or rejected RFC content may be edited." });
+      }
       const values = {
         ...input,
         ...(input.reason !== undefined ? { reason: input.reason || null } : {}),
@@ -473,7 +487,10 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
         updatedAt: new Date(),
       };
       const [updated] = await db.transaction(async tx => {
-        const [row] = await tx.update(projectChanges).set(values).where(eq(projectChanges.id, current.id)).returning();
+        const [row] = await tx.update(projectChanges).set(values).where(and(
+          eq(projectChanges.id, current.id), eq(projectChanges.status, current.status),
+        )).returning();
+        if (!row) throw new WorkspaceError(409, "This RFC was updated by another user. Refresh before editing.");
         await writeAudit(tx, req, actorId!, "UPDATE", "project_changes", current.id, current.rfcNumber, current, row);
         return [row];
       });
@@ -493,7 +510,10 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
         return res.status(409).json({ message: "Only draft or rejected project RFCs can be deleted." });
       }
       await db.transaction(async tx => {
-        await tx.delete(projectChanges).where(eq(projectChanges.id, current.id));
+        const deleted = await tx.delete(projectChanges).where(and(
+          eq(projectChanges.id, current.id), eq(projectChanges.status, current.status),
+        )).returning({ id: projectChanges.id });
+        if (!deleted.length) throw new WorkspaceError(409, "This RFC changed while it was being deleted. Refresh the log.");
         await writeAudit(tx, req, actorId!, "DELETE", "project_changes", current.id, current.rfcNumber, current);
       });
       res.json({ success: true });
@@ -521,7 +541,8 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
       }
       const [updated] = await db.transaction(async tx => {
         const [row] = await tx.update(projectChanges).set({ status, updatedAt: new Date() })
-          .where(eq(projectChanges.id, current.id)).returning();
+          .where(and(eq(projectChanges.id, current.id), eq(projectChanges.status, current.status))).returning();
+        if (!row) throw new WorkspaceError(409, "This RFC status changed. Refresh before continuing.");
         await writeAudit(tx, req, actorId!, "STATUS_CHANGE", "project_changes", current.id, current.rfcNumber,
           { status: current.status }, { status: row.status });
         return [row];
@@ -589,6 +610,26 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
       await unlink(storedPath).catch(() => {});
       sendError(error, res);
     }
+  });
+
+  app.patch("/api/projects/:id/documents/:documentId", requireAuth, enabled, async (req: ProjectRequest, res) => {
+    const actorId = req.user?.id;
+    if (!await requireProjectManager(actorId, req.params.id, res)) return;
+    try {
+      const input = projectDocumentUpdateSchema.parse(req.body);
+      const [updated] = await db.transaction(async tx => {
+        const [current] = await tx.select().from(projectDocuments).where(and(
+          eq(projectDocuments.id, req.params.documentId), eq(projectDocuments.projectId, req.params.id),
+        )).limit(1).for("update");
+        if (!current) throw new WorkspaceError(404, "Project document not found.");
+        const [row] = await tx.update(projectDocuments).set(input).where(eq(projectDocuments.id, current.id)).returning();
+        const { filePath: _oldPath, ...before } = current;
+        const { filePath: _newPath, ...after } = row;
+        await writeAudit(tx, req, actorId!, "UPDATE", "project_documents", row.id, row.name, before, after);
+        return [row];
+      });
+      res.json(projectDocumentView(updated, null));
+    } catch (error) { sendError(error, res); }
   });
 
   app.get("/api/projects/:id/documents/:documentId/download", requireAuth, enabled, async (req: ProjectRequest, res) => {
@@ -735,8 +776,4 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
       res.json({ rows: report, total: report.length, generatedAt: new Date().toISOString() });
     } catch (error) { sendError(error, res); }
   });
-}
-
-export async function purgeProjectDocumentFiles() {
-  await rm(documentRoot, { recursive: true, force: true });
 }

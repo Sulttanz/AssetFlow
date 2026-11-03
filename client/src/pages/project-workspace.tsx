@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardList, FileText, Pencil, ShieldAlert, Workflow } from "lucide-react";
 import { useLocation, useParams } from "wouter";
-import { isSystemAdministrator } from "@shared/personas";
+import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { ProjectChangesTab } from "@/components/projects/project-changes-tab";
 import { ProjectDocumentsTab } from "@/components/projects/project-documents-tab";
 import { ProjectEditorDialog } from "@/components/projects/project-editor-dialog";
@@ -47,7 +47,8 @@ export default function ProjectWorkspacePage() {
   const options = optionsQuery.data ?? { users: [], assets: [] };
   const isAdmin = user ? isSystemAdministrator(user) : false;
   const isProjectManager = project?.managers?.some(manager => manager.userId === user?.id) ?? false;
-  const canManage = isAdmin || !!user?.permissions?.includes("project_manage") || isProjectManager;
+  const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
+  const canManage = mayMutate && (isAdmin || !!user?.permissions?.includes("project_manage") || isProjectManager);
 
   const saveMutation = useMutation({
     mutationFn: (input: ProjectMutation) => projectApi<ProjectRecord>(`/api/projects/${id}`, {
@@ -99,8 +100,8 @@ export default function ProjectWorkspacePage() {
           <TabsTrigger value="documents" className="min-h-11"><FileText className="mr-2 h-4 w-4" />Documents</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><ProjectOverviewTab project={project} canManage={canManage} /></TabsContent>
-        <TabsContent value="tasks"><ProjectTasksTab project={project} options={options} canManage={canManage} userId={user?.id ?? ""} /></TabsContent>
-        <TabsContent value="risks"><ProjectRiskRegisterTab project={project} options={options} canManage={canManage} userId={user?.id ?? ""} /></TabsContent>
+        <TabsContent value="tasks"><ProjectTasksTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
+        <TabsContent value="risks"><ProjectRiskRegisterTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
         <TabsContent value="changes"><ProjectChangesTab project={project} canManage={canManage} /></TabsContent>
         <TabsContent value="documents"><ProjectDocumentsTab project={project} canManage={canManage} /></TabsContent>
       </Tabs>
