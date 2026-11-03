@@ -4694,6 +4694,9 @@ export class DatabaseStorage implements IStorage {
       const [pending] = await tx.select({ approverId: changeApprovals.approverId })
         .from(changeApprovals).where(pendingConditions).for("update");
       if (!pending?.approverId) return undefined;
+      // Account deactivation updates this same row. FOR UPDATE makes the
+      // active-state check and vote commit order against that update: a vote
+      // waits for deactivation and sees inactive, or commits before it.
       const [activeApprover] = await tx.select({ id: users.id }).from(users)
         .where(and(eq(users.id, pending.approverId), eq(users.isActive, true))).for("update");
       if (!activeApprover) return undefined;

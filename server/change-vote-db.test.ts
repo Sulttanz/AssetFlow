@@ -2509,6 +2509,105 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it.each([
+    { first: "deactivation", decision: "approved", expectedDecision: "pending", expectedStatus: "submitted" },
+    { first: "vote", decision: "approved", expectedDecision: "approved", expectedStatus: "approved" },
+    { first: "vote", decision: "rejected", expectedDecision: "rejected", expectedStatus: "rejected" },
+  ] as const)(
+    "keeps account deactivation and CAB voting consistent when $first commits first",
+    async ({ first, decision, expectedDecision, expectedStatus }) => {
+      const managerId = randomUUID();
+      const approverId = randomUUID();
+      const changeId = randomUUID();
+      const approvalId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Account deactivation and CAB vote",
+        status: "submitted", cabRequired: true,
+      });
+      await db.insert(changeApprovals).values({
+        id: approvalId, changeId, approverId, originalApproverId: approverId,
+        approverLabel: "CAB Approver", decision: "pending",
+      });
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions")
+        .mockResolvedValue(["user_update", "change_manage", "ticket_view_all"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      let votePromise: Promise<Response> | undefined;
+
+      const castVote = () => fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": approverId },
+        body: JSON.stringify({ decision }),
+      });
+      const deactivate = () => storage.updateUser(approverId, { isActive: false });
+
+      try {
+        if (first === "deactivation") {
+          const deactivationClient = await appPool.connect();
+          try {
+            await deactivationClient.query("BEGIN");
+            await deactivationClient.query(
+              'UPDATE "users" SET "is_active" = FALSE WHERE "id" = $1',
+              [approverId],
+            );
+            votePromise = castVote();
+
+            const lockWaitDeadline = Date.now() + 5_000;
+            let voteWaitingOnApprover = false;
+            while (Date.now() < lockWaitDeadline) {
+              const result = await appPool.query<{ waiting: boolean }>(`
+                SELECT EXISTS (
+                  SELECT 1 FROM pg_stat_activity
+                  WHERE wait_event_type = 'Lock'
+                    AND state = 'active'
+                    AND query ILIKE '%FOR UPDATE%'
+                    AND query ILIKE '%users%'
+                ) AS waiting
+              `);
+              if (result.rows[0]?.waiting) {
+                voteWaitingOnApprover = true;
+                break;
+              }
+              await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            expect(voteWaitingOnApprover).toBe(true);
+            await deactivationClient.query("COMMIT");
+          } catch (error) {
+            await deactivationClient.query("ROLLBACK");
+            throw error;
+          } finally {
+            deactivationClient.release();
+          }
+
+          const voteResponse = await votePromise;
+          expect(voteResponse.status).toBe(409);
+        } else {
+          const voteResponse = await castVote();
+          expect(voteResponse.status).toBe(200);
+          const deactivatedUser = await deactivate();
+          expect(deactivatedUser?.isActive).toBe(false);
+        }
+
+        const [savedUser] = await db.select().from(users).where(eq(users.id, approverId));
+        expect(savedUser.isActive).toBe(false);
+        const [savedApproval] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
+        expect(savedApproval).toMatchObject({ decision: expectedDecision, approverId, removedAt: null });
+        expect(savedApproval.decidedAt instanceof Date).toBe(first === "vote");
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange).toMatchObject({ status: expectedStatus });
+        expect(savedChange.approvedAt instanceof Date).toBe(expectedStatus === "approved");
+      } finally {
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+  );
+
   it("keeps a disabled approver's vote pending, exposes the disabled state, and allows manager removal", async () => {
     const managerId = randomUUID();
     const approverId = randomUUID();

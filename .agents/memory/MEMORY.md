@@ -18,6 +18,7 @@
 - [CAB historical uniqueness](cab-historical-uniqueness.md) — existing CAB rows include duplicate assignments, so preserve history rather than imposing a new unique constraint during migrations.
 - [Paged change summaries](paged-change-summaries.md) — distinguish per-page snapshots from whole-history metrics; keep user-specific CAB votes independent of list pages.
 - [CAB vote serialization](cab-vote-serialization.md) — use the parent change as the serialization point when deriving status from separate CAB votes.
+- [CAB account-state race tests](cab-account-state-race-tests.md) — verify deactivation/vote ordering with a real locked user row, not only an application-level pause.
 - [CAB index benchmarking](cab-index-benchmarking.md) — partial-index updates can leave EXPLAIN WAL bytes unchanged; compare elapsed time and index size too.
 - [Deployment config edit guard](deployment-config-edit-guard.md) — direct .replit patches can be blocked; when deployment configuration is unavailable, use an existing build lifecycle hook if appropriate.
 - [Workspace and on-prem migration ledgers](workspace-sql-migration-ledger.md) — keep both ledgers outside Drizzle-managed schemas and keep their migration sources separate.
