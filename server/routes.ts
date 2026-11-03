@@ -7309,6 +7309,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate Excel template for import
+  app.get("/api/import/template", requireAuth, (_req, res) => {
+    res.status(410).json({
+      message: "The combined legacy template is retired. Download a module-specific template from the Data Migration Center.",
+      code: "IMPORT_FLOW_RETIRED",
+    });
+  });
+
   app.get("/api/import/template", requireAuth, async (req, res) => {
     try {
       const workbook = new ExcelJS.Workbook();

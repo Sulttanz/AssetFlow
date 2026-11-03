@@ -999,11 +999,19 @@ async function importOne(tx: any, moduleKey: string, row: Record<string, unknown
     return;
   }
   if (moduleKey === "project_tasks") {
-    await tx.insert(projectTasks).values(row as any);
+    const task = row as any;
+    await tx.insert(projectTasks).values({
+      ...task,
+      dueDate: task.dueDate ? new Date(String(task.dueDate)) : null,
+    });
     return;
   }
   if (moduleKey === "project_milestones") {
-    await tx.insert(projectMilestones).values(row as any);
+    const milestone = row as any;
+    await tx.insert(projectMilestones).values({
+      ...milestone,
+      dueDate: milestone.dueDate ? new Date(String(milestone.dueDate)) : undefined,
+    });
     return;
   }
   if (moduleKey === "incidents") {

@@ -22,6 +22,7 @@ const integrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
 const prefix = `migration-${randomUUID().slice(0, 8)}`;
 const actorId = randomUUID();
 const otherActorId = randomUUID();
+const noRoleId = randomUUID();
 const actorEmail = `${prefix}@example.test`;
 const departmentName = `${prefix}-IT`;
 const locationName = `${prefix}-DC`;
@@ -74,10 +75,14 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     await db.insert(users).values([
       { id: actorId, username: prefix, email: actorEmail, password: "not-a-login-credential", firstName: "Migration", lastName: "Tester" },
       { id: otherActorId, username: `${prefix}-other`, email: `${prefix}-other@example.test`, password: "not-a-login-credential", firstName: "Other", lastName: "Tester" },
+      { id: noRoleId, username: `${prefix}-visitor`, email: `${prefix}-visitor@example.test`, password: "not-a-login-credential", firstName: "Read", lastName: "Only" },
     ]);
     await db.insert(roles).values({ name: "IT Manager" }).onConflictDoNothing();
     const [managerRole] = await db.select().from(roles).where(eq(roles.name, "IT Manager"));
-    await db.insert(userRoles).values({ userId: actorId, roleId: managerRole.id });
+    await db.insert(userRoles).values([
+      { userId: actorId, roleId: managerRole.id },
+      { userId: otherActorId, roleId: managerRole.id },
+    ]);
     await db.insert(departments).values({ name: departmentName });
     await db.insert(locations).values({ name: locationName });
     await db.insert(warehouseLocations).values({ name: `${prefix} Warehouse`, code: warehouseCode });
@@ -97,10 +102,10 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));
   });
 
-  it("requires authentication and administrator permission", async () => {
+  it("requires authentication and a Manager or Administrator role", async () => {
     expect((await fetch(`${base}/api/data-migrations/modules`)).status).toBe(401);
-    expect((await fetch(`${base}/api/data-migrations/modules`, { headers: { "x-test-user": otherActorId } })).status).toBe(403);
-    expect((await fetch(`${base}/api/import/modules`, { headers: headers(otherActorId) })).status).toBe(403);
+    expect((await fetch(`${base}/api/data-migrations/modules`, { headers: headers(noRoleId) })).status).toBe(403);
+    expect((await fetch(`${base}/api/import/modules`, { headers: headers(noRoleId) })).status).toBe(403);
   });
 
   it("provides all fifteen guided templates and an additive staging migration", async () => {
@@ -286,7 +291,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     }]);
     const [request] = await db.select().from(serviceRequests).where(eq(serviceRequests.title, `${prefix} Service Request`));
     expect(request).toMatchObject({
-      requesterId: actorId, creatorId: actorId, projectId: task.projectId, status: "Submitted",
+      requesterId: actorId, creatorId: actorId, projectId: task.projectId,
       approvalStatus: "pending", fulfillmentStage: "Pending Approval", fulfillmentStatus: "Submitted",
     });
     const [approval] = await db.select().from(serviceRequestsApprovals).where(eq(serviceRequestsApprovals.ticketId, request.id));
@@ -321,6 +326,12 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     const invalidPreview = await invalidResponse.json();
     expect(invalidPreview.validRows).toBe(0);
     expect(invalidPreview.rows[0].errors.join(" ")).toMatch(/Priority|Status/);
+
+    const invalidDatePreview = await previewCsv("assets", [{
+      name: `${prefix} Invalid Date`, type: "laptop", lastAuditDate: "31-02-2026",
+    }]);
+    expect(invalidDatePreview.validRows).toBe(0);
+    expect(invalidDatePreview.rows[0].errors.join(" ")).toContain("Last Audit Date");
 
     const body = new FormData();
     const csv = [

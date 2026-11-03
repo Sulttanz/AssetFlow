@@ -7,4 +7,4 @@ Bulk imports are data onboarding, not an alternative authorization or approval w
 
 **Why:** An administrator may be importing inventory from an unreviewed source. Accepting its workflow status as authorization would bypass the system's governance controls.
 
-**How to apply:** Keep policy imports in Draft and purchase orders pending normal approval. Employee imports populate the directory only. When expanding import fields or modules, reuse the domain's validation and retain explicit preview confirmation and an audit summary.
+**How to apply:** Keep policy imports in Draft and purchase orders pending normal approval. Employee imports populate the directory only. Ticket imports must use the domain's normal catalog and approval rules, and should not accept spreadsheet-supplied terminal states. Retire legacy direct-write import endpoints when a staged, validated import flow replaces them; do not leave parallel paths that bypass preview, row validation, or audit summaries.

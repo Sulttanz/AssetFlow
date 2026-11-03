@@ -116,11 +116,14 @@ try {
       env: vitestEnvironment,
     },
   );
-  const fullSuite = runVitest(["--exclude", "server/change-overview-plan.test.ts"]);
+  const selectedTests = process.argv.slice(2);
+  const fullSuite = runVitest(selectedTests.length
+    ? selectedTests
+    : ["--exclude", "server/change-overview-plan.test.ts"]);
   if (fullSuite.error) throw fullSuite.error;
   if (fullSuite.status !== 0) {
     process.exitCode = fullSuite.status ?? 1;
-  } else {
+  } else if (selectedTests.length === 0) {
     console.log("Running the CAB overview planner benchmark separately to avoid overlapping PostgreSQL snapshots.");
     const isolatedPlannerSuite = runVitest(["server/change-overview-plan.test.ts"]);
     if (isolatedPlannerSuite.error) throw isolatedPlannerSuite.error;

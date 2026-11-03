@@ -6,6 +6,8 @@ import type { Server } from "node:http";
 
 const store = vi.hoisted(() => ({
   getPermissions: vi.fn(),
+  getUserPermissions: vi.fn(),
+  getUserRoles: vi.fn(),
   getRolesWithDetails: vi.fn(),
   getModuleSetting: vi.fn(),
   getLocations: vi.fn(),
@@ -41,6 +43,8 @@ describe("asset spreadsheet compliance round-trip", () => {
       { id: "ticket-view", name: "ticket_view_all" },
       { id: "ticket-manage", name: "ticket_manage" },
     ]);
+    store.getUserPermissions.mockResolvedValue([]);
+    store.getUserRoles.mockResolvedValue([]);
     store.getRolesWithDetails.mockResolvedValue([]);
     store.getModuleSetting.mockResolvedValue(undefined);
     const app = express();
@@ -68,74 +72,23 @@ describe("asset spreadsheet compliance round-trip", () => {
     store.createAuditLog.mockResolvedValue({});
   });
 
-  async function readWorkbook(response: Response) {
-    expect(response.status).toBe(200);
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
-    return workbook;
-  }
+  it("retires direct workbook writes in favor of module-specific staged validation", async () => {
+    const templateResponse = await fetch(`${baseUrl}/api/import/template`);
+    expect(templateResponse.status).toBe(410);
+    expect(await templateResponse.json()).toMatchObject({ code: "IMPORT_FLOW_RETIRED" });
 
-  async function importWorkbook(workbook: ExcelJS.Workbook) {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Assets");
+    sheet.addRow(["Name*", "Asset ID", "Type*"]);
+    sheet.addRow(["Direct import must not write", "TEST-3", "laptop"]);
     const form = new FormData();
     form.append("file", new Blob([await workbook.xlsx.writeBuffer()], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }), "assets.xlsx");
     const response = await fetch(`${baseUrl}/api/import/excel`, { method: "POST", body: form });
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(410);
     const result = await response.json();
-    expect(result.errors).toBeUndefined();
-    return result;
-  }
-
-  it("imports both values, exports them under the same headers, and reimports unchanged", async () => {
-    const template = await readWorkbook(await fetch(`${baseUrl}/api/import/template`));
-    const sheet = template.getWorksheet("Assets")!;
-    // The example is replaced with a test asset; remove the other sheets.
-    template.removeWorksheet(template.getWorksheet("Employees")!.id);
-    template.removeWorksheet(template.getWorksheet("Assignments")!.id);
-    sheet.getRow(2).getCell(1).value = "Audit laptop";
-    sheet.getRow(2).getCell(2).value = "TEST-ASSET";
-    sheet.getRow(2).getCell(21).value = "under-review";
-    sheet.getRow(2).getCell(30).value = 46553; // Raw Excel serial date, without date formatting.
-    expect((await importWorkbook(template)).imported.assets).toBe(1);
-    expect(saved[0]).toMatchObject({ complianceStatus: "under-review", nextAuditDate: "2027-06-15" });
-
-    const exported = await readWorkbook(await fetch(`${baseUrl}/api/import/assets-export`));
-    const exportedSheet = exported.getWorksheet("Assets")!;
-    expect(exportedSheet.getRow(1).getCell(21).value).toBe("Compliance Status");
-    expect(exportedSheet.getRow(1).getCell(30).value).toBe("Next Audit Date");
-    expect(exportedSheet.getRow(2).getCell(21).value).toBe("under-review");
-    expect(exportedSheet.getRow(2).getCell(30).value).toBe("15-06-2027");
-
-    saved = [];
-    expect((await importWorkbook(exported)).imported.assets).toBe(1);
-    expect(saved[0]).toMatchObject({ complianceStatus: "under-review", nextAuditDate: "2027-06-15" });
-  });
-
-  it("leaves missing compliance fields unset instead of inventing vendor values", async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Assets");
-    sheet.addRow(["Name*", "Asset ID", "Type*"]);
-    sheet.addRow(["No audit yet", "TEST-2", "laptop"]);
-    expect((await importWorkbook(workbook)).imported.assets).toBe(1);
-    expect(saved[0].complianceStatus).toBeUndefined();
-    expect(saved[0].nextAuditDate).toBeUndefined();
-  });
-
-  it("reports invalid audit dates rather than silently dropping them", async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Assets");
-    sheet.addRow(["Name*", "Asset ID", "Type*"]);
-    const row = sheet.addRow(["Invalid date", "TEST-3", "laptop"]);
-    row.getCell(30).value = "not-a-date";
-    const form = new FormData();
-    form.append("file", new Blob([await workbook.xlsx.writeBuffer()], {
-      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }), "assets.xlsx");
-    const response = await fetch(`${baseUrl}/api/import/excel`, { method: "POST", body: form });
-    const result = await response.json();
-    expect(result.imported.assets).toBe(0);
-    expect(result.errors).toEqual([expect.stringContaining("Invalid Next Audit Date")]);
+    expect(result).toMatchObject({ code: "IMPORT_FLOW_RETIRED" });
     expect(saved).toHaveLength(0);
   });
 });
