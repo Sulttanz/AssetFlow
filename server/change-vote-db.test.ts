@@ -2670,6 +2670,74 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it("keeps removed CAB history readable after the approver account is deleted", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "Casey", lastName: "Reviewer" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Deleted CAB approver history",
+      status: "submitted",
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId, originalApproverId: approverId,
+      approverLabel: "Casey Reviewer", decision: "pending",
+    });
+
+    try {
+      const removed = await storage.removeChangeApproval(approvalId, managerId);
+      expect(removed?.removedAt).toBeInstanceOf(Date);
+      expect(removed).toMatchObject({
+        id: approvalId,
+        originalApproverId: approverId,
+        approverLabel: "Casey Reviewer",
+        removedById: managerId,
+        removedByLabel: "CAB Manager",
+      });
+
+      expect(await storage.deleteUser(approverId)).toBe(true);
+
+      const [historyRecord] = await db.select().from(changeApprovals)
+        .where(eq(changeApprovals.id, approvalId));
+      expect(historyRecord).toMatchObject({
+        id: approvalId,
+        changeId,
+        approverId: null,
+        originalApproverId: approverId,
+        approverLabel: "Casey Reviewer",
+        decision: "pending",
+        removedById: managerId,
+        removedByLabel: "CAB Manager",
+        removedAt: removed!.removedAt,
+      });
+      expect(await storage.getAllChangeApprovalRecords(changeId)).toHaveLength(1);
+      expect(await storage.getChangeApprovals(changeId)).toEqual([]);
+
+      const details = await storage.getChange(changeId);
+      expect(details?.approvals).toEqual([]);
+      expect(details?.removedApproverIds).toEqual([approverId]);
+      expect(details?.removedApprovals).toMatchObject([{
+        id: approvalId,
+        approverId: null,
+        originalApproverId: approverId,
+        approverLabel: "Casey Reviewer",
+        removedById: managerId,
+        removedByLabel: "CAB Manager",
+        removedAt: removed!.removedAt,
+      }]);
+    } finally {
+      await db.delete(changes).where(eq(changes.id, changeId));
+      await db.delete(users).where(eq(users.id, approverId));
+      await db.delete(users).where(eq(users.id, managerId));
+    }
+  });
+
   it.each(["removal", "assignment"] as const)(
     "does not reopen a removed CAB assignment when %s reaches the database first",
     async first => {
