@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { projectMilestoneUpdateSchema, projectMutationSchema } from "@shared/project-management";
+import {
+  projectChangeInputSchema,
+  projectDocumentMetadataSchema,
+  projectMilestoneUpdateSchema,
+  projectMutationSchema,
+  projectRiskInputSchema,
+  projectTaskInputSchema,
+  projectTaskWorkUpdateSchema,
+} from "@shared/project-management";
 
 const validProject = {
   title: "Identity platform rollout",
@@ -48,5 +56,44 @@ describe("project mutation validation", () => {
     expect(projectMilestoneUpdateSchema.safeParse({ status: "Completed", completionDate: null }).success).toBe(false);
     expect(projectMilestoneUpdateSchema.safeParse({ status: "Completed", completionDate: "2027-01-15" }).success).toBe(true);
     expect(projectMilestoneUpdateSchema.safeParse({ status: "In Progress", completionDate: null }).success).toBe(true);
+  });
+
+  it("validates task workload and restricts assignee self-updates to work fields", () => {
+    expect(projectTaskInputSchema.safeParse({
+      title: "Cut over service",
+      status: "To Do",
+      priority: "High",
+      assigneeId: "user-1",
+      estimatedHours: 4,
+      loggedHours: 1,
+      dueDate: "2027-02-01",
+      sortOrder: 0,
+    }).success).toBe(true);
+    expect(projectTaskInputSchema.safeParse({ title: "Bad estimate", estimatedHours: -1 }).success).toBe(false);
+    expect(projectTaskWorkUpdateSchema.safeParse({ status: "In Progress", loggedHours: 2 }).success).toBe(true);
+    expect(projectTaskWorkUpdateSchema.safeParse({ assigneeId: "another-user" }).success).toBe(false);
+  });
+
+  it("calculates risk scores only from bounded probability and impact values", () => {
+    expect(projectRiskInputSchema.safeParse({
+      title: "Vendor delivery delay",
+      category: "Schedule",
+      probability: 4,
+      impact: 5,
+      status: "Identified",
+      ownerId: "user-1",
+    }).success).toBe(true);
+    expect(projectRiskInputSchema.safeParse({ title: "Invalid risk", probability: 6, impact: 5 }).success).toBe(false);
+    expect(projectRiskInputSchema.safeParse({ title: "Client score", probability: 2, impact: 2, riskScore: 100 }).success).toBe(false);
+  });
+
+  it("requires unique RFC identifiers and provides a default version for documents", () => {
+    expect(projectChangeInputSchema.safeParse({ rfcNumber: "PRFC-2027-001", title: "Database change" }).success).toBe(true);
+    expect(projectChangeInputSchema.safeParse({ rfcNumber: "", title: "Missing reference" }).success).toBe(false);
+    expect(projectDocumentMetadataSchema.parse({ name: "Architecture diagram" })).toMatchObject({
+      name: "Architecture diagram",
+      category: "Charter",
+      version: "1.0",
+    });
   });
 });

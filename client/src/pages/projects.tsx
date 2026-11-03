@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, FolderKanban, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowUpRight, FolderKanban, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { PROJECT_HEALTH_STATUSES, PROJECT_STATUSES, type ProjectMutation } from "@shared/project-management";
 import { isSystemAdministrator } from "@shared/personas";
+import { useLocation } from "wouter";
 import { ProjectEditorDialog } from "@/components/projects/project-editor-dialog";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,7 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { formatDateDisplay, toDateInputValue } from "@/lib/date-utils";
+import { formatDateDisplay } from "@/lib/date-utils";
 import type { ProjectOptions, ProjectRecord } from "@/types/project-management";
 
 type Filters = {
@@ -107,6 +107,7 @@ function ProjectOwnership({ project }: { project: ProjectRecord }) {
 }
 
 export default function ProjectsPage() {
+  const [, setLocation] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -119,8 +120,6 @@ export default function ProjectsPage() {
   });
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectRecord | undefined>();
-  const [detailProject, setDetailProject] = useState<ProjectRecord | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   const queryUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -176,38 +175,9 @@ export default function ProjectsPage() {
     },
     onSuccess: async project => {
       await queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      setDetailProject(null);
       toast({ title: "Project deleted", description: `${project.title} was removed.` });
     },
     onError: error => toast({ title: "Could not delete project", description: error.message, variant: "destructive" }),
-  });
-
-  const milestoneMutation = useMutation({
-    mutationFn: async ({ project, milestoneId, completed }: {
-      project: ProjectRecord;
-      milestoneId: string;
-      completed: boolean;
-    }) => {
-      const completionDate = completed ? toDateInputValue(new Date()) : null;
-      const response = await fetch(`/api/projects/${project.id}/milestones/${milestoneId}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: completed ? "Completed" : "In Progress",
-          completionDate,
-        }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.message ?? "Milestone could not be updated.");
-      return body as ProjectRecord;
-    },
-    onSuccess: async updatedProject => {
-      setDetailProject(updatedProject);
-      await queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
-      toast({ title: "Milestone updated", description: "The project tracker has been updated." });
-    },
-    onError: error => toast({ title: "Could not update milestone", description: error.message, variant: "destructive" }),
   });
 
   const openEditor = async (project?: ProjectRecord) => {
@@ -229,21 +199,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const openDetails = async (project: ProjectRecord) => {
-    setDetailProject(project);
-    setDetailLoading(true);
-    try {
-      setDetailProject(await getJson<ProjectRecord>(`/api/projects/${project.id}`));
-    } catch (error) {
-      toast({
-        title: "Could not load project details",
-        description: error instanceof Error ? error.message : "Project details could not be loaded.",
-        variant: "destructive",
-      });
-    } finally {
-      setDetailLoading(false);
-    }
-  };
+  const openDetails = (project: ProjectRecord) => setLocation(`/projects/${project.id}`);
 
   const canEdit = (project: ProjectRecord) => canManage ||
     project.managers?.some(manager => manager.isPrimary && manager.userId === user?.id);
@@ -399,8 +355,8 @@ export default function ProjectsPage() {
                       <TableCell className="text-right tabular-nums">{money(project.budget)}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={`View ${project.title}`} onClick={() => void openDetails(project)}>
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={`Open ${project.title}`} onClick={() => openDetails(project)}>
+                            <ArrowUpRight className="h-4 w-4" />
                           </Button>
                           {canEdit(project) && <Button variant="ghost" size="icon" className="min-h-11 min-w-11" aria-label={`Edit ${project.title}`} onClick={() => void openEditor(project)}>
                             <Pencil className="h-4 w-4" />
@@ -467,134 +423,6 @@ export default function ProjectsPage() {
         onSave={input => saveMutation.mutate({ id: editingProject?.id, input })}
       />
 
-      <Dialog open={!!detailProject} onOpenChange={open => { if (!open) setDetailProject(null); }}>
-        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-3xl max-h-[90dvh] overflow-y-auto">
-          {detailProject && detailLoading ? (
-            <div className="space-y-3 py-4">
-              <DialogHeader><DialogTitle>{detailProject.title}</DialogTitle><DialogDescription>Loading project detail…</DialogDescription></DialogHeader>
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ) : detailProject && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{detailProject.title}</DialogTitle>
-                <DialogDescription>{detailProject.description || "Project details and delivery status."}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-5">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className={projectStatusClass(detailProject.status)}>{detailProject.status}</Badge>
-                  <Badge variant="outline" className={healthClass(detailProject.healthStatus)}>{detailProject.healthStatus}</Badge>
-                </div>
-                <dl className="grid grid-cols-2 gap-4 rounded-lg bg-slate-50 p-4 text-sm sm:grid-cols-4">
-                  <div><dt className="text-xs text-muted-foreground">Start</dt><dd>{date(detailProject.startDate)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Target end</dt><dd>{date(detailProject.targetEndDate)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Actual end</dt><dd>{date(detailProject.actualEndDate)}</dd></div>
-                  <div><dt className="text-xs text-muted-foreground">Budget</dt><dd>{money(detailProject.budget)}</dd></div>
-                </dl>
-                <section className="space-y-2">
-                  <h3 className="font-semibold">Project managers</h3>
-                  <ul className="space-y-1 text-sm">
-                    {(detailProject.managers ?? []).map(manager => <li key={manager.userId}>{manager.name}{manager.isPrimary && <span className="ml-2 text-xs font-medium text-blue-700">Primary</span>}</li>)}
-                    {!detailProject.managers?.length && <li className="text-muted-foreground">No manager assigned.</li>}
-                  </ul>
-                </section>
-                <section className="space-y-2">
-                  <h3 className="font-semibold">Team members</h3>
-                  <ul className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                    {(detailProject.teamMembers ?? []).map(member => <li key={member.userId} className="rounded-md border p-2">{member.name}<span className="block text-xs text-muted-foreground">{member.roleTitle}</span></li>)}
-                    {!detailProject.teamMembers?.length && <li className="text-muted-foreground">No team members assigned.</li>}
-                  </ul>
-                </section>
-                <section className="space-y-2">
-                  <h3 className="font-semibold">Milestone tracker</h3>
-                  <div className="hidden sm:block">
-                    <Table>
-                      <TableHeader><TableRow><TableHead className="w-16">Done</TableHead><TableHead>Milestone</TableHead><TableHead>Due</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {(detailProject.milestones ?? []).map(milestone => {
-                          const completed = milestone.status === "Completed";
-                          return (
-                            <TableRow key={milestone.id}>
-                              <TableCell>
-                                <Button type="button" size="icon" variant={completed ? "default" : "outline"}
-                                  role="checkbox" aria-checked={completed}
-                                  aria-label={`${completed ? "Reopen" : "Complete"} milestone ${milestone.title}`}
-                                  className="min-h-11 min-w-11"
-                                  disabled={!canEdit(detailProject) || milestoneMutation.isPending}
-                                  onClick={() => milestoneMutation.mutate({ project: detailProject, milestoneId: milestone.id, completed: !completed })}>
-                                  <Check className="h-4 w-4" />
-                                </Button>
-                              </TableCell>
-                              <TableCell>
-                                <p className="font-medium">{milestone.title}</p>
-                                <p className="text-xs text-muted-foreground">{milestone.description || "No notes"}</p>
-                              </TableCell>
-                              <TableCell className="whitespace-nowrap">{date(milestone.dueDate)}</TableCell>
-                              <TableCell><Badge variant="outline" className={milestone.status === "Completed"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : milestone.status === "Delayed"
-                                  ? "border-rose-200 bg-rose-50 text-rose-700"
-                                  : milestone.status === "In Progress"
-                                    ? "border-amber-200 bg-amber-50 text-amber-800"
-                                    : "border-blue-200 bg-blue-50 text-blue-700"}>{milestone.status}</Badge></TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  <div className="space-y-2 sm:hidden">
-                    {(detailProject.milestones ?? []).map(milestone => {
-                      const completed = milestone.status === "Completed";
-                      return (
-                        <article key={milestone.id} className="flex items-center gap-3 rounded-lg border p-3">
-                          <Button type="button" size="icon" variant={completed ? "default" : "outline"}
-                            role="checkbox" aria-checked={completed}
-                            aria-label={`${completed ? "Reopen" : "Complete"} milestone ${milestone.title}`}
-                            className="min-h-11 min-w-11 shrink-0"
-                            disabled={!canEdit(detailProject) || milestoneMutation.isPending}
-                            onClick={() => milestoneMutation.mutate({ project: detailProject, milestoneId: milestone.id, completed: !completed })}>
-                            <Check className="h-4 w-4" />
-                          </Button>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-medium">{milestone.title}</p>
-                            <p className="text-xs text-muted-foreground">Due {date(milestone.dueDate)}</p>
-                          </div>
-                          <Badge variant="secondary">{milestone.status}</Badge>
-                        </article>
-                      );
-                    })}
-                  </div>
-                  {!detailProject.milestones?.length && (
-                    <p className="text-sm text-muted-foreground">No milestones recorded. Add them from Edit project.</p>
-                  )}
-                </section>
-                <section className="space-y-2">
-                  <h3 className="font-semibold">Linked assets</h3>
-                  <ul className="space-y-2">
-                    {(detailProject.assets ?? []).map(asset => (
-                      <li key={asset.assetId} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
-                        <span className="font-medium">{asset.assetTag} · {asset.name}<span className="block text-xs font-normal text-muted-foreground">{asset.serialNumber || "No serial number"} · {asset.status}</span></span>
-                        <Badge variant="outline">{asset.associationType}</Badge>
-                      </li>
-                    ))}
-                    {!detailProject.assets?.length && <li className="text-sm text-muted-foreground">No linked assets.</li>}
-                  </ul>
-                </section>
-                <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-                  {canEdit(detailProject) && <Button variant="outline" className="min-h-11" onClick={() => { const project = detailProject; setDetailProject(null); void openEditor(project); }}><Pencil className="mr-2 h-4 w-4" />Edit project</Button>}
-                  {canDelete(detailProject) && <Button variant="outline" className="min-h-11 text-rose-700" onClick={() => {
-                    if (window.confirm(`Delete "${detailProject.title}" and its project-only milestones and assignments? Linked assets and tickets will remain.`)) {
-                      deleteMutation.mutate(detailProject);
-                    }
-                  }}><Trash2 className="mr-2 h-4 w-4" />Delete project</Button>}
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

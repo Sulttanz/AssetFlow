@@ -4,6 +4,12 @@ export const PROJECT_STATUSES = ["Planning", "Active", "On Hold", "Completed", "
 export const PROJECT_HEALTH_STATUSES = ["On Track", "At Risk", "Delayed"] as const;
 export const PROJECT_MILESTONE_STATUSES = ["Pending", "In Progress", "Completed", "Delayed"] as const;
 export const PROJECT_ASSET_ASSOCIATION_TYPES = ["Deployed", "Decommissioned", "Upgraded"] as const;
+export const PROJECT_TASK_STATUSES = ["Backlog", "To Do", "In Progress", "In Review", "Done"] as const;
+export const PROJECT_TASK_PRIORITIES = ["Low", "Medium", "High", "Critical"] as const;
+export const PROJECT_RISK_CATEGORIES = ["Technical", "Financial", "Operational", "Schedule", "Compliance"] as const;
+export const PROJECT_RISK_STATUSES = ["Identified", "Mitigated", "Accepted", "Closed"] as const;
+export const PROJECT_CHANGE_STATUSES = ["Draft", "Submitted", "Approved", "Rejected", "Implemented"] as const;
+export const PROJECT_DOCUMENT_CATEGORIES = ["Charter", "SOW", "Architecture", "Handover", "Other"] as const;
 
 const projectDate = z.string().trim().min(1).refine(value => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -34,6 +40,7 @@ export const projectMutationSchema = z.object({
   targetEndDate: projectDate,
   actualEndDate: projectDate.nullable().optional(),
   budget: z.coerce.number().finite().min(0).max(9_999_999_999.99),
+  actualSpend: z.coerce.number().finite().min(0).max(9_999_999_999.99).default(0),
   managerIds: z.array(z.string().trim().min(1)).min(1).max(200),
   primaryManagerId: z.string().trim().min(1),
   teamMembers: z.array(z.object({
@@ -88,4 +95,62 @@ export const projectMilestoneUpdateSchema = z.object({
   }
 });
 
+export const projectTaskInputSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(10000).nullable().optional(),
+  status: z.enum(PROJECT_TASK_STATUSES).default("Backlog"),
+  priority: z.enum(PROJECT_TASK_PRIORITIES).default("Medium"),
+  assigneeId: z.string().trim().min(1).nullable().optional(),
+  estimatedHours: z.coerce.number().finite().min(0).max(9999.99).default(0),
+  loggedHours: z.coerce.number().finite().min(0).max(9999.99).default(0),
+  dueDate: projectDate.nullable().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(1_000_000).default(0),
+}).strict();
+
+export const projectTaskUpdateSchema = projectTaskInputSchema.partial().strict();
+export const projectTaskWorkUpdateSchema = z.object({
+  status: z.enum(PROJECT_TASK_STATUSES).optional(),
+  loggedHours: z.coerce.number().finite().min(0).max(9999.99).optional(),
+}).strict().refine(value => Object.keys(value).length > 0, "Provide a task status or logged-hours update.");
+
+export const projectTaskReorderSchema = z.object({
+  taskIds: z.array(z.string().trim().min(1)).min(1).max(2000),
+}).strict().refine(value => uniqueIds(value.taskIds), "A task may only appear once in the new order.");
+
+export const projectRiskInputSchema = z.object({
+  title: z.string().trim().min(1).max(255),
+  description: z.string().trim().max(10000).nullable().optional(),
+  category: z.enum(PROJECT_RISK_CATEGORIES).default("Technical"),
+  probability: z.coerce.number().int().min(1).max(5),
+  impact: z.coerce.number().int().min(1).max(5),
+  mitigationStrategy: z.string().trim().max(10000).nullable().optional(),
+  status: z.enum(PROJECT_RISK_STATUSES).default("Identified"),
+  ownerId: z.string().trim().min(1).nullable().optional(),
+}).strict();
+
+export const projectRiskUpdateSchema = projectRiskInputSchema.partial().strict();
+export const projectChangeInputSchema = z.object({
+  rfcNumber: z.string().trim().min(1).max(50),
+  title: z.string().trim().min(1).max(255),
+  reason: z.string().trim().max(10000).nullable().optional(),
+  impactAnalysis: z.string().trim().max(10000).nullable().optional(),
+}).strict();
+export const projectChangeUpdateSchema = z.object({
+  title: z.string().trim().min(1).max(255).optional(),
+  reason: z.string().trim().max(10000).nullable().optional(),
+  impactAnalysis: z.string().trim().max(10000).nullable().optional(),
+}).strict().refine(value => Object.keys(value).length > 0, "Provide a project change update.");
+export const projectChangeStatusSchema = z.object({
+  status: z.enum(PROJECT_CHANGE_STATUSES),
+}).strict();
+export const projectDocumentMetadataSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  version: z.string().trim().min(1).max(50).default("1.0"),
+  category: z.enum(PROJECT_DOCUMENT_CATEGORIES).default("Charter"),
+}).strict();
+
 export type ProjectMutation = z.infer<typeof projectMutationSchema>;
+export type ProjectTaskInput = z.infer<typeof projectTaskInputSchema>;
+export type ProjectRiskInput = z.infer<typeof projectRiskInputSchema>;
+export type ProjectChangeInput = z.infer<typeof projectChangeInputSchema>;
+export type ProjectDocumentInput = z.infer<typeof projectDocumentMetadataSchema>;

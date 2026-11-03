@@ -6,6 +6,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
+import { purgeProjectDocumentFiles } from "./project-workspace";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
@@ -2534,6 +2535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSystemClearDataRoute(
     app, requireAuth, requirePermission("system_admin"), storage,
     async (supplied, stored) => (await import("./auth")).comparePasswords(supplied, stored),
+    purgeProjectDocumentFiles,
   );
 
   // --------------------

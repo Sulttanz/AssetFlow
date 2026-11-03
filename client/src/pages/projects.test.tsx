@@ -6,6 +6,8 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { id: "manager-1", permissions: ["project_manage"], roles: [{ id: "it_manager", name: "it_manager" }] } }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+const navigation = vi.hoisted(() => ({ setLocation: vi.fn() }));
+vi.mock("wouter", () => ({ useLocation: () => ["/projects", navigation.setLocation] }));
 
 import ProjectsPage from "./projects";
 
@@ -19,6 +21,7 @@ const project = {
   targetEndDate: "2026-06-30T12:00:00.000Z",
   actualEndDate: null,
   budget: "250000.00",
+  actualSpend: "48000.00",
   createdBy: "manager-1",
   createdAt: "2026-01-01T12:00:00.000Z",
   updatedAt: "2026-01-02T12:00:00.000Z",
@@ -84,6 +87,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  navigation.setLocation.mockClear();
   currentDetail = makeDetail();
   fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -116,25 +120,12 @@ describe("Project Management views", () => {
     expect(screen.getAllByText("2 managers · 3 team").length).toBeGreaterThan(0);
   });
 
-  it("updates milestone completion from the detail tracker", async () => {
+  it("opens a dedicated project workspace from the portfolio", async () => {
     renderPage();
     const projectButtons = await screen.findAllByRole("button", { name: "Atlas Core Migration" });
     fireEvent.click(projectButtons[0]);
 
-    await screen.findByText("Milestone tracker");
-    const completeButtons = screen.getAllByRole("checkbox", { name: "Complete milestone Launch readiness" });
-    fireEvent.click(completeButtons[0]);
-
-    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) =>
-      String(url) === "/api/projects/project-1/milestones/milestone-1" && init?.method === "PATCH",
-    )).toBe(true));
-    const patchCall = fetchMock.mock.calls.find(([url, init]) =>
-      String(url) === "/api/projects/project-1/milestones/milestone-1" && init?.method === "PATCH",
-    );
-    const patchBody = JSON.parse(String(patchCall?.[1]?.body));
-    expect(patchBody.status).toBe("Completed");
-    expect(patchBody.completionDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(await screen.findAllByRole("checkbox", { name: "Reopen milestone Launch readiness" })).toHaveLength(2);
+    expect(navigation.setLocation).toHaveBeenCalledWith("/projects/project-1");
   });
 
   it("shows live validation when a target date precedes the project start", async () => {

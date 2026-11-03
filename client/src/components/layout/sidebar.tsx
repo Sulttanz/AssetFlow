@@ -158,7 +158,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Project Management",
       moduleKey: "project_management",
       items: [
-        { name: "Projects", href: "/projects", icon: FolderKanban, current: location === "/projects" },
+        { name: "Projects", href: "/projects", icon: FolderKanban, current: location === "/projects" || location.startsWith("/projects/") },
+        { name: "Resource Allocation", href: "/reports/project-allocations", icon: Users, current: location === "/reports/project-allocations", permission: ["project_view", "project_manage", "system_admin"] },
       ],
     },
     {

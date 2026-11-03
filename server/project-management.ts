@@ -19,6 +19,7 @@ import {
 import { isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
+import { registerProjectWorkspaceRoutes } from "./project-workspace";
 
 type AuthRequest = Request & { user?: { id?: string } };
 type ProjectExecutor = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -43,6 +44,14 @@ async function userCanManageProjects(userId: string) {
   ]);
   return permissions.includes("project_manage") ||
     isSystemAdministrator({ roles, permissions });
+}
+
+async function userCanManageProject(userId: string, projectId: string) {
+  if (await userCanManageProjects(userId)) return true;
+  const [manager] = await db.select({ userId: projectManagers.userId }).from(projectManagers)
+    .where(and(eq(projectManagers.projectId, projectId), eq(projectManagers.userId, userId)))
+    .limit(1);
+  return Boolean(manager);
 }
 
 async function validateReferences(executor: ProjectExecutor, input: ProjectMutation) {
@@ -141,6 +150,7 @@ function coreValues(input: ProjectMutation, userId?: string) {
     targetEndDate: projectDate(input.targetEndDate)!,
     actualEndDate: projectDate(input.actualEndDate),
     budget: input.budget.toFixed(2),
+    actualSpend: input.actualSpend.toFixed(2),
     ...(userId ? { createdBy: userId } : {}),
     isActive,
     updatedAt: new Date(),
@@ -405,17 +415,8 @@ export function registerProjectManagementRoutes(
     try {
       const current = await getProjectDetail(req.params.id);
       if (!current) return res.status(404).json({ message: "Project not found." });
-      const [adminOrManager, primaryManager] = await Promise.all([
-        userCanManageProjects(userId),
-        db.select({ userId: projectManagers.userId }).from(projectManagers)
-          .where(and(
-            eq(projectManagers.projectId, req.params.id),
-            eq(projectManagers.userId, userId),
-            eq(projectManagers.isPrimary, true),
-          )).limit(1),
-      ]);
-      if (!adminOrManager && !primaryManager.length) {
-        return res.status(403).json({ message: "Only a project manager or an administrator can update this project." });
+      if (!await userCanManageProject(userId, req.params.id)) {
+        return res.status(403).json({ message: "Only an assigned project manager or an administrator can update this project." });
       }
 
       await db.transaction(async tx => {
@@ -442,17 +443,8 @@ export function registerProjectManagementRoutes(
       return res.status(400).json({ message: "Invalid milestone update.", errors: parsed.error.issues });
     }
     try {
-      const [canManage, primaryManager] = await Promise.all([
-        userCanManageProjects(userId),
-        db.select({ userId: projectManagers.userId }).from(projectManagers)
-          .where(and(
-            eq(projectManagers.projectId, req.params.id),
-            eq(projectManagers.userId, userId),
-            eq(projectManagers.isPrimary, true),
-          )).limit(1),
-      ]);
-      if (!canManage && !primaryManager.length) {
-        return res.status(403).json({ message: "Only a project manager or the primary project manager can update milestones." });
+      if (!await userCanManageProject(userId, req.params.id)) {
+        return res.status(403).json({ message: "Only an assigned project manager or an administrator can update milestones." });
       }
 
       const current = await getProjectDetail(req.params.id);
@@ -514,4 +506,6 @@ export function registerProjectManagementRoutes(
       sendMutationError(error, res);
     }
   });
+
+  registerProjectWorkspaceRoutes(app, requireAuth, enabled);
 }

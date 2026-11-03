@@ -25,6 +25,7 @@ function emptyProject(userId: string): ProjectMutation {
     targetEndDate: today(),
     actualEndDate: null,
     budget: 0,
+    actualSpend: 0,
     managerIds: userId ? [userId] : [],
     primaryManagerId: userId,
     teamMembers: [],
@@ -44,6 +45,7 @@ function fromProject(project: ProjectRecord): ProjectMutation {
     targetEndDate: toDateInputValue(project.targetEndDate),
     actualEndDate: project.actualEndDate ? toDateInputValue(project.actualEndDate) : null,
     budget: Number(project.budget) || 0,
+    actualSpend: Number(project.actualSpend) || 0,
     managerIds: managers.map(manager => manager.userId),
     primaryManagerId: managers.find(manager => manager.isPrimary)?.userId ?? managers[0]?.userId ?? "",
     teamMembers: (project.teamMembers ?? []).map(member => ({ userId: member.userId, roleTitle: member.roleTitle })),
@@ -132,7 +134,7 @@ export function ProjectEditorDialog({
         <DialogHeader>
           <DialogTitle>{project ? "Edit project" : "Create project"}</DialogTitle>
           <DialogDescription>
-            Set ownership, schedule, delivery health, budget, milestones, team, and related assets.
+            Set ownership, schedule, delivery health, project financials, milestones, team, and related assets.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-6">
@@ -178,9 +180,14 @@ export function ProjectEditorDialog({
                   onChange={event => update("actualEndDate", event.target.value || null)} className="min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="project-budget">Budget</Label>
+                <Label htmlFor="project-budget">Baseline budget</Label>
                 <Input id="project-budget" type="number" min="0" step="0.01" className="min-h-11" value={form.budget}
                   onChange={event => update("budget", Number(event.target.value))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="project-actual-spend">Actual spend</Label>
+                <Input id="project-actual-spend" type="number" min="0" step="0.01" className="min-h-11" value={form.actualSpend}
+                  onChange={event => update("actualSpend", Number(event.target.value))} />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="project-description">Description</Label>

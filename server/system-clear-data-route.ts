@@ -15,6 +15,7 @@ export function registerSystemClearDataRoute(
   requireAdmin: RequestHandler,
   storage: ResetStorage,
   comparePasswords: (supplied: string, stored: string) => Promise<boolean>,
+  afterClear?: () => Promise<void>,
 ) {
   app.post("/api/system/clear-data", requireAuth, requireAdmin, async (req, res) => {
     try {
@@ -38,6 +39,11 @@ export function registerSystemClearDataRoute(
         userAgent: req.get("user-agent")?.slice(0, 512),
       });
       if (!success) return void res.status(500).json({ message: "Failed to clear system data; no changes were committed" });
+      try {
+        await afterClear?.();
+      } catch (error) {
+        console.error("System data was cleared, but project document files could not be fully removed:", error);
+      }
       res.json({
         message: "Business data cleared successfully. User accounts, authorization, system settings and reference data were preserved.",
         clearedAt: new Date().toISOString(),

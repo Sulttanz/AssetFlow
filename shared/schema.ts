@@ -97,6 +97,7 @@ export const projects = pgTable("projects", {
   targetEndDate: timestamp("target_end_date", { withTimezone: true }).notNull().default(sql`now()`),
   actualEndDate: timestamp("actual_end_date", { withTimezone: true }),
   budget: decimal("budget", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  actualSpend: decimal("actual_spend", { precision: 12, scale: 2 }).notNull().default("0.00"),
   createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
@@ -106,6 +107,7 @@ export const projects = pgTable("projects", {
   check("projects_health_status_check", sql`${table.healthStatus} IN ('On Track', 'At Risk', 'Delayed')`),
   check("projects_target_end_after_start_check", sql`${table.targetEndDate} >= ${table.startDate}`),
   check("projects_budget_nonnegative_check", sql`${table.budget} >= 0`),
+  check("projects_actual_spend_nonnegative_check", sql`${table.actualSpend} >= 0`),
   index("projects_status_idx").on(table.status),
   index("projects_health_status_idx").on(table.healthStatus),
   index("projects_created_by_idx").on(table.createdBy),
@@ -155,6 +157,88 @@ export const projectAssets = pgTable("project_assets", {
   index("project_assets_asset_project_idx").on(table.assetId, table.projectId),
 ]);
 
+export const projectTasks = pgTable("project_tasks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 50 }).notNull().default("Backlog"),
+  priority: varchar("priority", { length: 20 }).notNull().default("Medium"),
+  assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
+  estimatedHours: decimal("estimated_hours", { precision: 6, scale: 2 }).notNull().default("0.00"),
+  loggedHours: decimal("logged_hours", { precision: 6, scale: 2 }).notNull().default("0.00"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("project_tasks_status_check", sql`${table.status} IN ('Backlog', 'To Do', 'In Progress', 'In Review', 'Done')`),
+  check("project_tasks_priority_check", sql`${table.priority} IN ('Low', 'Medium', 'High', 'Critical')`),
+  check("project_tasks_estimated_hours_check", sql`${table.estimatedHours} >= 0`),
+  check("project_tasks_logged_hours_check", sql`${table.loggedHours} >= 0`),
+  index("project_tasks_project_status_order_idx").on(table.projectId, table.status, table.sortOrder),
+  index("project_tasks_assignee_project_idx").on(table.assigneeId, table.projectId),
+]);
+
+export const projectRisks = pgTable("project_risks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 50 }).notNull().default("Technical"),
+  probability: integer("probability").notNull(),
+  impact: integer("impact").notNull(),
+  riskScore: integer("risk_score").generatedAlwaysAs(sql`probability * impact`),
+  mitigationStrategy: text("mitigation_strategy"),
+  status: varchar("status", { length: 50 }).notNull().default("Identified"),
+  ownerId: varchar("owner_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("project_risks_category_check", sql`${table.category} IN ('Technical', 'Financial', 'Operational', 'Schedule', 'Compliance')`),
+  check("project_risks_probability_check", sql`${table.probability} BETWEEN 1 AND 5`),
+  check("project_risks_impact_check", sql`${table.impact} BETWEEN 1 AND 5`),
+  check("project_risks_status_check", sql`${table.status} IN ('Identified', 'Mitigated', 'Accepted', 'Closed')`),
+  index("project_risks_project_status_idx").on(table.projectId, table.status),
+  index("project_risks_owner_project_idx").on(table.ownerId, table.projectId),
+]);
+
+export const projectChanges = pgTable("project_changes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  rfcNumber: varchar("rfc_number", { length: 50 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  reason: text("reason"),
+  impactAnalysis: text("impact_analysis"),
+  status: varchar("status", { length: 50 }).notNull().default("Draft"),
+  requestedBy: varchar("requested_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("project_changes_status_check", sql`${table.status} IN ('Draft', 'Submitted', 'Approved', 'Rejected', 'Implemented')`),
+  uniqueIndex("project_changes_rfc_number_uq").on(table.rfcNumber),
+  index("project_changes_project_status_idx").on(table.projectId, table.status, table.createdAt),
+]);
+
+export const projectDocuments = pgTable("project_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  version: varchar("version", { length: 50 }).notNull().default("1.0"),
+  fileUrl: text("file_url").notNull(),
+  category: varchar("category", { length: 50 }).notNull().default("Charter"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  filePath: text("file_path").notNull(),
+  originalName: varchar("original_name", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 255 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  check("project_documents_category_check", sql`${table.category} IN ('Charter', 'SOW', 'Architecture', 'Handover', 'Other')`),
+  check("project_documents_file_size_check", sql`${table.fileSize} > 0`),
+  uniqueIndex("project_documents_project_name_version_uq").on(table.projectId, table.name, table.version),
+  index("project_documents_project_created_idx").on(table.projectId, table.createdAt),
+]);
+
 export const insertProjectSchema = createInsertSchema(projects).omit({ id: true, createdAt: true, updatedAt: true });
 export type Project = typeof projects.$inferSelect;
 export type InsertProject = z.infer<typeof insertProjectSchema>;
@@ -162,6 +246,10 @@ export type ProjectManager = typeof projectManagers.$inferSelect;
 export type ProjectTeamMember = typeof projectTeamMembers.$inferSelect;
 export type ProjectMilestone = typeof projectMilestones.$inferSelect;
 export type ProjectAsset = typeof projectAssets.$inferSelect;
+export type ProjectTask = typeof projectTasks.$inferSelect;
+export type ProjectRisk = typeof projectRisks.$inferSelect;
+export type ProjectChange = typeof projectChanges.$inferSelect;
+export type ProjectDocument = typeof projectDocuments.$inferSelect;
 
 export const assets = pgTable("assets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

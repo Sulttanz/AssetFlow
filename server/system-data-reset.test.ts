@@ -109,6 +109,14 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.projectManagers, { projectId: project, userId: adminId, isPrimary: true });
     await seed(s.projectTeamMembers, { projectId: project, userId: otherId, roleTitle: "Fixture analyst" });
     await seed(s.projectMilestones, { projectId: project, title: "Fixture milestone", dueDate: new Date("2026-11-01T12:00:00.000Z") });
+    await seed(s.projectTasks, { projectId: project, title: "Fixture delivery task", assigneeId: otherId });
+    await seed(s.projectRisks, { projectId: project, title: "Fixture delivery risk", probability: 2, impact: 3, ownerId: otherId });
+    await seed(s.projectChanges, { projectId: project, rfcNumber: "PRFC-RESET", title: "Fixture project RFC", requestedBy: adminId });
+    await seed(s.projectDocuments, {
+      projectId: project, name: "Fixture charter", version: "1.0", fileUrl: "/fixture/project-document",
+      category: "Charter", uploadedBy: adminId, filePath: "/fixture/project-document", originalName: "charter.pdf",
+      mimeType: "application/pdf", fileSize: 1,
+    });
     const vendor = await seed(s.vendors, { name: "Fixture vendor" });
     const po = await seed(s.purchaseOrders, { poNumber: "RESET-PO", orderDate: "2026-10-22", totalAmount: "10.00", vendorId: vendor });
     const item = await seed(s.purchaseOrderItems, { purchaseOrderId: po, description: "Fixture", unitPrice: "10.00", totalPrice: "10.00" });
