@@ -15,6 +15,7 @@ const store = vi.hoisted(() => ({
   getChanges: vi.fn(),
   getChangesPage: vi.fn(),
   getPendingCabAlertChanges: vi.fn(),
+  getDisabledCabAlertChanges: vi.fn(),
   getChange: vi.fn(),
   getChangeApprovals: vi.fn(),
   getAllChangeApprovalRecords: vi.fn(),
@@ -178,6 +179,7 @@ describe("CAB route notifications across signed-in sessions", () => {
       approvals.some(a => a.approverId === userId && !a.removedAt && (a.decision === "pending" || a.decision === null))
         ? [{ id: change.id, changeNumber: change.changeNumber, title: change.title, type: change.type }]
         : []);
+    store.getDisabledCabAlertChanges.mockResolvedValue([]);
     store.getChange.mockImplementation(async () => ({ ...change, approvals: active().map(a => ({ ...a })) }));
     store.getChangeApprovals.mockImplementation(async () => active().map(a => ({ ...a })));
     store.getAllChangeApprovalRecords.mockImplementation(async () => approvals.map(a => ({ ...a })));
@@ -262,6 +264,46 @@ describe("CAB route notifications across signed-in sessions", () => {
     ]);
     expect(store.getPendingCabAlertChanges).toHaveBeenCalledWith("alice");
     expect(store.getChanges).not.toHaveBeenCalled();
+  });
+
+  it("shows blocked pending CAB assignments to change managers only", async () => {
+    const manager = await login("manager");
+    store.getDisabledCabAlertChanges.mockResolvedValueOnce([
+      {
+        id: change.id,
+        changeNumber: change.changeNumber,
+        title: change.title,
+        type: change.type,
+        approverLabel: "Disabled Reviewer",
+      },
+      {
+        id: change.id,
+        changeNumber: change.changeNumber,
+        title: change.title,
+        type: change.type,
+        approverLabel: "Former Reviewer",
+      },
+    ]);
+
+    const response = await request("/api/alerts", manager);
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).filter((alert: { title: string }) => alert.title.startsWith("Blocked CAB:"))).toEqual([
+      {
+        type: "cab",
+        severity: "high",
+        title: "Blocked CAB: CHG-000001",
+        message: "CHG-000001 — Upgrade network is blocked by a pending assignment for disabled CAB approvers Disabled Reviewer, Former Reviewer. Remove the assignment and add an active approver.",
+        changeId: "change-1",
+        link: "/changes?approval=change-1",
+      },
+    ]);
+    expect(store.getDisabledCabAlertChanges).toHaveBeenCalledTimes(1);
+    expect(store.getDisabledCabAlertChanges).toHaveBeenCalledWith();
+
+    const ordinaryUser = await login("alice");
+    await request("/api/alerts", ordinaryUser);
+    expect(store.getDisabledCabAlertChanges).toHaveBeenCalledTimes(1);
   });
 
   async function openStream(cookie: string) {

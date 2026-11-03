@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
-import { changeApprovals, changes } from "@shared/schema";
+import { changeApprovals, changes, users } from "@shared/schema";
 
 const databaseIntegrationEnabled =
   process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
@@ -25,6 +25,9 @@ describe("CAB alert storage query", () => {
     // Legacy duplicate assignments join to the same projected change.
     { id: "change-1", changeNumber: "CHG-000001", title: "Pending change", type: "normal", createdAt: new Date("2026-10-04T10:00:00Z") },
     { id: "change-2", changeNumber: "CHG-000002", title: "Legacy null decision", type: "emergency", createdAt: new Date("2026-10-03T10:00:00Z") },
+  ];
+  const disabledApproverRows = [
+    { id: "change-3", changeNumber: "CHG-000003", title: "Blocked change", type: "normal", approverLabel: "Inactive Reviewer", createdAt: new Date("2026-10-02T10:00:00Z") },
   ];
   let query: {
     selection?: Record<string, unknown>;
@@ -70,9 +73,10 @@ describe("CAB alert storage query", () => {
         },
         then(resolve: (value: typeof joinedRows) => unknown, reject?: (reason: unknown) => unknown) {
           // Model PostgreSQL SELECT DISTINCT over the projected change fields.
+          const sourceRows = query.joins?.length === 2 ? disabledApproverRows : joinedRows;
           const uniqueRows = Array.from(new Map(
-            joinedRows.map(row => [
-              JSON.stringify([row.id, row.changeNumber, row.title, row.type, row.createdAt]),
+            sourceRows.map(row => [
+              JSON.stringify(Object.keys(selection).map(key => (row as Record<string, unknown>)[key])),
               row,
             ]),
           ).values());
@@ -124,6 +128,30 @@ describe("CAB alert storage query", () => {
     expect(query.selection).not.toHaveProperty("comments");
     expect(query.orderBySql?.join(" ")).toContain('"changes"."created_at"');
     expect(query.orderBySql?.join(" ")).toContain('"changes"."id"');
+  });
+
+  it("filters manager alerts to active pending assignments owned by disabled accounts", async () => {
+    const result = await new DatabaseStorage().getDisabledCabAlertChanges();
+
+    expect(result).toEqual([
+      {
+        id: "change-3",
+        changeNumber: "CHG-000003",
+        title: "Blocked change",
+        type: "normal",
+        approverLabel: "Inactive Reviewer",
+      },
+    ]);
+    expect(database.selectDistinct).toHaveBeenCalledTimes(1);
+    expect(query.source).toBe(changes);
+    expect(query.joins?.map(join => join.table)).toEqual([changeApprovals, users]);
+    expect(query.whereSql).toContain('"users"."is_active" = $1');
+    expect(query.whereSql).toContain('"change_approvals"."removed_at" is null');
+    expect(query.whereSql).toMatch(
+      /"change_approvals"\."decision" = \$2 or "change_approvals"\."decision" is null/,
+    );
+    expect(query.whereParams).toEqual([false, "pending"]);
+    expect(query.selection).toHaveProperty("approverLabel");
   });
 
   describe.skipIf(!databaseIntegrationEnabled)("PostgreSQL query plan", () => {

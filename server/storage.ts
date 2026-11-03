@@ -361,6 +361,7 @@ export interface IStorage {
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
+  getDisabledCabAlertChanges(): Promise<Array<Pick<Change, "id" | "changeNumber" | "title" | "type"> & { approverLabel: string }>>;
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
   createChange(change: InsertChange): Promise<Change>;
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
@@ -2729,6 +2730,7 @@ export class MemStorage implements IStorage {
   }
   async getPendingCabChanges(_userId: string): Promise<ChangeWithDetails[]> { return []; }
   async getPendingCabAlertChanges(_userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]> { return []; }
+  async getDisabledCabAlertChanges(): Promise<Array<Pick<Change, "id" | "changeNumber" | "title" | "type"> & { approverLabel: string }>> { return []; }
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
@@ -4481,6 +4483,23 @@ export class DatabaseStorage implements IStorage {
         or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
       .orderBy(desc(changes.createdAt), desc(changes.id));
     return rows.map(({ id, changeNumber, title, type }) => ({ id, changeNumber, title, type }));
+  }
+  async getDisabledCabAlertChanges(): Promise<Array<Pick<Change, "id" | "changeNumber" | "title" | "type"> & { approverLabel: string }>> {
+    const rows = await db.selectDistinct({
+      id: changes.id,
+      changeNumber: changes.changeNumber,
+      title: changes.title,
+      type: changes.type,
+      approverLabel: changeApprovals.approverLabel,
+      createdAt: changes.createdAt,
+    }).from(changes)
+      .innerJoin(changeApprovals, eq(changeApprovals.changeId, changes.id))
+      .innerJoin(users, eq(users.id, changeApprovals.approverId))
+      .where(and(eq(users.isActive, false), isNull(changeApprovals.removedAt),
+        or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
+      .orderBy(desc(changes.createdAt), desc(changes.id));
+    return rows.map(({ id, changeNumber, title, type, approverLabel }) =>
+      ({ id, changeNumber, title, type, approverLabel }));
   }
   async getChange(id: string): Promise<ChangeWithDetails | undefined> {
     const rows = await db.select().from(changes).where(eq(changes.id, id));

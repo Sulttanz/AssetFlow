@@ -4571,13 +4571,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [assetEnabled, itsmEnabled] = await Promise.all([
         isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"),
       ]);
+      const currentUserPermissions = itsmEnabled
+        ? await storage.getUserPermissions(currentUserId)
+        : [];
+      const canManageChanges = currentUserPermissions.some(permission =>
+        ["system_admin", "change_manage"].includes(permission),
+      );
 
-      const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges] = await Promise.all([
+      const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges, disabledCabChanges] = await Promise.all([
         assetEnabled ? storage.getAssets() : [],
         assetEnabled ? storage.getMaintenanceSchedules() : [],
         assetEnabled ? storage.getBudgets() : [],
         itsmEnabled ? storage.getTickets() : [],
         itsmEnabled ? storage.getPendingCabAlertChanges(currentUserId) : [],
+        canManageChanges ? storage.getDisabledCabAlertChanges() : [],
       ]);
 
       const alerts: any[] = [];
@@ -4731,6 +4738,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           link: `/changes?approval=${encodeURIComponent(change.id)}`,
         });
       }
+
+      // A disabled account cannot cast its pending vote. Derive these manager
+      // alerts from current assignments and account state so a vote or removal
+      // clears the alert without maintaining a separate notification record.
+      const disabledApproversByChange = new Map<string, {
+        change: typeof disabledCabChanges[number];
+        approverLabels: Set<string>;
+      }>();
+      for (const row of disabledCabChanges) {
+        let blockedChange = disabledApproversByChange.get(row.id);
+        if (!blockedChange) {
+          blockedChange = { change: row, approverLabels: new Set() };
+          disabledApproversByChange.set(row.id, blockedChange);
+        }
+        blockedChange.approverLabels.add(row.approverLabel);
+      }
+      disabledApproversByChange.forEach(({ change, approverLabels }) => {
+        const approvers = Array.from(approverLabels);
+        alerts.push({
+          type: "cab",
+          severity: "high",
+          title: `Blocked CAB: ${change.changeNumber}`,
+          message: `${change.changeNumber} — ${change.title} is blocked by a pending assignment for disabled CAB approver${approvers.length === 1 ? "" : "s"} ${approvers.join(", ")}. Remove the assignment and add an active approver.`,
+          changeId: change.id,
+          link: `/changes?approval=${encodeURIComponent(change.id)}`,
+        });
+      });
 
       res.json(alerts);
     } catch (error) {
@@ -8554,7 +8588,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found or no longer available" });
-      if (ch.requestedById !== (req.user as any).id && !(await canViewAllItsmRecords((req.user as any).id))) {
+      const userId = (req.user as any).id;
+      const canManageChanges = (await storage.getUserPermissions(userId)).some(permission =>
+        ["system_admin", "change_manage"].includes(permission),
+      );
+      if (ch.requestedById !== userId && !(await canViewAllItsmRecords(userId)) && !canManageChanges) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id) });
