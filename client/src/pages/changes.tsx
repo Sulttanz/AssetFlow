@@ -83,7 +83,7 @@ interface ChangeWithDetails {
   };
   createdAt: string; updatedAt: string;
 }
-interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; isActive: boolean | null; }
+interface UserSummary { id: string; username: string; firstName: string | null; lastName: string | null; isActive?: boolean | null; }
 interface Department { id: string; name: string; }
 interface ChangePage { changes: ChangeWithDetails[]; total: number; }
 const PAGE_SIZE = 25;

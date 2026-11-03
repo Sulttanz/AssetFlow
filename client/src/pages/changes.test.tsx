@@ -27,7 +27,7 @@ type UserSummaryFixture = {
   username: string;
   firstName: string | null;
   lastName: string | null;
-  isActive: boolean | null;
+  isActive?: boolean | null;
 };
 
 function approval(id: string, decision: string | null, approverId = id, comments: string | null = null) {
@@ -538,12 +538,14 @@ describe("change detail CAB approvals", () => {
     expect(screen.getByRole("option", { name: "dave" })).toBeTruthy();
   });
 
-  it("offers active users but excludes inactive accounts from CAB assignment", async () => {
+  it("offers only explicitly active accounts for CAB assignment", async () => {
     auth.isAdmin = true;
     const users = [
       { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
       { id: "active-user", username: "active-user", firstName: "Active", lastName: "Reviewer", isActive: true },
       { id: "inactive-user", username: "inactive-user", firstName: "Inactive", lastName: "Reviewer", isActive: false },
+      { id: "null-status-user", username: "null-status-user", firstName: "Null Status", lastName: "Reviewer", isActive: null },
+      { id: "missing-status-user", username: "missing-status-user", firstName: "Missing Status", lastName: "Reviewer" },
     ];
     const { user, panel } = await openApprovals([], [], [], [], users);
 
@@ -551,6 +553,8 @@ describe("change detail CAB approvals", () => {
 
     expect(screen.getByRole("option", { name: "Active Reviewer" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Inactive Reviewer" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Null Status Reviewer" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Missing Status Reviewer" })).toBeNull();
   });
 
   it("refreshes account eligibility each time the CAB approver picker opens", async () => {
