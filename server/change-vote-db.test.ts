@@ -1517,6 +1517,114 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 ;
 
 
+  it("keeps an active rejection when multiple pending CAB assignments are removed concurrently", async () => {
+    const managerAId = randomUUID();
+    const managerBId = randomUUID();
+    const rejectedVoterId = randomUUID();
+    const pendingVoterAId = randomUUID();
+    const pendingVoterBId = randomUUID();
+    const changeId = randomUUID();
+    const rejectedApprovalId = randomUUID();
+    const pendingApprovalAId = randomUUID();
+    const pendingApprovalBId = randomUUID();
+    const rejectedAt = new Date();
+
+    await db.insert(users).values([
+      {
+        id: managerAId, username: `manager-${managerAId}`, email: `${managerAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager A",
+      },
+      {
+        id: managerBId, username: `manager-${managerBId}`, email: `${managerBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager B",
+      },
+      {
+        id: rejectedVoterId, username: `voter-${rejectedVoterId}`, email: `${rejectedVoterId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver",
+      },
+      {
+        id: pendingVoterAId, username: `voter-${pendingVoterAId}`, email: `${pendingVoterAId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver",
+      },
+      {
+        id: pendingVoterBId, username: `voter-${pendingVoterBId}`, email: `${pendingVoterBId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver",
+      },
+    ]);
+
+    await db.insert(changes).values({
+      id: changeId,
+      changeNumber: `TEST-${changeId}`,
+      title: "Concurrent removals preserve CAB rejection",
+      status: "rejected",
+      cabRequired: true,
+    });
+
+    await db.insert(changeApprovals).values([
+      {
+        id: rejectedApprovalId,
+        changeId,
+        approverId: rejectedVoterId,
+        originalApproverId: rejectedVoterId,
+        approverLabel: "CAB Approver",
+        decision: "rejected",
+        decidedAt: rejectedAt,
+      },
+      {
+        id: pendingApprovalAId,
+        changeId,
+        approverId: pendingVoterAId,
+        originalApproverId: pendingVoterAId,
+        approverLabel: "CAB Approver",
+        decision: "pending",
+      },
+      {
+        id: pendingApprovalBId,
+        changeId,
+        approverId: pendingVoterBId,
+        originalApproverId: pendingVoterBId,
+        approverLabel: "CAB Approver",
+        decision: "pending",
+      },
+    ]);
+
+    const removals = await Promise.all([
+      storage.removeChangeApproval(pendingApprovalAId, managerAId),
+      storage.removeChangeApproval(pendingApprovalBId, managerBId),
+    ]);
+
+    expect(removals.map(row => row?.id).sort()).toEqual([pendingApprovalAId, pendingApprovalBId].sort());
+
+    const history = await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId));
+    expect(history).toHaveLength(3);
+    expect(history.find(row => row.id === rejectedApprovalId)).toMatchObject({
+      decision: "rejected",
+      approverId: rejectedVoterId,
+      removedAt: null,
+      decidedAt: rejectedAt,
+    });
+    expect(history.find(row => row.id === pendingApprovalAId)).toMatchObject({
+      decision: "pending",
+      removedById: managerAId,
+      removedByLabel: "CAB Manager A",
+    });
+    expect(history.find(row => row.id === pendingApprovalBId)).toMatchObject({
+      decision: "pending",
+      removedById: managerBId,
+      removedByLabel: "CAB Manager B",
+    });
+    expect(history.find(row => row.id === pendingApprovalAId)?.removedAt).toBeInstanceOf(Date);
+    expect(history.find(row => row.id === pendingApprovalBId)?.removedAt).toBeInstanceOf(Date);
+
+    const active = await storage.getChangeApprovals(changeId);
+    expect(active.map(row => row.id)).toEqual([rejectedApprovalId]);
+    expect(active[0]).toMatchObject({ decision: "rejected", approverId: rejectedVoterId });
+
+    const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+    expect(savedChange.status).toBe("rejected");
+    expect(savedChange.approvedAt).toBeNull();
+  }, 15_000);
+
   it.each(["manual-update", "removal"] as const)(
     "keeps status and active CAB membership accurate when the %s commits first",
     async first => 
