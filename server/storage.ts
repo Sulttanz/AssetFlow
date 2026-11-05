@@ -4668,6 +4668,9 @@ export class DatabaseStorage implements IStorage {
       if (resultingStatus === "in_progress" && current.status !== "in_progress" && change.actualStart === undefined) {
         guardedChange = { ...guardedChange, actualStart: new Date() };
       }
+      if (resultingStatus === "completed" && current.status !== "completed" && change.actualEnd === undefined) {
+        guardedChange = { ...guardedChange, actualEnd: new Date() };
+      }
 
       const [updated] = await tx.update(changes)
         .set({ ...guardedChange, updatedAt: new Date() })

@@ -306,16 +306,9 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
   });
 
   it.each([
-    
-{
- status: "approved", timestamp: "approvedAt" 
-}
-,
-    
-{
- status: "in_progress", timestamp: "actualStart" 
-}
-,
+    { status: "approved", timestamp: "approvedAt" },
+    { status: "in_progress", timestamp: "actualStart" },
+    { status: "completed", timestamp: "actualEnd" },
   ] as const)("records and preserves the $timestamp lifecycle timestamp for a manual $status transition", async (
 {
  status, timestamp 
