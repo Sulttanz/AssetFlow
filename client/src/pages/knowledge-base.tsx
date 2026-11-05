@@ -25,6 +25,7 @@ const fallbackCategories = [
   { value: "My Assets & ITAM / CMDB", label: "My Assets & ITAM / CMDB" },
   { value: "Project Management & Governance", label: "Project Management & Governance" },
   { value: "ITIL Service Operation & Change Management", label: "ITIL Service Operation & Change Management" },
+  { value: "GRC & Compliance", label: "GRC & Compliance" },
 ];
 const tabs = [
   { label: "All", key: "all", icon: BookOpen },
