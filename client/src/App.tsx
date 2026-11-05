@@ -146,8 +146,8 @@ function Router() {
                   <ProtectedRoute path="/reports/project-variance" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/reports/project-velocity" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/reports/risk-heatmap" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
-                  <ProtectedRoute path="/reports/itsm-mttr" component={TicketReport} requiredModule="itsm" requiredPermission="ticket_view_all" />
-                  <ProtectedRoute path="/reports/itsm-sla" component={PlannedAnalyticsReport} requiredModule="itsm" requiredPermission="ticket_view_all" />
+                  <ProtectedRoute path="/reports/itsm-mttr" component={TicketReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
+                  <ProtectedRoute path="/reports/itsm-sla" component={PlannedAnalyticsReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
                   <ProtectedRoute path="/reports/itsm-cab" component={ChangesReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "change_view", "system_admin"]} />
                   <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} requiredModule="asset_management" />

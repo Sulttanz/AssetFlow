@@ -45,3 +45,4 @@
 - [Demo visitor boundary](demo-visitor-boundary.md) — visitors can explore operational views and executive analytics but must remain read-only and outside administration.
 - [Zod PATCH defaults](zod-patch-defaults.md) — partial creation schemas can still populate omitted defaults; redefine defaulted fields for safe updates.
 - [Module licensing boundary](module-licensing-boundary.md) — one complete schema; disabled modules hide UI, block APIs, skip optional reads, and preserve existing links.
+- [Reports hub policy](reports-hub-policy.md) — the hub and sidebar share four report domains; keep metrics and tables on dedicated report pages.

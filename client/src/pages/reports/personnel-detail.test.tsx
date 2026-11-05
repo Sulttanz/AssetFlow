@@ -31,14 +31,17 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 describe("dedicated personnel reports", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState({}, "", "/");
+  });
 
   it("renders directory details on its dedicated report route", () => {
     window.history.replaceState({}, "", "/reports/employee-directory");
     render(<PersonnelDetailReport />);
     expect(screen.getByRole("heading", { name: "Employee Directory & Status Report" })).toBeTruthy();
     expect(screen.getAllByText("Amina Noor").length).toBeGreaterThan(0);
-    expect(screen.getByText("03-02-2026")).toBeTruthy();
+    expect(screen.getAllByText("03-02-2026").length).toBeGreaterThan(0);
   });
 
   it("renders access and onboarding metrics without embedding them in the report index", () => {
@@ -47,6 +50,6 @@ describe("dedicated personnel reports", () => {
     expect(screen.getByRole("heading", { name: "Account Access & Onboarding Activity" })).toBeTruthy();
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("Access Expiring")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Open Access Governance" })).toBeTruthy();
+    expect(screen.queryByText("Active Personnel Directory")).toBeNull();
   });
 });

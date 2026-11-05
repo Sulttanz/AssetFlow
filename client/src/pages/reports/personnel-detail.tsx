@@ -100,6 +100,7 @@ export default function PersonnelDetailReport() {
     data?.allocationModules.projectManagement ? { key: "projectTasks" as const, label: "Project tasks" } : null,
     data?.allocationModules.itsm ? { key: "tickets" as const, label: "Tickets" } : null,
   ].filter((column): column is { key: "assets" | "projectTasks" | "tickets"; label: string } => column !== null);
+  const allocationMaximum = Math.max(1, ...people.flatMap(person => allocationColumns.map(column => person.allocation[column.key])));
 
   return (
     <main className="min-w-0 space-y-5 p-4 md:p-6" data-testid={`personnel-report-${view.key}`}>
@@ -132,8 +133,7 @@ export default function PersonnelDetailReport() {
             <Metric label="Expired Access Grants" value={data.summary.expiredAccessGrants} tone="rose" />
           </div>
           <Card className="rounded-xl border-slate-200 shadow-sm">
-            <CardHeader><CardTitle className="text-base">Review guidance</CardTitle><CardDescription>Use Access Governance to review grants and take action on expirations.</CardDescription></CardHeader>
-            <CardContent><Button asChild variant="outline"><Link href="/access-governance">Open Access Governance</Link></Button></CardContent>
+            <CardHeader><CardTitle className="text-base">Reporting period</CardTitle><CardDescription>Onboarding, offboarding, and sign-off counts cover the last 30 days. Expiring access includes active grants due within the next 30 days.</CardDescription></CardHeader>
           </Card>
         </section>
       ) : view.key === "workload" ? (
@@ -159,7 +159,11 @@ export default function PersonnelDetailReport() {
                       const total = allocationColumns.reduce((sum, column) => sum + person.allocation[column.key], 0);
                       return <TableRow key={person.id}>
                         <TableCell><span className="font-medium">{person.name}</span><span className="ml-2 text-xs text-muted-foreground">{person.department || ""}</span></TableCell>
-                        {allocationColumns.map((column) => <TableCell key={column.key} className="tabular-nums">{person.allocation[column.key]}</TableCell>)}
+                        {allocationColumns.map((column) => {
+                          const count = person.allocation[column.key];
+                          const intensity = count === 0 ? "bg-slate-100 text-slate-600" : count / allocationMaximum >= 0.66 ? "bg-blue-600 text-white" : count / allocationMaximum >= 0.33 ? "bg-blue-200 text-blue-950" : "bg-blue-50 text-blue-800";
+                          return <TableCell key={column.key}><span className={`inline-flex min-w-11 justify-center rounded-md px-3 py-2 font-medium tabular-nums ${intensity}`}>{count}</span></TableCell>;
+                        })}
                         <TableCell className="font-semibold tabular-nums">{total}</TableCell>
                       </TableRow>;
                     })}

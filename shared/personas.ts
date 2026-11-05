@@ -19,13 +19,15 @@ const IT_AGENT_PAGE_PREFIXES = [
   "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
   "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
   "/incidents", "/service-requests", "/problems", "/knowledge-base",
-  "/service-catalog", "/network-topology", "/backup-schedules", "/reports",
+  "/service-catalog", "/network-topology", "/backup-schedules", "/reports/tickets", "/reports/problems",
+  "/reports/hardware-lifecycle", "/reports/consumables-stock", "/reports/itsm-mttr", "/reports/itsm-sla",
 ];
 
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
   "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
   "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis", "/projects", "/migration", "/import",
+  "/reports/project-variance", "/reports/project-velocity", "/reports/risk-heatmap", "/reports/itsm-cab",
 ];
 
 function normalize(value: string): string {
@@ -68,6 +70,7 @@ export function isPersonaPageAllowed(
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/knowledge-base") return true;
   if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
+  if (["/reports", "/reports/personnel", "/reports/employee-directory", "/reports/workload-heatmap", "/reports/account-activity"].includes(path)) return true;
   if (permissions.includes("system_admin") || roleNames.some(name =>
     ["system_administrator", "administrator", "admin"].includes(normalize(name)),
   )) return true;
@@ -91,10 +94,10 @@ export function isPersonaPageAllowed(
       if (matchesPath(path, "/changes/new")) return false;
       return [
         "/dashboard", "/changes", "/applications", "/servers", "/network-topology", "/purchase-orders",
-        "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors",
+        "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors", "/reports/itsm-cab",
       ].some(prefix => matchesPath(path, prefix));
     }
-    return ["/assets", "/access-governance", "/audit-logs", "/network-topology", "/backup-schedules", "/knowledge-base"]
+    return ["/assets", "/access-governance", "/audit-logs", "/network-topology", "/backup-schedules", "/knowledge-base", "/reports/hardware-lifecycle", "/reports/consumables-stock"]
       .some(prefix => matchesPath(path, prefix));
   });
 }
