@@ -24,6 +24,7 @@ const fallbackCategories = [
   { value: "Employee Support", label: "Employee Support" },
   { value: "My Assets & ITAM / CMDB", label: "My Assets & ITAM / CMDB" },
   { value: "Project Management & Governance", label: "Project Management & Governance" },
+  { value: "ITIL Service Operation & Change Management", label: "ITIL Service Operation & Change Management" },
 ];
 const tabs = [
   { label: "All", key: "all", icon: BookOpen },

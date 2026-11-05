@@ -1,0 +1,46 @@
+---
+title: ITIL Incident & Change Enablement Operations
+category: ITIL Service Operation & Change Management
+author: Sulttanz
+owner: Sulttanz
+is_system_guide: true
+version: 1.0.0
+audience: internal
+---
+
+# ITIL Incident & Change Enablement Operations
+
+The ITSM workspace provides incident and change workflows with ITIL-aligned controls. This guide describes implemented product behavior; it is not a claim of formal ITIL certification or full organizational process compliance.
+
+## Incident Lifecycle Management
+
+Incident status changes use a centralized transition service:
+
+`New` → `In Progress` → `Pending` / `Resolved` → `Closed`
+
+An incident in `Resolved` can return to `In Progress` if additional work is required. `Closed` is terminal. Direct jumps outside the allowed transitions are rejected.
+
+### Resolution and SLA Controls
+
+- Moving an incident to `Resolved` or `Closed` requires a category, resolution code, and resolution notes.
+- The transition service records `firstRespondedAt`, `resolvedAt`, and `closedAt` where appropriate.
+- Response and resolution SLA targets are stored as `responseDueAt` and `resolveDueAt`. Transition activity records whether applicable targets were met or breached.
+- Priority is stored as `P1`–`P4` and the API validates those values. The current workflow does not automatically calculate priority from Impact and Urgency.
+
+## Change Enablement & CAB Governance
+
+Change requests support the types `standard`, `normal`, and `emergency`, and can store implementation, rollback, and test plans, risk, and scheduled start/end times. These fields are part of the RFC record; the application does not require every plan field for every submission.
+
+Normal and emergency changes require CAB review. High- or critical-risk changes also require CAB review, regardless of type. Standard changes can be marked CAB-required when needed.
+
+### CMDB Impact Summary
+
+When ITSM and CMDB are both enabled, a change can link target applications and servers. Its impact summary includes directly selected targets, related applications or servers derived from the application-to-server links, and affected application business and technical owners. This computed impact summary is for changes; it is not automatically generated for incidents.
+
+### CAB Approval Workflow
+
+1. **Submission**: The RFC is recorded with its available planning fields and schedule.
+2. **Review assignment**: Active CAB approvers are assigned to the change.
+3. **Individual votes**: Each assigned CAB member records an approval or rejection.
+4. **Status derivation**: A CAB-required change becomes approved only after every active assigned approver approves it. A rejection rejects the change; an empty active roster does not count as approval. There is no configurable majority-quorum policy in the current workflow.
+5. **Re-review after escalation**: Increasing a CAB-required change's type or risk level resets the active vote round so the escalated proposal receives fresh decisions; prior decisions remain in history.
