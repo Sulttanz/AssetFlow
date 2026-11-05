@@ -22,6 +22,7 @@ const fallbackCategories = [
   { value: "DR Plan", label: "DR Plan" },
   { value: "Getting Started & Platform Overview", label: "Getting Started & Platform Overview" },
   { value: "Employee Support", label: "Employee Support" },
+  { value: "My Assets & ITAM / CMDB", label: "My Assets & ITAM / CMDB" },
 ];
 const tabs = [
   { label: "All", key: "all", icon: BookOpen },
