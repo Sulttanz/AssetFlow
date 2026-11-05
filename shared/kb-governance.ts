@@ -20,14 +20,25 @@ export function canAuditPublishedPolicies(user: PersonaUserLike | null | undefin
 
 export function canReadKnowledge(
   user: PersonaUserLike | null | undefined,
-  article: { status: string; isPublic: boolean; category: string },
+  article: { status: string; isPublic: boolean; category: string; authorId?: string | null; ownerId?: string | null },
 ): boolean {
   if (!user) return false;
+  if (user.id && (article.authorId === user.id || article.ownerId === user.id)) return true;
   if (canAuditPublishedPolicies(user) && article.status === "published" &&
     article.category.trim().toLowerCase() === "policy") return true;
   return canManageKnowledge(user) ||
     (article.status === "published" && article.isPublic &&
       ["policy", "user guide"].includes(article.category.trim().toLowerCase()));
+}
+
+export function canDeleteKnowledgeArticle(
+  user: PersonaUserLike | null | undefined,
+  article: { isSystemGuide?: boolean; authorId?: string | null; ownerId?: string | null },
+): boolean {
+  if (!user) return false;
+  if (article.isSystemGuide) return isSystemAdministrator(user);
+  return canManageKnowledge(user) ||
+    (!!user.id && (article.authorId === user.id || article.ownerId === user.id));
 }
 
 export function nextKnowledgeVersion(version: string): string {

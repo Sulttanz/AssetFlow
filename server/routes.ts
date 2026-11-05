@@ -152,13 +152,9 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/problems",
     "/catalog",
     "/service-catalog",
-    "/knowledge-base",
-    "/kb",
-    "/kb-articles",
     "/reports/tickets",
     "/reports/problems",
     "/reports/changes",
-    "/reports/kb-articles",
   ].map((prefix) => [prefix, "itsm"] as [string, string]),
   ["/kpis", "itsm"],
   ["/projects", "project_management"],
@@ -167,6 +163,10 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
 ];
 
 export function moduleForApiPath(path: string): string | undefined {
+  const normalizedPath = path.split("?", 1)[0];
+  if (["/kb", "/kb-articles", "/reports/kb-articles"].some(prefix =>
+    normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`)
+  )) return undefined;
   return [...MODULE_API_PREFIXES].sort((a, b) => b[0].length - a[0].length).find(([prefix]) =>
     path === prefix || path.startsWith(`${prefix}/`)
   )?.[1];

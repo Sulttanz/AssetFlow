@@ -93,6 +93,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Overview",
       items: [
         { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
+        { name: "Knowledge Base / System Manual", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
         { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isItsmStaff, moduleKey: "itsm" },
       ]
     },
@@ -103,7 +104,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: personaRoles.includes("end_user") ? "My Tickets" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.includes("end_user") },
         { name: "Approval Queue", href: "/service-catalog?tab=approvals", icon: ClipboardCheck, current: location.startsWith("/service-catalog") && location.includes("tab=approvals"), visible: Boolean(catalogAccess?.canApprove) },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: personaRoles.includes("end_user") || personaRoles.includes("auditor") || (!personaScoped && !isItsmStaff) },
       ]
     },
     {
@@ -184,7 +184,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
         { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
-        { name: "Knowledge Base", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base", visible: isItsmStaff || personaRoles.includes("auditor") },
       ]
     },
     {

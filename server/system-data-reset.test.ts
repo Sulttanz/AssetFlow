@@ -2,6 +2,9 @@
 import express from "express";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Pool } from "pg";
 import { eq, getTableName, is } from "drizzle-orm";
 import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
@@ -40,6 +43,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
   let storage: typeof import("./storage").storage;
   let server: Server;
   let base = "";
+  let manualDirectory = "";
+  let systemGuideId = "";
   let protectedSnapshot: Record<string, unknown[]>;
   const ids: Record<string, string> = {};
 
@@ -54,6 +59,17 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     const result: Record<string, unknown[]> = {};
     for (const name of names) {
       const data = await setupPool.query(`SELECT * FROM "${schema}"."${name}"`);
+      result[name] = data.rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    }
+    return result;
+  }
+  async function snapshotSystemGuides() {
+    const result: Record<string, unknown[]> = {};
+    for (const name of ["kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings"]) {
+      const condition = name === "kb_articles"
+        ? "is_system_guide = true"
+        : "article_id IN (SELECT id FROM " + `"${schema}".kb_articles WHERE is_system_guide = true` + ")";
+      const data = await setupPool.query(`SELECT * FROM "${schema}"."${name}" WHERE ${condition}`);
       result[name] = data.rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     }
     return result;
@@ -78,6 +94,12 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     appPool = database.pool;
     expect((await appPool.query("SELECT current_schema() AS name")).rows[0].name).toBe(schema);
     storage = (await import("./storage")).storage;
+    manualDirectory = await mkdtemp(join(tmpdir(), "system-manual-fixture-"));
+    await writeFile(join(manualDirectory, "current-guide.md"), "# Current guide\nInitial repository content.");
+    await writeFile(join(manualDirectory, "removed-guide.md"), "# Removed guide\nThis source will be removed.");
+    const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
+    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 2, updated: 0, archived: 0, unchanged: 0 });
+    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 0, updated: 0, archived: 0, unchanged: 2 });
     const auth = await import("./auth");
     const hash = await auth.hashPassword(password);
     await db.insert(s.users).values([
@@ -191,6 +213,13 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.kbArticleAttachments, { articleId: article, articleVersion: "1.0", originalName: "policy.pdf", fileName: "policy.pdf", filePath: "/fixture/policy.pdf" });
     await seed(s.kbArticleControlMappings, { articleId: article, articleVersion: "1.0", framework: "ISO", controlId: "A.5", controlTitle: "Fixture control" });
     await seed(s.kbTicketLinks, { articleId: article, articleVersion: "1.0", incidentId: incident });
+    systemGuideId = await seed(s.kbArticles, {
+      title: "Repository guide", slug: "system-manual-reset-fixture", content: "Managed from docs.",
+      category: "User Guide", status: "published", isPublic: true, isSystemGuide: true,
+    });
+    await seed(s.kbArticleVersions, { articleId: systemGuideId, version: "1.0", snapshot: { title: "Repository guide" }, changeNote: "System guide seed" });
+    await seed(s.kbArticleAttachments, { articleId: systemGuideId, articleVersion: "1.0", originalName: "manual.pdf", fileName: "manual.pdf", filePath: "/fixture/manual.pdf" });
+    await seed(s.kbArticleControlMappings, { articleId: systemGuideId, articleVersion: "1.0", framework: "ISO", controlId: "A.6", controlTitle: "System guide control" });
     await seed(s.dataMigrationBatches, { moduleKey: "assets", fileName: "fixture.csv", totalRows: 1, validRows: 1, invalidRows: 0, expiresAt: new Date("2099-01-01"), createdById: adminId, previewData: [{ private: "staged employee data" }] });
     await seed(s.auditLogs, { userId: adminId, action: "DATA_MIGRATION", tableName: "data_migration_batches", recordId: ids.data_migration_batches });
     expect(Object.values(await snapshot(RESET_BUSINESS_TABLES)).every(rows => rows.length > 0)).toBe(true);
@@ -213,7 +242,24 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));
     await appPool?.end();
     if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
+    if (manualDirectory) await rm(manualDirectory, { recursive: true, force: true });
     try { await setupPool?.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); } finally { await setupPool?.end(); }
+  });
+
+  it("upserts changed Markdown and archives system guides whose source file is removed", async () => {
+    await writeFile(join(manualDirectory, "current-guide.md"), "# Current guide\nUpdated repository content.");
+    await rm(join(manualDirectory, "removed-guide.md"));
+    const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
+    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({
+      inserted: 0, updated: 1, archived: 1, unchanged: 0,
+    });
+    const guides = await db.select().from(s.kbArticles).where(eq(s.kbArticles.isSystemGuide, true));
+    expect(guides.find(guide => guide.slug === "system-manual-current-guide")).toMatchObject({
+      status: "published", version: "1.1", content: "# Current guide\nUpdated repository content.",
+    });
+    expect(guides.find(guide => guide.slug === "system-manual-removed-guide")).toMatchObject({
+      status: "archived", isPublic: false, version: "1.1",
+    });
   });
 
   it("rejects unauthenticated, unauthorized, invalid and incorrect password requests without changing any table", async () => {
@@ -285,13 +331,28 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
   });
 
   it("clears every business table, preserves every protected row and ledger, and writes a fresh audit record", async () => {
+    const guidesBeforeReset = await snapshotSystemGuides();
     const response = await request({ confirmPassword: password });
     const result = await response.json();
     expect(response.status, JSON.stringify(result)).toBe(200);
-    expect(result).toMatchObject({ clearedBy: "reset-admin", auditLogRefreshed: true, clearedTables: [...RESET_BUSINESS_TABLES], preservedTables: [...RESET_PROTECTED_TABLES] });
+    expect(result).toMatchObject({
+      clearedBy: "reset-admin", auditLogRefreshed: true,
+      clearedTables: [...RESET_BUSINESS_TABLES], preservedTables: [...RESET_PROTECTED_TABLES],
+      preservedSystemGuideRecords: true,
+    });
     for (const [name, rows] of Object.entries(await snapshot(RESET_BUSINESS_TABLES))) {
-      expect(rows.length, name).toBe(name === "audit_logs" ? 1 : 0);
+      expect(rows.length, name).toBe(name === "audit_logs" ? 1 : guidesBeforeReset[name]?.length ?? 0);
     }
+    expect(await snapshotSystemGuides()).toEqual(guidesBeforeReset);
+    const retainedGuide = await setupPool.query(
+      `SELECT id, is_system_guide FROM "${schema}".kb_articles WHERE id = $1`,
+      [systemGuideId],
+    );
+    expect(retainedGuide.rows).toEqual([{ id: systemGuideId, is_system_guide: true }]);
+    expect((await setupPool.query(
+      `SELECT article_id FROM "${schema}".kb_article_versions WHERE article_id = $1`,
+      [systemGuideId],
+    )).rows.some((row: { article_id: string }) => row.article_id === systemGuideId)).toBe(true);
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
     expect((await setupPool.query(`SELECT * FROM "${schema}"."_onprem_migrations"`)).rows).toEqual([{ name: "retained-migration" }]);
     const [audit] = await db.select().from(s.auditLogs);
@@ -299,7 +360,9 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     expect(audit.ipAddress).toBeTruthy();
     expect(audit.timestamp).toBeInstanceOf(Date);
     expect(audit.newValues).not.toContain(password);
-    expect(JSON.parse(audit.newValues!)).toMatchObject({ clearedTables: [...RESET_BUSINESS_TABLES] });
+    expect(JSON.parse(audit.newValues!)).toMatchObject({
+      clearedTables: [...RESET_BUSINESS_TABLES], preservedSystemGuideRecords: true,
+    });
     // A repeated reset still leaves the account/permission/session intact.
     expect((await request({ confirmPassword: password })).status).toBe(200);
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);

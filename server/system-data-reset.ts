@@ -27,8 +27,29 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
     // All related business tables are named in ONE statement. PostgreSQL
     // handles cycles and RESTRICT relationships without disabling constraints.
     // No CASCADE: unexpected dependencies must fail safely, not erase settings.
-    const tables = sql.join(RESET_BUSINESS_TABLES.map(name => sql.identifier(name)), sql`, `);
+    const systemGuideTables = new Set([
+      "kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings",
+    ]);
+    const tables = sql.join(
+      RESET_BUSINESS_TABLES.filter(name => !systemGuideTables.has(name)).map(name => sql.identifier(name)),
+      sql`, `,
+    );
     await tx.execute(sql`TRUNCATE TABLE ${tables} CONTINUE IDENTITY RESTRICT`);
+    // Preserve repository-owned system guides and their governed history while
+    // removing custom Knowledge Base content as part of the business reset.
+    await tx.execute(sql`
+      DELETE FROM kb_article_versions
+      WHERE article_id IN (SELECT id FROM kb_articles WHERE is_system_guide = false)
+    `);
+    await tx.execute(sql`
+      DELETE FROM kb_article_attachments
+      WHERE article_id IN (SELECT id FROM kb_articles WHERE is_system_guide = false)
+    `);
+    await tx.execute(sql`
+      DELETE FROM kb_article_control_mappings
+      WHERE article_id IN (SELECT id FROM kb_articles WHERE is_system_guide = false)
+    `);
+    await tx.execute(sql`DELETE FROM kb_articles WHERE is_system_guide = false`);
     // If this audit write fails, PostgreSQL rolls the entire reset back.
     await tx.insert(schema.auditLogs).values(systemDataResetAudit(actor));
   });

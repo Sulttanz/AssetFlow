@@ -8,10 +8,12 @@ export interface KnowledgeArticle {
   tags?: string | null;
   status: ArticleStatus | string;
   slug: string | null;
+  authorId: string | null;
   ownerId: string | null;
   reviewDate: string | null;
   version: string;
   isPublic: boolean;
+  isSystemGuide: boolean;
   authorName: string | null;
   ownerName: string | null;
   createdAt?: string;

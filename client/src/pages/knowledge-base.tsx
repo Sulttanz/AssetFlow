@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertCircle, BookOpen, BookMarked, FileCheck2, FileText, LifeBuoy, Plus, RefreshCw, Search, ShieldCheck, Siren } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isSystemAdministrator } from "@shared/personas";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
@@ -100,11 +101,7 @@ export default function KnowledgeBase() {
   });
   const archiveMutation = useMutation({
     mutationFn: async (article: KnowledgeArticle) => {
-      const response = await apiRequest("PUT", `/api/kb/articles/${article.id}`, {
-        title: article.title, content: article.content, category: article.category, tags: article.tags ?? "",
-        slug: article.slug ?? undefined, ownerId: article.ownerId, reviewDate: article.reviewDate,
-        status: "archived", isPublic: article.isPublic, expectedVersion: article.version, changeNote: "Archived",
-      });
+      const response = await apiRequest("DELETE", `/api/kb/articles/${article.id}`);
       if (!response.ok) {
         const failure = await response.json().catch(() => ({}));
         throw new Error(failure.message || "Could not archive article.");
@@ -120,13 +117,17 @@ export default function KnowledgeBase() {
     onError: (failure: Error) => toast({ title: "Could not archive article", description: failure.message, variant: "destructive" }),
   });
   const canManage = options?.canManage === true;
+  const isAdmin = isSystemAdministrator(user);
+  const canManageArticle = (article: KnowledgeArticle) => article.isSystemGuide
+    ? isAdmin
+    : canManage || article.authorId === user?.id || article.ownerId === user?.id;
   const openCreate = () => { setEditing(null); setEditorOpen(true); };
   const openEdit = (article: KnowledgeArticle) => { setEditing(article); setEditorOpen(true); };
   const published = allArticles.filter(article => article.status === "published").length;
 
   return <main className="min-h-[100dvh] space-y-6 p-4 sm:p-6">
     <header className="flex flex-col justify-between gap-4 border-b pb-5 sm:flex-row sm:items-center">
-      <div className="flex items-start gap-3"><div className="rounded-xl border bg-primary/10 p-2.5 text-primary"><BookOpen className="h-6 w-6" /></div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Knowledge & governance</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Knowledge Base</h1><p className="mt-1 text-sm text-muted-foreground">Approved guidance, policies, and operational runbooks.</p></div></div>
+      <div className="flex items-start gap-3"><div className="rounded-xl border bg-primary/10 p-2.5 text-primary"><BookOpen className="h-6 w-6" /></div><div><p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Core platform service</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">Knowledge Base / System Manual</h1><p className="mt-1 text-sm text-muted-foreground">Approved guidance, policies, and repository-maintained platform documentation.</p></div></div>
       {canManage && <Button onClick={openCreate} className="gap-2 self-start"><Plus className="h-4 w-4" />New article</Button>}
     </header>
     <section className="grid gap-3 sm:grid-cols-3">
@@ -151,14 +152,14 @@ export default function KnowledgeBase() {
         : isError ? <Card className="border-destructive/30"><CardContent className="grid justify-items-center gap-3 p-10 text-center"><AlertCircle className="h-8 w-8 text-destructive" /><h2 className="font-semibold">Knowledge articles could not be loaded</h2><p className="text-sm text-muted-foreground">{(error as Error)?.message || "Please try again in a moment."}</p><Button variant="outline" onClick={() => refetch()} className="gap-2"><RefreshCw className="h-4 w-4" />Retry</Button></CardContent></Card>
           : filtered.length === 0 ? <Card><CardContent className="grid justify-items-center gap-3 p-12 text-center"><div className="rounded-full bg-muted p-3"><BookOpen className="h-6 w-6 text-muted-foreground" /></div><h2 className="font-semibold">{search || statusFilter !== "all" || categoryFilter !== "all" || tab !== "all" ? "No matching guidance" : "No articles available"}</h2><p className="max-w-sm text-sm text-muted-foreground">{canManage ? "Adjust your filters or create the first governed article in this space." : "There are no published public policies or guides to show right now."}</p>{canManage && <Button onClick={openCreate} variant="outline" className="gap-2"><Plus className="h-4 w-4" />Create article</Button>}</CardContent></Card>
             : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{filtered.map(article => <Card key={article.id} className="group overflow-hidden transition-shadow hover:shadow-md"><CardContent className="flex h-full flex-col p-4">
-              <div className="mb-3 flex items-start justify-between gap-2"><Badge variant="outline" className="max-w-[70%] truncate">{article.category}</Badge>{canManage && <Badge className={statusStyles[article.status] ?? ""}>{statusLabel(article.status)}</Badge>}</div>
+               <div className="mb-3 flex items-start justify-between gap-2"><div className="flex min-w-0 flex-wrap gap-1.5"><Badge variant="outline" className="max-w-[70%] truncate">{article.category}</Badge>{article.isSystemGuide && <Badge variant="secondary">System guide</Badge>}</div>{canManage && <Badge className={statusStyles[article.status] ?? ""}>{statusLabel(article.status)}</Badge>}</div>
               <button type="button" className="text-left" onClick={() => setDetailId(article.id)}><h2 className="line-clamp-2 font-semibold leading-snug group-hover:text-primary">{article.title}</h2></button>
               <p className="mt-2 line-clamp-2 flex-1 text-sm leading-relaxed text-muted-foreground">{article.content.replace(/[#>*_`[\]()]/g, " ").replace(/\s+/g, " ").trim()}</p>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground"><span>{article.ownerName ? `Owner · ${article.ownerName}` : article.authorName ? `By ${article.authorName}` : "Knowledge article"}</span><span className="font-mono">v{article.version}</span></div>
-              <div className="mt-3 flex items-center justify-between"><Button type="button" variant="link" className="h-auto p-0" onClick={() => setDetailId(article.id)}>Read article</Button>{canManage && <Button type="button" size="sm" variant="outline" onClick={() => openEdit(article)}>Edit</Button>}</div>
+               <div className="mt-3 flex items-center justify-between"><Button type="button" variant="link" className="h-auto p-0" onClick={() => setDetailId(article.id)}>Read article</Button>{canManageArticle(article) && <Button type="button" size="sm" variant="outline" onClick={() => openEdit(article)}>{article.isSystemGuide ? "Manage guide" : "Edit"}</Button>}</div>
             </CardContent></Card>)}</div>}
     </section>
-    {canManage && options && <ArticleEditorDialog open={editorOpen} onOpenChange={setEditorOpen} article={editing} options={{ ...options, categories }} pending={saveMutation.isPending || archiveMutation.isPending} onSave={payload => saveMutation.mutate({ payload, current: editing })} onArchive={() => editing && archiveMutation.mutate(editing)} />}
+     {options && (canManage || (editing !== null && canManageArticle(editing))) && <ArticleEditorDialog open={editorOpen} onOpenChange={setEditorOpen} article={editing} options={{ ...options, categories }} pending={saveMutation.isPending || archiveMutation.isPending} onSave={payload => saveMutation.mutate({ payload, current: editing })} onArchive={() => editing && archiveMutation.mutate(editing)} />}
     <ArticleDetailDialog articleId={detailId} open={Boolean(detailId)} onOpenChange={open => { if (!open) setDetailId(null); }} />
   </main>;
 }

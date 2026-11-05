@@ -58,6 +58,9 @@ describe("module API guard", () => {
     expect(moduleForApiPath("/cmdb/change-options")).toBe("cmdb");
     expect(moduleForApiPath("/network-topology/zones")).toBe("cmdb");
     expect(moduleForApiPath("/backup-schedules")).toBe("cmdb");
+    expect(moduleForApiPath("/kb/articles")).toBeUndefined();
+    expect(moduleForApiPath("/kb/search")).toBeUndefined();
+    expect(moduleForApiPath("/reports/kb-articles")).toBeUndefined();
     expect(moduleForApiPath("/module-status")).toBeUndefined();
   });
 });

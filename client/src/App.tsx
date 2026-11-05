@@ -166,9 +166,9 @@ function Router() {
                   <ProtectedRoute path="/reports/tickets" component={TicketReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/problems" component={ProblemsReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />
-                  <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} requiredModule="itsm" />
+                  <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} />
                   <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredModule="itsm" requiredPermission="system_admin" />
-                  <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} requiredModule="itsm" />
+                  <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} />
                   <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />
                   <ProtectedRoute path="/changes" component={Changes} requiredModule="itsm" requiresItsmWorkbench />

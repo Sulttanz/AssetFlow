@@ -51,6 +51,7 @@ export function systemDataResetAudit(actor: SystemDataResetActor) {
       clearedBy: actor.username,
       clearedTables: RESET_BUSINESS_TABLES,
       preservedTables: RESET_PROTECTED_TABLES,
+      preservedSystemGuideRecords: true,
       reason: "Administrator confirmed the business-data reset using their current password.",
     }),
   };

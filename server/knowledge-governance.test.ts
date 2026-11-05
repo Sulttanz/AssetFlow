@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { canManageKnowledge, canReadKnowledge, knowledgeArticleInput, nextKnowledgeVersion } from "@shared/kb-governance";
+import { canDeleteKnowledgeArticle, canManageKnowledge, canReadKnowledge, knowledgeArticleInput, nextKnowledgeVersion } from "@shared/kb-governance";
 import { isPersonaApiAllowed, isPersonaPageAllowed } from "@shared/personas";
 import { assertAdditiveMigration } from "./startup-migrations";
 
@@ -59,7 +59,7 @@ const article = {
   id: "guide-1", title: "Employee guidance", slug: "employee-guidance",
   content: "# Approved guidance\nFollow these instructions.", category: "User Guide",
   status: "published", isPublic: true, version: "1.0", authorId: "test-user",
-  ownerId: "test-user", reviewDate: "2026-10-21", tags: "help",
+  ownerId: "test-user", isSystemGuide: false, reviewDate: "2026-10-21", tags: "help",
   createdAt: new Date(), updatedAt: new Date(), publishedAt: new Date(),
   reviewedAt: null, reviewedById: null, views: 0, helpfulCount: 0, notHelpfulCount: 0,
 };
@@ -83,11 +83,28 @@ describe("knowledge persona and input policy", () => {
   });
   it("requires an authenticated viewer and allows employee navigation without mutations", () => {
     expect(canReadKnowledge(null, article)).toBe(false);
-    expect(isPersonaPageAllowed(["end_user"], [], "/knowledge-base")).toBe(true);
+    for (const role of ["end_user", "it_agent", "cab_member", "it_manager", "auditor"]) {
+      expect(isPersonaPageAllowed([role], [], "/knowledge-base")).toBe(true);
+    }
+    expect(isPersonaPageAllowed(["demo_viewer"], [], "/knowledge-base")).toBe(true);
     expect(isPersonaApiAllowed(["end_user"], [], "/kb/articles", "GET")).toBe(true);
     expect(isPersonaApiAllowed(["end_user"], [], "/kb/articles", "POST")).toBe(false);
     expect(isPersonaApiAllowed(["it_agent"], [], "/kb/articles", "POST")).toBe(true);
     expect(isPersonaApiAllowed(["it_manager"], [], "/kb/articles/a/versions", "GET")).toBe(true);
+  });
+  it("allows owners to manage custom articles but reserves system guides for administrators", () => {
+    expect(canDeleteKnowledgeArticle({ id: "owner-1", roles: [{ name: "end_user" }] }, {
+      authorId: "owner-1", isSystemGuide: false,
+    })).toBe(true);
+    expect(canDeleteKnowledgeArticle({ id: "other-user", roles: [{ name: "end_user" }] }, {
+      authorId: "owner-1", isSystemGuide: false,
+    })).toBe(false);
+    expect(canDeleteKnowledgeArticle({ id: "owner-1", roles: [{ name: "end_user" }] }, {
+      authorId: "owner-1", isSystemGuide: true,
+    })).toBe(false);
+    expect(canDeleteKnowledgeArticle({ roles: [{ name: "admin" }] }, {
+      authorId: null, isSystemGuide: true,
+    })).toBe(true);
   });
   it("validates calendar dates and rejects protected fields", () => {
     expect(knowledgeArticleInput.safeParse({ ...payload, reviewDate: "2026-02-30" }).success).toBe(false);
@@ -99,8 +116,8 @@ describe("knowledge persona and input policy", () => {
     expect(nextKnowledgeVersion("1.9")).toBe("1.10");
   });
   it("uses an additive startup migration", async () => {
-    const migration = await readFile("migrations/onprem/20261103_knowledge_policy_governance.sql", "utf8");
-    expect(() => assertAdditiveMigration(migration, "knowledge governance")).not.toThrow();
+    const migration = await readFile("migrations/onprem/20261116_protected_knowledge_system_manual.sql", "utf8");
+    expect(() => assertAdditiveMigration(migration, "protected system manual")).not.toThrow();
   });
 });
 
@@ -137,7 +154,7 @@ describe("knowledge governance HTTP boundaries", () => {
       { ...article, id: "draft", status: "draft" },
       { ...article, id: "sop", category: "Technical SOP" },
       { ...article, id: "policy", category: "Policy" },
-    ]);
+    ].map((row, index) => ({ ...row, authorId: index === 0 ? "test-user" : "another-user", ownerId: index === 0 ? "test-user" : "another-user" })));
     const response = await request(path);
     expect(response.status).toBe(200);
     expect((await response.json()).map((row: any) => row.id)).toEqual(["guide-1", "policy"]);
@@ -145,7 +162,7 @@ describe("knowledge governance HTTP boundaries", () => {
     expect(condition.params).toEqual(expect.arrayContaining(["published", true, "policy", "user guide"]));
   });
   it("hides private articles on direct detail access", async () => {
-    mock.state.selects.push([{ ...article, isPublic: false }]);
+    mock.state.selects.push([{ ...article, isPublic: false, authorId: "another-user", ownerId: "another-user" }]);
     expect((await request("/api/kb/articles/guide-1")).status).toBe(404);
     expect(mock.state.updates).toHaveLength(0);
   });
@@ -166,8 +183,7 @@ describe("knowledge governance HTTP boundaries", () => {
     expect(await response.json()).toHaveLength(1);
   });
   it.each([
-    ["POST", "/api/kb/articles"], ["PUT", "/api/kb/articles/guide-1"],
-    ["DELETE", "/api/kb/articles/guide-1"], ["POST", "/api/kb/articles/guide-1/request-review"],
+    ["POST", "/api/kb/articles"], ["POST", "/api/kb/articles/guide-1/request-review"],
     ["POST", "/api/kb/articles/guide-1/approve"], ["POST", "/api/kb/articles/guide-1/reject"],
     ["GET", "/api/incidents/ticket-1/kb-articles"], ["POST", "/api/service-requests/ticket-1/kb-articles"],
   ])("blocks employee mutation/internal linking: %s %s", async (method, path) => {
@@ -212,6 +228,33 @@ describe("knowledge governance HTTP boundaries", () => {
     mock.state.selects.push([article]);
     expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(200);
     expect(mock.state.updates[0]).toMatchObject({ status: "archived", version: "1.1" });
+  });
+  it("allows an article owner to edit and archive their own custom article", async () => {
+    mock.state.existing = { ...article, status: "draft", isPublic: false };
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1", "PUT", {
+      ...payload, status: "draft", isPublic: false, expectedVersion: "1.0",
+      content: "Updated private employee guidance",
+    })).status).toBe(200);
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(200);
+    expect(mock.state.updates.at(-1)).toMatchObject({ status: "archived" });
+  });
+  it("denies non-admin archive and update of a repository system guide", async () => {
+    mock.state.existing = { ...article, isSystemGuide: true, authorId: null, ownerId: null };
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(403);
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1", "PUT", {
+      ...payload, expectedVersion: "1.0",
+    })).status).toBe(403);
+  });
+  it("allows only an administrator to archive a system guide", async () => {
+    mock.state.role = "admin";
+    mock.state.existing = { ...article, isSystemGuide: true, authorId: null, ownerId: null };
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(200);
+    expect(mock.state.updates[0]).toMatchObject({ status: "archived", isPublic: false });
   });
   it("maps database uniqueness conflicts to HTTP 409", async () => {
     mock.state.role = "it_agent";

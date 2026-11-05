@@ -12,8 +12,10 @@ import {
   type KbArticle,
 } from "@shared/schema";
 import {
-  canAuditPublishedPolicies, canManageKnowledge, canReadKnowledge, knowledgeArticleInput, nextKnowledgeVersion,
+  canAuditPublishedPolicies, canDeleteKnowledgeArticle, canManageKnowledge, canReadKnowledge,
+  knowledgeArticleInput, nextKnowledgeVersion,
 } from "@shared/kb-governance";
+import { isSystemAdministrator } from "@shared/personas";
 import { db } from "./db";
 import { storage } from "./storage";
 
@@ -45,15 +47,18 @@ function requireEditor(user: Viewer) {
 
 function visibleArticles(user: Viewer): SQL | undefined {
   if (canManageKnowledge(user)) return undefined;
+  const owned = or(eq(kbArticles.authorId, user.id), eq(kbArticles.ownerId, user.id));
   if (canAuditPublishedPolicies(user)) return and(
-    eq(kbArticles.status, "published"),
-    sql`lower(trim(${kbArticles.category})) = 'policy'`,
+    or(and(
+      eq(kbArticles.status, "published"),
+      sql`lower(trim(${kbArticles.category})) = 'policy'`,
+    ), owned),
   );
-  return and(
+  return or(and(
     eq(kbArticles.status, "published"),
     eq(kbArticles.isPublic, true),
     inArray(sql`lower(trim(${kbArticles.category}))`, ["policy", "user guide"]),
-  );
+  ), owned);
 }
 
 async function articleDetail(id: string, user: Viewer) {
@@ -111,12 +116,28 @@ async function updateArticle(
   req: Request, user: Viewer,
   transition?: { from?: string; status: string; reviewed?: boolean },
 ) {
-  requireEditor(user);
+  if (transition) requireEditor(user);
   const parsed = transition ? undefined : updateInput.parse(req.body);
   return db.transaction(async tx => {
     const [previous] = await tx.select().from(kbArticles)
       .where(eq(kbArticles.id, req.params.id)).for("update");
     if (!previous) throw new KnowledgeError(404, "Article not found");
+    if (previous.isSystemGuide && !isSystemAdministrator(user)) {
+      throw new KnowledgeError(403, "Only an administrator can modify a system guide");
+    }
+    const ownsCustomArticle = !previous.isSystemGuide &&
+      (previous.authorId === user.id || previous.ownerId === user.id);
+    if (transition && !canManageKnowledge(user)) {
+      throw new KnowledgeError(403, "IT staff or manager access required");
+    }
+    if (!transition && !canManageKnowledge(user) && !ownsCustomArticle) {
+      throw new KnowledgeError(403, "You can only manage your own custom articles");
+    }
+    if (!transition && !canManageKnowledge(user) &&
+      (parsed!.status !== previous.status || parsed!.isPublic !== previous.isPublic ||
+       (parsed!.ownerId !== undefined && parsed!.ownerId !== previous.ownerId))) {
+      throw new KnowledgeError(403, "Only IT staff or managers can change publication, visibility, or ownership");
+    }
     if (transition?.from && previous.status !== transition.from) {
       throw new KnowledgeError(409, `Only ${transition.from} articles support this action`);
     }
@@ -254,8 +275,28 @@ export function registerKnowledgeRoutes(
   }));
   // Preserve revision and ticket-link history: legacy deletion now archives.
   app.delete("/api/kb/articles/:id", requireAuth, route(async (req, res, user) => {
-    await updateArticle(req, user, { status: "archived" });
-    res.json({ success: true });
+    const archived = await db.transaction(async tx => {
+      const [previous] = await tx.select().from(kbArticles)
+        .where(eq(kbArticles.id, req.params.id)).for("update");
+      if (!previous) throw new KnowledgeError(404, "Article not found");
+      if (!canDeleteKnowledgeArticle(user, previous)) {
+        throw new KnowledgeError(403, previous.isSystemGuide
+          ? "Only an administrator can archive a system guide"
+          : "You can only archive your own custom articles");
+      }
+      if (previous.status === "archived") return previous;
+      await revision(tx, previous, user.id, "Preserved prior version", true);
+      const [updated] = await tx.update(kbArticles).set({
+        status: "archived",
+        ...(previous.isSystemGuide ? { isPublic: false } : {}),
+        version: nextKnowledgeVersion(previous.version),
+        updatedAt: new Date(),
+      }).where(eq(kbArticles.id, previous.id)).returning();
+      await revision(tx, updated, user.id, "Article archived");
+      await audit(tx, req, user.id, updated, previous);
+      return updated;
+    });
+    res.json({ success: true, status: archived.status });
   }));
   for (const [action, transition] of Object.entries({
     "request-review": { from: "draft", status: "under_review" },

@@ -24,12 +24,12 @@ export function dashboardWorkspace(user: UserWithDetails) {
     { title: "Request Tracker", description: "Review service request fulfillment.", href: "/service-requests/tracker", moduleKey: "itsm" },
     { title: "Problems", description: "Investigate recurring issues and known errors.", href: "/problems", moduleKey: "itsm" },
     { title: "Assets", description: "Open the asset inventory workbench.", href: "/assets", moduleKey: "asset_management" },
-    { title: "Knowledge Base", description: "Find technical procedures and runbooks.", href: "/knowledge-base", moduleKey: "itsm" },
+    { title: "Knowledge Base / System Manual", description: "Find platform guidance, procedures, and runbooks.", href: "/knowledge-base" },
   ] : [
     { title: "My Tickets", description: "Track your requests and reported incidents.", href: "/portal", moduleKey: "itsm" },
     { title: "Service Catalog", description: "Browse services and submit a new request.", href: "/service-catalog", moduleKey: "itsm" },
     { title: "My Assigned Assets", description: "View your equipment and custody receipts.", href: "/my-assets", moduleKey: "asset_management", permission: ["my_assets_view", "system_admin"] },
-    { title: "Knowledge Base", description: "Find published employee guides and policies.", href: "/knowledge-base", moduleKey: "itsm" },
+    { title: "Knowledge Base / System Manual", description: "Find platform guidance and published employee guides.", href: "/knowledge-base" },
   ];
   links.push({ title: "Project Portfolio", description: "Manage project delivery, tasks, milestones, risks, changes, and budgets.", href: "/projects", moduleKey: "project_management" });
   return {

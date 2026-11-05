@@ -2,6 +2,7 @@ import type { PersonaRoleKey } from "./schema";
 import { isDemoApiAllowed, isDemoPageAllowed, isDemoViewer } from "./demo-viewer";
 
 export type PersonaUserLike = {
+  id?: string;
   roles?: Array<{ name: string }> | null;
   permissions?: readonly string[] | null;
 };
@@ -64,6 +65,8 @@ export function isPersonaPageAllowed(
   permissions: readonly string[],
   requestedPath: string,
 ): boolean {
+  const path = requestedPath.split(/[?#]/, 1)[0] || "/";
+  if (path === "/knowledge-base") return true;
   if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
   if (permissions.includes("system_admin") || roleNames.some(name =>
     ["system_administrator", "administrator", "admin"].includes(normalize(name)),
@@ -71,7 +74,6 @@ export function isPersonaPageAllowed(
 
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
-  const path = requestedPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/" || path === "/dashboard") return true;
 
   return personas.some(persona => {

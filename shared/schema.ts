@@ -1931,6 +1931,7 @@ export const kbArticles = pgTable("kb_articles", {
   reviewDate: date("review_date"),
   version: text("version").notNull().default("1.0"),
   isPublic: boolean("is_public").notNull().default(false),
+  isSystemGuide: boolean("is_system_guide").notNull().default(false),
   reviewedById: varchar("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at"),
   publishedAt: timestamp("published_at"),
@@ -1993,7 +1994,7 @@ export const kbArticleControlMappings = pgTable("kb_article_control_mappings", {
 ]);
 export type KbArticleControlMapping = typeof kbArticleControlMappings.$inferSelect;
 
-export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true, reviewedById: true, reviewedAt: true, publishedAt: true });
+export const insertKbArticleSchema = createInsertSchema(kbArticles).omit({ id: true, createdAt: true, updatedAt: true, views: true, helpfulCount: true, notHelpfulCount: true, isSystemGuide: true, reviewedById: true, reviewedAt: true, publishedAt: true });
 export type KbArticle = typeof kbArticles.$inferSelect;
 export type InsertKbArticle = z.infer<typeof insertKbArticleSchema>;
 

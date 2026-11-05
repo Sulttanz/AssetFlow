@@ -91,6 +91,11 @@ app.use((req, res, next) => {
     // applied. The runner uses its own ledger and excludes workspace history.
     console.log("🗃️  Applying on-prem database migrations...");
     await runStartupMigrations();
+    const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
+    const manualSync = await syncSystemManualArticles();
+    console.log(
+      `System manual sync: ${manualSync.inserted} added, ${manualSync.updated} updated, ${manualSync.archived} archived, ${manualSync.unchanged} unchanged.`,
+    );
     const { ensureDropdownIntegrity } = await import("./dropdown-integrity");
     const dropdownCleanup = await ensureDropdownIntegrity();
     console.log(`Dropdown integrity: ${dropdownCleanup.deleted} redundant options archived and removed.`);
