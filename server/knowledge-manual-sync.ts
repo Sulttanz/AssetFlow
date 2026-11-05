@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { and, eq, sql } from "drizzle-orm";
-import { kbArticles, kbArticleVersions } from "@shared/schema";
+import { and, eq, or, sql } from "drizzle-orm";
+import { kbArticles, kbArticleVersions, users } from "@shared/schema";
 import { nextKnowledgeVersion } from "@shared/kb-governance";
 import { db } from "./db";
 
@@ -13,6 +13,9 @@ type ManualDocument = {
   content: string;
   category: string;
   isPublic: boolean;
+  initialVersion: string;
+  author: string | null;
+  owner: string | null;
 };
 
 async function markdownFiles(directory: string, root = directory): Promise<string[]> {
@@ -40,6 +43,8 @@ function toManualDocument(relativePath: string, content: string): ManualDocument
   const category = frontmatter.category || (frontmatter.audience?.toLowerCase() === "employee" ? "User Guide" : "Technical SOP");
   const isPublic = frontmatter.audience?.toLowerCase() === "employee" &&
     ["policy", "user guide"].includes(category.trim().toLowerCase());
+  const versionParts = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(frontmatter.version ?? "");
+  const initialVersion = versionParts ? `${versionParts[1]}.${versionParts[2]}` : "1.0";
   const slugPath = normalizedPath.replace(/\.md$/i, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return {
@@ -48,10 +53,29 @@ function toManualDocument(relativePath: string, content: string): ManualDocument
     content: body.trim(),
     category,
     isPublic,
+    initialVersion,
+    author: frontmatter.author || null,
+    owner: frontmatter.owner || null,
   };
 }
 
-function guideValues(document: ManualDocument, sourceTag: string) {
+async function resolveManualUser(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  name: string | null,
+) {
+  const label = name?.trim();
+  if (!label) return null;
+  const matches = await tx.select({ id: users.id }).from(users).where(and(
+    eq(users.isActive, true),
+    or(
+      sql`lower(${users.username}) = lower(${label})`,
+      sql`lower(concat_ws(' ', ${users.firstName}, ${users.lastName})) = lower(${label})`,
+    ),
+  )).limit(2);
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+function guideValues(document: ManualDocument, sourceTag: string, authorId: string | null, ownerId: string | null) {
   return {
     title: document.title,
     slug: document.slug,
@@ -59,10 +83,10 @@ function guideValues(document: ManualDocument, sourceTag: string) {
     category: document.category,
     tags: `system manual, ${sourceTag}`,
     status: "published",
-    authorId: null,
-    ownerId: null,
+    authorId,
+    ownerId,
     reviewDate: null,
-    version: "1.0",
+    version: document.initialVersion,
     isPublic: document.isPublic,
     isSystemGuide: true,
   };
@@ -99,7 +123,9 @@ export async function syncSystemManualArticles(
       if (previous && !previous.isSystemGuide) {
         throw new Error(`System manual slug conflicts with a custom article: ${document.slug}`);
       }
-      const values = guideValues(document, sourceTag);
+      const authorId = await resolveManualUser(tx, document.author);
+      const ownerId = await resolveManualUser(tx, document.owner);
+      const values = guideValues(document, sourceTag, authorId, ownerId);
       if (!previous) {
         const [created] = await tx.insert(kbArticles).values(values).returning();
         await recordVersion(tx, created, "Imported from repository system manual");
@@ -112,7 +138,9 @@ export async function syncSystemManualArticles(
         previous.category === values.category &&
         previous.tags === values.tags &&
         previous.status === values.status &&
-        previous.isPublic === values.isPublic;
+        previous.isPublic === values.isPublic &&
+        previous.authorId === values.authorId &&
+        previous.ownerId === values.ownerId;
       if (unchanged) {
         result.unchanged += 1;
         return;

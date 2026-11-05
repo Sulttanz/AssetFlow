@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
-import { eq, getTableName, is } from "drizzle-orm";
+import { and, eq, getTableName, is } from "drizzle-orm";
 import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as s from "@shared/schema";
@@ -93,19 +93,49 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     db = database.db;
     appPool = database.pool;
     expect((await appPool.query("SELECT current_schema() AS name")).rows[0].name).toBe(schema);
+    expect(await db.select().from(s.dropdownOptions).where(and(
+      eq(s.dropdownOptions.category, "kb_category"),
+      eq(s.dropdownOptions.value, "Getting Started & Platform Overview"),
+      eq(s.dropdownOptions.isActive, true),
+    ))).toHaveLength(1);
     storage = (await import("./storage")).storage;
-    manualDirectory = await mkdtemp(join(tmpdir(), "system-manual-fixture-"));
-    await writeFile(join(manualDirectory, "current-guide.md"), "# Current guide\nInitial repository content.");
-    await writeFile(join(manualDirectory, "removed-guide.md"), "# Removed guide\nThis source will be removed.");
-    const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
-    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 2, updated: 0, archived: 0, unchanged: 0 });
-    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 0, updated: 0, archived: 0, unchanged: 2 });
     const auth = await import("./auth");
     const hash = await auth.hashPassword(password);
     await db.insert(s.users).values([
       { id: adminId, username: "reset-admin", email: "reset-admin@example.test", password: hash, firstName: "Reset", lastName: "Administrator" },
       { id: otherId, username: "reset-user", email: "reset-user@example.test", password: hash, firstName: "Ordinary", lastName: "User" },
     ]);
+    manualDirectory = await mkdtemp(join(tmpdir(), "system-manual-fixture-"));
+    await writeFile(join(manualDirectory, "current-guide.md"), "# Current guide\nInitial repository content.");
+    await writeFile(join(manualDirectory, "removed-guide.md"), "# Removed guide\nThis source will be removed.");
+    await writeFile(join(manualDirectory, "platform-architecture.md"), [
+      "---",
+      "title: Platform Architecture & Getting Started",
+      "category: Getting Started & Platform Overview",
+      "author: Reset Administrator",
+      "owner: Reset Administrator",
+      "version: 1.0.0",
+      "audience: internal",
+      "---",
+      "",
+      "# Platform Architecture & Getting Started",
+      "Internal platform overview.",
+    ].join("\n"));
+    const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
+    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 3, updated: 0, archived: 0, unchanged: 0 });
+    expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({ inserted: 0, updated: 0, archived: 0, unchanged: 3 });
+    const platformGuide = (await db.select().from(s.kbArticles))
+      .find(guide => guide.slug === "system-manual-platform-architecture");
+    expect(platformGuide).toMatchObject({
+      title: "Platform Architecture & Getting Started",
+      category: "Getting Started & Platform Overview",
+      authorId: adminId,
+      ownerId: adminId,
+      version: "1.0",
+      isSystemGuide: true,
+      isPublic: false,
+      status: "published",
+    });
     const role = await seed(s.roles, { name: "Reset administrator" });
     const permission = await seed(s.permissions, { name: "system_admin" });
     await seed(s.userRoles, { userId: adminId, roleId: role });
@@ -251,7 +281,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await rm(join(manualDirectory, "removed-guide.md"));
     const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
     expect(await syncSystemManualArticles(manualDirectory)).toMatchObject({
-      inserted: 0, updated: 1, archived: 1, unchanged: 0,
+      inserted: 0, updated: 1, archived: 1, unchanged: 1,
     });
     const guides = await db.select().from(s.kbArticles).where(eq(s.kbArticles.isSystemGuide, true));
     expect(guides.find(guide => guide.slug === "system-manual-current-guide")).toMatchObject({
