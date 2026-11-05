@@ -249,6 +249,14 @@ describe("knowledge governance HTTP boundaries", () => {
       ...payload, expectedVersion: "1.0",
     })).status).toBe(403);
   });
+  it("denies non-admin edits to system-guide governance metadata", async () => {
+    mock.state.role = "it_agent";
+    mock.state.existing = { ...article, isSystemGuide: true, authorId: null, ownerId: null };
+    mock.state.selects.push([{ ...mock.state.existing }]);
+    expect((await request("/api/kb/articles/guide-1/controls", "POST", {
+      framework: "ISO", controlId: "A.1", controlTitle: "Fixture",
+    })).status).toBe(403);
+  });
   it("allows only an administrator to archive a system guide", async () => {
     mock.state.role = "admin";
     mock.state.existing = { ...article, isSystemGuide: true, authorId: null, ownerId: null };

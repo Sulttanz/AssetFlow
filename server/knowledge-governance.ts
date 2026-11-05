@@ -45,6 +45,12 @@ function requireEditor(user: Viewer) {
   if (!canManageKnowledge(user)) throw new KnowledgeError(403, "IT staff or manager access required");
 }
 
+function requireSystemGuideAdministrator(user: Viewer, article: Pick<KbArticle, "isSystemGuide">) {
+  if (article.isSystemGuide && !isSystemAdministrator(user)) {
+    throw new KnowledgeError(403, "Only an administrator can modify a repository-owned system guide");
+  }
+}
+
 function visibleArticles(user: Viewer): SQL | undefined {
   if (canManageKnowledge(user)) return undefined;
   const owned = or(eq(kbArticles.authorId, user.id), eq(kbArticles.ownerId, user.id));
@@ -122,9 +128,7 @@ async function updateArticle(
     const [previous] = await tx.select().from(kbArticles)
       .where(eq(kbArticles.id, req.params.id)).for("update");
     if (!previous) throw new KnowledgeError(404, "Article not found");
-    if (previous.isSystemGuide && !isSystemAdministrator(user)) {
-      throw new KnowledgeError(403, "Only an administrator can modify a system guide");
-    }
+    requireSystemGuideAdministrator(user, previous);
     const ownsCustomArticle = !previous.isSystemGuide &&
       (previous.authorId === user.id || previous.ownerId === user.id);
     if (transition && !canManageKnowledge(user)) {
@@ -363,6 +367,7 @@ export function registerKnowledgeRoutes(
         const [article] = await tx.select().from(kbArticles)
           .where(eq(kbArticles.id, req.params.id)).for("update");
         if (!article) throw new KnowledgeError(404, "Article not found");
+        requireSystemGuideAdministrator(user, article);
         if (!["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase())) {
           throw new KnowledgeError(400, "Attachments are only supported for policies, technical SOPs, and DR plans");
         }
@@ -446,6 +451,7 @@ export function registerKnowledgeRoutes(
     const mapping = await db.transaction(async tx => {
       const [article] = await tx.select().from(kbArticles).where(eq(kbArticles.id, req.params.id)).for("update");
       if (!article) throw new KnowledgeError(404, "Article not found");
+      requireSystemGuideAdministrator(user, article);
       if (!["policy", "technical sop", "dr plan"].includes(article.category.trim().toLowerCase())) {
         throw new KnowledgeError(400, "Control mappings are only supported for policies, technical SOPs, and DR plans");
       }
@@ -470,6 +476,10 @@ export function registerKnowledgeRoutes(
         eq(kbArticleControlMappings.articleId, req.params.id),
       )).for("update");
       if (!before) throw new KnowledgeError(404, "Control mapping not found");
+      const [article] = await tx.select().from(kbArticles)
+        .where(eq(kbArticles.id, before.articleId)).for("update");
+      if (!article) throw new KnowledgeError(404, "Article not found");
+      requireSystemGuideAdministrator(user, article);
       if (!before.isActive) throw new KnowledgeError(409, "Control mapping has already been removed");
       const [after] = await tx.update(kbArticleControlMappings).set({
         isActive: false, removedBy: user.id, removedAt: new Date(), removalNote,

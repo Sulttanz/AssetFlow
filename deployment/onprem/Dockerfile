@@ -10,6 +10,7 @@ COPY server ./server
 COPY shared ./shared
 COPY scripts ./scripts
 COPY migrations ./migrations
+COPY docs/system-manual ./docs/system-manual
 ENV NODE_ENV=production
 # Preserve the project's dependency-audit gate; do not bypass it for images.
 RUN npm run build
@@ -23,6 +24,7 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./package.json
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/migrations/onprem ./migrations/onprem
+COPY --from=build --chown=node:node /app/docs/system-manual ./docs/system-manual
 RUN mkdir -p server/uploads && chown -R node:node server
 USER node
 EXPOSE 5000
