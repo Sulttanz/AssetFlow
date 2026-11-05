@@ -2866,6 +2866,113 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it.each([
+    { status: "completed", first: "removal" },
+    { status: "completed", first: "terminal update" },
+    { status: "cancelled", first: "removal" },
+    { status: "cancelled", first: "terminal update" },
+  ] as const)(
+    "preserves a $status change when CAB removal races and the $first commits first",
+    async ({ status, first }) => {
+      const managerId = randomUUID();
+      const approvedVoterId = randomUUID();
+      const pendingVoterId = randomUUID();
+      const changeId = randomUUID();
+      const approvedId = randomUUID();
+      const pendingId = randomUUID();
+      const submittedAt = new Date("2026-10-01T10:00:00.000Z");
+      const actualStart = new Date("2026-10-02T10:00:00.000Z");
+
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approvedVoterId, username: `approver-${approvedVoterId}`, email: `${approvedVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+        { id: pendingVoterId, username: `approver-${pendingVoterId}`, email: `${pendingVoterId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Terminal change versus CAB removal",
+        status: "submitted", cabRequired: true, submittedAt, actualStart,
+      });
+      await db.insert(changeApprovals).values([
+        {
+          id: approvedId, changeId, approverId: approvedVoterId, originalApproverId: approvedVoterId,
+          approverLabel: "CAB Approver", decision: "approved", decidedAt: submittedAt,
+        },
+        {
+          id: pendingId, changeId, approverId: pendingVoterId, originalApproverId: pendingVoterId,
+          approverLabel: "CAB Approver", decision: "pending",
+        },
+      ]);
+
+      let operationCount = 0;
+      let releaseBothOperations!: () => void;
+      const bothOperationsStarted = new Promise<void>(resolve => { releaseBothOperations = resolve; });
+      const waitForBothOperations = async () => {
+        if (++operationCount === 2) releaseBothOperations();
+        await bothOperationsStarted;
+      };
+      let releaseFirst!: () => void;
+      const firstCommitted = new Promise<void>(resolve => { releaseFirst = resolve; });
+      const originalTerminalUpdate = storage.updateChangeWithCabStatusGuard.bind(storage);
+      const originalRemove = storage.removeChangeApproval.bind(storage);
+      const terminalUpdateSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard")
+        .mockImplementation(async (...args) => {
+          await waitForBothOperations();
+          if (first === "removal") await firstCommitted;
+          try {
+            return await originalTerminalUpdate(...args);
+          } finally {
+            if (first === "terminal update") releaseFirst();
+          }
+        });
+      const removeSpy = vi.spyOn(storage, "removeChangeApproval").mockImplementation(async (...args) => {
+        await waitForBothOperations();
+        if (first === "terminal update") await firstCommitted;
+        try {
+          return await originalRemove(...args);
+        } finally {
+          if (first === "removal") releaseFirst();
+        }
+      });
+
+      try {
+        const [terminalUpdate, removal] = await Promise.all([
+          storage.updateChangeWithCabStatusGuard(changeId, { status }),
+          storage.removeChangeApproval(pendingId, managerId),
+        ]);
+        expect(terminalUpdate.change?.status).toBe(status);
+        expect(removal?.removedAt).toBeInstanceOf(Date);
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange.status).toBe(status);
+        expect(savedChange.submittedAt).toEqual(submittedAt);
+        expect(savedChange.actualStart).toEqual(actualStart);
+        if (status === "completed") {
+          expect(savedChange.actualEnd).toBeInstanceOf(Date);
+        } else {
+          expect(savedChange.actualEnd).toBeNull();
+        }
+        // Removal can establish approval before a later terminal transition,
+        // but must not manufacture approval after the terminal status commits.
+        expect(savedChange.approvedAt instanceof Date).toBe(first === "removal");
+
+        const [savedApproval] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, pendingId));
+        expect(savedApproval.removedAt).toBeInstanceOf(Date);
+        expect(savedApproval.removedById).toBe(managerId);
+      } finally {
+        terminalUpdateSpy.mockRestore();
+        removeSpy.mockRestore();
+        await db.delete(changes).where(eq(changes.id, changeId));
+        await db.delete(users).where(eq(users.id, pendingVoterId));
+        await db.delete(users).where(eq(users.id, approvedVoterId));
+        await db.delete(users).where(eq(users.id, managerId));
+      }
+    },
+    15_000,
+  );
+
   it.each(["removal", "assignment"] as const)(
     "does not reopen a removed CAB assignment when %s reaches the database first",
     async first => {

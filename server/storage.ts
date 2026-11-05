@@ -4847,7 +4847,7 @@ export class DatabaseStorage implements IStorage {
     return db.transaction(async tx => {
       // Use the same parent-row lock as voting so membership changes and vote
       // status calculations see a single serialized set of active approvals.
-      const [change] = await tx.select({ id: changes.id }).from(changes)
+      const [change] = await tx.select({ id: changes.id, status: changes.status }).from(changes)
         .where(eq(changes.id, target.changeId)).for("update");
       if (!change) return undefined;
 
@@ -4862,6 +4862,11 @@ export class DatabaseStorage implements IStorage {
       const active = await tx.select({ decision: changeApprovals.decision })
         .from(changeApprovals)
         .where(and(eq(changeApprovals.changeId, target.changeId), isNull(changeApprovals.removedAt)));
+      // A terminal workflow transition may have committed while this removal
+      // waited for the parent lock. Keep the membership cleanup, but do not
+      // let its CAB-derived status replace that terminal state or timestamps.
+      if (change.status === "completed" || change.status === "cancelled") return removed;
+
       // An empty active roster is not unanimous approval. Keep the change
       // unapproved until at least one active CAB voter remains.
       if (active.some(a => a.decision === "rejected")) {
