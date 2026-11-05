@@ -38,6 +38,8 @@ import { cn } from "@/lib/utils";
 interface ChangeApproval {
   id: string; changeId: string; approverId: string | null; originalApproverId: string; approverLabel: string; decision: string | null;
   comments: string | null; decidedAt: string | null; removedAt?: string | null; removedById?: string | null; removedByLabel?: string | null; createdAt: string;
+  reviewVersion?: number;
+  decisionHistory?: { decision: string; comments: string | null; decidedAt: string | null; supersededAt: string; reviewVersion: number; reason: string }[];
   approver?: { id: string; username: string; firstName: string | null; lastName: string | null; isActive?: boolean | null };
   removedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
@@ -58,6 +60,7 @@ interface ChangeWithDetails {
   actualStart: string | null; actualEnd: string | null;
   assignedAt: string | null; submittedAt: string | null; approvedAt: string | null;
   cabRequired: boolean | null; cabScheduledFor: string | null;
+  cabReviewVersion?: number;
   requestedById: string | null; assignedToId: string | null; departmentId: string | null;
   requestedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
@@ -1352,6 +1355,15 @@ export default function Changes() {
 
             {/* Approvals */}
             <TabsContent value="approvals" className="space-y-3">
+              {(currentChange?.cabReviewVersion ?? 1) > 1 && (
+                <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  <p className="font-semibold">Fresh CAB review required</p>
+                  <p className="mt-1">
+                    Risk or change type has increased. Earlier CAB decisions remain in history but do not count;
+                    every active approver must vote again.
+                  </p>
+                </div>
+              )}
               {currentChange?.approvals?.length === 0 && <p className="text-sm text-muted-foreground">No approvers added yet.</p>}
               {currentChange?.approvals?.map(a => {
                 const isPending = a.decision === "pending" || a.decision === null;
@@ -1374,6 +1386,18 @@ export default function Changes() {
                       <p className={cn("text-xs mt-2 whitespace-pre-wrap", a.comments ? "text-foreground" : "text-muted-foreground italic")}>
                         {a.comments || (isPending ? "No comment yet." : "No comment provided.")}
                       </p>
+                  {!!a.decisionHistory?.length && (
+                    <div className="mt-3 space-y-1 border-t pt-2" aria-label="Superseded CAB decisions">
+                      <p className="text-xs font-semibold text-muted-foreground">Previous decisions (history only)</p>
+                      {a.decisionHistory.map((prior, index) => (
+                        <p key={`${prior.reviewVersion}-${index}`} className="text-xs text-muted-foreground">
+                          {prior.decision === "approved" ? "Approved" : "Rejected"} in review {prior.reviewVersion}
+                          {prior.decidedAt ? ` on ${appFormatDateTime(prior.decidedAt)}` : ""}
+                          {prior.comments ? ` — ${prior.comments}` : ""}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {a.decision === "approved" ? <Badge className="bg-green-100 text-green-800 gap-1"><CheckCircle2 className="h-3 w-3" />Approved</Badge>

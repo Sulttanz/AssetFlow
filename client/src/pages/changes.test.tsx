@@ -38,11 +38,11 @@ function approval(id: string, decision: string | null, approverId = id, comments
   };
 }
 
-function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = [], stages: StageTimelineFixture[] = []) {
+function change(approvals: ReturnType<typeof approval>[], removedApproverIds: string[] = [], removedApprovals: ReturnType<typeof approval>[] = [], stages: StageTimelineFixture[] = [], cabReviewVersion = 1) {
   return {
     id: "change-1", changeNumber: "CHG-1", title: "CAB review fixture",
     type: "normal", status: "submitted", priority: "medium", risk: "low",
-    cabRequired: true, approvals, removedApproverIds, removedApprovals, stages, createdAt: assignedAt, updatedAt: assignedAt,
+    cabRequired: true, cabReviewVersion, approvals, removedApproverIds, removedApprovals, stages, createdAt: assignedAt, updatedAt: assignedAt,
   };
 }
 
@@ -54,8 +54,9 @@ async function openApprovals(
   users: UserSummaryFixture[] = ["alice", "bob", "carol", "dave"].map(id => ({
     id, username: id, firstName: id, lastName: null, isActive: true,
   })),
+  cabReviewVersion = 1,
 ) {
-  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals, stages)], total: 1 });
+  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals, stages, cabReviewVersion)], total: 1 });
   queryClient.setQueryData(["/api/users"], users);
   queryClient.setQueryData(["/api/departments"], []);
   const user = userEvent.setup();
@@ -504,6 +505,28 @@ describe("change detail CAB approvals", () => {
     expect(within(rejectionEvent).getByText("Needs rollback")).toBeTruthy();
     expect(within(rejectionEvent).getByText(new RegExp(appFormatDateTime(rejected.decidedAt)))).toBeTruthy();
     expect(within(panel).queryByRole("button")).toBeNull();
+  });
+
+  it("explains that prior CAB decisions do not count after risk or type escalation", async () => {
+    const pending = {
+      ...approval("Current", "pending", "alice"),
+      decisionHistory: [{
+        decision: "approved",
+        comments: "Approved before escalation",
+        decidedAt: decidedAt,
+        supersededAt: "2026-06-03T09:00:00.000Z",
+        reviewVersion: 1,
+        reason: "Risk increased from low to high.",
+      }],
+    };
+    const { panel } = await openApprovals([pending], [], [], [], undefined, 2);
+
+    expect(within(panel).getByText("Fresh CAB review required")).toBeTruthy();
+    expect(within(panel).getByText(/Earlier CAB decisions remain in history but do not count/)).toBeTruthy();
+    expect(within(panel).getByText("Previous decisions (history only)")).toBeTruthy();
+    expect(within(panel).getByLabelText("Superseded CAB decisions").textContent).toContain("Approved in review 1");
+    expect(within(panel).getByLabelText("Superseded CAB decisions").textContent).toContain("Approved before escalation");
+    expect(within(panel).getByText("Pending")).toBeTruthy();
   });
 
   it("shows removed assignments as read-only history after both accounts are deleted, without affecting active counts or CAB gates", async () => {

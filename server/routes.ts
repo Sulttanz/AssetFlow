@@ -8609,6 +8609,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user as any;
       const body = { ...req.body };
+      delete body.cabReviewVersion;
       const targetIds = changeTargetSchema.parse(body);
       const targetApplicationIds = targetIds.targetApplicationIds ?? [];
       const targetServerIds = targetIds.targetServerIds ?? [];
@@ -8651,6 +8652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const oldChange = await storage.getChange(req.params.id);
       const body = { ...req.body };
+      delete body.cabReviewVersion;
       const targetIds = changeTargetSchema.parse(body);
       const cmdbEnabled = await isFeatureEnabled("cmdb");
       if (!cmdbEnabled && (targetIds.targetApplicationIds?.length || targetIds.targetServerIds?.length)) return sendFeatureNotEnabled(res, "cmdb");
@@ -8678,6 +8680,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // then derives CAB requirements from the locked resulting type/risk and
       // validates approvals from that same vote state.
       const result = await storage.updateChangeWithCabStatusGuard(req.params.id, body);
+      if (result.escalationBlocked) {
+        return res.status(409).json({
+          message: "A risk or change-type escalation cannot be saved after implementation starts or the change is closed. Create a follow-up change for CAB review.",
+          code: "CAB_ESCALATION_AFTER_START",
+        });
+      }
       if (result.cabPending) {
         await logAudit(
           (req.user as any)?.id,
@@ -8699,7 +8707,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (linkUpdateRequested) {
         await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
       }
-      res.json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
+      res.json({
+        ...change,
+        impactAnalysis: await getChangeImpactAnalysis(change.id),
+        ...(result.cabReviewReset ? {
+          cabReviewReset: true,
+          cabReviewMessage: "Risk or change type increased. Prior CAB decisions remain in history but do not count; all active approvers must vote again.",
+        } : {}),
+      });
     } catch (err) {
       console.error("Failed to update change:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.issues });
@@ -8849,8 +8864,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You can only vote on your own CAB approval" });
       }
 
-      const approval = await storage.updateChangeApproval(req.params.changeId, req.params.approvalId, req.body.decision, req.body.comments);
-      if (!approval) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
+      const approval = await storage.updateChangeApproval(
+        req.params.changeId,
+        req.params.approvalId,
+        req.body.decision,
+        req.body.comments,
+        existing.reviewVersion,
+      );
+      if (!approval) {
+        const currentChange = await storage.getChange(req.params.changeId);
+        if (currentChange && existing.reviewVersion !== currentChange.cabReviewVersion) {
+          return res.status(409).json({
+            message: "This vote belongs to an earlier CAB review. Review the current escalation and cast a fresh vote.",
+            code: "CAB_REVIEW_SUPERSEDED",
+          });
+        }
+        return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
+      }
 
       await publishCabChange();
       res.json(approval);

@@ -372,12 +372,14 @@ export interface IStorage {
     cabPending: boolean;
     cabApproversRequired?: boolean;
     statusInvalid?: boolean;
+    escalationBlocked?: boolean;
+    cabReviewReset?: boolean;
   }>;
   deleteChange(id: string): Promise<boolean>;
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
   getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]>;
   createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
-  updateChangeApproval(changeId: string, id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined>;
+  updateChangeApproval(changeId: string, id: string, decision: string, comments?: string, expectedReviewVersion?: number): Promise<ChangeApproval | undefined>;
   removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined>;
   getChangePIR(changeId: string): Promise<ChangePIR | undefined>;
   createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR>;
@@ -2738,7 +2740,7 @@ export class MemStorage implements IStorage {
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
-    return { id, changeNumber: `CHG-000001`, ...change, type: change.type ?? "normal", status: change.status ?? "draft", priority: change.priority ?? "medium", risk: change.risk ?? "low", cabRequired: change.cabRequired ?? false, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, actualStart: null, actualEnd: null, assignedAt: change.assignedAt ?? null, submittedAt: change.submittedAt ?? null, approvedAt: change.approvedAt ?? null, cabScheduledFor: change.cabScheduledFor ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, projectId: change.projectId ?? null, createdAt: now, updatedAt: now };
+    return { id, changeNumber: `CHG-000001`, ...change, type: change.type ?? "normal", status: change.status ?? "draft", priority: change.priority ?? "medium", risk: change.risk ?? "low", cabRequired: change.cabRequired ?? false, cabReviewVersion: 1, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, actualStart: null, actualEnd: null, assignedAt: change.assignedAt ?? null, submittedAt: change.submittedAt ?? null, approvedAt: change.approvedAt ?? null, cabScheduledFor: change.cabScheduledFor ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, projectId: change.projectId ?? null, createdAt: now, updatedAt: now };
   }
   async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
   async updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>) {
@@ -2755,9 +2757,9 @@ export class MemStorage implements IStorage {
         code: "CAB_APPROVER_INACTIVE",
       });
     }
-    return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
+    return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, reviewVersion: 1, decisionHistory: [], removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
   }
-  async updateChangeApproval(_changeId: string, _id: string, _decision: string, _comments?: string): Promise<ChangeApproval | undefined> { return undefined; }
+  async updateChangeApproval(_changeId: string, _id: string, _decision: string, _comments?: string, _expectedReviewVersion?: number): Promise<ChangeApproval | undefined> { return undefined; }
   async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
   async getChangePIR(_changeId: string): Promise<ChangePIR | undefined> { return undefined; }
   async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
@@ -4532,6 +4534,7 @@ export class DatabaseStorage implements IStorage {
       const [current] = await tx.select({
         status: changes.status,
         cabRequired: changes.cabRequired,
+        cabReviewVersion: changes.cabReviewVersion,
         type: changes.type,
         risk: changes.risk,
         actualStart: changes.actualStart,
@@ -4545,16 +4548,80 @@ export class DatabaseStorage implements IStorage {
       let guardedChange = change;
       const resultantType = change.type ?? current.type;
       const resultantRisk = change.risk ?? current.risk;
+      // Product rule: any upward type/risk tier change on a CAB-required
+      // change starts a fresh review; prior decisions remain history only.
+      const typeRank: Record<string, number> = { standard: 0, normal: 1, emergency: 2 };
+      const riskRank: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+      const materialEscalation =
+        (typeRank[resultantType ?? ""] ?? 0) > (typeRank[current.type ?? ""] ?? 0) ||
+        (riskRank[resultantRisk ?? ""] ?? 0) > (riskRank[current.risk ?? "low"] ?? 0);
       const mandatoryCab =
         ["normal", "emergency"].includes(resultantType ?? "") ||
         ["high", "critical"].includes(resultantRisk ?? "");
       let effectiveCabRequired = mandatoryCab || (change.cabRequired ?? current.cabRequired);
       let approvals: { decision: string | null }[] | undefined;
+      let cabReviewReset = false;
+      let cabReviewVersion = current.cabReviewVersion;
 
       // CAB is mandatory for the resulting type/risk, regardless of any
       // stale route-level read or caller-supplied opt-out.
       if (mandatoryCab && change.cabRequired !== true) {
         guardedChange = { ...change, cabRequired: true };
+      }
+
+      if (materialEscalation && effectiveCabRequired) {
+        if (["in_progress", "completed", "cancelled"].includes(current.status)) {
+          return { change: undefined, cabPending: true, cabApproversRequired: false, escalationBlocked: true };
+        }
+
+        cabReviewVersion += 1;
+        const activeApprovals = await tx.select({
+          id: changeApprovals.id,
+          decision: changeApprovals.decision,
+          comments: changeApprovals.comments,
+          decidedAt: changeApprovals.decidedAt,
+          reviewVersion: changeApprovals.reviewVersion,
+          decisionHistory: changeApprovals.decisionHistory,
+        }).from(changeApprovals)
+          .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
+        const now = new Date();
+        for (const approval of activeApprovals) {
+          const history = approval.decision === "approved" || approval.decision === "rejected"
+            ? [
+                ...approval.decisionHistory,
+                {
+                  decision: approval.decision,
+                  comments: approval.comments,
+                  decidedAt: approval.decidedAt?.toISOString() ?? null,
+                  supersededAt: now.toISOString(),
+                  reviewVersion: approval.reviewVersion,
+                  reason: `Risk or change type escalated from ${current.risk ?? "low"} / ${current.type} to ${resultantRisk ?? "low"} / ${resultantType}.`,
+                },
+              ]
+            : approval.decisionHistory;
+          await tx.update(changeApprovals)
+            .set({
+              decision: "pending",
+              comments: null,
+              decidedAt: null,
+              reviewVersion: cabReviewVersion,
+              decisionHistory: history,
+            })
+            .where(and(eq(changeApprovals.id, approval.id), isNull(changeApprovals.removedAt)));
+        }
+
+        guardedChange = {
+          ...guardedChange,
+          cabRequired: true,
+          cabReviewVersion,
+          ...(
+            ["approved", "rejected"].includes(current.status) ||
+            ["approved", "in_progress", "completed"].includes(change.status ?? "")
+            ? { status: "submitted", approvedAt: null }
+            : {}),
+        };
+        effectiveCabRequired = true;
+        cabReviewReset = true;
       }
 
       // If the request is clearing an existing opt-in, inspect active
@@ -4573,11 +4640,15 @@ export class DatabaseStorage implements IStorage {
       // An update can escalate a change after a concurrent request approved
       // it. Validate the resulting status, not only an explicit status
       // transition, so it cannot remain approved without unanimous CAB votes.
-      const resultingStatus = change.status ?? current.status;
+      const resultingStatus = guardedChange.status ?? change.status ?? current.status;
       if ((resultingStatus === "approved" || resultingStatus === "in_progress") && effectiveCabRequired) {
         approvals ??= await tx.select({ decision: changeApprovals.decision })
           .from(changeApprovals)
-          .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
+          .where(and(
+            eq(changeApprovals.changeId, id),
+            eq(changeApprovals.reviewVersion, cabReviewVersion),
+            isNull(changeApprovals.removedAt),
+          ));
         if (!cabApprovalsGranted(approvals)) {
           return {
             change: undefined,
@@ -4598,7 +4669,7 @@ export class DatabaseStorage implements IStorage {
         .set({ ...guardedChange, updatedAt: new Date() })
         .where(eq(changes.id, id))
         .returning();
-      return { change: updated, cabPending: false };
+      return { change: updated, cabPending: false, cabReviewReset };
     });
   }
   async deleteChange(id: string): Promise<boolean> {
@@ -4652,7 +4723,10 @@ export class DatabaseStorage implements IStorage {
       // Serialize membership changes with votes on the parent. A vote that
       // approves first makes this assignment fail; an assignment that wins
       // first is visible to the vote's active-approval status calculation.
-      const [change] = await tx.select({ status: changes.status }).from(changes)
+      const [change] = await tx.select({
+        status: changes.status,
+        cabReviewVersion: changes.cabReviewVersion,
+      }).from(changes)
         .where(eq(changes.id, approval.changeId)).for("update");
       if (!change) throw new Error("Change not found");
       if (change.status === "approved" || change.status === "in_progress") {
@@ -4690,21 +4764,36 @@ export class DatabaseStorage implements IStorage {
         });
       }
       const result = await tx.insert(changeApprovals).values({
-        ...approval, originalApproverId: approver.id, approverLabel,
+        ...approval,
+        originalApproverId: approver.id,
+        approverLabel,
+        reviewVersion: change.cabReviewVersion,
+        decisionHistory: [],
       }).returning();
       return result[0];
     });
   }
-  async updateChangeApproval(changeId: string, id: string, decision: string, comments?: string): Promise<ChangeApproval | undefined> {
+  async updateChangeApproval(
+    changeId: string,
+    id: string,
+    decision: string,
+    comments?: string,
+    expectedReviewVersion?: number,
+  ): Promise<ChangeApproval | undefined> {
     return db.transaction(async tx => {
       // Lock the parent before updating any vote. Votes on separate approvals
       // then serialize, so each status calculation sees the preceding vote.
-      const [change] = await tx.select({ id: changes.id }).from(changes)
+      const [change] = await tx.select({
+        id: changes.id,
+        cabReviewVersion: changes.cabReviewVersion,
+      }).from(changes)
         .where(eq(changes.id, changeId)).for("update");
       if (!change) return undefined;
+      if (expectedReviewVersion !== undefined && expectedReviewVersion !== change.cabReviewVersion) return undefined;
 
       const pendingConditions = and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, changeId),
         sql`${changeApprovals.approverId} IS NOT NULL`, isNull(changeApprovals.removedAt),
+        eq(changeApprovals.reviewVersion, change.cabReviewVersion),
         or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision)));
       const [pending] = await tx.select({ approverId: changeApprovals.approverId })
         .from(changeApprovals).where(pendingConditions).for("update");
@@ -4724,7 +4813,11 @@ export class DatabaseStorage implements IStorage {
 
       const active = await tx.select({ decision: changeApprovals.decision })
         .from(changeApprovals)
-        .where(and(eq(changeApprovals.changeId, changeId), isNull(changeApprovals.removedAt)));
+        .where(and(
+          eq(changeApprovals.changeId, changeId),
+          eq(changeApprovals.reviewVersion, change.cabReviewVersion),
+          isNull(changeApprovals.removedAt),
+        ));
       if (active.some(a => a.decision === "rejected")) {
         await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
           .where(eq(changes.id, changeId));

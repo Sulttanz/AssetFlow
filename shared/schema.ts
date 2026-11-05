@@ -2103,6 +2103,7 @@ export const changes = pgTable("changes", {
   submittedAt: timestamp("submitted_at"),
   approvedAt: timestamp("approved_at"),
   cabRequired: boolean("cab_required").default(false),
+  cabReviewVersion: integer("cab_review_version").notNull().default(1),
   cabScheduledFor: timestamp("cab_scheduled_for"),
   requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -2302,6 +2303,15 @@ export const changeApprovals = pgTable("change_approvals", {
   decision: text("decision"),   // approved | rejected | pending
   comments: text("comments"),
   decidedAt: timestamp("decided_at"),
+  reviewVersion: integer("review_version").notNull().default(1),
+  decisionHistory: jsonb("decision_history").$type<Array<{
+    decision: string;
+    comments: string | null;
+    decidedAt: string | null;
+    supersededAt: string;
+    reviewVersion: number;
+    reason: string;
+  }>>().notNull().default(sql`'[]'::jsonb`),
   removedAt: timestamp("removed_at"),
   removedById: varchar("removed_by_id").references(() => users.id, { onDelete: "set null" }),
   removedByLabel: text("removed_by_label"),
