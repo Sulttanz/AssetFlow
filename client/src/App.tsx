@@ -39,7 +39,7 @@ const Permissions = lazy(() => import("@/pages/permissions"));
 const SystemSettings = lazy(() => import("@/pages/system-settings"));
 const AuditLogs = lazy(() => import("@/pages/audit-logs"));
 const DropdownManagement = lazy(() => import("@/pages/dropdown-management"));
-const Reports = lazy(() => import("@/pages/reports"));
+const Reports = lazy(() => import("@/pages/reports-dashboard"));
 const AssetSummaryReport = lazy(() => import("@/pages/reports/asset-summary"));
 const LifecycleReport = lazy(() => import("@/pages/reports/lifecycle"));
 const HardwareInventoryReport = lazy(() => import("@/pages/reports/hardware-inventory"));
@@ -133,7 +133,8 @@ function Router() {
                   <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
-                  <ProtectedRoute path="/reports" component={Reports} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports" component={Reports} />
+                  <ProtectedRoute path="/reports/personnel" component={Reports} />
                   <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/hardware-inventory" component={HardwareInventoryReport} requiredModule="asset_management" />

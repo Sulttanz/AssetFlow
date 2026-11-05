@@ -196,14 +196,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     {
       title: "Analytics & Reports",
       items: [
-        { 
-          name: "Reports", 
-          href: "/reports", 
-          icon: FileBarChart, 
+        {
+          name: "Reports",
+          href: "/reports",
+          icon: FileBarChart,
           current: location.startsWith("/reports"),
           hasSubmenu: true,
-          visible: isModuleEnabled("asset_management") || isModuleEnabled("itsm"),
+          visible: true,
           submenu: [
+            { name: "Employee & Personnel", href: "/reports/personnel", current: location === "/reports/personnel" },
             { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary", moduleKey: "asset_management" },
             { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle", moduleKey: "asset_management" },
             { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory", moduleKey: "asset_management" },
@@ -222,9 +223,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               { name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets", moduleKey: "itsm" },
               { name: "Problem Report", href: "/reports/problems", current: location === "/reports/problems", moduleKey: "itsm" },
               { name: "Change Report", href: "/reports/changes", current: location === "/reports/changes", moduleKey: "itsm" },
-              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles", moduleKey: "itsm" },
+              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles" },
             ] : []),
-          ]
+            ...(isModuleEnabled("project_management") ? [
+              { name: "Resource Allocation", href: "/reports/project-allocations", current: location === "/reports/project-allocations", moduleKey: "project_management" },
+            ] : []),
+          ],
         },
       ]
     },

@@ -32,9 +32,11 @@ describe("Enterprise sidebar navigation", () => {
     fireEvent.click(button("Project Management"));
     expect(screen.getByRole("link", { name: "Projects" })).toBeTruthy();
     for (const title of ["Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
-      "Organization", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance", "Analytics & Reports"]) {
+      "Organization", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance"]) {
       expect(screen.queryByRole("button", { name: title })).toBeNull();
     }
+    fireEvent.click(button("Analytics & Reports"));
+    expect(button("Reports")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "KPI Dashboard" })).toBeNull();
   });
 

@@ -56,6 +56,7 @@ import { registerItComponentsComplianceRoutes } from "./it-components-compliance
 import { registerDataMigrationRoutes } from "./data-migration-center";
 import { registerProjectManagementRoutes } from "./project-management";
 import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
+import { registerPersonnelReportRoute } from "./personnel-report";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -164,7 +165,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
 
 export function moduleForApiPath(path: string): string | undefined {
   const normalizedPath = path.split("?", 1)[0];
-  if (["/kb", "/kb-articles", "/reports/kb-articles"].some(prefix =>
+  if (["/kb", "/kb-articles", "/reports/kb-articles", "/reports/personnel"].some(prefix =>
     normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`)
   )) return undefined;
   return [...MODULE_API_PREFIXES].sort((a, b) => b[0].length - a[0].length).find(([prefix]) =>
@@ -421,6 +422,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   // Setup authentication system
   setupAuth(app);
+  registerPersonnelReportRoute(app);
 
   await ensureItsmPermissions();
   await ensurePersonaRoles();

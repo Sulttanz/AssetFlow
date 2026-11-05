@@ -61,6 +61,7 @@ describe("module API guard", () => {
     expect(moduleForApiPath("/kb/articles")).toBeUndefined();
     expect(moduleForApiPath("/kb/search")).toBeUndefined();
     expect(moduleForApiPath("/reports/kb-articles")).toBeUndefined();
+    expect(moduleForApiPath("/reports/personnel")).toBeUndefined();
     expect(moduleForApiPath("/module-status")).toBeUndefined();
   });
 });
