@@ -1,5 +1,10 @@
 ---
+title: Using the IT Management Platform
 category: User Guide
+author: Sulttanz
+owner: Sulttanz
+is_system_guide: true
+version: 1.0.0
 audience: employee
 ---
 

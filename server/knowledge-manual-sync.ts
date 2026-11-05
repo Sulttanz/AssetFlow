@@ -85,6 +85,8 @@ function guideValues(document: ManualDocument, sourceTag: string, authorId: stri
     status: "published",
     authorId,
     ownerId,
+    authorLabel: document.author,
+    ownerLabel: document.owner,
     reviewDate: null,
     version: document.initialVersion,
     isPublic: document.isPublic,
@@ -140,7 +142,9 @@ export async function syncSystemManualArticles(
         previous.status === values.status &&
         previous.isPublic === values.isPublic &&
         previous.authorId === values.authorId &&
-        previous.ownerId === values.ownerId;
+        previous.ownerId === values.ownerId &&
+        previous.authorLabel === values.authorLabel &&
+        previous.ownerLabel === values.ownerLabel;
       if (unchanged) {
         result.unchanged += 1;
         return;

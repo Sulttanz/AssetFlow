@@ -29,8 +29,8 @@ const revisionAuthors = alias(users, "kb_revision_author");
 const revisionOwners = alias(users, "kb_revision_owner");
 const articleSelection = {
   ...getTableColumns(kbArticles),
-  authorName: sql<string | null>`concat_ws(' ', ${users.firstName}, ${users.lastName})`,
-  ownerName: sql<string | null>`concat_ws(' ', ${owners.firstName}, ${owners.lastName})`,
+  authorName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${kbArticles.authorLabel})`,
+  ownerName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${owners.firstName}, ${owners.lastName}), ''), ${kbArticles.ownerLabel})`,
 };
 
 async function viewer(req: Request): Promise<Viewer> {
@@ -253,7 +253,9 @@ export function registerKnowledgeRoutes(
       versions.filter(version => version.version === article.version && canReadKnowledge(user, version.snapshot as any));
     res.json(visible.map(({ snapshotAuthorName, snapshotOwnerName, ...version }) => ({
       ...version, snapshot: {
-        ...version.snapshot, authorName: snapshotAuthorName ?? null, ownerName: snapshotOwnerName ?? null,
+        ...version.snapshot,
+        authorName: snapshotAuthorName ?? (typeof version.snapshot.authorLabel === "string" ? version.snapshot.authorLabel : null),
+        ownerName: snapshotOwnerName ?? (typeof version.snapshot.ownerLabel === "string" ? version.snapshot.ownerLabel : null),
       },
     })));
   }));

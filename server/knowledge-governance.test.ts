@@ -111,6 +111,7 @@ describe("knowledge persona and input policy", () => {
     expect(knowledgeArticleInput.safeParse({ ...payload, reviewDate: "21-10-2026" }).success).toBe(false);
     expect(knowledgeArticleInput.safeParse({ ...payload, reviewDate: "2028-02-29" }).success).toBe(true);
     expect(knowledgeArticleInput.safeParse({ ...payload, authorId: "someone-else" }).success).toBe(false);
+    expect(knowledgeArticleInput.safeParse({ ...payload, authorLabel: "Sulttanz" }).success).toBe(false);
     expect(knowledgeArticleInput.safeParse({ ...payload, version: "99.0" }).success).toBe(false);
     expect(knowledgeArticleInput.parse({ ...payload, slug: "EMPLOYEE-GUIDANCE" }).slug).toBe("employee-guidance");
     expect(nextKnowledgeVersion("1.9")).toBe("1.10");

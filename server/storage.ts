@@ -2687,6 +2687,7 @@ export class MemStorage implements IStorage {
     return {
       id, ...article, slug: article.slug ?? id, version: article.version ?? "1.0",
       ownerId: article.ownerId ?? null, reviewDate: article.reviewDate ?? null,
+      authorLabel: null, ownerLabel: null,
       isPublic: article.isPublic ?? false, isSystemGuide: false,
       views: 0, helpfulCount: 0, notHelpfulCount: 0,
       authorId: article.authorId ?? null, reviewedById: null, reviewedAt: null,

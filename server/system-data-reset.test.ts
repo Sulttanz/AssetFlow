@@ -156,6 +156,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       category: "Getting Started & Platform Overview",
       authorId: adminId,
       ownerId: adminId,
+      authorLabel: "Reset Administrator",
+      ownerLabel: "Reset Administrator",
       version: "1.0",
       isSystemGuide: true,
       isPublic: false,
