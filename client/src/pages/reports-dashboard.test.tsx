@@ -1,11 +1,14 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReportsDashboard from "./reports-dashboard";
 
-const mockState = vi.hoisted(() => ({ disabledModules: [] as string[] }));
+const mockState = vi.hoisted(() => ({
+  disabledModules: [] as string[],
+  permissions: ["system_admin"] as string[],
+}));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { permissions: ["system_admin"] } }),
+  useAuth: () => ({ user: { permissions: mockState.permissions } }),
 }));
 
 vi.mock("@/hooks/use-modules", () => ({
@@ -35,27 +38,48 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 describe("Reports dashboard module visibility", () => {
-  beforeEach(() => { mockState.disabledModules = []; });
+  beforeEach(() => {
+    mockState.disabledModules = [];
+    mockState.permissions = ["system_admin"];
+    window.history.replaceState({}, "", "/reports");
+  });
   afterEach(() => cleanup());
 
-  it("keeps employee reports available when every optional module is disabled", () => {
+  it("keeps employee reports available and expandable when every optional module is disabled", () => {
     mockState.disabledModules = ["asset_management", "cmdb", "itsm", "project_management", "risk_management"];
     render(<ReportsDashboard />);
 
-    expect(screen.getByRole("tab", { name: "Employee & Personnel" })).toBeTruthy();
-    expect(screen.queryByRole("tab", { name: "ITAM & CMDB" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "ITSM Service Desk" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Project Management & Governance" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "GRC & Compliance" })).toBeNull();
+    const employeeCategory = screen.getByRole("button", { name: /Employee & Personal/ });
+    expect(employeeCategory.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: /IT Asset Management/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /ITSM Service Desk/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Project Management & Governance/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /GRC & Compliance/ })).toBeNull();
+
+    fireEvent.click(employeeCategory);
+    expect(employeeCategory.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Employee Directory & Status")).toBeTruthy();
+    expect(screen.getByText("Resource Workload Heatmap")).toBeTruthy();
+    expect(screen.getAllByText("Account Access & Onboarding Activity").length).toBeGreaterThan(0);
     expect(screen.getByText("Active Personnel Directory")).toBeTruthy();
-    expect(screen.getByText("Account Access & Onboarding Activity")).toBeTruthy();
   });
 
-  it("shows each enabled domain as its own reporting category", () => {
+  it("shows enabled domains as expandable categories", () => {
     render(<ReportsDashboard />);
-    expect(screen.getByRole("tab", { name: "ITAM & CMDB" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Project Management & Governance" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "ITSM Service Desk" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "GRC & Compliance" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /IT Asset Management/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Project Management & Governance/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /ITSM Service Desk/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /GRC & Compliance/ })).toBeTruthy();
+  });
+
+  it("hides module categories when the user has no matching permissions", () => {
+    mockState.permissions = [];
+    render(<ReportsDashboard />);
+
+    expect(screen.getByRole("button", { name: /Employee & Personal/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /IT Asset Management/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Project Management & Governance/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /ITSM Service Desk/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /GRC & Compliance/ })).toBeNull();
   });
 });

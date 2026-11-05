@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ArrowUpRight,
   BriefcaseBusiness,
   Building2,
+  ChevronDown,
   FileBarChart,
   FileText,
   HardDrive,
@@ -22,7 +23,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface PersonnelReport {
   directory: Array<{
@@ -70,6 +70,7 @@ interface ReportCategory {
   description: string;
   icon: typeof Users;
   modules?: string[];
+  permissions?: string[];
   alwaysVisible?: boolean;
   items: ReportItem[];
 }
@@ -77,15 +78,21 @@ interface ReportCategory {
 const reportCategories: ReportCategory[] = [
   {
     key: "people",
-    label: "Employee & Personnel",
+    label: "Employee & Personal",
     description: "Core workforce directory, access posture, and onboarding activity.",
     icon: Users,
     alwaysVisible: true,
     items: [
       {
-        title: "Active Personnel Directory",
+        title: "Employee Directory & Status",
         description: "Browse active personnel by department, position, and location.",
         href: "#personnel-directory",
+        kind: "report",
+      },
+      {
+        title: "Resource Workload Heatmap",
+        description: "Compare assigned assets, project work, and active ticket workload.",
+        href: "#personnel-allocation",
         kind: "report",
       },
       {
@@ -94,32 +101,19 @@ const reportCategories: ReportCategory[] = [
         href: "#personnel-activity",
         kind: "report",
       },
-      {
-        title: "Resource Allocation",
-        description: "Review project workload allocations for the enabled project workspace.",
-        href: "/reports/project-allocations",
-        moduleKey: "project_management",
-        permissions: ["project_view", "project_manage", "system_admin"],
-      },
     ],
   },
   {
     key: "itam-cmdb",
-    label: "ITAM & CMDB",
-    description: "Hardware lifecycle, financial exposure, inventory, and infrastructure records.",
+    label: "IT Asset Management (ITAM / CMDB)",
+    description: "Hardware lifecycle, consumables stock, and infrastructure dependencies.",
     icon: HardDrive,
     modules: ["asset_management", "cmdb"],
+    permissions: ["asset_view", "asset_update", "cmdb_view", "system_admin"],
     items: [
-      { title: "Asset Summary", description: "Asset inventory and status distribution.", href: "/reports/asset-summary", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
-      { title: "Lifecycle Analysis", description: "Age, lifecycle, and warranty trends.", href: "/reports/lifecycle", moduleKey: "asset_management", permissions: ["asset_view", "audit_view", "system_admin"] },
-      { title: "IT Components & Compliance", description: "Auditor review of hardware, endpoints, protection, and licenses.", href: "/reports/hardware-inventory", moduleKey: "asset_management", permissions: ["asset_view", "audit_view", "compliance_view", "system_admin"] },
-      { title: "Assignments & History", description: "Current assignment levels and asset custody history.", href: "/reports/assignments", moduleKey: "asset_management", permissions: ["asset_view", "assignment_view", "system_admin"] },
-      { title: "Maintenance", description: "Scheduled service, overdue work, and completed maintenance.", href: "/reports/maintenance", moduleKey: "asset_management", permissions: ["asset_view", "maintenance_view", "system_admin"] },
-      { title: "Purchase Orders & Budget", description: "Procurement status, spend, and budget utilization.", href: "/reports/purchase-orders", moduleKey: "asset_management", permissions: ["finance_view", "purchase_order_view", "system_admin"] },
-      { title: "Warranties & Depreciation", description: "Expiry risk and asset value over time.", href: "/reports/warranties", moduleKey: "asset_management", permissions: ["asset_view", "finance_view", "system_admin"] },
-      { title: "Vendor Analysis", description: "Vendor purchasing and asset relationship summaries.", href: "/reports/vendor-analysis", moduleKey: "asset_management", permissions: ["finance_view", "asset_view", "system_admin"] },
-      { title: "CMDB Topology", description: "Review network devices, zones, and infrastructure relationships.", href: "/network-topology", moduleKey: "cmdb", permissions: ["cmdb_view", "audit_view", "compliance_view", "system_admin"], kind: "workspace" },
-      { title: "Applications & Servers", description: "Browse the application and infrastructure registers.", href: "/applications", moduleKey: "cmdb", permissions: ["cmdb_view", "asset_update", "system_admin"], kind: "workspace" },
+      { title: "Hardware Asset Lifecycle", description: "Review inventory, assignment, warranty, and lifecycle status.", href: "/reports/asset-summary", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
+      { title: "Consumables Stock Levels", description: "Browse consumable inventory and warehouse stock.", href: "/consumables", moduleKey: "asset_management", permissions: ["asset_view", "inventory_view", "system_admin"], kind: "workspace" },
+      { title: "CMDB Dependency Summaries", description: "Summarize application-to-infrastructure dependencies and impact.", moduleKey: "cmdb", permissions: ["cmdb_view", "system_admin"], planned: true },
     ],
   },
   {
@@ -128,12 +122,11 @@ const reportCategories: ReportCategory[] = [
     description: "Project execution, baselines, delivery throughput, and project risk.",
     icon: BriefcaseBusiness,
     modules: ["project_management"],
+    permissions: ["project_view", "project_manage", "system_admin"],
     items: [
-      { title: "Resource Allocation", description: "Project team allocation and workload report.", href: "/reports/project-allocations", permissions: ["project_view", "project_manage", "system_admin"] },
-      { title: "Project Portfolio", description: "Review projects, milestones, and delivery health.", href: "/projects", permissions: ["project_view", "project_manage", "system_admin"], kind: "workspace" },
-      { title: "Baseline Schedule & Budget Variance", description: "Compare current forecasts with approved project baselines.", planned: true },
-      { title: "Task & Milestone Throughput", description: "Track Kanban velocity and milestone completion trends.", planned: true },
-      { title: "Inherent vs. Residual Risk Heatmap", description: "Compare project risk exposure before and after mitigation.", planned: true },
+      { title: "Schedule & Budget Variance", description: "Compare current forecasts with approved project baselines.", planned: true },
+      { title: "Kanban Task Velocity", description: "Track task throughput and milestone completion trends.", planned: true },
+      { title: "PMI RMP Risk Heatmaps", description: "Compare inherent and residual project risk exposure.", planned: true },
     ],
   },
   {
@@ -142,12 +135,11 @@ const reportCategories: ReportCategory[] = [
     description: "Incident, problem, change, and service desk performance.",
     icon: Wrench,
     modules: ["itsm"],
+    permissions: ["ticket_view_all", "change_view", "system_admin"],
     items: [
-      { title: "Incident & Ticket Report", description: "Ticket volumes, priorities, and lifecycle status.", href: "/reports/tickets", permissions: ["ticket_view_all", "system_admin"] },
-      { title: "Problem Report", description: "Problem records and known-error tracking.", href: "/reports/problems", permissions: ["ticket_view_all", "problem_view", "system_admin"] },
-      { title: "Change Enablement", description: "Change schedules, approvals, and CAB outcomes.", href: "/reports/changes", permissions: ["ticket_view_all", "change_view", "system_admin"] },
-      { title: "Knowledge Base Usage", description: "Article activity and feedback summaries.", href: "/reports/kb-articles", kind: "report" },
-      { title: "Service Catalog Fulfillment & SLA", description: "Catalog request volume, approvals, and fulfillment performance.", planned: true },
+      { title: "Incident MTTR & Volume", description: "Review incident volumes, priorities, lifecycle, and resolution duration.", href: "/reports/tickets", permissions: ["ticket_view_all", "system_admin"] },
+      { title: "SLA Breach Metrics", description: "Monitor response and resolution objectives and breach trends.", planned: true },
+      { title: "Change Enablement (CAB) Logs", description: "Review RFC schedules, CAB decisions, and approval history.", href: "/reports/changes", permissions: ["ticket_view_all", "change_view", "system_admin"] },
     ],
   },
   {
@@ -156,10 +148,10 @@ const reportCategories: ReportCategory[] = [
     description: "Enterprise risk posture and compliance readiness.",
     icon: ShieldAlert,
     modules: ["risk_management"],
+    permissions: ["risk_view", "risk_manage", "audit_view", "compliance_view", "system_admin"],
     items: [
-      { title: "Enterprise Risk Register", description: "Review organizational risks, scores, owners, and mitigations.", href: "/risks", permissions: ["risk_view", "risk_manage", "audit_view", "compliance_view", "system_admin"], kind: "workspace" },
+      { title: "Enterprise Risk Register Posture", description: "Review organizational risks, scores, owners, and mitigations.", href: "/risks", permissions: ["risk_view", "risk_manage", "audit_view", "compliance_view", "system_admin"], kind: "workspace" },
       { title: "Compliance Control Mapping", description: "Map evidence and operational records to control frameworks.", planned: true },
-      { title: "Audit Readiness", description: "Track evidence completeness and outstanding control reviews.", planned: true },
     ],
   },
 ];
@@ -371,25 +363,37 @@ function ReportCard({ item }: { item: ReportItem }) {
 export default function ReportsDashboard() {
   const { user } = useAuth();
   const { isModuleEnabled } = useModules();
-  const [activeTab, setActiveTab] = useState("people");
+  const [location] = useLocation();
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
+    () => new Set(location === "/reports/personnel" ? ["people"] : []),
+  );
   const permissions = user?.permissions ?? [];
   const categories = useMemo(() => reportCategories
-    .filter((category) => category.alwaysVisible || category.modules?.some(isModuleEnabled))
+    .filter((category) => category.alwaysVisible || (
+      category.modules?.some(isModuleEnabled) && hasAnyPermission(permissions, category.permissions)
+    ))
     .map((category) => ({
       ...category,
       items: category.items.filter((item) =>
         (!item.moduleKey || isModuleEnabled(item.moduleKey)) && hasAnyPermission(permissions, item.permissions),
       ),
-    })), [isModuleEnabled, permissions]);
+    }))
+    .filter((category) => category.alwaysVisible || category.items.length > 0), [isModuleEnabled, permissions]);
 
   useEffect(() => {
-    if (!categories.some((category) => category.key === activeTab)) {
-      setActiveTab(categories[0]?.key ?? "people");
+    if (location === "/reports/personnel") {
+      setExpandedCategories((current) => new Set(current).add("people"));
     }
-  }, [activeTab, categories]);
+  }, [location]);
 
-  const activeCategory = categories.find((category) => category.key === activeTab);
-  const ActiveIcon = activeCategory?.icon ?? FileBarChart;
+  const toggleCategory = (key: string) => {
+    setExpandedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
     <div className="min-w-0 space-y-6 p-4 md:p-6">
@@ -404,32 +408,42 @@ export default function ReportsDashboard() {
         </Button>
       </header>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-        <TabsList aria-label="Report domains" className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">
-          {categories.map((category) => {
-            const Icon = category.icon;
-            return <TabsTrigger key={category.key} value={category.key} className="min-h-10 shrink-0 gap-2 rounded-lg px-3"><Icon className="h-4 w-4" aria-hidden="true" />{category.label}</TabsTrigger>;
-          })}
-        </TabsList>
-
-        {categories.map((category) => (
-          <TabsContent key={category.key} value={category.key} className="mt-0 space-y-5">
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700"><category.icon className="h-5 w-5" aria-hidden="true" /></span>
-              <div><h2 className="text-lg font-semibold">{category.label}</h2><p className="text-sm text-muted-foreground">{category.description}</p></div>
-            </div>
-            {category.key === "people" ? (
-              <PersonnelReports />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {category.items.map((item) => <ReportCard key={item.title} item={item} />)}
-                {category.items.length === 0 ? <Card className="sm:col-span-2 xl:col-span-3"><CardContent className="py-10 text-center text-sm text-muted-foreground">No reports in this domain are available to your account.</CardContent></Card> : null}
-              </div>
-            )}
-          </TabsContent>
-        ))}
-      </Tabs>
-      <div className="sr-only" aria-live="polite">{activeCategory ? `${activeCategory.label} reports selected` : "Reports"}</div>
+      <section aria-label="Report categories" className="space-y-4">
+        {categories.map((category) => {
+          const Icon = category.icon;
+          const expanded = expandedCategories.has(category.key);
+          const contentId = `reports-category-${category.key}`;
+          return (
+            <Card key={category.key} className="overflow-hidden rounded-xl border-slate-200 shadow-sm">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={expanded ? contentId : undefined}
+                onClick={() => toggleCategory(category.key)}
+                className="flex min-h-[84px] w-full items-center gap-4 p-4 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600 sm:p-5"
+              >
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-700">
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{category.label}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">{category.description}</span>
+                </span>
+                <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">{category.items.length} reports</Badge>
+                <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+              </button>
+              {expanded ? (
+                <div id={contentId} className="space-y-5 border-t bg-slate-50/60 p-4 sm:p-5">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {category.items.map((item) => <ReportCard key={item.title} item={item} />)}
+                  </div>
+                  {category.key === "people" ? <PersonnelReports /> : null}
+                </div>
+              ) : null}
+            </Card>
+          );
+        })}
+      </section>
     </div>
   );
 }
