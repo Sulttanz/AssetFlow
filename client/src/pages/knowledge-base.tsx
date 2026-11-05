@@ -5,6 +5,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isSystemAdministrator } from "@shared/personas";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { matchesKnowledgeBaseTab, type KnowledgeBaseTab } from "@/lib/knowledge-base-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,28 +34,18 @@ const tabs = [
   { label: "Technical SOPs", key: "sop", icon: FileCheck2 },
   { label: "User Guides", key: "guide", icon: LifeBuoy },
   { label: "KEDB Runbooks", key: "kedb", icon: BookMarked },
-];
+] as const;
 const statusStyles: Record<string, string> = {
   published: "border-emerald-200 bg-emerald-50 text-emerald-800",
   under_review: "border-sky-200 bg-sky-50 text-sky-800",
   draft: "border-amber-200 bg-amber-50 text-amber-900",
   archived: "border-slate-200 bg-slate-100 text-slate-700",
 };
-function tabMatches(tab: string, category: string) {
-  const value = category.toLocaleLowerCase();
-  if (tab === "all") return true;
-  if (tab === "policy") return value.includes("policy");
-  if (tab === "sop") return value.includes("sop") || value.includes("technical");
-  if (tab === "guide") return value.includes("guide");
-  if (tab === "kedb") return value.includes("kedb") || value.includes("runbook");
-  return false;
-}
-
 export default function KnowledgeBase() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState<KnowledgeBaseTab>("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [editorOpen, setEditorOpen] = useState(false);
@@ -83,7 +74,7 @@ export default function KnowledgeBase() {
     const term = search.trim().toLocaleLowerCase();
     const matchesSearch = !term || [article.title, article.content, article.category, article.tags, article.slug]
       .some(value => value?.toLocaleLowerCase().includes(term));
-    return matchesSearch && tabMatches(tab, article.category) &&
+    return matchesSearch && matchesKnowledgeBaseTab(tab, article) &&
       (statusFilter === "all" || article.status === statusFilter) &&
       (categoryFilter === "all" || article.category === categoryFilter);
   }), [allArticles, search, tab, statusFilter, categoryFilter]);
