@@ -39,9 +39,9 @@ function getDeploymentBuildCommand(configText) {
 }
 
 assert.deepEqual(
-  getDeploymentBuildCommand(replitConfig).slice(0, 3),
+  getDeploymentBuildCommand(replitConfig),
   ["npm", "run", "build"],
-  ".replit deployment build command must invoke the audited npm run build script",
+  ".replit deployment build command must contain only the audited npm run build invocation",
 );
 
 try {
