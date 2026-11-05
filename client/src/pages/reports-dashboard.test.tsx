@@ -58,7 +58,7 @@ describe("Reports dashboard module visibility", () => {
 
     fireEvent.click(employeeCategory);
     expect(employeeCategory.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Employee Directory & Status")).toBeTruthy();
+    expect(screen.getByText("Employee Directory & Status Report")).toBeTruthy();
     expect(screen.getByText("Resource Workload Heatmap")).toBeTruthy();
     expect(screen.getAllByText("Account Access & Onboarding Activity").length).toBeGreaterThan(0);
     expect(screen.getByText("Active Personnel Directory")).toBeTruthy();
@@ -66,10 +66,26 @@ describe("Reports dashboard module visibility", () => {
 
   it("shows enabled domains as expandable categories", () => {
     render(<ReportsDashboard />);
-    expect(screen.getByRole("button", { name: /IT Asset Management/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Project Management & Governance/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /ITSM Service Desk/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /GRC & Compliance/ })).toBeTruthy();
+    const assetCategory = screen.getByRole("button", { name: /^IT Asset Management/ });
+    const projectCategory = screen.getByRole("button", { name: /Project Management & Governance/ });
+    const itsmCategory = screen.getByRole("button", { name: /ITSM Service Desk/ });
+    expect(assetCategory.getAttribute("aria-expanded")).toBe("false");
+    expect(projectCategory.getAttribute("aria-expanded")).toBe("false");
+    expect(itsmCategory.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: /GRC & Compliance/ })).toBeNull();
+
+    fireEvent.click(projectCategory);
+    expect(screen.getByText("Schedule & Budget Variance (SV/BV)")).toBeTruthy();
+    expect(screen.getByText("Task & Milestone Velocity")).toBeTruthy();
+    expect(screen.getByText("PMI RMP Risk Heatmap")).toBeTruthy();
+    expect(screen.getAllByText("Planned").length).toBe(3);
+  });
+
+  it("expands the employee category for its direct report route", () => {
+    window.history.replaceState({}, "", "/reports/personnel");
+    render(<ReportsDashboard />);
+    expect(screen.getByRole("button", { name: /Employee & Personal/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Employee Directory & Status Report")).toBeTruthy();
   });
 
   it("hides module categories when the user has no matching permissions", () => {

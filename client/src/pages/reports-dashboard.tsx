@@ -84,7 +84,7 @@ const reportCategories: ReportCategory[] = [
     alwaysVisible: true,
     items: [
       {
-        title: "Employee Directory & Status",
+        title: "Employee Directory & Status Report",
         description: "Browse active personnel by department, position, and location.",
         href: "#personnel-directory",
         kind: "report",
@@ -105,15 +105,14 @@ const reportCategories: ReportCategory[] = [
   },
   {
     key: "itam-cmdb",
-    label: "IT Asset Management (ITAM / CMDB)",
-    description: "Hardware lifecycle, consumables stock, and infrastructure dependencies.",
+    label: "IT Asset Management",
+    description: "Hardware lifecycle and consumable inventory oversight.",
     icon: HardDrive,
-    modules: ["asset_management", "cmdb"],
-    permissions: ["asset_view", "asset_update", "cmdb_view", "system_admin"],
+    modules: ["asset_management"],
+    permissions: ["asset_view", "asset_update", "inventory_view", "system_admin"],
     items: [
-      { title: "Hardware Asset Lifecycle", description: "Review inventory, assignment, warranty, and lifecycle status.", href: "/reports/asset-summary", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
-      { title: "Consumables Stock Levels", description: "Browse consumable inventory and warehouse stock.", href: "/consumables", moduleKey: "asset_management", permissions: ["asset_view", "inventory_view", "system_admin"], kind: "workspace" },
-      { title: "CMDB Dependency Summaries", description: "Summarize application-to-infrastructure dependencies and impact.", moduleKey: "cmdb", permissions: ["cmdb_view", "system_admin"], planned: true },
+      { title: "Hardware Depreciation & Lifecycle", description: "Review asset value, assignment, warranty, and lifecycle status.", href: "/reports/asset-summary", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
+      { title: "Consumable Stock & Reorder Alerts", description: "Review inventory levels, reorder thresholds, and warehouse stock.", href: "/consumables", moduleKey: "asset_management", permissions: ["asset_view", "inventory_view", "system_admin"], kind: "workspace" },
     ],
   },
   {
@@ -124,9 +123,9 @@ const reportCategories: ReportCategory[] = [
     modules: ["project_management"],
     permissions: ["project_view", "project_manage", "system_admin"],
     items: [
-      { title: "Schedule & Budget Variance", description: "Compare current forecasts with approved project baselines.", planned: true },
-      { title: "Kanban Task Velocity", description: "Track task throughput and milestone completion trends.", planned: true },
-      { title: "PMI RMP Risk Heatmaps", description: "Compare inherent and residual project risk exposure.", planned: true },
+      { title: "Schedule & Budget Variance (SV/BV)", description: "Compare current forecasts with approved project baselines.", planned: true },
+      { title: "Task & Milestone Velocity", description: "Track task throughput and milestone completion trends.", planned: true },
+      { title: "PMI RMP Risk Heatmap", description: "Compare inherent and residual project risk exposure.", planned: true },
     ],
   },
   {
@@ -137,21 +136,9 @@ const reportCategories: ReportCategory[] = [
     modules: ["itsm"],
     permissions: ["ticket_view_all", "change_view", "system_admin"],
     items: [
-      { title: "Incident MTTR & Volume", description: "Review incident volumes, priorities, lifecycle, and resolution duration.", href: "/reports/tickets", permissions: ["ticket_view_all", "system_admin"] },
-      { title: "SLA Breach Metrics", description: "Monitor response and resolution objectives and breach trends.", planned: true },
-      { title: "Change Enablement (CAB) Logs", description: "Review RFC schedules, CAB decisions, and approval history.", href: "/reports/changes", permissions: ["ticket_view_all", "change_view", "system_admin"] },
-    ],
-  },
-  {
-    key: "grc",
-    label: "GRC & Compliance",
-    description: "Enterprise risk posture and compliance readiness.",
-    icon: ShieldAlert,
-    modules: ["risk_management"],
-    permissions: ["risk_view", "risk_manage", "audit_view", "compliance_view", "system_admin"],
-    items: [
-      { title: "Enterprise Risk Register Posture", description: "Review organizational risks, scores, owners, and mitigations.", href: "/risks", permissions: ["risk_view", "risk_manage", "audit_view", "compliance_view", "system_admin"], kind: "workspace" },
-      { title: "Compliance Control Mapping", description: "Map evidence and operational records to control frameworks.", planned: true },
+      { title: "Incident MTTR & P1-P4 Breakdown", description: "Review incident volumes, priorities, lifecycle, and resolution duration.", href: "/reports/tickets", permissions: ["ticket_view_all", "system_admin"] },
+      { title: "SLA Breach & Escalation Metrics", description: "Monitor response and resolution objectives and breach trends.", planned: true },
+      { title: "Change Enablement (CAB) Success Rates", description: "Review RFC schedules, CAB decisions, and approval history.", href: "/reports/changes", permissions: ["ticket_view_all", "change_view", "system_admin"] },
     ],
   },
 ];
@@ -357,7 +344,7 @@ function ReportCard({ item }: { item: ReportItem }) {
     </Card>
   );
   if (!item.href || item.planned) return <div key={item.title} aria-disabled="true">{card}</div>;
-  return <Link key={item.title} href={item.href}><a className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">{card}</a></Link>;
+  return <Link key={item.title} href={item.href} className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">{card}</Link>;
 }
 
 export default function ReportsDashboard() {
@@ -433,7 +420,7 @@ export default function ReportsDashboard() {
                 <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
               </button>
               {expanded ? (
-                <div id={contentId} className="space-y-5 border-t bg-slate-50/60 p-4 sm:p-5">
+                <div id={contentId} className="space-y-5 border-t bg-slate-50/60 p-4 sm:p-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1 motion-safe:duration-200">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {category.items.map((item) => <ReportCard key={item.title} item={item} />)}
                   </div>
