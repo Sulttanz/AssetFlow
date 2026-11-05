@@ -98,6 +98,11 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       eq(s.dropdownOptions.value, "Getting Started & Platform Overview"),
       eq(s.dropdownOptions.isActive, true),
     ))).toHaveLength(1);
+    expect(await db.select().from(s.dropdownOptions).where(and(
+      eq(s.dropdownOptions.category, "kb_category"),
+      eq(s.dropdownOptions.value, "Employee Support"),
+      eq(s.dropdownOptions.isActive, true),
+    ))).toHaveLength(1);
     storage = (await import("./storage")).storage;
     const auth = await import("./auth");
     const hash = await auth.hashPassword(password);

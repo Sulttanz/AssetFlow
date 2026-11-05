@@ -21,6 +21,7 @@ const fallbackCategories = [
   { value: "KEDB Article", label: "KEDB Article" },
   { value: "DR Plan", label: "DR Plan" },
   { value: "Getting Started & Platform Overview", label: "Getting Started & Platform Overview" },
+  { value: "Employee Support", label: "Employee Support" },
 ];
 const tabs = [
   { label: "All", key: "all", icon: BookOpen },
