@@ -23,6 +23,7 @@ const fallbackCategories = [
   { value: "Getting Started & Platform Overview", label: "Getting Started & Platform Overview" },
   { value: "Employee Support", label: "Employee Support" },
   { value: "My Assets & ITAM / CMDB", label: "My Assets & ITAM / CMDB" },
+  { value: "Project Management & Governance", label: "Project Management & Governance" },
 ];
 const tabs = [
   { label: "All", key: "all", icon: BookOpen },
