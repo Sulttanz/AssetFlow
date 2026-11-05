@@ -269,6 +269,42 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 ;
 
 
+  it("records a new manual submission time and preserves it on later edits", async () =>
+{
+    const userId = randomUUID();
+    const changeId = randomUUID();
+    const previousSubmission = new Date("2025-01-01T00:00:00.000Z");
+
+    await db.insert(users).values({
+      id: userId, username: `manager-${userId}`, email: `${userId}@example.invalid`,
+      password: "test-only", firstName: "Change", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual resubmission",
+      type: "standard", status: "rejected", risk: "low", submittedAt: previousSubmission,
+    });
+
+    const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": userId },
+      body: JSON.stringify(body),
+    });
+
+    const submitResponse = await update({ status: "submitted" });
+    expect(submitResponse.status).toBe(200);
+    const submittedResponse = await submitResponse.json() as { submittedAt: string };
+    const [submitted] = await db.select().from(changes).where(eq(changes.id, changeId));
+    expect(submitted.status).toBe("submitted");
+    expect(submitted.submittedAt).toBeInstanceOf(Date);
+    expect(submitted.submittedAt!.getTime()).toBeGreaterThan(previousSubmission.getTime());
+    expect(new Date(submittedResponse.submittedAt).getTime()).toBe(submitted.submittedAt!.getTime());
+
+    const editResponse = await update({ title: "Manual resubmission edited" });
+    expect(editResponse.status).toBe(200);
+    const [edited] = await db.select().from(changes).where(eq(changes.id, changeId));
+    expect(edited.submittedAt?.getTime()).toBe(submitted.submittedAt!.getTime());
+  });
+
   it.each([
     
 {

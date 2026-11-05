@@ -4538,6 +4538,7 @@ export class DatabaseStorage implements IStorage {
         type: changes.type,
         risk: changes.risk,
         actualStart: changes.actualStart,
+        submittedAt: changes.submittedAt,
         approvedAt: changes.approvedAt,
       }).from(changes).where(eq(changes.id, id)).for("update");
       if (!current) return { change: undefined, cabPending: false };
@@ -4641,6 +4642,9 @@ export class DatabaseStorage implements IStorage {
       // it. Validate the resulting status, not only an explicit status
       // transition, so it cannot remain approved without unanimous CAB votes.
       const resultingStatus = guardedChange.status ?? change.status ?? current.status;
+      if (resultingStatus === "submitted" && current.status !== "submitted" && change.submittedAt === undefined) {
+        guardedChange = { ...guardedChange, submittedAt: new Date() };
+      }
       if ((resultingStatus === "approved" || resultingStatus === "in_progress") && effectiveCabRequired) {
         approvals ??= await tx.select({ decision: changeApprovals.decision })
           .from(changeApprovals)
