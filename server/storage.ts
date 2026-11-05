@@ -365,9 +365,13 @@ export interface IStorage {
   getChange(id: string): Promise<ChangeWithDetails | undefined>;
   createChange(change: InsertChange): Promise<Change>;
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
-  updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>): Promise<{
+  updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>, options?: {
+    allowedCurrentStatuses?: string[];
+  }): Promise<{
     change: Change | undefined;
     cabPending: boolean;
+    cabApproversRequired?: boolean;
+    statusInvalid?: boolean;
   }>;
   deleteChange(id: string): Promise<boolean>;
   getChangeApprovals(changeId: string): Promise<ChangeApproval[]>;
@@ -4516,7 +4520,11 @@ export class DatabaseStorage implements IStorage {
     const result = await db.update(changes).set({ ...change, updatedAt: new Date() }).where(eq(changes.id, id)).returning();
     return result[0];
   }
-  async updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>) {
+  async updateChangeWithCabStatusGuard(
+    id: string,
+    change: Partial<InsertChange>,
+    options?: { allowedCurrentStatuses?: string[] },
+  ) {
     return db.transaction(async tx => {
       // CAB votes lock this same parent row before changing a decision. Locking
       // it here makes the status check and write observe one authoritative vote
@@ -4530,6 +4538,9 @@ export class DatabaseStorage implements IStorage {
         approvedAt: changes.approvedAt,
       }).from(changes).where(eq(changes.id, id)).for("update");
       if (!current) return { change: undefined, cabPending: false };
+      if (options?.allowedCurrentStatuses && !options.allowedCurrentStatuses.includes(current.status)) {
+        return { change: undefined, cabPending: false, statusInvalid: true };
+      }
 
       let guardedChange = change;
       const resultantType = change.type ?? current.type;
@@ -4568,7 +4579,11 @@ export class DatabaseStorage implements IStorage {
           .from(changeApprovals)
           .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
         if (!cabApprovalsGranted(approvals)) {
-          return { change: undefined, cabPending: true };
+          return {
+            change: undefined,
+            cabPending: true,
+            cabApproversRequired: approvals.length === 0,
+          };
         }
       }
 
@@ -4640,8 +4655,8 @@ export class DatabaseStorage implements IStorage {
       const [change] = await tx.select({ status: changes.status }).from(changes)
         .where(eq(changes.id, approval.changeId)).for("update");
       if (!change) throw new Error("Change not found");
-      if (change.status === "approved") {
-        throw Object.assign(new Error("CAB approvers cannot be added after a change is approved"), {
+      if (change.status === "approved" || change.status === "in_progress") {
+        throw Object.assign(new Error("CAB approvers cannot be added after a change is approved or started"), {
           code: "CAB_CHANGE_ALREADY_APPROVED",
         });
       }

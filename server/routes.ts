@@ -42,7 +42,6 @@ import { isDemoViewer } from "@shared/demo-viewer";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
-import { cabApprovalsGranted } from "./cab-gate";
 import { compareAppVersions } from "./startup-migrations";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
 import { registerKnowledgeRoutes } from "./knowledge-governance";
@@ -8753,7 +8752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error?.code === "CAB_CHANGE_ALREADY_APPROVED") {
         return res.status(409).json({
-          message: "CAB approvers cannot be added after a change is approved. Reopen the change before assigning another approver.",
+          message: "CAB approvers cannot be added after a change is approved or started. Reopen the change before assigning another approver.",
           code: "CAB_CHANGE_ALREADY_APPROVED",
         });
       }
@@ -8910,14 +8909,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
       if (!["draft","rejected"].includes(ch.status)) return res.status(400).json({ message: "Can only submit a draft or rejected change" });
-      // Force CAB required for normal/emergency types or high/critical risk.
-      // This is authoritative: user-supplied cabRequired=false cannot opt out of mandatory CAB.
-      const riskTriggersCAB = ["high","critical"].includes(ch.risk ?? "");
-      const typeTriggersCAB = ["normal","emergency"].includes(ch.type);
-      const cabRequired = typeTriggersCAB || riskTriggersCAB
-        ? true
-        : !!(ch as any).cabRequired; // standard low/medium risk: honour stored opt-in
-      const change = await storage.updateChange(req.params.id, { status: "submitted", submittedAt: new Date(), cabRequired } as any);
+      const result = await storage.updateChangeWithCabStatusGuard(
+        req.params.id,
+        { status: "submitted", submittedAt: new Date() } as any,
+        { allowedCurrentStatuses: ["draft", "rejected"] },
+      );
+      if (result.statusInvalid) {
+        return res.status(400).json({ message: "Can only submit a draft or rejected change" });
+      }
+      if (!result.change) return res.status(404).json({ message: "Change not found" });
       res.json(await storage.getChange(req.params.id));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
   });
@@ -8927,30 +8927,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
       if (ch.status !== "approved") return res.status(400).json({ message: "Change must be approved before starting" });
-
-      // Block start if CAB approval is required but not yet fully granted
-      if (ch.cabRequired) {
-        const approvals = await storage.getChangeApprovals(req.params.id);
-        if (approvals.length === 0) {
-          return res.status(400).json({
-            message: "No CAB approvers have been added yet. Add at least one CAB approver and obtain their approval before implementation can start.",
-            code: "CAB_APPROVERS_REQUIRED",
-          });
-        }
-        const allApproved = cabApprovalsGranted(approvals);
-        if (!allApproved) {
-          return res.status(400).json({
-            message: "CAB approvals are not all granted yet. All assigned CAB approvers must approve before implementation can start.",
-            code: "CAB_PENDING",
-          });
-        }
-      }
-
       const user = req.user as any;
-      // Create default environment stages if none exist
+      const result = await storage.updateChangeWithCabStatusGuard(
+        req.params.id,
+        {
+          status: "in_progress",
+          actualStart: new Date(),
+          assignedToId: ch.assignedToId || user.id,
+          assignedAt: ch.assignedAt || new Date(),
+        } as any,
+        { allowedCurrentStatuses: ["approved"] },
+      );
+      if (result.statusInvalid) {
+        return res.status(400).json({ message: "Change must be approved before starting" });
+      }
+      if (result.cabPending) {
+        return res.status(400).json(result.cabApproversRequired
+          ? {
+              message: "No CAB approvers have been added yet. Add at least one CAB approver and obtain their approval before implementation can start.",
+              code: "CAB_APPROVERS_REQUIRED",
+            }
+          : {
+              message: "CAB approvals are not all granted yet. All assigned CAB approvers must approve before implementation can start.",
+              code: "CAB_PENDING",
+            });
+      }
+      if (!result.change) return res.status(404).json({ message: "Change not found" });
+
+      // Create default environment stages only after the guarded transition succeeds.
       const existing = await storage.getChangeStages(req.params.id);
       if (existing.length === 0) await storage.createDefaultChangeStages(req.params.id);
-      await storage.updateChange(req.params.id, { status: "in_progress", actualStart: new Date(), assignedToId: ch.assignedToId || user.id, assignedAt: ch.assignedAt || new Date() } as any);
       res.json(await storage.getChange(req.params.id));
     } catch (e) { console.error(e); res.status(500).json({ message: "Failed to start change" }); }
   });

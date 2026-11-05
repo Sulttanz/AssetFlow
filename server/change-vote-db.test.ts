@@ -3359,4 +3359,209 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     },
     15_000,
   );
+
+  it("submits using the latest risk and CAB requirement after a concurrent escalation", async () => {
+    const managerId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values({
+      id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+      password: "test-only", firstName: "CAB", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Submit during risk escalation",
+      type: "standard", risk: "low", status: "draft", cabRequired: false,
+    });
+
+    const originalGuard = storage.updateChangeWithCabStatusGuard.bind(storage);
+    let releaseSubmit!: () => void;
+    let reportSubmit!: () => void;
+    const submitReachedGuard = new Promise<void>(resolve => { reportSubmit = resolve; });
+    const continueSubmit = new Promise<void>(resolve => { releaseSubmit = resolve; });
+    let heldSubmit = false;
+    const guardSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (id, update, options) => {
+      if (id === changeId && update.status === "submitted" && !heldSubmit) {
+        heldSubmit = true;
+        reportSubmit();
+        await continueSubmit;
+      }
+      return originalGuard(id, update, options);
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+
+    try {
+      const submitRequest = fetch(`${baseUrl}/api/changes/${changeId}/submit`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      await submitReachedGuard;
+
+      const escalationResponse = await fetch(`${baseUrl}/api/changes/${changeId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ risk: "high" }),
+      });
+      expect(escalationResponse.status).toBe(200);
+
+      releaseSubmit();
+      const submitResponse = await submitRequest;
+      expect(submitResponse.status).toBe(200);
+      expect(await submitResponse.json()).toMatchObject({
+        risk: "high", status: "submitted", cabRequired: true,
+      });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange).toMatchObject({
+        risk: "high", status: "submitted", cabRequired: true,
+      });
+      expect(await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId)))
+        .toHaveLength(0);
+    } finally {
+      releaseSubmit();
+      guardSpy.mockRestore();
+      permissionSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it("does not start a stale approved change after it becomes CAB-required", async () => {
+    const managerId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values({
+      id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+      password: "test-only", firstName: "CAB", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Start during risk escalation",
+      type: "standard", risk: "low", status: "approved", cabRequired: false,
+    });
+
+    const originalGuard = storage.updateChangeWithCabStatusGuard.bind(storage);
+    let releaseStart!: () => void;
+    let reportStart!: () => void;
+    const startReachedGuard = new Promise<void>(resolve => { reportStart = resolve; });
+    const continueStart = new Promise<void>(resolve => { releaseStart = resolve; });
+    let heldStart = false;
+    const guardSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (id, update, options) => {
+      if (id === changeId && update.status === "in_progress" && !heldStart) {
+        heldStart = true;
+        reportStart();
+        await continueStart;
+      }
+      return originalGuard(id, update, options);
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+
+    try {
+      const startRequest = fetch(`${baseUrl}/api/changes/${changeId}/start`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      await startReachedGuard;
+
+      const escalationResponse = await fetch(`${baseUrl}/api/changes/${changeId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ risk: "high", status: "submitted" }),
+      });
+      expect(escalationResponse.status).toBe(200);
+      expect(await escalationResponse.json()).toMatchObject({
+        risk: "high", status: "submitted", cabRequired: true,
+      });
+
+      releaseStart();
+      const startResponse = await startRequest;
+      expect(startResponse.status).toBe(400);
+      expect(await startResponse.json()).toMatchObject({
+        message: "Change must be approved before starting",
+      });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange).toMatchObject({
+        risk: "high", status: "submitted", cabRequired: true, actualStart: null,
+      });
+      expect(await db.select().from(changeApprovals).where(eq(changeApprovals.changeId, changeId)))
+        .toHaveLength(0);
+    } finally {
+      releaseStart();
+      guardSpy.mockRestore();
+      permissionSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it("does not allow a CAB assignment to add a pending vote after start commits", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const newApproverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+      { id: newApproverId, username: `approver-${newApproverId}`, email: `${newApproverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Assignment after start",
+      type: "normal", risk: "low", status: "approved", cabRequired: true,
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId, originalApproverId: approverId,
+      approverLabel: "CAB Approver", decision: "approved", decidedAt: new Date(),
+    });
+
+    const originalGuard = storage.updateChangeWithCabStatusGuard.bind(storage);
+    let releaseStartResponse!: () => void;
+    let reportStartCommitted!: () => void;
+    const startCommitted = new Promise<void>(resolve => { reportStartCommitted = resolve; });
+    const continueStartResponse = new Promise<void>(resolve => { releaseStartResponse = resolve; });
+    const guardSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (id, update, options) => {
+      const result = await originalGuard(id, update, options);
+      if (id === changeId && update.status === "in_progress" && result.change) {
+        reportStartCommitted();
+        await continueStartResponse;
+      }
+      return result;
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+    try {
+      const startRequest = fetch(`${baseUrl}/api/changes/${changeId}/start`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      await startCommitted;
+
+      const assignmentResponse = await fetch(`${baseUrl}/api/changes/${changeId}/approvals`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify({ approverId: newApproverId }),
+      });
+      expect(assignmentResponse.status).toBe(409);
+      expect(await assignmentResponse.json()).toMatchObject({
+        code: "CAB_CHANGE_ALREADY_APPROVED",
+        message: expect.stringMatching(/approved or started/i),
+      });
+
+      releaseStartResponse();
+      const startResponse = await startRequest;
+      expect(startResponse.status).toBe(200);
+      expect(await startResponse.json()).toMatchObject({
+        status: "in_progress", cabRequired: true,
+      });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange.status).toBe("in_progress");
+      const activeApprovals = await db.select().from(changeApprovals)
+        .where(eq(changeApprovals.changeId, changeId));
+      expect(activeApprovals).toHaveLength(1);
+      expect(activeApprovals[0]).toMatchObject({ decision: "approved", removedAt: null });
+    } finally {
+      releaseStartResponse();
+      guardSpy.mockRestore();
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  }, 15_000);
 });
