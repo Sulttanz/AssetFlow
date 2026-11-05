@@ -97,12 +97,12 @@ process.exit(result.status ?? 1);
 `);
   await chmod(npmShim, 0o755);
 
-  async function runScenario(auditStatus, useIgnoreScriptsEnvironment) {
+  async function runScenario(auditStatus, ignoreScriptsMode) {
     await rm(buildMarker, { force: true });
     await writeFile(auditLog, "");
     await writeFile(
       path.join(fixtureDir, ".npmrc"),
-      `ignore-scripts=${useIgnoreScriptsEnvironment ? "false" : "true"}\n`,
+      `ignore-scripts=${ignoreScriptsMode === "project" ? "true" : "false"}\n`,
     );
 
     const env = { ...process.env };
@@ -115,12 +115,15 @@ process.exit(result.status ?? 1);
       BUILD_AUDIT_GATE_STATUS: String(auditStatus),
       BUILD_AUDIT_GATE_BUILD_MARKER: buildMarker,
     });
-    if (useIgnoreScriptsEnvironment) {
+    if (ignoreScriptsMode === "environment") {
       env.npm_config_ignore_scripts = "true";
       env.NPM_CONFIG_IGNORE_SCRIPTS = "true";
     }
 
-    const result = spawnSync(npmExecutable, ["run", "build"], {
+    const npmArgs = ignoreScriptsMode === "cli"
+      ? ["--ignore-scripts", "run", "build"]
+      : ["run", "build"];
+    const result = spawnSync(npmExecutable, npmArgs, {
       cwd: fixtureDir,
       env,
       encoding: "utf8",
@@ -136,24 +139,27 @@ process.exit(result.status ?? 1);
     return result;
   }
 
-  async function verifyGate(useIgnoreScriptsEnvironment) {
-    const configuration = useIgnoreScriptsEnvironment
-      ? "npm ignore-scripts environment setting"
-      : "project .npmrc ignore-scripts setting";
-    const failedAudit = await runScenario(1, useIgnoreScriptsEnvironment);
+  async function verifyGate(ignoreScriptsMode) {
+    const configuration = {
+      project: "project .npmrc ignore-scripts setting",
+      environment: "npm ignore-scripts environment setting",
+      cli: "npm --ignore-scripts command-line option",
+    }[ignoreScriptsMode];
+    const failedAudit = await runScenario(1, ignoreScriptsMode);
     assert.notEqual(failedAudit.status, 0, `npm run build must fail when the security audit fails with the ${configuration}`);
     assert.equal(await readFile(buildMarker, "utf8").catch(() => null), null,
       `the build script must not run after a failed audit with the ${configuration}`);
 
-    const successfulAudit = await runScenario(0, useIgnoreScriptsEnvironment);
+    const successfulAudit = await runScenario(0, ignoreScriptsMode);
     assert.equal(successfulAudit.status, 0, `npm run build must succeed when the security audit passes with the ${configuration}`);
     assert.equal(await readFile(buildMarker, "utf8"), "build script ran",
       `the build script must run after a successful audit with the ${configuration}`);
   }
 
-  await verifyGate(false);
-  await verifyGate(true);
-  console.log("Build audit gate check passed for failed and successful audits with project .npmrc and environment ignore-scripts settings.");
+  await verifyGate("project");
+  await verifyGate("environment");
+  await verifyGate("cli");
+  console.log("Build audit gate check passed for failed and successful audits with project .npmrc, environment, and CLI ignore-scripts settings.");
 } finally {
   await rm(tempRoot, { recursive: true, force: true });
 }
