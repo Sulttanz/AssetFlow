@@ -60,8 +60,12 @@ describe("Reports dashboard module visibility", () => {
     expect(employeeCategory.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Employee Directory & Status Report")).toBeTruthy();
     expect(screen.getByText("Resource Workload Heatmap")).toBeTruthy();
-    expect(screen.getAllByText("Account Access & Onboarding Activity").length).toBeGreaterThan(0);
-    expect(screen.getByText("Active Personnel Directory")).toBeTruthy();
+    expect(screen.getByText("Account Access & Onboarding Activity")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Employee Directory & Status Report/ }).getAttribute("href")).toBe("/reports/employee-directory");
+    expect(screen.getByRole("link", { name: /Resource Workload Heatmap/ }).getAttribute("href")).toBe("/reports/workload-heatmap");
+    expect(screen.getByRole("link", { name: /Account Access & Onboarding Activity/ }).getAttribute("href")).toBe("/reports/account-activity");
+    expect(screen.queryByText("Active Employees")).toBeNull();
+    expect(screen.queryByText("Active Personnel Directory")).toBeNull();
   });
 
   it("shows enabled domains as expandable categories", () => {
@@ -75,17 +79,13 @@ describe("Reports dashboard module visibility", () => {
     expect(screen.queryByRole("button", { name: /GRC & Compliance/ })).toBeNull();
 
     fireEvent.click(projectCategory);
-    expect(screen.getByText("Schedule & Budget Variance (SV/BV)")).toBeTruthy();
+    expect(screen.getByText("Schedule & Budget Variance")).toBeTruthy();
     expect(screen.getByText("Task & Milestone Velocity")).toBeTruthy();
     expect(screen.getByText("PMI RMP Risk Heatmap")).toBeTruthy();
     expect(screen.getAllByText("Planned").length).toBe(3);
-  });
-
-  it("expands the employee category for its direct report route", () => {
-    window.history.replaceState({}, "", "/reports/personnel");
-    render(<ReportsDashboard />);
-    expect(screen.getByRole("button", { name: /Employee & Personal/ }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Employee Directory & Status Report")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Schedule & Budget Variance/ }).getAttribute("href")).toBe("/reports/project-variance");
+    expect(screen.getByRole("link", { name: /Task & Milestone Velocity/ }).getAttribute("href")).toBe("/reports/project-velocity");
+    expect(screen.getByRole("link", { name: /PMI RMP Risk Heatmap/ }).getAttribute("href")).toBe("/reports/risk-heatmap");
   });
 
   it("hides module categories when the user has no matching permissions", () => {

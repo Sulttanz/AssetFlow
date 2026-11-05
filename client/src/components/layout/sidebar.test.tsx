@@ -36,7 +36,7 @@ describe("Enterprise sidebar navigation", () => {
       expect(screen.queryByRole("button", { name: title })).toBeNull();
     }
     fireEvent.click(button("Analytics & Reports"));
-    expect(button("Reports")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Reports" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "KPI Dashboard" })).toBeNull();
   });
 
@@ -50,11 +50,12 @@ describe("Enterprise sidebar navigation", () => {
     expect(button("Overview").getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("aria-current")).toBe("page");
     fireEvent.click(button("Analytics & Reports"));
-    fireEvent.click(button("Reports"));
-    expect(button("Reports").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("link", { name: "Reports" })).toBeTruthy();
+    fireEvent.click(button("Toggle report categories"));
+    expect(button("Toggle report categories").getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(button("Analytics & Reports"));
     fireEvent.click(button("Analytics & Reports"));
-    expect(button("Reports").getAttribute("aria-expanded")).toBe("true");
+    expect(button("Toggle report categories").getAttribute("aria-expanded")).toBe("true");
   });
 
   it("points every visible item and report submenu at an existing application route", () => {
@@ -62,14 +63,26 @@ describe("Enterprise sidebar navigation", () => {
     screen.getAllByTestId(/^section-toggle-/).forEach(element => {
       if (element.getAttribute("aria-expanded") !== "true") fireEvent.click(element);
     });
-    fireEvent.click(button("Reports"));
+    fireEvent.click(button("Toggle report categories"));
+    for (const key of ["employee", "itam", "projects", "itsm"]) {
+      const categoryToggle = screen.queryByTestId(`report-category-toggle-${key}`);
+      if (categoryToggle) fireEvent.click(categoryToggle);
+    }
     const source = readFileSync(`${process.cwd()}/client/src/App.tsx`, "utf8");
     const registered = new Set(Array.from(source.matchAll(/<(?:ProtectedRoute|Route)\s+path="([^"]+)"/g), match => match[1]));
     const links = Array.from(document.querySelectorAll("nav a"));
-    expect(links.length).toBeGreaterThan(60);
+    expect(links.length).toBeGreaterThan(45);
     for (const link of links) {
       const pathname = new URL(link.getAttribute("href")!, "https://navigation.test").pathname;
       expect(registered.has(pathname), `${link.textContent}: ${pathname}`).toBe(true);
+    }
+    for (const href of [
+      "/reports/employee-directory", "/reports/workload-heatmap", "/reports/account-activity",
+      "/reports/hardware-lifecycle", "/reports/consumables-stock", "/reports/project-variance",
+      "/reports/project-velocity", "/reports/risk-heatmap", "/reports/itsm-mttr",
+      "/reports/itsm-sla", "/reports/itsm-cab",
+    ]) {
+      expect(links.some(link => link.getAttribute("href") === href), `missing navigation link: ${href}`).toBe(true);
     }
     const tools = button("Tools").parentElement!;
     expect(Array.from(tools.querySelectorAll("a")).map(link => link.textContent)).toEqual(["Data Migration Center", "Settings"]);
@@ -100,6 +113,19 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     expect(screen.getByRole("link", { name: "Request Tracker" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Service Requests" }).hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("nests the exact four report categories and opens the active report category", () => {
+    path("/reports/project-variance");
+    render(<Sidebar />);
+    expect(screen.getByRole("link", { name: "Reports" })).toBeTruthy();
+    expect(button("Toggle report categories").getAttribute("aria-expanded")).toBe("true");
+    expect(button("Project Management & Governance").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("link", { name: "Schedule & Budget Variance" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "Employee & Personal" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "IT Asset Management" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ITSM Service Desk" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "GRC & Compliance" })).toBeNull();
   });
 
   it("auto-opens destination sections after navigation while keeping Overview available", () => {

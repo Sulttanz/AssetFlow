@@ -19,7 +19,7 @@ const IT_AGENT_PAGE_PREFIXES = [
   "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
   "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
   "/incidents", "/service-requests", "/problems", "/knowledge-base",
-  "/service-catalog", "/network-topology", "/backup-schedules", "/reports/tickets", "/reports/problems",
+  "/service-catalog", "/network-topology", "/backup-schedules", "/reports",
 ];
 
 const MANAGER_PAGE_PREFIXES = [

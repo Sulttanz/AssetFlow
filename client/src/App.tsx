@@ -40,6 +40,9 @@ const SystemSettings = lazy(() => import("@/pages/system-settings"));
 const AuditLogs = lazy(() => import("@/pages/audit-logs"));
 const DropdownManagement = lazy(() => import("@/pages/dropdown-management"));
 const Reports = lazy(() => import("@/pages/reports-dashboard"));
+const PersonnelDetailReport = lazy(() => import("@/pages/reports/personnel-detail"));
+const ConsumablesStockReport = lazy(() => import("@/pages/reports/consumables-stock"));
+const PlannedAnalyticsReport = lazy(() => import("@/pages/reports/planned-report"));
 const AssetSummaryReport = lazy(() => import("@/pages/reports/asset-summary"));
 const LifecycleReport = lazy(() => import("@/pages/reports/lifecycle"));
 const HardwareInventoryReport = lazy(() => import("@/pages/reports/hardware-inventory"));
@@ -134,7 +137,18 @@ function Router() {
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports" component={Reports} />
-                  <ProtectedRoute path="/reports/personnel" component={Reports} />
+                  <ProtectedRoute path="/reports/personnel" component={PersonnelDetailReport} />
+                  <ProtectedRoute path="/reports/employee-directory" component={PersonnelDetailReport} />
+                  <ProtectedRoute path="/reports/workload-heatmap" component={PersonnelDetailReport} />
+                  <ProtectedRoute path="/reports/account-activity" component={PersonnelDetailReport} />
+                  <ProtectedRoute path="/reports/hardware-lifecycle" component={DepreciationReport} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "system_admin"]} />
+                  <ProtectedRoute path="/reports/consumables-stock" component={ConsumablesStockReport} requiredModule="asset_management" requiredAnyPermission={["asset_view", "inventory_view", "system_admin"]} />
+                  <ProtectedRoute path="/reports/project-variance" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
+                  <ProtectedRoute path="/reports/project-velocity" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
+                  <ProtectedRoute path="/reports/risk-heatmap" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
+                  <ProtectedRoute path="/reports/itsm-mttr" component={TicketReport} requiredModule="itsm" requiredPermission="ticket_view_all" />
+                  <ProtectedRoute path="/reports/itsm-sla" component={PlannedAnalyticsReport} requiredModule="itsm" requiredPermission="ticket_view_all" />
+                  <ProtectedRoute path="/reports/itsm-cab" component={ChangesReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "change_view", "system_admin"]} />
                   <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/hardware-inventory" component={HardwareInventoryReport} requiredModule="asset_management" />

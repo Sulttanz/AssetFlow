@@ -83,10 +83,74 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { isModuleEnabled } = useModules();
   const isItsmStaff = canAccessItsmWorkbench(user);
   const [reportsExpanded, setReportsExpanded] = useState(location.startsWith('/reports'));
+  const [expandedReportCategories, setExpandedReportCategories] = useState<Record<string, boolean>>({});
 
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => ({ ...prev, [title]: !prev[title] }));
   };
+
+  const reportCategoryDefinitions: Array<{
+    key: string;
+    name: string;
+    moduleKey?: string;
+    permission?: string | string[];
+    items: Array<{ name: string; href: string; moduleKey?: string; permission?: string | string[] }>;
+  }> = [
+    {
+      key: "employee",
+      name: "Employee & Personal",
+      items: [
+        { name: "Employee Directory & Status Report", href: "/reports/employee-directory" },
+        { name: "Resource Workload Heatmap", href: "/reports/workload-heatmap" },
+        { name: "Account Access & Onboarding Activity", href: "/reports/account-activity" },
+      ],
+    },
+    {
+      key: "itam",
+      name: "IT Asset Management",
+      moduleKey: "asset_management",
+      permission: ["asset_view", "asset_update", "inventory_view", "system_admin"],
+      items: [
+        { name: "Hardware Depreciation & Lifecycle", href: "/reports/hardware-lifecycle", moduleKey: "asset_management", permission: ["asset_view", "asset_update", "system_admin"] },
+        { name: "Consumable Stock & Reorder Alerts", href: "/reports/consumables-stock", moduleKey: "asset_management", permission: ["asset_view", "inventory_view", "system_admin"] },
+      ],
+    },
+    {
+      key: "projects",
+      name: "Project Management & Governance",
+      moduleKey: "project_management",
+      permission: ["project_view", "project_manage", "system_admin"],
+      items: [
+        { name: "Schedule & Budget Variance", href: "/reports/project-variance", moduleKey: "project_management", permission: ["project_view", "project_manage", "system_admin"] },
+        { name: "Task & Milestone Velocity", href: "/reports/project-velocity", moduleKey: "project_management", permission: ["project_view", "project_manage", "system_admin"] },
+        { name: "PMI RMP Risk Heatmap", href: "/reports/risk-heatmap", moduleKey: "project_management", permission: ["project_view", "project_manage", "system_admin"] },
+      ],
+    },
+    {
+      key: "itsm",
+      name: "ITSM Service Desk",
+      moduleKey: "itsm",
+      permission: ["ticket_view_all", "change_view", "system_admin"],
+      items: [
+        { name: "Incident MTTR & P1-P4 Breakdown", href: "/reports/itsm-mttr", moduleKey: "itsm", permission: ["ticket_view_all", "system_admin"] },
+        { name: "SLA Breach & Escalation Metrics", href: "/reports/itsm-sla", moduleKey: "itsm", permission: ["ticket_view_all", "system_admin"] },
+        { name: "Change Enablement (CAB) Success Rates", href: "/reports/itsm-cab", moduleKey: "itsm", permission: ["ticket_view_all", "change_view", "system_admin"] },
+      ],
+    },
+  ];
+  const reportCategories = reportCategoryDefinitions.map(category => ({
+    ...category,
+    current: category.items.some(item => location === item.href),
+    items: category.items.filter(item =>
+      (!item.moduleKey || isModuleEnabled(item.moduleKey)) &&
+      hasPermission(item.permission) &&
+      (!personaScoped || isPersonaPageAllowed(roleNames, permissions, item.href)),
+    ),
+  })).filter(category =>
+    (!category.moduleKey || isModuleEnabled(category.moduleKey)) &&
+    hasPermission(category.permission) &&
+    category.items.length > 0,
+  );
 
   const sectionDefinitions = [
     {
@@ -203,32 +267,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           current: location.startsWith("/reports"),
           hasSubmenu: true,
           visible: true,
-          submenu: [
-            { name: "Employee & Personnel", href: "/reports/personnel", current: location === "/reports/personnel" },
-            { name: "Asset Summary", href: "/reports/asset-summary", current: location === "/reports/asset-summary", moduleKey: "asset_management" },
-            { name: "Lifecycle Analysis", href: "/reports/lifecycle", current: location === "/reports/lifecycle", moduleKey: "asset_management" },
-            { name: "Hardware Inventory", href: "/reports/hardware-inventory", current: location === "/reports/hardware-inventory", moduleKey: "asset_management" },
-            { name: "Assignments", href: "/reports/assignments", current: location === "/reports/assignments", moduleKey: "asset_management" },
-            { name: "Maintenance", href: "/reports/maintenance", current: location === "/reports/maintenance", moduleKey: "asset_management" },
-            { name: "Purchase Orders", href: "/reports/purchase-orders", current: location === "/reports/purchase-orders", moduleKey: "asset_management" },
-            { name: "Budget Analysis", href: "/reports/budget", current: location === "/reports/budget", moduleKey: "asset_management" },
-            { name: "Department", href: "/reports/department", current: location === "/reports/department", moduleKey: "asset_management" },
-            { name: "Warranties", href: "/reports/warranties", current: location === "/reports/warranties", moduleKey: "asset_management" },
-            { name: "Vendor Analysis", href: "/reports/vendor-analysis", current: location === "/reports/vendor-analysis", moduleKey: "asset_management" },
-            { name: "Released Assets", href: "/reports/released-assets", current: location === "/reports/released-assets", moduleKey: "asset_management" },
-            { name: "Depreciation", href: "/reports/depreciation", current: location === "/reports/depreciation", moduleKey: "asset_management" },
-            { name: "Missing Data", href: "/reports/missing-data", current: location === "/reports/missing-data", moduleKey: "asset_management" },
-            { name: "Assignment History", href: "/reports/assignment-history", current: location === "/reports/assignment-history", moduleKey: "asset_management" },
-            ...(isModuleEnabled("itsm") ? [
-              { name: "Ticket Report", href: "/reports/tickets", current: location === "/reports/tickets", moduleKey: "itsm" },
-              { name: "Problem Report", href: "/reports/problems", current: location === "/reports/problems", moduleKey: "itsm" },
-              { name: "Change Report", href: "/reports/changes", current: location === "/reports/changes", moduleKey: "itsm" },
-              { name: "Knowledge Base Report", href: "/reports/kb-articles", current: location === "/reports/kb-articles" },
-            ] : []),
-            ...(isModuleEnabled("project_management") ? [
-              { name: "Resource Allocation", href: "/reports/project-allocations", current: location === "/reports/project-allocations", moduleKey: "project_management" },
-            ] : []),
-          ],
+          submenu: reportCategories,
         },
       ]
     },
@@ -260,17 +299,22 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     }
   ];
 
+  const reportLeafHrefs = reportCategories.flatMap(category => category.items.map(item => item.href));
   const activeHref = activeNavigationHref(location, search, sectionDefinitions.flatMap(section =>
-    section.items.flatMap((item: any) => [item.href, ...(item.submenu?.map((sub: any) => sub.href) ?? [])]),
+    section.items.flatMap((item: any) => [item.href, ...(item.hasSubmenu ? reportLeafHrefs : item.submenu?.map((sub: any) => sub.href) ?? [])]),
   ));
   const navigationSections = sectionDefinitions.map(section => ({
     ...section,
     items: section.items.map((item: any) => {
       const duplicateSelfServiceLink = ["/service-catalog", "/knowledge-base"].includes(item.href) &&
         ((section.title === "Employee Support" && isItsmStaff) || (section.title === "IT Service Management" && !isItsmStaff));
-      const submenu = item.submenu?.map((sub: any) => ({
-        ...sub, current: sub.href === activeHref && sub.href !== "/reports/hardware-inventory",
-      }));
+      const submenu = item.submenu?.map((sub: any) => item.hasSubmenu
+        ? {
+          ...sub,
+          current: sub.items.some((leaf: any) => leaf.href === activeHref),
+          items: sub.items.map((leaf: any) => ({ ...leaf, current: leaf.href === activeHref })),
+        }
+        : { ...sub, current: sub.href === activeHref && sub.href !== "/reports/hardware-inventory" });
       return {
         ...item,
         submenu,
@@ -293,6 +337,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     const activeSection = navigationSections.find(section => section.items.some((item: any) => item.current));
     if (activeSection) setExpandedSections(previous => previous[activeSection.title] ? previous : { ...previous, [activeSection.title]: true });
     if (activeHref?.startsWith("/reports/") && activeHref !== "/reports/hardware-inventory") setReportsExpanded(true);
+    const activeReportCategory = reportCategories.find(category => category.items.some(item => item.href === activeHref));
+    if (activeReportCategory) setExpandedReportCategories(previous => ({ ...previous, [activeReportCategory.key]: true }));
     // Expand on navigation, not on every render, so manual collapse remains independent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, search, activeHref]);
@@ -304,9 +350,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     if (!personaScoped && !isDemoViewer(roleNames)) return true;
     if (item.hasSubmenu) {
       return isPersonaPageAllowed(roleNames, permissions, item.href) ||
-        item.submenu?.some((subitem: any) =>
-          (!subitem.moduleKey || isModuleEnabled(subitem.moduleKey)) &&
-          isPersonaPageAllowed(roleNames, permissions, subitem.href));
+        item.submenu?.some((category: any) => category.items.length > 0);
     }
     return isPersonaPageAllowed(roleNames, permissions, item.href);
   };
@@ -361,43 +405,70 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                         const isExpanded = reportsExpanded;
                         return (
                           <div key={item.name}>
-                            <button
-                              onClick={() => setReportsExpanded(!reportsExpanded)}
-                              className={cn(
-                                 "w-full flex items-center justify-between rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
-                                item.current
-                                   ? "border-primary bg-primary/10 text-primary"
-                                   : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-                              )}
-                              data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
-                              aria-expanded={isExpanded}
-                            >
-                              <div className="flex items-center space-x-3">
+                            <div className="flex items-center gap-1">
+                              <Link
+                                href={item.href}
+                                aria-current={location === item.href ? "page" : undefined}
+                                onClick={onNavigate}
+                                className={cn(
+                                  "flex min-w-0 flex-1 items-center space-x-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                                  item.current ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+                                )}
+                                data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
+                              >
                                 <Icon className="w-4 h-4 shrink-0" />
                                 <span>{item.name}</span>
-                              </div>
-                              {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                            </button>
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => setReportsExpanded(!reportsExpanded)}
+                                className="grid min-h-11 min-w-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                data-testid="nav-reports-toggle"
+                                aria-label="Toggle report categories"
+                                aria-expanded={isExpanded}
+                                aria-controls="reports-navigation-categories"
+                              >
+                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </button>
+                            </div>
                             {isExpanded && item.submenu && (
-                              <div className="ml-4 mt-0.5 space-y-0.5">
-                                {item.submenu.filter((subitem: any) =>
-                                  (!subitem.moduleKey || isModuleEnabled(subitem.moduleKey)) &&
-                                  (!personaScoped || isPersonaPageAllowed(roleNames, permissions, subitem.href))).map((subitem: any) => (
-                                  <Link
-                                    key={subitem.name}
-                                    href={subitem.href}
-                                    aria-current={subitem.current ? "page" : undefined}
-                                    onClick={onNavigate}
-                                    className={cn(
-                                       "flex items-center rounded-lg border-l-2 px-3 py-2 text-sm transition-colors",
-                                      subitem.current
-                                         ? "border-primary bg-primary/10 font-medium text-primary"
-                                         : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-                                    )}
-                                    data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                  >
-                                    <span>{subitem.name}</span>
-                                  </Link>
+                              <div id="reports-navigation-categories" className="ml-4 mt-0.5 space-y-0.5">
+                                {item.submenu.map((category: any) => (
+                                  <div key={category.key}>
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedReportCategories(current => ({ ...current, [category.key]: !current[category.key] }))}
+                                      className={cn(
+                                        "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                        category.current ? "text-primary" : "text-muted-foreground",
+                                      )}
+                                      aria-expanded={Boolean(expandedReportCategories[category.key])}
+                                      aria-controls={`report-navigation-${category.key}`}
+                                      data-testid={`report-category-toggle-${category.key}`}
+                                    >
+                                      <span>{category.name}</span>
+                                      {expandedReportCategories[category.key] ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                                    </button>
+                                    {expandedReportCategories[category.key] ? (
+                                      <div id={`report-navigation-${category.key}`} className="ml-2 space-y-0.5 border-l border-sidebar-border pl-2">
+                                        {category.items.map((subitem: any) => (
+                                          <Link
+                                            key={subitem.name}
+                                            href={subitem.href}
+                                            aria-current={subitem.current ? "page" : undefined}
+                                            onClick={onNavigate}
+                                            className={cn(
+                                              "flex min-h-9 items-center rounded-lg px-3 py-2 text-xs transition-colors",
+                                              subitem.current ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                            )}
+                                            data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                          >
+                                            {subitem.name}
+                                          </Link>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             )}

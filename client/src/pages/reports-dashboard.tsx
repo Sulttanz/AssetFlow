@@ -86,19 +86,19 @@ const reportCategories: ReportCategory[] = [
       {
         title: "Employee Directory & Status Report",
         description: "Browse active personnel by department, position, and location.",
-        href: "#personnel-directory",
+        href: "/reports/employee-directory",
         kind: "report",
       },
       {
         title: "Resource Workload Heatmap",
         description: "Compare assigned assets, project work, and active ticket workload.",
-        href: "#personnel-allocation",
+        href: "/reports/workload-heatmap",
         kind: "report",
       },
       {
         title: "Account Access & Onboarding Activity",
         description: "Review access expiry, recent starts, offboardings, and clearance sign-offs.",
-        href: "#personnel-activity",
+        href: "/reports/account-activity",
         kind: "report",
       },
     ],
@@ -111,8 +111,8 @@ const reportCategories: ReportCategory[] = [
     modules: ["asset_management"],
     permissions: ["asset_view", "asset_update", "inventory_view", "system_admin"],
     items: [
-      { title: "Hardware Depreciation & Lifecycle", description: "Review asset value, assignment, warranty, and lifecycle status.", href: "/reports/asset-summary", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
-      { title: "Consumable Stock & Reorder Alerts", description: "Review inventory levels, reorder thresholds, and warehouse stock.", href: "/consumables", moduleKey: "asset_management", permissions: ["asset_view", "inventory_view", "system_admin"], kind: "workspace" },
+      { title: "Hardware Depreciation & Lifecycle", description: "Review asset value, assignment, warranty, and lifecycle status.", href: "/reports/hardware-lifecycle", moduleKey: "asset_management", permissions: ["asset_view", "asset_update", "system_admin"] },
+      { title: "Consumable Stock & Reorder Alerts", description: "Review inventory levels, reorder thresholds, and warehouse stock.", href: "/reports/consumables-stock", moduleKey: "asset_management", permissions: ["asset_view", "inventory_view", "system_admin"], kind: "report" },
     ],
   },
   {
@@ -123,9 +123,9 @@ const reportCategories: ReportCategory[] = [
     modules: ["project_management"],
     permissions: ["project_view", "project_manage", "system_admin"],
     items: [
-      { title: "Schedule & Budget Variance (SV/BV)", description: "Compare current forecasts with approved project baselines.", planned: true },
-      { title: "Task & Milestone Velocity", description: "Track task throughput and milestone completion trends.", planned: true },
-      { title: "PMI RMP Risk Heatmap", description: "Compare inherent and residual project risk exposure.", planned: true },
+      { title: "Schedule & Budget Variance", description: "Compare current forecasts with approved project baselines.", href: "/reports/project-variance", planned: true },
+      { title: "Task & Milestone Velocity", description: "Track task throughput and milestone completion trends.", href: "/reports/project-velocity", planned: true },
+      { title: "PMI RMP Risk Heatmap", description: "Compare inherent and residual project risk exposure.", href: "/reports/risk-heatmap", planned: true },
     ],
   },
   {
@@ -136,9 +136,9 @@ const reportCategories: ReportCategory[] = [
     modules: ["itsm"],
     permissions: ["ticket_view_all", "change_view", "system_admin"],
     items: [
-      { title: "Incident MTTR & P1-P4 Breakdown", description: "Review incident volumes, priorities, lifecycle, and resolution duration.", href: "/reports/tickets", permissions: ["ticket_view_all", "system_admin"] },
-      { title: "SLA Breach & Escalation Metrics", description: "Monitor response and resolution objectives and breach trends.", planned: true },
-      { title: "Change Enablement (CAB) Success Rates", description: "Review RFC schedules, CAB decisions, and approval history.", href: "/reports/changes", permissions: ["ticket_view_all", "change_view", "system_admin"] },
+      { title: "Incident MTTR & P1-P4 Breakdown", description: "Review incident volumes, priorities, lifecycle, and resolution duration.", href: "/reports/itsm-mttr", permissions: ["ticket_view_all", "system_admin"] },
+      { title: "SLA Breach & Escalation Metrics", description: "Monitor response and resolution objectives and breach trends.", href: "/reports/itsm-sla", planned: true },
+      { title: "Change Enablement (CAB) Success Rates", description: "Review RFC schedules, CAB decisions, and approval history.", href: "/reports/itsm-cab", permissions: ["ticket_view_all", "change_view", "system_admin"] },
     ],
   },
 ];
@@ -343,7 +343,7 @@ function ReportCard({ item }: { item: ReportItem }) {
       </CardContent>
     </Card>
   );
-  if (!item.href || item.planned) return <div key={item.title} aria-disabled="true">{card}</div>;
+  if (!item.href) return <div key={item.title} aria-disabled="true">{card}</div>;
   return <Link key={item.title} href={item.href} className="block h-full rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">{card}</Link>;
 }
 
@@ -424,7 +424,6 @@ export default function ReportsDashboard() {
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {category.items.map((item) => <ReportCard key={item.title} item={item} />)}
                   </div>
-                  {category.key === "people" ? <PersonnelReports /> : null}
                 </div>
               ) : null}
             </Card>
