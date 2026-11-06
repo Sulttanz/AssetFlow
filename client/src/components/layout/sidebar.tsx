@@ -287,6 +287,20 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       ]
     },
     {
+      title: "Administration",
+      moduleKey: "itsm",
+      items: [
+        {
+          name: "Assignment Groups",
+          href: "/admin/assignment-groups",
+          icon: Users,
+          current: location === "/admin/assignment-groups",
+          visible: isSystemAdministrator(user) || personaRoles.includes("it_manager") ||
+            roleNames.some(name => ["manager", "it manager", "it_manager"].includes(name.trim().toLowerCase())),
+        },
+      ],
+    },
+    {
       title: "System",
       items: [
         { name: "User Management", href: "/users", icon: Shield, current: location === "/users" },

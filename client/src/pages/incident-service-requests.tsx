@@ -130,7 +130,22 @@ export function IncidentsPage() {
       return resolved && new Date(resolved).getTime() >= todayStart.getTime();
     }).length, icon: CheckCircle2, color: "#16a34a" },
   ];
-  const { data: options } = useQuery<{ projects: { id: string; name: string }[]; users: { id: string; name: string }[]; assignmentGroups: string[]; slaPolicies: { id: string; name: string; priority: string }[] }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const { data: options } = useQuery<{
+    projects: { id: string; name: string }[];
+    users: { id: string; name: string }[];
+    assignmentGroups: string[];
+    managedAssignmentGroups?: { id: number; name: string }[];
+    slaPolicies: { id: string; name: string; priority: string }[];
+  }>({ queryKey: ["/api/incidents/options"], queryFn: getQueryFn({ on401: "throw" }) });
+  const selectedIncidentGroup = options?.managedAssignmentGroups?.find(group => group.name === incidentAssignmentGroup);
+  const incidentGroupMembers = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/assignment-groups", selectedIncidentGroup?.id, "members"],
+    queryFn: async () => (await apiRequest("GET", `/api/assignment-groups/${selectedIncidentGroup!.id}/members`)).json(),
+    enabled: canManageIncidents && Boolean(selectedIncidentGroup?.id),
+  });
+  const incidentAssigneeOptions = selectedIncidentGroup
+    ? incidentGroupMembers.data ?? []
+    : options?.users ?? [];
   const incidentQueueCounts = {
     mine: incidents.filter(row => (row as any).creatorId === user?.id || row.requesterId === user?.id).length,
     assigned: incidents.filter(row => (row as any).assigneeId === user?.id || (row as any).assignedToId === user?.id).length,
@@ -236,8 +251,8 @@ export function IncidentsPage() {
       {selected && <><SheetHeader><p className="font-mono text-xs text-muted-foreground">{selected.incidentNumber}</p><SheetTitle>{selected.title}</SheetTitle><SheetDescription>{selected.priority} priority · Opened {selected.createdAt ? appFormatDateTime(selected.createdAt) : "date unavailable"}</SheetDescription></SheetHeader>
         <div className="mt-6 grid gap-6"><section className="rounded-lg border bg-muted/20 p-4"><h3 className="text-sm font-semibold">Description</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.description}</p><p className="mt-3 text-sm text-muted-foreground">Resolution due: {selected.resolveDueAt ? appFormatDateTime(selected.resolveDueAt) : "—"}</p></section>
            {canManageIncidents && <>
-            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssignmentGroup} onChange={event => setIncidentAssignmentGroup(event.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
-              <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssignmentGroup} onChange={event => { setIncidentAssignmentGroup(event.target.value); setIncidentAssigneeId(""); }}><option value="">Unassigned</option>{Array.from(new Set([...(options?.managedAssignmentGroups?.map(group => group.name) ?? []), ...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
+              <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)} disabled={incidentGroupMembers.isLoading && Boolean(selectedIncidentGroup)}><option value="">{incidentGroupMembers.isLoading ? "Loading group members…" : "Unassigned"}</option>{incidentAssigneeOptions.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
                 <Button className="w-full" variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={incidentMutationPending}>{updateAssignment.isPending ? "Saving assignment…" : "Save assignment"}</Button>
             </section>
               <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Incident / resolution category<Input value={resolutionCategory} onChange={e => setResolutionCategory(e.target.value)} placeholder="e.g. Hardware, Network, Access" /></label><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>

@@ -14,6 +14,7 @@ import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 type IncidentOptions = {
   projects: { id: string; name: string }[];
   users: { id: string; name: string }[];
+  managedAssignmentGroups: { id: number; name: string }[];
   requesterUsers?: { id: string; name: string; email: string }[];
   slaPolicies: { id: string; name: string; priority: string }[];
 };
@@ -50,6 +51,7 @@ export default function NewIncidentPage() {
   const [projectId, setProjectId] = useState("");
   const [slaPolicyId, setSlaPolicyId] = useState("");
   const [assignmentGroup, setAssignmentGroup] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
   const [requestedForId, setRequestedForId] = useState("");
   const [requestedForSearch, setRequestedForSearch] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -57,11 +59,18 @@ export default function NewIncidentPage() {
     queryKey: ["/api/incidents/options"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
+  const selectedGroup = options.data?.managedAssignmentGroups.find(group => group.name === assignmentGroup);
+  const groupMembers = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/assignment-groups", selectedGroup?.id, "members"],
+    queryFn: async () => (await apiRequest("GET", `/api/assignment-groups/${selectedGroup!.id}/members`)).json(),
+    enabled: staffIntake && Boolean(selectedGroup?.id),
+  });
+  const availableEngineers = selectedGroup ? groupMembers.data ?? [] : options.data?.users ?? [];
   const createIncident = useMutation({
     mutationFn: async (payload: {
       title: string; description: string; priority: "P1" | "P2" | "P3" | "P4";
       urgency: string; impact: string; projectId: string | null; slaPolicyId: string | null; assignmentGroup: string | null;
-      requesterId?: string;
+      requesterId?: string; assigneeId?: string | null;
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
@@ -89,6 +98,7 @@ export default function NewIncidentPage() {
       projectId: projectId || null,
       slaPolicyId: slaPolicyId || null,
       assignmentGroup: assignmentGroup.trim() || null,
+      ...(staffIntake ? { assigneeId: assigneeId || null } : {}),
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
@@ -155,8 +165,21 @@ export default function NewIncidentPage() {
                   </select>
                 </Field>
                 <Field label="Assignment group (optional)" hint="Use a known team name if this issue already has a clear owner.">
-                  <Input value={assignmentGroup} onChange={event => setAssignmentGroup(event.target.value)} maxLength={120} placeholder="For example, Network Services" className={inputClass} />
+                  {staffIntake ? (
+                    <select className={selectClass} value={assignmentGroup} onChange={event => { setAssignmentGroup(event.target.value); setAssigneeId(""); }}>
+                      <option value="">Unassigned group</option>
+                      {(options.data?.managedAssignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}
+                    </select>
+                  ) : (
+                    <Input value={assignmentGroup} onChange={event => setAssignmentGroup(event.target.value)} maxLength={120} placeholder="For example, Network Services" className={inputClass} />
+                  )}
                 </Field>
+                {staffIntake && <Field label="Assigned engineer (optional)" hint={selectedGroup ? `Choose an active member of ${selectedGroup.name}.` : "Choose any available IT engineer, or leave the incident unassigned."}>
+                  <select className={selectClass} value={assigneeId} onChange={event => setAssigneeId(event.target.value)} disabled={groupMembers.isLoading}>
+                    <option value="">{groupMembers.isLoading ? "Loading group members…" : "Unassigned"}</option>
+                    {availableEngineers.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+                  </select>
+                </Field>}
                 <Field label="SLA policy (optional)">
                   <select className={selectClass} value={slaPolicyId} onChange={event => setSlaPolicyId(event.target.value)}>
                     <option value="">Use default policy</option>{(options.data?.slaPolicies ?? []).map(policy => <option key={policy.id} value={policy.id}>{policy.name} · {policy.priority}</option>)}

@@ -36,6 +36,7 @@ const Maintenance = lazy(() => import("@/pages/maintenance"));
 const Users = lazy(() => import("@/pages/users"));
 const Roles = lazy(() => import("@/pages/roles"));
 const Permissions = lazy(() => import("@/pages/permissions"));
+const AssignmentGroups = lazy(() => import("@/pages/admin/AssignmentGroups"));
 const SystemSettings = lazy(() => import("@/pages/system-settings"));
 const AuditLogs = lazy(() => import("@/pages/audit-logs"));
 const DropdownManagement = lazy(() => import("@/pages/dropdown-management"));
@@ -123,6 +124,7 @@ function Router() {
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
+                  <ProtectedRoute path="/admin/assignment-groups" component={AssignmentGroups} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system/dropdowns" component={DropdownManagement} requiredPermission="system_admin" />
                   <ProtectedRoute path="/system-settings" component={SystemSettings} />

@@ -21,6 +21,7 @@ import {
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
+  assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
   cmdbApplications, servers, applicationServerLinks, changeCiLinks,
@@ -1327,7 +1328,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows] = await Promise.all([
+      const canManageTickets = await canManageAllTickets(req.user.id);
+      const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows, managedAssignmentGroups] = await Promise.all([
         isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)) : []),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, roleName: roles.name })
           .from(users).innerJoin(userRoles, eq(userRoles.userId, users.id)).innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
@@ -1335,6 +1337,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getIncidents(),
         storage.getServiceRequests(),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users).where(eq(users.isActive, true)),
+        canManageTickets
+          ? db.select({ id: assignmentGroups.id, name: assignmentGroups.name }).from(assignmentGroups)
+            .where(eq(assignmentGroups.active, true)).orderBy(asc(assignmentGroups.name))
+          : Promise.resolve([]),
       ]);
       const staffRoleNames = new Set(["it staff", "it support staff", "manager", "it manager", "admin", "administrator", "system administrator", "helpdesk agent", "help desk agent"]);
       const eligibleUsers = new Map<string, { id: string; name: string }>();
@@ -1345,13 +1351,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({
         projects: projectRows,
-        users: await canManageAllTickets(req.user.id) ? Array.from(eligibleUsers.values()) : [],
+        users: canManageTickets ? Array.from(eligibleUsers.values()) : [],
         requesterUsers: await canViewAllItsmRecords(req.user.id)
           ? requesterRows.map(person => ({ id: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(" ") || person.username, email: person.email }))
           : [],
-        assignmentGroups: await canManageAllTickets(req.user.id)
-          ? Array.from(new Set([...incidentRows, ...requestRows].map(row => row.assignmentGroup?.trim()).filter((group): group is string => Boolean(group))))
+        assignmentGroups: canManageTickets
+          ? Array.from(new Set([...managedAssignmentGroups.map(group => group.name), ...incidentRows, ...requestRows].map(row => typeof row === "string" ? row.trim() : row.assignmentGroup?.trim()).filter((group): group is string => Boolean(group))))
           : [],
+        managedAssignmentGroups: canManageTickets ? managedAssignmentGroups : [],
         slaPolicies: policyRows.filter(policy => !policy.ticketType || policy.ticketType === "incident"),
       });
     } catch {
@@ -1418,6 +1425,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         contractId: null,
         isWarrantyExpired: false,
       });
+      if (parsed.assigneeId) {
+        if (!await canManageAllTickets(req.user.id)) return res.status(403).json({ message: "Only IT staff may assign an engineer during incident intake." });
+        if (!await isAllowedIncidentAssignee(parsed.assigneeId, parsed.assignmentGroup ?? null)) {
+          return res.status(400).json({ message: "The selected engineer must be active and eligible for the selected assignment group." });
+        }
+      }
       if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
@@ -1468,7 +1481,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const schema = z.object({ assignmentGroup: z.string().trim().max(120).nullable().optional(), assigneeId: z.string().uuid().nullable().optional() });
       const assignment = schema.parse(req.body);
-      if (assignment.assigneeId && !(await storage.getUser(assignment.assigneeId))) return res.status(400).json({ message: "Assignee not found" });
+      const currentIncident = (await storage.getIncidents()).find(row => row.id === req.params.id);
+      if (!currentIncident) return res.status(404).json({ message: "Incident not found" });
+      const nextGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : currentIncident.assignmentGroup;
+      const nextAssignee = assignment.assigneeId !== undefined ? assignment.assigneeId : currentIncident.assigneeId ?? currentIncident.assignedToId;
+      if (nextAssignee && !await isAllowedIncidentAssignee(nextAssignee, nextGroup ?? null)) {
+        return res.status(400).json({ message: "The selected engineer must be active and belong to the selected assignment group." });
+      }
       const updated = await db.transaction(async tx => {
         const [incident] = await tx.select().from(incidents).where(eq(incidents.id, req.params.id)).for("update");
         if (!incident) throw new IncidentTransitionError(404, "Incident not found");
@@ -2020,6 +2039,259 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const perms = await storage.getUserPermissions(userId);
     return perms.includes("ticket_manage");
   }
+
+  async function canManageAssignmentGroups(userId: string): Promise<boolean> {
+    const [perms, assignedRoles] = await Promise.all([
+      storage.getUserPermissions(userId),
+      storage.getUserRoles(userId),
+    ]);
+    const managerRoles = new Set([
+      "admin", "administrator", "system administrator", "system_administrator", "manager", "it manager", "it_manager",
+    ]);
+    return perms.includes("system_admin") || assignedRoles.some(role => managerRoles.has(role.name.trim().toLowerCase()));
+  }
+
+  async function canAccessAssignmentMembers(userId: string): Promise<boolean> {
+    return canManageAssignmentGroups(userId) || canManageAllTickets(userId);
+  }
+
+  function assignmentGroupsForbidden(res: any) {
+    return res.status(403).json({ message: "Assignment group administration is restricted to administrators and managers." });
+  }
+
+  const eligibleAssignmentRoles = new Set([
+    "it staff", "it support staff", "it agent", "manager", "it manager", "admin", "administrator",
+    "system administrator", "system_administrator", "helpdesk agent", "help desk agent",
+  ]);
+
+  async function isAllowedIncidentAssignee(userId: string, groupName: string | null): Promise<boolean> {
+    const [roleRows, permissions] = await Promise.all([
+      db.select({ roleName: roles.name, isActive: users.isActive })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(users.id, userId)),
+      storage.getUserPermissions(userId),
+    ]);
+    const activeUser = roleRows.some(row => row.isActive === true);
+    const hasEligibleRole = roleRows.some(row => row.isActive === true && eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase()));
+    if (!activeUser || (!hasEligibleRole && !permissions.includes("system_admin"))) return false;
+    if (!groupName?.trim()) return true;
+    const [group] = await db.select({ id: assignmentGroups.id }).from(assignmentGroups)
+      .where(and(
+        eq(assignmentGroups.active, true),
+        sql`lower(btrim(${assignmentGroups.name})) = lower(btrim(${groupName}))`,
+      )).limit(1);
+    if (!group) return true; // Keep older, unmanaged assignment-group labels readable.
+    const [membership] = await db.select({ id: assignmentGroupMembers.id })
+      .from(assignmentGroupMembers)
+      .where(and(eq(assignmentGroupMembers.groupId, group.id), eq(assignmentGroupMembers.userId, userId)))
+      .limit(1);
+    return Boolean(membership);
+  }
+
+  app.get("/api/assignment-groups", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const includeInactive = req.query.includeInactive === "true";
+      const groupRows = includeInactive
+        ? await db.select().from(assignmentGroups).orderBy(asc(assignmentGroups.name))
+        : await db.select().from(assignmentGroups).where(eq(assignmentGroups.active, true)).orderBy(asc(assignmentGroups.name));
+      if (!groupRows.length) return res.json([]);
+      const memberRows = await db.select({
+        groupId: assignmentGroupMembers.groupId,
+        id: users.id,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        isActive: users.isActive,
+      }).from(assignmentGroupMembers)
+        .innerJoin(users, eq(assignmentGroupMembers.userId, users.id))
+        .where(inArray(assignmentGroupMembers.groupId, groupRows.map(group => group.id)))
+        .orderBy(asc(users.firstName), asc(users.lastName));
+      const membersByGroup = new Map<number, typeof memberRows>();
+      for (const member of memberRows) {
+        const members = membersByGroup.get(member.groupId) ?? [];
+        members.push(member);
+        membersByGroup.set(member.groupId, members);
+      }
+      res.json(groupRows.map(group => ({
+        ...group,
+        members: membersByGroup.get(group.id) ?? [],
+      })));
+    } catch {
+      res.status(500).json({ message: "Failed to load assignment groups" });
+    }
+  });
+
+  app.get("/api/assignment-groups/eligible-users", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const rows = await db.select({
+        id: users.id,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        roleName: roles.name,
+      }).from(users)
+        .innerJoin(userRoles, eq(userRoles.userId, users.id))
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(eq(users.isActive, true))
+        .orderBy(asc(users.firstName), asc(users.lastName));
+      const eligible = new Map<string, { id: string; name: string; email: string }>();
+      for (const row of rows) {
+        if (!eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase())) continue;
+        eligible.set(row.id, {
+          id: row.id,
+          name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username,
+          email: row.email,
+        });
+      }
+      for (const row of rows) {
+        if (eligible.has(row.id) || !row.isActive) continue;
+        if ((await storage.getUserPermissions(row.id)).includes("system_admin")) {
+          eligible.set(row.id, {
+            id: row.id,
+            name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username,
+            email: row.email,
+          });
+        }
+      }
+      res.json(Array.from(eligible.values()));
+    } catch {
+      res.status(500).json({ message: "Failed to load eligible assignment group members" });
+    }
+  });
+
+  app.post("/api/assignment-groups", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const group = insertAssignmentGroupSchema.parse(req.body);
+      const [created] = await db.insert(assignmentGroups).values({
+        name: group.name,
+        description: group.description ?? null,
+        active: group.active ?? true,
+      }).returning();
+      await logAudit(req.user.id, "CREATE", "assignment_groups", String(created.id), created.name, null, created, req);
+      res.status(201).json({ ...created, members: [] });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment group", errors: error.issues });
+      if ((error as any)?.code === "23505") return res.status(409).json({ message: "An assignment group with this name already exists." });
+      res.status(500).json({ message: "Failed to create assignment group" });
+    }
+  });
+
+  app.put("/api/assignment-groups/:id", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "Invalid assignment group ID" });
+      const input = z.object({
+        name: z.string().trim().min(1).max(120).optional(),
+        description: z.string().trim().max(2000).nullable().optional(),
+        active: z.boolean().optional(),
+      }).strict().refine(value => Object.keys(value).length > 0, { message: "Provide at least one field to update." }).parse(req.body);
+      const [updated] = await db.update(assignmentGroups).set(input).where(eq(assignmentGroups.id, id)).returning();
+      if (!updated) return res.status(404).json({ message: "Assignment group not found" });
+      await logAudit(req.user.id, "UPDATE", "assignment_groups", String(id), updated.name, null, updated, req);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment group update", errors: error.issues });
+      if ((error as any)?.code === "23505") return res.status(409).json({ message: "An assignment group with this name already exists." });
+      res.status(500).json({ message: "Failed to update assignment group" });
+    }
+  });
+
+  app.get("/api/assignment-groups/:id/members", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canAccessAssignmentMembers(req.user.id)) return res.status(403).json({ message: "You do not have permission to view assignment group members." });
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ message: "Invalid assignment group ID" });
+      const [group] = await db.select({ id: assignmentGroups.id, active: assignmentGroups.active })
+        .from(assignmentGroups).where(eq(assignmentGroups.id, id));
+      if (!group || !group.active) return res.status(404).json({ message: "Active assignment group not found" });
+      const rows = await db.select({
+        id: users.id,
+        username: users.username,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        isActive: users.isActive,
+        roleName: roles.name,
+      }).from(assignmentGroupMembers)
+        .innerJoin(users, eq(assignmentGroupMembers.userId, users.id))
+        .innerJoin(userRoles, eq(userRoles.userId, users.id))
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(eq(assignmentGroupMembers.groupId, id))
+        .orderBy(asc(users.firstName), asc(users.lastName));
+      const members = new Map<string, { id: string; username: string; name: string; email: string; isActive: boolean | null }>();
+      for (const row of rows) {
+        const isEligible = eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase()) ||
+          (row.isActive === true && (await storage.getUserPermissions(row.id)).includes("system_admin"));
+        if (row.isActive && isEligible) {
+          members.set(row.id, {
+            id: row.id,
+            username: row.username,
+            name: [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username,
+            email: row.email,
+            isActive: row.isActive,
+          });
+        }
+      }
+      res.json(Array.from(members.values()));
+    } catch {
+      res.status(500).json({ message: "Failed to load assignment group members" });
+    }
+  });
+
+  app.post("/api/assignment-groups/:id/members", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const groupId = Number(req.params.id);
+      const { userId } = insertGroupMemberSchema.pick({ userId: true }).parse(req.body);
+      if (!Number.isSafeInteger(groupId) || groupId < 1) return res.status(400).json({ message: "Invalid assignment group ID" });
+      const [group] = await db.select().from(assignmentGroups).where(and(eq(assignmentGroups.id, groupId), eq(assignmentGroups.active, true)));
+      if (!group) return res.status(404).json({ message: "Active assignment group not found" });
+      const eligibleRows = await db.select({ id: users.id, roleName: roles.name })
+        .from(users)
+        .innerJoin(userRoles, eq(userRoles.userId, users.id))
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(and(eq(users.id, userId), eq(users.isActive, true)));
+      const hasEligibleRole = eligibleRows.some(row => eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase()));
+      const hasSystemAdminPermission = (await storage.getUserPermissions(userId)).includes("system_admin");
+      if (!hasEligibleRole && !hasSystemAdminPermission) {
+        return res.status(400).json({ message: "Choose an active IT staff member, manager, or administrator." });
+      }
+      const [created] = await db.insert(assignmentGroupMembers)
+        .values({ groupId, userId })
+        .onConflictDoNothing()
+        .returning();
+      if (!created) return res.status(409).json({ message: "This user is already a member of the assignment group." });
+      await logAudit(req.user.id, "CREATE", "assignment_group_members", String(created.id), `${group.name}: ${userId}`, null, created, req);
+      res.status(201).json(created);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid group member", errors: error.issues });
+      res.status(500).json({ message: "Failed to add assignment group member" });
+    }
+  });
+
+  app.delete("/api/assignment-groups/:id/members/:userId", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      if (!await canManageAssignmentGroups(req.user.id)) return assignmentGroupsForbidden(res);
+      const groupId = Number(req.params.id);
+      if (!Number.isSafeInteger(groupId) || groupId < 1) return res.status(400).json({ message: "Invalid assignment group ID" });
+      const [removed] = await db.delete(assignmentGroupMembers)
+        .where(and(eq(assignmentGroupMembers.groupId, groupId), eq(assignmentGroupMembers.userId, req.params.userId)))
+        .returning();
+      if (!removed) return res.status(404).json({ message: "Assignment group member not found" });
+      await logAudit(req.user.id, "DELETE", "assignment_group_members", String(removed.id), `${groupId}: ${req.params.userId}`, removed, null, req);
+      res.status(204).end();
+    } catch {
+      res.status(500).json({ message: "Failed to remove assignment group member" });
+    }
+  });
 
   // Keep legacy ticket data readable for history/reporting, but direct new
   // workflow writes to the dedicated incident and service-request endpoints.

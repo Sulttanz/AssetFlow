@@ -45,7 +45,7 @@ describe("Enterprise sidebar navigation", () => {
     expect(screen.getAllByTestId(/^section-toggle-/).map(element => element.textContent)).toEqual([
       "Overview", "Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
       "Organization", "Financial", "Project Management", "Operations", "IT Service Management", "Risk Management & Compliance",
-      "Analytics & Reports", "Tools", "System",
+      "Analytics & Reports", "Tools", "Administration", "System",
     ]);
     expect(button("Overview").getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("aria-current")).toBe("page");

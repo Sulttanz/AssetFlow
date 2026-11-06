@@ -799,6 +799,35 @@ export const users = pgTable("users", {
   twoFactorSecret: text("two_factor_secret"),
 });
 
+export const assignmentGroups = pgTable("assignment_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("assignment_groups_name_ci_uq").on(sql`lower(btrim(${table.name}))`),
+  index("assignment_groups_active_name_idx").on(table.active, table.name),
+]);
+
+export const assignmentGroupMembers = pgTable("assignment_group_members", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => assignmentGroups.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("assignment_group_members_group_user_uq").on(table.groupId, table.userId),
+  index("assignment_group_members_user_idx").on(table.userId, table.groupId),
+]);
+
+export const insertAssignmentGroupSchema = createInsertSchema(assignmentGroups)
+  .pick({ name: true, description: true, active: true })
+  .extend({ name: z.string().trim().min(1).max(120), description: z.string().trim().max(2000).nullable().optional() });
+export const insertGroupMemberSchema = createInsertSchema(assignmentGroupMembers)
+  .pick({ groupId: true, userId: true });
+export type AssignmentGroup = typeof assignmentGroups.$inferSelect;
+export type AssignmentGroupMember = typeof assignmentGroupMembers.$inferSelect;
+
 // These are the standard workspace personas. The roles table remains text-based
 // so installations can keep their custom roles alongside the built-in personas.
 export const PERSONA_ROLE_KEYS = [
@@ -1893,6 +1922,25 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
   managedDepartments: many(departments),
   managedLocations: many(locations),
   assignments: many(assignments),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  assignmentGroupMemberships: many(assignmentGroupMembers),
+}));
+
+export const assignmentGroupsRelations = relations(assignmentGroups, ({ many }) => ({
+  members: many(assignmentGroupMembers),
+}));
+
+export const assignmentGroupMembersRelations = relations(assignmentGroupMembers, ({ one }) => ({
+  group: one(assignmentGroups, {
+    fields: [assignmentGroupMembers.groupId],
+    references: [assignmentGroups.id],
+  }),
+  user: one(users, {
+    fields: [assignmentGroupMembers.userId],
+    references: [users.id],
+  }),
 }));
 
 export const employeeAccessRightsRelations = relations(employeeAccessRights, ({ one }) => ({

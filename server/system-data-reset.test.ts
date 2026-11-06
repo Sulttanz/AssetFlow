@@ -274,6 +274,10 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.backupJobRuns, { scheduleId: backup, status: "success", startedAt: new Date(), notes: "Fixture backup evidence", evidenceReference: "fixture://backup" });
     await seed(s.backupRestoreTests, { scheduleId: backup, outcome: "passed", notes: "Fixture restore evidence", evidenceReference: "fixture://restore" });
     await seed(s.itComponentComplianceReviews, { componentType: "asset", componentId: asset, findings: "Fixture finding", remediationNotes: "Fixture remediation" });
+    const [assignmentGroup] = await db.insert(s.assignmentGroups)
+      .values({ name: "Fixture assignment group", description: "Reset coverage fixture." })
+      .returning({ id: s.assignmentGroups.id });
+    await db.insert(s.assignmentGroupMembers).values({ groupId: assignmentGroup.id, userId: adminId });
     const article = await seed(s.kbArticles, { title: "Fixture policy", content: "Fixture policy body", category: "Policy", authorId: adminId });
     await seed(s.kbArticleVersions, { articleId: article, version: "1.0", snapshot: { title: "Fixture policy" }, changeNote: "Fixture revision" });
     await seed(s.kbArticleAttachments, { articleId: article, articleVersion: "1.0", originalName: "policy.pdf", fileName: "policy.pdf", filePath: "/fixture/policy.pdf" });

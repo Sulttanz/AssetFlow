@@ -155,6 +155,35 @@ describe("incident operations mutation state", () => {
     expect(requests.some(({ url }) => url === "/api/incidents/incident-1/activity")).toBe(true);
   });
 
+  it("loads only members of the selected assignment group for incident assignment", async () => {
+    incidentState = { ...originalIncident, assignmentGroup: null };
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requests.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url === "/api/incidents") return response([incidentState]);
+      if (url === "/api/incidents/options") return response({
+        projects: [],
+        users: [{ id: "agent-2", name: "Grace Hopper" }, { id: "agent-3", name: "Katherine Johnson" }],
+        assignmentGroups: ["Network"],
+        managedAssignmentGroups: [{ id: 12, name: "Network" }],
+        slaPolicies: [],
+      });
+      if (url === "/api/assignment-groups/12/members") return response([{ id: "agent-3", name: "Katherine Johnson" }]);
+      if (url.endsWith("/activity")) return response([]);
+      return response([]);
+    });
+
+    renderPage();
+    fireEvent.click((await screen.findByText("INC-2026-0001")).closest("tr")!);
+    fireEvent.change(screen.getByLabelText("Assignment group"), { target: { value: "Network" } });
+
+    await waitFor(() => expect(requests.some(request => request.url === "/api/assignment-groups/12/members")).toBe(true));
+    const engineerSelect = screen.getByLabelText("Assigned engineer") as HTMLSelectElement;
+    await waitFor(() => expect(Array.from(engineerSelect.options).map(option => option.textContent)).toContain("Katherine Johnson"));
+    expect(Array.from(engineerSelect.options).map(option => option.textContent)).not.toContain("Grace Hopper");
+  });
+
   it("submits a resolution note when closing a resolved incident", async () => {
     incidentState = { ...originalIncident, status: "Resolved", resolvedAt: "2026-04-02T10:00:00.000Z" };
     renderPage();
