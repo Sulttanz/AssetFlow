@@ -70,3 +70,17 @@ mtime_ms = 1793975958870
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/9dc93b05-81a7-43db-a178-0a250bf34eb1/c4e326d8-770f-4346-a9cb-9a01db7dfcb6"
 storage_version_token = "1793975972183691"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "QldtpnNmPlD6zuFGRJwXw"
+uri = "file://docs/complete-system-deep-dive.md"
+type = "text"
+title = "Complete System Deep Dive"
+description = "Workspace audit with full file tree, 88 client routes, 392 API registrations, all 93 Drizzle tables and 1,215 columns, SLA targets, module/RBAC gates, background services, and live/planned report mappings."
+logical_id = "34655834-8882-4507-a4e1-ffa06c82bc54"
+content_hash = "sha256:a5af33d0a485de5d88f512c04035f494e540ca18dd3ae4d40e8b97c0072814b6"
+size = 347928
+mtime_ms = 1793977198230
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/34655834-8882-4507-a4e1-ffa06c82bc54/5eaad505-1154-46a9-9ebd-a8342611ce31"
+storage_version_token = "1793977220694495"
+content_type = "text/markdown"
