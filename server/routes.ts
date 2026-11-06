@@ -2052,7 +2052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   async function canAccessAssignmentMembers(userId: string): Promise<boolean> {
-    return canManageAssignmentGroups(userId) || canManageAllTickets(userId);
+    return (await canManageAssignmentGroups(userId)) || canManageAllTickets(userId);
   }
 
   function assignmentGroupsForbidden(res: any) {
@@ -2062,6 +2062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const eligibleAssignmentRoles = new Set([
     "it staff", "it support staff", "it agent", "manager", "it manager", "admin", "administrator",
     "system administrator", "system_administrator", "helpdesk agent", "help desk agent",
+    "it_agent", "it_manager", "system_admin",
   ]);
 
   async function isAllowedIncidentAssignee(userId: string, groupName: string | null): Promise<boolean> {
@@ -2150,7 +2151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       for (const row of rows) {
-        if (eligible.has(row.id) || !row.isActive) continue;
+        if (eligible.has(row.id)) continue;
         if ((await storage.getUserPermissions(row.id)).includes("system_admin")) {
           eligible.set(row.id, {
             id: row.id,
@@ -2260,7 +2261,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .innerJoin(roles, eq(userRoles.roleId, roles.id))
         .where(and(eq(users.id, userId), eq(users.isActive, true)));
       const hasEligibleRole = eligibleRows.some(row => eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase()));
-      const hasSystemAdminPermission = (await storage.getUserPermissions(userId)).includes("system_admin");
+      const hasSystemAdminPermission = eligibleRows.length > 0 &&
+        (await storage.getUserPermissions(userId)).includes("system_admin");
       if (!hasEligibleRole && !hasSystemAdminPermission) {
         return res.status(400).json({ message: "Choose an active IT staff member, manager, or administrator." });
       }

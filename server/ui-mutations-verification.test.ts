@@ -27,6 +27,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
   let incidentId: string | undefined;
   let projectId: string | undefined;
   let contractId: number | undefined;
+  let assignmentGroupId: number | undefined;
   const results: { method: string; path: string; status: number; expectedStatus: number }[] = [];
 
   async function request(method: string, path: string, input?: unknown, expectedStatus = 200) {
@@ -76,6 +77,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       if (incidentId) await db.delete(s.incidents).where(eq(s.incidents.id, incidentId));
       if (contractId) await db.delete(s.serviceContracts).where(eq(s.serviceContracts.id, contractId));
       if (projectId) await db.delete(s.projects).where(eq(s.projects.id, projectId));
+      if (assignmentGroupId) await db.delete(s.assignmentGroups).where(eq(s.assignmentGroups.id, assignmentGroupId));
       await db.delete(s.userRoles).where(eq(s.userRoles.userId, actorId));
       await db.delete(s.rolePermissions).where(eq(s.rolePermissions.roleId, roleId));
       await db.delete(s.roles).where(eq(s.roles.id, roleId));
@@ -110,10 +112,27 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     incidentId = incident.id;
     expect(incident.status).toBe("New");
 
+    const group = await request("POST", "/api/assignment-groups", {
+      name: `Network ${suffix}`, description: "Disposable assignment group.",
+    }, 201);
+    assignmentGroupId = group.id;
+    await request("POST", `/api/assignment-groups/${group.id}/members`, { userId: actorId }, 201);
+    await request("POST", `/api/assignment-groups/${group.id}/members`, { userId: actorId }, 409);
+    const groupMembers = await request("GET", `/api/assignment-groups/${group.id}/members`);
+    expect(groupMembers).toEqual(expect.arrayContaining([expect.objectContaining({ id: actorId })]));
+    const eligibleMembers = await request("GET", "/api/assignment-groups/eligible-users");
+    expect(eligibleMembers).toEqual(expect.arrayContaining([expect.objectContaining({ id: actorId })]));
+    await request("PUT", `/api/assignment-groups/${group.id}`, { description: "Updated assignment group." });
+    const groups = await request("GET", "/api/assignment-groups");
+    expect(groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: group.id, members: expect.arrayContaining([expect.objectContaining({ id: actorId })]) }),
+    ]));
     const assigned = await request("PATCH", `/api/incidents/${incidentId}/assignment`, {
-      assignmentGroup: "Network", assigneeId: actorId,
+      assignmentGroup: group.name, assigneeId: actorId,
     });
-    expect(assigned).toMatchObject({ assignmentGroup: "Network", assigneeId: actorId, assignedToId: actorId });
+    expect(assigned).toMatchObject({ assignmentGroup: group.name, assigneeId: actorId, assignedToId: actorId });
+    await request("DELETE", `/api/assignment-groups/${group.id}/members/${actorId}`, undefined, 204);
+    expect(await request("GET", `/api/assignment-groups/${group.id}/members`)).toEqual([]);
     const categoryOnly = await request("PATCH", `/api/incidents/${incidentId}`, { category: "Connectivity" });
     expect(categoryOnly).toMatchObject({ category: "Connectivity", status: "New", priority: incident.priority });
     const codeOnly = await request("PUT", `/api/incidents/${incidentId}`, { resolutionCode: "Workaround Applied" });
