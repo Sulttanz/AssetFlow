@@ -31,7 +31,7 @@ import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull, sql, or, ilike, desc, asc, gte, lte } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql, or, ilike, desc, asc } from "drizzle-orm";
 import {
   ACCESS_DROPDOWN_CATEGORIES,
   ACCESS_TYPES,
@@ -183,12 +183,12 @@ export function isServiceContractApiRequest(
   const upperMethod = method.toUpperCase();
   if (/^\/contracts\/\d+$/.test(path) && ["GET", "PUT", "PATCH", "DELETE"].includes(upperMethod)) return true;
   if (path !== "/contracts") return false;
-  if (upperMethod === "POST") return typeof body.contractName === "string";
+  if (upperMethod === "POST") return body !== null && typeof body === "object" && "contractName" in body;
   if (upperMethod !== "GET") return false;
   return query.kind === "service" ||
     query.projectId !== undefined ||
     query.nearExpiration !== undefined ||
-    ["active", "near_expiration", "expired", "renewed"].includes(String(query.status));
+    query.status !== undefined;
 }
 
 export function getServiceContractStatus(
@@ -214,8 +214,9 @@ const serviceContractListQuerySchema = z.object({
 }).strict();
 
 function isDatabaseConstraintError(error: unknown, code: string): boolean {
-  return typeof error === "object" && error !== null && "code" in error &&
-    (error as { code?: unknown }).code === code;
+  if (typeof error !== "object" || error === null) return false;
+  const databaseError = error as { code?: unknown; cause?: { code?: unknown } };
+  return databaseError.code === code || databaseError.cause?.code === code;
 }
 
 // Audit logging helper function
@@ -257,7 +258,8 @@ async function listServiceContracts(req: any, res: any) {
       .from(serviceContracts)
       .where(parsed.data.projectId ? eq(serviceContracts.projectId, parsed.data.projectId) : undefined)
       .orderBy(asc(serviceContracts.endDate), asc(serviceContracts.id));
-    let result = rows.map(row => ({ ...row, status: getServiceContractStatus(row) }));
+    const today = new Date();
+    let result = rows.map(row => ({ ...row, status: getServiceContractStatus(row, today) }));
     if (parsed.data.status) result = result.filter(row => row.status === parsed.data.status);
     if (parsed.data.nearExpiration === "true") result = result.filter(row => row.status === "near_expiration");
     if (parsed.data.nearExpiration === "false") result = result.filter(row => row.status !== "near_expiration");
@@ -299,6 +301,7 @@ async function updateServiceContract(id: number, req: any, res: any) {
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid service contract ID" });
   const parsed = updateServiceContractSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Invalid service contract data", errors: parsed.error.issues });
+  if (Object.keys(parsed.data).length === 0) return res.status(400).json({ message: "At least one service contract field is required" });
   try {
     const [existing] = await db.select().from(serviceContracts).where(eq(serviceContracts.id, id)).limit(1);
     if (!existing) return res.status(404).json({ message: "Service contract not found" });

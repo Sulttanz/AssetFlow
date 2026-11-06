@@ -185,6 +185,15 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.employeeAccessRights, { employeeId: employee, applicationName: "Fixture", privilegeLevel: "Viewer", businessJustification: "Integration fixture" });
     await seed(s.employeeOffboardingClearances, { employeeId: employee, offboardingDate: "2026-10-22", clearanceType: "physical_asset_return", status: "verified", signedBy: adminId });
     const project = await seed(s.projects, { name: "Fixture project" });
+    await seed(s.serviceContracts, {
+      id: 1,
+      contractNumber: "CNT-RESET",
+      contractName: "Fixture service contract",
+      projectId: project,
+      slaPolicyId: ids.sla_policies,
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+    });
     await seed(s.projectBaselines, {
       projectId: project,
       versionNumber: "v1.0",

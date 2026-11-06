@@ -7,7 +7,7 @@ vi.mock("./storage", () => ({
 }));
 
 import { checkModuleEnabled, getServiceContractStatus, isServiceContractApiRequest, moduleForApiPath } from "./routes";
-import { insertServiceContractSchema } from "@shared/schema";
+import { insertServiceContractSchema, updateServiceContractSchema } from "@shared/schema";
 
 describe("module API guard", () => {
   it("returns the specified forbidden response for a disabled module", async () => {
@@ -93,6 +93,7 @@ describe("module API guard", () => {
       expect(parsed.data.renewalNoticeDays).toBe(60);
       expect(parsed.data.status).toBe("active");
     }
+    expect(updateServiceContractSchema.parse({ notes: "Reviewed" })).toEqual({ notes: "Reviewed" });
     expect(insertServiceContractSchema.safeParse({
       contractNumber: "CNT-INVALID",
       contractName: "Invalid",

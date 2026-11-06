@@ -1556,7 +1556,10 @@ export const insertServiceContractSchema = serviceContractInputFieldsSchema.supe
   }
 });
 
-export const updateServiceContractSchema = serviceContractInputFieldsSchema.partial();
+export const updateServiceContractSchema = serviceContractInputFieldsSchema.partial().extend({
+  renewalNoticeDays: z.number().int().min(0).max(3650).optional(),
+  status: z.enum(["active", "near_expiration", "expired", "renewed"]).optional(),
+});
 export type InsertServiceContract = z.infer<typeof insertServiceContractSchema>;
 export type ServiceContract = typeof serviceContracts.$inferSelect;
 

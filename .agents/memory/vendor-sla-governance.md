@@ -20,3 +20,9 @@ Display contract valuation separately by currency unless a real, explicitly defi
 **Why:** Adding EUR, USD, and other currencies and presenting the result as dollars is financially misleading.
 
 **How to apply:** Preserve currency in both SLA and financial records and group totals by currency. Do not silently introduce an assumed conversion rate.
+
+Customer/project support agreements are distinct from vendor financial obligations.
+
+**Why:** The user requested a dedicated service-level and support-contract register while the existing contract workflows already serve procurement and vendor finances. Replacing those workflows would break existing financial behavior.
+
+**How to apply:** Keep support-agreement lifecycle records separate, and preserve backward compatibility for existing financial clients when extending contract APIs.
