@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
 import { ensureDropdownIntegrity } from "./dropdown-integrity";
 import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
@@ -20,7 +20,7 @@ import {
   insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
-  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
+  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
   cmdbApplications, servers, applicationServerLinks, changeCiLinks,
@@ -1464,28 +1464,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/incidents/:id/assignment", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.patch("/api/incidents/:id/assignment", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), async (req: any, res) => {
     try {
       const schema = z.object({ assignmentGroup: z.string().trim().max(120).nullable().optional(), assigneeId: z.string().uuid().nullable().optional() });
       const assignment = schema.parse(req.body);
-      const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
-      if (!incident) return res.status(404).json({ message: "Incident not found" });
       if (assignment.assigneeId && !(await storage.getUser(assignment.assigneeId))) return res.status(400).json({ message: "Assignee not found" });
-      const updated = await storage.updateIncident(incident.id, {
-        ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
-        ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
+      const updated = await db.transaction(async tx => {
+        const [incident] = await tx.select().from(incidents).where(eq(incidents.id, req.params.id)).for("update");
+        if (!incident) throw new IncidentTransitionError(404, "Incident not found");
+        const [result] = await tx.update(incidents).set({
+          ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
+          ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
+          updatedAt: new Date(),
+        }).where(eq(incidents.id, incident.id)).returning();
+        const assignedGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : incident.assignmentGroup;
+        const assignedUser = assignment.assigneeId !== undefined ? assignment.assigneeId : incident.assigneeId ?? incident.assignedToId;
+        await tx.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assignee: ${assignedUser || "Unassigned"}` });
+        return result;
       });
-      const assignedGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : incident.assignmentGroup;
-      const assignedUser = assignment.assigneeId !== undefined ? assignment.assigneeId : incident.assigneeId ?? incident.assignedToId;
-      await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assignee: ${assignedUser || "Unassigned"}` });
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
+      if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
       res.status(500).json({ message: "Failed to update incident assignment" });
     }
   });
 
-  app.patch("/api/incidents/:id/status", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.patch("/api/incidents/:id/status", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), async (req: any, res) => {
     try {
       const { status, category, resolutionCode, resolutionNotes } = z.object({
         status: z.enum(["New", "In Progress", "Pending", "Resolved", "Closed"]),
@@ -1509,24 +1514,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/incidents/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req, res) => {
+  const updateIncidentHandler: RequestHandler = async (req, res) => {
     try {
-      const parsed = insertIncidentSchema.partial().omit({
-        creatorId: true,
-        requesterId: true,
-        resolvedAt: true,
-        closedAt: true,
-        firstRespondedAt: true,
-      }).parse(req.body);
+      const parsed = updateIncidentSchema.parse(req.body);
+      if (parsed.assigneeId !== undefined && parsed.assignedToId !== undefined && parsed.assigneeId !== parsed.assignedToId) {
+        res.status(400).json({ message: "assigneeId and assignedToId must refer to the same user." });
+        return;
+      }
+      const assigneeId = parsed.assigneeId !== undefined ? parsed.assigneeId : parsed.assignedToId;
+      if (assigneeId && !(await storage.getUser(assigneeId))) {
+        res.status(400).json({ message: "Assignee not found" });
+        return;
+      }
+      if (assigneeId !== undefined) {
+        parsed.assigneeId = assigneeId;
+        parsed.assignedToId = assigneeId;
+      }
       if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
-        return res.status(400).json({ message: "Project not found" });
+        res.status(400).json({ message: "Project not found" });
+        return;
       }
-      if (parsed.priority && !["P1", "P2", "P3", "P4"].includes(parsed.priority)) {
-        return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
+      if (parsed.assetId && !await isFeatureEnabled("asset_management")) return sendFeatureNotEnabled(res, "asset_management");
+      if (parsed.assetId && !(await db.select({ id: assets.id }).from(assets).where(eq(assets.id, parsed.assetId))).length) {
+        res.status(400).json({ message: "Asset not found" });
+        return;
       }
-      if (parsed.status && !["New", "In Progress", "Pending", "Resolved", "Closed"].includes(parsed.status)) {
-        return res.status(400).json({ message: "Invalid incident status" });
+      if (parsed.slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(eq(slaPolicies.id, parsed.slaPolicyId))).length) {
+        res.status(400).json({ message: "SLA policy not found" });
+        return;
       }
       if (parsed.status) {
         const { status, ...rest } = parsed;
@@ -1539,19 +1555,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
           resolutionNotes: parsed.resolutionNotes,
           updates: rest as Partial<typeof incidents.$inferSelect>,
         });
-        return res.json(incident);
+        res.json(incident);
+        return;
       }
-      const incident = await storage.updateIncident(req.params.id, parsed);
-      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      const incident = await db.transaction(async tx => {
+        const [current] = await tx.select().from(incidents).where(eq(incidents.id, req.params.id)).for("update");
+        if (!current) return undefined;
+        const next = { ...current, ...parsed };
+        if (["Resolved", "Closed"].includes(current.status) &&
+            (!next.category?.trim() || !next.resolutionCode?.trim() || !next.resolutionNotes?.trim())) {
+          throw new IncidentTransitionError(400, "Resolved or closed incidents must retain their category, resolution code, and resolution notes.");
+        }
+        const [updated] = await tx.update(incidents).set({ ...parsed, updatedAt: new Date() })
+          .where(eq(incidents.id, req.params.id)).returning();
+        if (!updated) return undefined;
+        await tx.insert(incidentActivities).values({
+          incidentId: updated.id,
+          actorId: (req as any).user.id,
+          action: "Incident details updated",
+          details: `Updated fields: ${Object.keys(parsed).join(", ")}`,
+        });
+        return updated;
+      });
+      if (!incident) {
+        res.status(404).json({ message: "Incident not found" });
+        return;
+      }
       res.json(incident);
     } catch (error) {
-      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.issues });
-      if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ message: "Invalid incident data", errors: error.issues });
+        return;
+      }
+      if (error instanceof IncidentTransitionError) {
+        res.status(error.statusCode).json({ message: error.message });
+        return;
+      }
       res.status(500).json({ message: "Failed to update incident" });
     }
-  });
+  };
+  app.put("/api/incidents/:id", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), updateIncidentHandler);
+  app.patch("/api/incidents/:id", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), updateIncidentHandler);
 
-  app.post("/api/incidents/:id/to-change", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.post("/api/incidents/:id/to-change", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), async (req: any, res) => {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });

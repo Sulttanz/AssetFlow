@@ -2343,6 +2343,24 @@ export const kbTicketLinks = pgTable("kb_ticket_links", {
 ]);
 
 export const insertIncidentSchema = createInsertSchema(incidents).omit({ id: true, incidentNumber: true, createdAt: true, updatedAt: true });
+// PATCH/PUT inputs must not reapply creation defaults or accept server-owned timers.
+export const updateIncidentSchema = z.object({
+  title: z.string().trim().min(1).max(180).optional(),
+  description: z.string().trim().min(1).max(8000).optional(),
+  urgency: z.enum(["low", "medium", "high"]).optional(),
+  impact: z.enum(["low", "medium", "high"]).optional(),
+  priority: z.enum(["P1", "P2", "P3", "P4"]).optional(),
+  status: z.enum(["New", "In Progress", "Pending", "Resolved", "Closed"]).optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  slaPolicyId: z.string().uuid().nullable().optional(),
+  assetId: z.string().uuid().nullable().optional(),
+  assignmentGroup: z.string().trim().max(120).nullable().optional(),
+  assigneeId: z.string().uuid().nullable().optional(),
+  assignedToId: z.string().uuid().nullable().optional(),
+  resolutionCode: z.string().trim().max(120).nullable().optional(),
+  resolutionNotes: z.string().trim().max(4000).nullable().optional(),
+}).strict().refine(input => Object.keys(input).length > 0, { message: "Provide at least one incident field to update." });
 export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {
   catalogSchemaSnapshot: z.array(catalogFieldSchema),
   customFieldValues: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),

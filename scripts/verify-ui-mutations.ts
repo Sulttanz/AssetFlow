@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const runner = path.join(projectRoot, "scripts/run-full-vitest.mjs");
 const focusedSuites = [
+  "server/ui-mutations-verification.test.ts",
   "client/src/pages/incident-service-requests.mutations.test.tsx",
   "client/src/pages/projects.test.tsx",
   "client/src/components/service-contracts/service-contracts-register.test.tsx",

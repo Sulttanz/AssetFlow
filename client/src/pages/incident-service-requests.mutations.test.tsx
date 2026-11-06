@@ -1,14 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastSpy = vi.hoisted(() => vi.fn());
+const authState = vi.hoisted(() => ({ permissions: ["ticket_manage"] }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: {
       id: "agent-1",
-      permissions: ["ticket_manage"],
+      permissions: authState.permissions,
       roles: [{ name: "it_agent" }],
     },
   }),
@@ -68,6 +68,7 @@ function renderPage() {
 
 beforeEach(() => {
   toastSpy.mockClear();
+  authState.permissions = ["ticket_manage"];
   incidentState = { ...originalIncident };
   requests = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -94,6 +95,10 @@ beforeEach(() => {
       incidentState = { ...incidentState, ...body };
       return response(incidentState);
     }
+    if (url === `/api/incidents/${incidentState.id}` && method === "PATCH") {
+      incidentState = { ...incidentState, ...body };
+      return response(incidentState);
+    }
     if (url === `/api/incidents/${incidentState.id}/to-change` && method === "POST") {
       return response({ id: "change-1" }, 201);
     }
@@ -108,7 +113,7 @@ afterEach(() => {
 });
 
 describe("incident operations mutation state", () => {
-  it("submits assignment and resolved/closed lifecycle fields, then refreshes incident state", async () => {
+  it("submits assignment, independent workflow details, and resolution fields, then refreshes incident state", async () => {
     renderPage();
     const incidentRow = (await screen.findByText("INC-2026-0001")).closest("tr");
     expect(incidentRow).toBeTruthy();
@@ -122,8 +127,15 @@ describe("incident operations mutation state", () => {
       method === "PATCH" &&
       JSON.stringify(body) === JSON.stringify({ assignmentGroup: "Network", assigneeId: "agent-2" }),
     )).toBe(true));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save assignment" }) as HTMLButtonElement).disabled).toBe(false));
 
-    fireEvent.change(screen.getByLabelText("Incident / resolution category"), { target: { value: "Network" } });
+    fireEvent.change(screen.getByLabelText("Incident / resolution category"), { target: { value: "Connectivity" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save workflow details" }));
+    await waitFor(() => expect(requests.some(({ url, method, body }) =>
+      url === "/api/incidents/incident-1" && method === "PATCH" &&
+      JSON.stringify(body) === JSON.stringify({ category: "Connectivity", resolutionCode: null, resolutionNotes: null }),
+    )).toBe(true));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save workflow details" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText("Resolution code"), { target: { value: "Solved (Permanent Fix)" } });
     fireEvent.change(screen.getByLabelText("Resolution / closure note"), { target: { value: "VPN service restored and verified." } });
     fireEvent.click(screen.getByRole("button", { name: "Resolved" }));
@@ -132,14 +144,14 @@ describe("incident operations mutation state", () => {
       method === "PATCH" &&
       JSON.stringify(body) === JSON.stringify({
         status: "Resolved",
-        category: "Network",
+        category: "Connectivity",
         resolutionCode: "Solved (Permanent Fix)",
         resolutionNotes: "VPN service restored and verified.",
       }),
     )).toBe(true));
 
     await waitFor(() => expect(incidentState.status).toBe("Resolved"));
-    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Incident status updated" }));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Incident status updated" })));
     expect(requests.some(({ url }) => url === "/api/incidents/incident-1/activity")).toBe(true);
   });
 
@@ -185,5 +197,13 @@ describe("incident operations mutation state", () => {
       variant: "destructive",
     })));
     expect((screen.getByLabelText("Assignment group") as HTMLSelectElement).value).toBe("Network");
+  });
+
+  it("makes workflow controls available to a system administrator without an explicit ticket_manage grant", async () => {
+    authState.permissions = ["system_admin"];
+    renderPage();
+    fireEvent.click((await screen.findByText("INC-2026-0001")).closest("tr")!);
+    expect(screen.getByRole("button", { name: "Save assignment" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save workflow details" })).toBeTruthy();
   });
 });

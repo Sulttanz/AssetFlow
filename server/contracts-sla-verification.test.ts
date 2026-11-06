@@ -33,7 +33,6 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
   let contractId: number | undefined;
   let policyIds: string[] = [];
   let permissionId: string | undefined;
-  let ownsPermission = false;
   let server: Server | undefined;
   let baseUrl = "";
   let cookie = "";
@@ -182,7 +181,6 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
           description: "System administrator permission for isolated contract verification.",
         }).returning();
         permissionId = created.id;
-        ownsPermission = true;
       }
       await db.insert(s.roles).values({
         id: testRoleId,
@@ -333,9 +331,9 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
       await db.delete(s.userRoles).where(eq(s.userRoles.roleId, testRoleId));
       await db.delete(s.rolePermissions).where(eq(s.rolePermissions.roleId, testRoleId));
       await db.delete(s.roles).where(eq(s.roles.id, testRoleId));
-      if (ownsPermission && permissionId) {
-        await db.delete(s.permissions).where(eq(s.permissions.id, permissionId));
-      }
+      // system_admin is shared reference data, not a fixture-owned row.
+      // Other parallel suites may already reference it; the disposable cluster
+      // removes this catalog entry after every suite has finished.
       await db.delete(s.users).where(inArray(s.users.id, testUserIds));
       return "Deleted test incidents, notifications, contract, project, SLA policies, role, and users.";
     });
