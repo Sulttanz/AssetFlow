@@ -56,3 +56,17 @@ mtime_ms = 1792661285295
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/0def7da3-253f-485a-bfe8-e1f13b83b40b/4355a299-41da-4cf8-a3b3-55bcaeeea349"
 storage_version_token = "1792661307508130"
 content_type = "text/html"
+
+[[outputs]]
+id = "K_bJIQNx5woefWPTnIMmR"
+uri = "file://docs/architecture-blueprint.md"
+type = "text"
+title = "System Architecture & Database Blueprint"
+description = "Current route, sidebar, 93-table schema, relationships, SLA rules, module/RBAC gates, and report-source inventory."
+logical_id = "9dc93b05-81a7-43db-a178-0a250bf34eb1"
+content_hash = "sha256:2bc3bf4e618cb455cc76610a80f49dc070f0c73e1d86219687657d7d6ee0bc43"
+size = 38474
+mtime_ms = 1793975958870
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/9dc93b05-81a7-43db-a178-0a250bf34eb1/c4e326d8-770f-4346-a9cb-9a01db7dfcb6"
+storage_version_token = "1793975972183691"
+content_type = "text/markdown"
