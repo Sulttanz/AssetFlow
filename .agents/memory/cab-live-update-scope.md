@@ -7,4 +7,4 @@ CAB live updates use database notifications for cross-replica invalidation and a
 
 **Why:** Data-free events avoid duplicate notification state. Neon transaction-pooler connections cannot hold a LISTEN subscription, so the listener needs a direct database connection; reconnect reconciliation catches messages lost while that listener is offline.
 
-**How to apply:** Continue treating approval records as the source of truth; preserve the direct listener connection, cross-replica signal, and both reconciliation paths when changing CAB events.
+**How to apply:** Continue treating approval records as the source of truth; preserve the direct listener connection, cross-replica signal, and both reconciliation paths when changing CAB events. Keep retry backoff across brief reconnects and reset only after the listener has remained healthy for a stability window, so recurring database restarts do not repeatedly retry at the minimum delay.

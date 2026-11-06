@@ -14,6 +14,9 @@ const maxStreamsPerUser = 6;
 const maxStreamsPerSession = 3;
 const streamLeaseDurationMs = 90_000;
 const streamLeaseCleanupIntervalMs = 60_000;
+const initialRetryDelayMs = 2_000;
+const maxRetryDelayMs = 30_000;
+const stableConnectionWindowMs = 60_000;
 type Subscriber = {
   res: Response;
   userId: string;
@@ -32,7 +35,9 @@ const streamsByUser = new Map<string, Set<Subscriber>>();
 let listener: Client | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let leaseCleanupTimer: ReturnType<typeof setInterval> | undefined;
-let retryDelay = 1000;
+let retryDelay = initialRetryDelayMs;
+let stableConnectionTimer: ReturnType<typeof setTimeout> | undefined;
+let hasConnectedBefore = false;
 let started = false;
 
 async function acquireStreamLease(leaseId: string, userId: string, sessionId: string): Promise<boolean> {
@@ -162,34 +167,77 @@ function broadcastItsmEnabled(): void {
   });
 }
 
-// Neon transaction-pooler endpoints cannot hold a LISTEN subscription. Use
-// the matching direct endpoint for this one long-lived connection instead.
-function listenerConnectionString(): string {
-  const url = new URL(process.env.CAB_EVENTS_DATABASE_URL || process.env.DATABASE_URL!);
-  if (!process.env.CAB_EVENTS_DATABASE_URL && url.hostname.endsWith(".neon.tech")) {
-    url.hostname = url.hostname.replace(/-pooler(?=\.[^.]+(?:\.[^.]+)*\.neon\.tech$)/, "");
+// LISTEN requires a persistent session. Prefer a dedicated direct endpoint,
+// and only rewrite Neon pooler hosts when falling back to the main URL.
+export function resolveCabListenerConnectionString(env: NodeJS.ProcessEnv = process.env): string {
+  const dedicatedUrl = env.CAB_EVENTS_DATABASE_URL?.trim();
+  const rawUrl = dedicatedUrl || env.DATABASE_URL?.trim();
+  if (!rawUrl) throw new Error("DATABASE_URL or CAB_EVENTS_DATABASE_URL must be configured for the CAB listener");
+
+  const url = new URL(rawUrl);
+  if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+    throw new Error("CAB listener connection must use a PostgreSQL URL");
   }
+
+  const usesKnownPooler = url.hostname.toLowerCase().includes("pooler") ||
+    ["6432", "6543"].includes(url.port) ||
+    ["true", "1"].includes((url.searchParams.get("pgbouncer") ?? "").toLowerCase());
+
+  if (dedicatedUrl && usesKnownPooler) {
+    throw new Error("CAB_EVENTS_DATABASE_URL must use a direct PostgreSQL endpoint, not a transaction pooler");
+  }
+
+  if (!dedicatedUrl && url.hostname.endsWith(".neon.tech") && url.hostname.includes("-pooler")) {
+    url.hostname = url.hostname.replace(/-pooler(?=\.[^.]+(?:\.[^.]+)*\.neon\.tech$)/, "");
+  } else if (!dedicatedUrl && usesKnownPooler) {
+    throw new Error("DATABASE_URL uses a known pooler; configure CAB_EVENTS_DATABASE_URL with the direct PostgreSQL endpoint");
+  }
+
   return url.toString();
 }
 
 function scheduleRetry(): void {
   if (retryTimer) return;
+  const delay = retryDelay;
   retryTimer = setTimeout(() => {
     retryTimer = undefined;
     void connectListener();
-  }, retryDelay);
+  }, delay);
   retryTimer.unref();
-  retryDelay = Math.min(retryDelay * 2, 30_000);
+  retryDelay = Math.min(retryDelay * 2, maxRetryDelayMs);
+  console.warn(`[CAB events] PostgreSQL listener retry scheduled in ${delay}ms`);
 }
 
 async function connectListener(): Promise<void> {
-  const client = new Client({ connectionString: listenerConnectionString() });
+  let connectionString: string;
+  try {
+    connectionString = resolveCabListenerConnectionString();
+  } catch (error) {
+    console.error("[CAB events] Invalid direct-listener database configuration:", error);
+    scheduleRetry();
+    return;
+  }
+  const connectionUrl = new URL(connectionString);
+  let client: Client;
+  try {
+    client = new Client({ connectionString });
+  } catch (error) {
+    console.error("[CAB events] Could not create PostgreSQL listener client:", error);
+    scheduleRetry();
+    return;
+  }
   listener = client;
   let disconnected = false;
   const reconnect = (error?: Error) => {
     if (disconnected) return;
     disconnected = true;
-    if (error) console.error("CAB notification listener disconnected:", error);
+    if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
+    stableConnectionTimer = undefined;
+    const code = error && "code" in error ? String(error.code) : undefined;
+    const cause = error
+      ? `${code ? `PostgreSQL error ${code}: ` : ""}${error.message}`
+      : "connection ended";
+    console.error(`[CAB events] PostgreSQL LISTEN connection disconnected: ${cause}`);
     if (listener === client) listener = undefined;
     // A failed connection can still own a socket; release it before retrying.
     void client.end().catch(() => {});
@@ -208,7 +256,17 @@ async function connectListener(): Promise<void> {
     await client.query(`LISTEN ${channel}`);
     await client.query(`LISTEN ${accessChannel}`);
     if (disconnected) return;
-    retryDelay = 1000;
+    console.info(
+      `[CAB events] PostgreSQL LISTEN listener ${hasConnectedBefore ? "re-established" : "connected"} ` +
+      `(host=${connectionUrl.hostname}, port=${connectionUrl.port || "default"})`,
+    );
+    hasConnectedBefore = true;
+    stableConnectionTimer = setTimeout(() => {
+      stableConnectionTimer = undefined;
+      retryDelay = initialRetryDelayMs;
+      console.info("[CAB events] PostgreSQL LISTEN connection stable; retry backoff reset");
+    }, stableConnectionWindowMs);
+    stableConnectionTimer.unref();
     // Reconcile streams that stayed open while the shared listener was offline.
     broadcast();
     // Paused clients use a separate access stream and cannot hear the CAB
