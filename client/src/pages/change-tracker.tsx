@@ -60,7 +60,7 @@ function Field({ label, children, className = "" }: { label: string; children: R
 export default function ChangeTracker() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "risk_manage" || permission === "system_admin");
+  const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "change_manage" || permission === "system_admin");
   const [view, setView] = useState<"open" | "closed" | "risks">("open");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -147,7 +147,8 @@ export default function ChangeTracker() {
   function submitRisk(event: React.FormEvent) {
     event.preventDefault();
     const payload = {
-      title: riskForm.title.trim(), description: riskForm.description, category: riskForm.category,
+      title: riskForm.title.trim(), changeId: riskChangeId || null,
+      description: riskForm.description, category: riskForm.category,
       likelihood: Number(riskForm.likelihood), impact: Number(riskForm.impact), mitigation: riskForm.mitigation,
       contingency: riskForm.contingency, ownerId: riskForm.ownerId || null, dueDate: riskForm.dueDate || null,
       residualLikelihood: Number(riskForm.residualLikelihood), residualImpact: Number(riskForm.residualImpact),

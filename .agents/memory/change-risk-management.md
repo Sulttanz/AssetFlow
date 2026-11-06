@@ -3,8 +3,8 @@ name: Standalone ITSM risk management
 description: User decision on the boundaries of risk management in this ITSM application.
 ---
 
-Risk Management is a standalone ITSM register and workflow, independent of Change Management. New risks must not require or be attached to a change.
+Risk Management remains a standalone ITSM register and workflow. Risks may optionally link to a change when managed from the change tracker, but standalone risks must not require a change or make the register dependent on Change Management.
 
-**Why:** The user clarified that Risk Management and its tracker do not belong to Change Management and must be separate.
+**Why:** The user clarified that Risk Management must remain independently usable; change-tracker workflows also need optional linked risk records.
 
-**How to apply:** Use its own top-level page, API, and permissions. Preserve legacy records safely, but do not expose a change association or make Change Management a dependency for new risk records.
+**How to apply:** Keep the standalone risk page usable without a change. In change workflows, preserve an optional change association and its owner across risk updates.

@@ -8253,7 +8253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Risk Management ──────────────────────────────────────────────────────
-  app.get("/api/risk-users", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (_req, res) => {
+  app.get("/api/risk-users", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (_req, res) => {
     try {
       res.json(await db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName })
         .from(users).where(eq(users.isActive, true)));
@@ -8271,11 +8271,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         linkedOwnerUsername: users.username,
         linkedOwnerFirstName: users.firstName,
         linkedOwnerLastName: users.lastName,
+        linkedChangeId: changes.id,
+        linkedChangeNumber: changes.changeNumber,
+        linkedChangeTitle: changes.title,
       }).from(risks)
-        .leftJoin(users, eq(risks.ownerId, users.id));
+        .leftJoin(users, eq(risks.ownerId, users.id))
+        .leftJoin(changes, eq(risks.changeId, changes.id));
       res.json(rows.map(row => ({
         ...row.risk,
-        changeId: undefined,
+        change: row.linkedChangeId ? {
+          id: row.linkedChangeId,
+          changeNumber: row.linkedChangeNumber,
+          title: row.linkedChangeTitle,
+        } : null,
         owner: row.linkedOwnerId ? {
           id: row.linkedOwnerId, username: row.linkedOwnerUsername,
           firstName: row.linkedOwnerFirstName, lastName: row.linkedOwnerLastName,
@@ -8287,10 +8295,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/risks", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (req, res) => {
+  app.post("/api/risks", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (req, res) => {
     try {
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(200),
+        changeId: z.string().nullable().optional(),
         description: z.string().max(5000).nullable().optional(),
         category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]),
         likelihood: z.number().int().min(1).max(5),
@@ -8323,12 +8332,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/risks/:riskId", requireAuth, requirePermission("risk_manage"), requireModule("risk_management"), async (req, res) => {
+  app.put("/api/risks/:riskId", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (req, res) => {
     try {
       const [oldRisk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId));
       if (!oldRisk) return res.status(404).json({ message: "Risk not found" });
       const bodySchema = z.object({
         title: z.string().trim().min(1).max(200).optional(),
+        changeId: z.string().nullable().optional(),
         description: z.string().max(5000).nullable().optional(),
         category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]).optional(),
         likelihood: z.number().int().min(1).max(5).optional(),
@@ -8344,8 +8354,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid risk assessment", errors: parsed.error.flatten() });
-      const nextReason = parsed.data.acceptanceReason ?? oldRisk.acceptanceReason;
-      if (parsed.data.status === "accepted" && !nextReason?.trim()) {
+      const nextReason = parsed.data.acceptanceReason !== undefined
+        ? parsed.data.acceptanceReason
+        : oldRisk.acceptanceReason;
+      const nextStatus = parsed.data.status ?? oldRisk.status;
+      if (nextStatus === "accepted" && !nextReason?.trim()) {
         return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
       }
       const nextImpact = parsed.data.impact ?? oldRisk.impact;
