@@ -17,7 +17,7 @@ import {
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
-  insertServiceContractSchema, updateServiceContractSchema, serviceContracts,
+  insertServiceContractSchema, updateServiceContractSchema, serviceContracts, projectManagers,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
@@ -59,6 +59,7 @@ import { registerProjectManagementRoutes } from "./project-management";
 import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
 import { registerPersonnelReportRoute } from "./personnel-report";
 import { resolveIncidentContractContext } from "./incident-contract-resolution";
+import { buildContractRenewalAlert } from "./services/contract-renewal-checker";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -231,7 +232,7 @@ export function getServiceContractStatus(
 ): "active" | "near_expiration" | "expired" | "renewed" {
   if (contract.status === "renewed") return "renewed";
   const todayValue = toDateInputValue(today);
-  if (contract.endDate < todayValue) return "expired";
+  if (contract.endDate <= todayValue) return "expired";
   if (contract.startDate <= todayValue) {
     const noticeDate = new Date(`${todayValue}T00:00:00.000Z`);
     noticeDate.setUTCDate(noticeDate.getUTCDate() + contract.renewalNoticeDays);
@@ -4768,15 +4769,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
       const currentUserId = (req.user as any).id;
-      const [assetEnabled, itsmEnabled] = await Promise.all([
-        isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"),
+      const [assetEnabled, itsmEnabled, projectManagementEnabled] = await Promise.all([
+        isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"), isFeatureEnabled("project_management"),
       ]);
-      const currentUserPermissions = itsmEnabled
+      const currentUserPermissions = assetEnabled || itsmEnabled
         ? await storage.getUserPermissions(currentUserId)
         : [];
       const canManageChanges = currentUserPermissions.some(permission =>
         ["system_admin", "change_manage"].includes(permission),
       );
+      const canReviewAllSupportContracts = currentUserPermissions.includes("system_admin");
+      const canReviewManagedProjectContracts = currentUserPermissions.some(permission =>
+        ["project_view", "project_manage"].includes(permission),
+      );
+      const managedProjectIds = projectManagementEnabled && canReviewManagedProjectContracts && !canReviewAllSupportContracts
+        ? (await db.select({ projectId: projectManagers.projectId })
+          .from(projectManagers)
+          .where(eq(projectManagers.userId, currentUserId)))
+          .map(row => row.projectId)
+        : [];
 
       const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges, disabledCabChanges] = await Promise.all([
         assetEnabled ? storage.getAssets() : [],
@@ -4786,6 +4797,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         itsmEnabled ? storage.getPendingCabAlertChanges(currentUserId) : [],
         canManageChanges ? storage.getDisabledCabAlertChanges() : [],
       ]);
+      const renewalContracts = assetEnabled && (canReviewAllSupportContracts || managedProjectIds.length)
+        ? await db.select().from(serviceContracts).where(and(
+          inArray(serviceContracts.status, ["near_expiration", "expired"]),
+          canReviewAllSupportContracts ? undefined : inArray(serviceContracts.projectId, managedProjectIds),
+        ))
+        : [];
+      const linkedProjectIds = Array.from(new Set(renewalContracts.map(contract => contract.projectId).filter((id): id is string => Boolean(id))));
+      const linkedProjects = projectManagementEnabled && linkedProjectIds.length
+        ? await db.select({ id: projects.id, title: projects.title }).from(projects).where(inArray(projects.id, linkedProjectIds))
+        : [];
+      const projectNameById = new Map(linkedProjects.map(project => [project.id, project.title]));
 
       const alerts: any[] = [];
 
@@ -4965,6 +4987,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           link: `/changes?approval=${encodeURIComponent(change.id)}`,
         });
       });
+
+      // Like other bell items, support-renewal notifications are derived from
+      // current contract state and scoped to admins or assigned project managers.
+      for (const contract of renewalContracts) {
+        const alert = buildContractRenewalAlert(
+          contract,
+          contract.projectId ? projectNameById.get(contract.projectId) : undefined,
+          today,
+        );
+        if (alert) alerts.push(alert);
+      }
 
       res.json(alerts);
     } catch (error) {

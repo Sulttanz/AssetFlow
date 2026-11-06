@@ -41,7 +41,7 @@ export function getDaysRemaining(endDate: string) {
 
 export function deriveContractStatus(endDate: string, noticeDays: number, startDate?: string): "active" | "near_expiration" | "expired" {
   const remaining = getDaysRemaining(endDate);
-  if (remaining < 0) return "expired";
+  if (remaining <= 0) return "expired";
   if (startDate && startDate > toDateInputValue(new Date())) return "active";
   if (remaining <= noticeDays) return "near_expiration";
   return "active";

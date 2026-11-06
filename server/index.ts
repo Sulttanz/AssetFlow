@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startCabEventListener } from "./cab-events";
+import { startContractRenewalChecker } from "./services/contract-renewal-checker";
 import { runStartupMigrations } from "./startup-migrations";
 import {
   apiSecurityMiddleware,
@@ -105,6 +106,7 @@ app.use((req, res, next) => {
     const server = await registerRoutes(app);
     console.log("✅ Routes registered successfully");
     startCabEventListener();
+    startContractRenewalChecker();
     
     // Test database connectivity - non-blocking, server will start regardless
     // Database will be retried on first request if initial connection fails

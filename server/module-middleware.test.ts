@@ -110,6 +110,9 @@ describe("module API guard", () => {
       status: "active", startDate: "2025-01-01", endDate: "2025-12-31", renewalNoticeDays: 60,
     }, new Date("2026-01-01T12:00:00.000Z"))).toBe("expired");
     expect(getServiceContractStatus({
+      status: "active", startDate: "2026-01-01", endDate: "2026-01-01", renewalNoticeDays: 60,
+    }, new Date("2026-01-01T12:00:00.000Z"))).toBe("expired");
+    expect(getServiceContractStatus({
       status: "renewed", startDate: "2025-01-01", endDate: "2025-12-31", renewalNoticeDays: 60,
     }, new Date("2026-01-01T12:00:00.000Z"))).toBe("renewed");
   });
