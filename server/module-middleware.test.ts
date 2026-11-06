@@ -6,7 +6,8 @@ vi.mock("./storage", () => ({
   storage: { getModuleSetting },
 }));
 
-import { checkModuleEnabled, moduleForApiPath } from "./routes";
+import { checkModuleEnabled, getServiceContractStatus, isServiceContractApiRequest, moduleForApiPath } from "./routes";
+import { insertServiceContractSchema } from "@shared/schema";
 
 describe("module API guard", () => {
   it("returns the specified forbidden response for a disabled module", async () => {
@@ -63,5 +64,49 @@ describe("module API guard", () => {
     expect(moduleForApiPath("/reports/kb-articles")).toBeUndefined();
     expect(moduleForApiPath("/reports/personnel")).toBeUndefined();
     expect(moduleForApiPath("/module-status")).toBeUndefined();
+  });
+
+  it("routes service-contract requests through ITSM without changing financial-contract requests", () => {
+    expect(isServiceContractApiRequest("GET", "/contracts")).toBe(false);
+    expect(isServiceContractApiRequest("GET", "/contracts", { kind: "service" })).toBe(true);
+    expect(isServiceContractApiRequest("GET", "/contracts", { projectId: "project-uuid" })).toBe(true);
+    expect(isServiceContractApiRequest("GET", "/contracts", { status: "active" })).toBe(true);
+    expect(isServiceContractApiRequest("POST", "/contracts", {}, { contractName: "Support SLA" })).toBe(true);
+    expect(isServiceContractApiRequest("POST", "/contracts", {}, { name: "Financial contract" })).toBe(false);
+    expect(isServiceContractApiRequest("GET", "/contracts/42")).toBe(true);
+    expect(isServiceContractApiRequest("GET", "/contracts/financial-uuid")).toBe(false);
+  });
+
+  it("validates service contract inputs and derives date-based lifecycle status", () => {
+    const parsed = insertServiceContractSchema.safeParse({
+      contractNumber: " CNT-2026-001 ",
+      contractName: "Support Agreement",
+      projectId: "project-uuid",
+      clientId: "customer-42",
+      slaPolicyId: "sla-uuid",
+      startDate: "2026-01-01",
+      endDate: "2026-12-31",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.contractNumber).toBe("CNT-2026-001");
+      expect(parsed.data.renewalNoticeDays).toBe(60);
+      expect(parsed.data.status).toBe("active");
+    }
+    expect(insertServiceContractSchema.safeParse({
+      contractNumber: "CNT-INVALID",
+      contractName: "Invalid",
+      startDate: "2026-02-30",
+      endDate: "2026-01-01",
+    }).success).toBe(false);
+    expect(getServiceContractStatus({
+      status: "active", startDate: "2026-01-01", endDate: "2026-01-30", renewalNoticeDays: 30,
+    }, new Date("2026-01-01T12:00:00.000Z"))).toBe("near_expiration");
+    expect(getServiceContractStatus({
+      status: "active", startDate: "2025-01-01", endDate: "2025-12-31", renewalNoticeDays: 60,
+    }, new Date("2026-01-01T12:00:00.000Z"))).toBe("expired");
+    expect(getServiceContractStatus({
+      status: "renewed", startDate: "2025-01-01", endDate: "2025-12-31", renewalNoticeDays: 60,
+    }, new Date("2026-01-01T12:00:00.000Z"))).toBe("renewed");
   });
 });

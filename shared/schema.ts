@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, boolean, real, unique, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, date, decimal, timestamp, integer, serial, boolean, real, unique, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { catalogFieldSchema, type CatalogField } from "./service-catalog";
@@ -1484,6 +1484,81 @@ export const slaPolicies = pgTable("sla_policies", {
 export const insertSlaPolicySchema = createInsertSchema(slaPolicies).omit({ id: true, createdAt: true, updatedAt: true });
 export type SlaPolicy = typeof slaPolicies.$inferSelect;
 export type InsertSlaPolicy = z.infer<typeof insertSlaPolicySchema>;
+
+export const serviceContracts = pgTable("service_contracts", {
+  id: serial("id").primaryKey(),
+  contractNumber: text("contract_number").notNull(),
+  contractName: text("contract_name").notNull(),
+  // These IDs intentionally match the existing UUID-like varchar primary keys.
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  clientId: text("client_id"),
+  slaPolicyId: varchar("sla_policy_id").references(() => slaPolicies.id, { onDelete: "set null" }),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  renewalNoticeDays: integer("renewal_notice_days").notNull().default(60),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("service_contracts_contract_number_uq").on(sql`lower(btrim(${table.contractNumber}))`),
+  index("service_contracts_project_idx").on(table.projectId),
+  index("service_contracts_sla_policy_idx").on(table.slaPolicyId),
+  index("service_contracts_status_end_date_idx").on(table.status, table.endDate),
+  check("service_contracts_dates_check", sql`${table.endDate} >= ${table.startDate}`),
+  check("service_contracts_renewal_notice_check", sql`${table.renewalNoticeDays} BETWEEN 0 AND 3650`),
+  check("service_contracts_status_check", sql`${table.status} IN ('active', 'near_expiration', 'expired', 'renewed')`),
+]);
+
+export const projectsRelations = relations(projects, ({ many }) => ({
+  serviceContracts: many(serviceContracts),
+}));
+
+export const slaPoliciesRelations = relations(slaPolicies, ({ many }) => ({
+  serviceContracts: many(serviceContracts),
+}));
+
+export const serviceContractsRelations = relations(serviceContracts, ({ one }) => ({
+  project: one(projects, {
+    fields: [serviceContracts.projectId],
+    references: [projects.id],
+  }),
+  slaPolicy: one(slaPolicies, {
+    fields: [serviceContracts.slaPolicyId],
+    references: [slaPolicies.id],
+  }),
+}));
+
+const serviceContractCalendarDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}, "Date must be a valid ISO calendar date (YYYY-MM-DD)");
+
+const serviceContractInputFieldsSchema = createInsertSchema(serviceContracts).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  contractNumber: z.string().trim().min(1).max(100),
+  contractName: z.string().trim().min(1).max(255),
+  projectId: z.string().nullable().optional(),
+  clientId: z.string().nullable().optional(),
+  slaPolicyId: z.string().nullable().optional(),
+  startDate: serviceContractCalendarDateSchema,
+  endDate: serviceContractCalendarDateSchema,
+  renewalNoticeDays: z.number().int().min(0).max(3650).default(60),
+  status: z.enum(["active", "near_expiration", "expired", "renewed"]).default("active"),
+  notes: z.string().nullable().optional(),
+});
+
+export const insertServiceContractSchema = serviceContractInputFieldsSchema.superRefine((value, ctx) => {
+  if (value.endDate < value.startDate) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["endDate"], message: "End date must be on or after start date" });
+  }
+});
+
+export const updateServiceContractSchema = serviceContractInputFieldsSchema.partial();
+export type InsertServiceContract = z.infer<typeof insertServiceContractSchema>;
+export type ServiceContract = typeof serviceContracts.$inferSelect;
 
 // Impact x Urgency -> derived Priority matrix (ITIL-style)
 export const TICKET_PRIORITY_MATRIX: Record<string, Record<string, string>> = {

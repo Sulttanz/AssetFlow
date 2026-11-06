@@ -17,6 +17,7 @@ import {
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
+  insertServiceContractSchema, updateServiceContractSchema, serviceContracts,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
@@ -30,7 +31,7 @@ import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull, sql, or, ilike, desc, asc } from "drizzle-orm";
+import { eq, and, inArray, isNull, sql, or, ilike, desc, asc, gte, lte } from "drizzle-orm";
 import {
   ACCESS_DROPDOWN_CATEGORIES,
   ACCESS_TYPES,
@@ -173,6 +174,50 @@ export function moduleForApiPath(path: string): string | undefined {
   )?.[1];
 }
 
+export function isServiceContractApiRequest(
+  method: string,
+  path: string,
+  query: Record<string, unknown> = {},
+  body: Record<string, unknown> = {},
+): boolean {
+  const upperMethod = method.toUpperCase();
+  if (/^\/contracts\/\d+$/.test(path) && ["GET", "PUT", "PATCH", "DELETE"].includes(upperMethod)) return true;
+  if (path !== "/contracts") return false;
+  if (upperMethod === "POST") return typeof body.contractName === "string";
+  if (upperMethod !== "GET") return false;
+  return query.kind === "service" ||
+    query.projectId !== undefined ||
+    query.nearExpiration !== undefined ||
+    ["active", "near_expiration", "expired", "renewed"].includes(String(query.status));
+}
+
+export function getServiceContractStatus(
+  contract: { status: string; startDate: string; endDate: string; renewalNoticeDays: number },
+  today = new Date(),
+): "active" | "near_expiration" | "expired" | "renewed" {
+  if (contract.status === "renewed") return "renewed";
+  const todayValue = toDateInputValue(today);
+  if (contract.endDate < todayValue) return "expired";
+  if (contract.startDate <= todayValue) {
+    const noticeDate = new Date(`${todayValue}T00:00:00.000Z`);
+    noticeDate.setUTCDate(noticeDate.getUTCDate() + contract.renewalNoticeDays);
+    if (contract.endDate <= noticeDate.toISOString().slice(0, 10)) return "near_expiration";
+  }
+  return "active";
+}
+
+const serviceContractListQuerySchema = z.object({
+  kind: z.literal("service").optional(),
+  projectId: z.string().trim().min(1).optional(),
+  status: z.enum(["active", "near_expiration", "expired", "renewed"]).optional(),
+  nearExpiration: z.enum(["true", "false"]).optional(),
+}).strict();
+
+function isDatabaseConstraintError(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error &&
+    (error as { code?: unknown }).code === code;
+}
+
 // Audit logging helper function
 async function logAudit(
   userId: string | undefined,
@@ -199,6 +244,92 @@ async function logAudit(
   } catch (error) {
     console.error('Failed to create audit log:', error);
     // Don't throw - audit logging should not break the main operation
+  }
+}
+
+async function listServiceContracts(req: any, res: any) {
+  const parsed = serviceContractListQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid service contract filters", errors: parsed.error.issues });
+  }
+  try {
+    const rows = await db.select()
+      .from(serviceContracts)
+      .where(parsed.data.projectId ? eq(serviceContracts.projectId, parsed.data.projectId) : undefined)
+      .orderBy(asc(serviceContracts.endDate), asc(serviceContracts.id));
+    let result = rows.map(row => ({ ...row, status: getServiceContractStatus(row) }));
+    if (parsed.data.status) result = result.filter(row => row.status === parsed.data.status);
+    if (parsed.data.nearExpiration === "true") result = result.filter(row => row.status === "near_expiration");
+    if (parsed.data.nearExpiration === "false") result = result.filter(row => row.status !== "near_expiration");
+    return res.json(result);
+  } catch (error) {
+    console.error("Failed to fetch service contracts:", error);
+    return res.status(500).json({ message: "Failed to fetch service contracts" });
+  }
+}
+
+async function getServiceContractById(id: number, res: any) {
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid service contract ID" });
+  try {
+    const [contract] = await db.select().from(serviceContracts).where(eq(serviceContracts.id, id)).limit(1);
+    if (!contract) return res.status(404).json({ message: "Service contract not found" });
+    return res.json({ ...contract, status: getServiceContractStatus(contract) });
+  } catch (error) {
+    console.error("Failed to fetch service contract:", error);
+    return res.status(500).json({ message: "Failed to fetch service contract" });
+  }
+}
+
+async function createServiceContract(req: any, res: any) {
+  const parsed = insertServiceContractSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid service contract data", errors: parsed.error.issues });
+  try {
+    const [contract] = await db.insert(serviceContracts).values(parsed.data).returning();
+    await logAudit(req.user?.id, "CREATE", "service_contracts", String(contract.id), contract.contractName, null, contract, req);
+    return res.status(201).json({ ...contract, status: getServiceContractStatus(contract) });
+  } catch (error) {
+    if (isDatabaseConstraintError(error, "23505")) return res.status(409).json({ message: "A service contract with this number already exists" });
+    if (isDatabaseConstraintError(error, "23503")) return res.status(400).json({ message: "The selected project or SLA policy does not exist" });
+    console.error("Failed to create service contract:", error);
+    return res.status(500).json({ message: "Failed to create service contract" });
+  }
+}
+
+async function updateServiceContract(id: number, req: any, res: any) {
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid service contract ID" });
+  const parsed = updateServiceContractSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid service contract data", errors: parsed.error.issues });
+  try {
+    const [existing] = await db.select().from(serviceContracts).where(eq(serviceContracts.id, id)).limit(1);
+    if (!existing) return res.status(404).json({ message: "Service contract not found" });
+    const startDate = parsed.data.startDate ?? existing.startDate;
+    const endDate = parsed.data.endDate ?? existing.endDate;
+    if (endDate < startDate) return res.status(400).json({ message: "End date must be on or after start date" });
+    const [updated] = await db.update(serviceContracts)
+      .set(parsed.data)
+      .where(eq(serviceContracts.id, id))
+      .returning();
+    await logAudit(req.user?.id, "UPDATE", "service_contracts", String(id), updated.contractName, existing, updated, req);
+    return res.json({ ...updated, status: getServiceContractStatus(updated) });
+  } catch (error) {
+    if (isDatabaseConstraintError(error, "23505")) return res.status(409).json({ message: "A service contract with this number already exists" });
+    if (isDatabaseConstraintError(error, "23503")) return res.status(400).json({ message: "The selected project or SLA policy does not exist" });
+    console.error("Failed to update service contract:", error);
+    return res.status(500).json({ message: "Failed to update service contract" });
+  }
+}
+
+async function deleteServiceContract(id: number, req: any, res: any) {
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ message: "Invalid service contract ID" });
+  try {
+    const [contract] = await db.select().from(serviceContracts).where(eq(serviceContracts.id, id)).limit(1);
+    if (!contract) return res.status(404).json({ message: "Service contract not found" });
+    await db.delete(serviceContracts).where(eq(serviceContracts.id, id));
+    await logAudit(req.user?.id, "DELETE", "service_contracts", String(id), contract.contractName, contract, null, req);
+    return res.status(204).send();
+  } catch (error) {
+    console.error("Failed to delete service contract:", error);
+    return res.status(500).json({ message: "Failed to delete service contract" });
   }
 }
 
@@ -455,7 +586,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // scoped even when an individual handler only has authentication middleware.
   app.use("/api", (req, res, next) => {
     const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
-    const moduleKey = moduleForApiPath(apiPath);
+    const moduleKey = isServiceContractApiRequest(
+      req.method,
+      apiPath,
+      req.query as Record<string, unknown>,
+      req.body as Record<string, unknown>,
+    ) ? "itsm" : moduleForApiPath(apiPath);
     const personaGuardedPaths = [
       "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/my/asset-handovers", "/dashboard/executive",
       "/cmdb", "/consumables", "/data-migrations", "/import",
@@ -776,6 +912,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Contracts routes
   app.get("/api/contracts", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin"), async (req, res) => {
+    if (isServiceContractApiRequest("GET", "/contracts", req.query as Record<string, unknown>)) {
+      return listServiceContracts(req, res);
+    }
     try {
       const contracts = await storage.getContracts();
       // Auto-expire contracts whose endDate has passed but are still marked active/pending
@@ -799,6 +938,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/contracts", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    if (isServiceContractApiRequest("POST", "/contracts", {}, req.body as Record<string, unknown>)) {
+      return createServiceContract(req, res);
+    }
     try {
       const validatedData = insertContractSchema.parse(req.body);
       const contract = await storage.createContract(validatedData);
@@ -811,6 +953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/contracts/:id", requireAuth, async (req, res) => {
+    if (/^\d+$/.test(req.params.id)) return getServiceContractById(Number(req.params.id), res);
     try {
       const contract = await storage.getContract(req.params.id);
       if (!contract) return res.status(404).json({ message: "Contract not found" });
@@ -821,6 +964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.put("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    if (/^\d+$/.test(req.params.id)) return updateServiceContract(Number(req.params.id), req, res);
     try {
       if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "Manage this SLA contract in Vendors → Contracts & SLAs to keep its financial record and links consistent" });
       const validatedData = insertContractSchema.partial().parse(req.body);
@@ -836,6 +980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+    if (/^\d+$/.test(req.params.id)) return deleteServiceContract(Number(req.params.id), req, res);
     try {
       if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "SLA contract history is retained. Terminate the contract in Vendors → Contracts & SLAs instead." });
       const contract = await storage.getContract(req.params.id);
