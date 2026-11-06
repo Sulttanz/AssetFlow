@@ -250,13 +250,13 @@ export default function DropdownManagement() {
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="p-8">
-        <div className="mb-8 flex justify-between items-start">
+      <div className="p-4 sm:p-8">
+        <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div>
             <h1 className="text-3xl font-bold text-foreground" data-testid="page-title">Dropdown Management</h1>
             <p className="text-muted-foreground mt-2">Manage all system dropdown values and options</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <Button onClick={handleMigrateFromAssets} disabled={isMigrating} variant="outline" data-testid="button-migrate">
               {isMigrating ? "Migrating…" : "Migrate from Assets"}
             </Button>
@@ -290,14 +290,14 @@ export default function DropdownManagement() {
           </CardHeader>
           <CardContent>
             <Tabs value={selectedCategory} onValueChange={(v) => { setSelectedCategory(v); setSearch(""); }}>
-              <div className="mb-6 pb-4 border-b border-border overflow-x-auto">
-                <TabsList className="inline-flex w-auto gap-2 bg-transparent p-0">
+              <div className="mb-6 pb-4 border-b border-border">
+                <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 bg-transparent p-0">
                   {categories.map((cat) => (
                     <TabsTrigger
                       key={cat.value}
                       value={cat.value}
                       data-testid={`tab-${cat.value}`}
-                      className="px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap"
+                      className="min-w-0 px-3 py-2 text-sm font-medium"
                     >
                       {cat.label}
                     </TabsTrigger>
@@ -307,23 +307,23 @@ export default function DropdownManagement() {
 
               {categories.map((cat) => (
                 <TabsContent key={cat.value} value={cat.value} className="mt-0">
-                  <div className="flex justify-between items-center mb-4 gap-3">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div>
+                  <div className="mb-4 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-1 md:flex-row md:items-center">
+                      <div className="min-w-0">
                         <h3 className="text-lg font-semibold">{cat.label}</h3>
                         <p className="text-sm text-muted-foreground">{options.length} option{options.length !== 1 ? "s" : ""} total</p>
                       </div>
-                      <div className="relative max-w-xs">
+                      <div className="relative w-full max-w-xs">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
                           placeholder="Search options…"
                           value={search}
                           onChange={e => setSearch(e.target.value)}
-                          className="pl-9 h-9"
+                          className="h-11 w-full pl-9"
                         />
                       </div>
                     </div>
-                    <Button onClick={handleNewOption} data-testid="button-add-option">
+                    <Button className="w-full sm:w-auto" onClick={handleNewOption} data-testid="button-add-option">
                       <Plus className="mr-2 h-4 w-4" />
                       Add Option
                     </Button>

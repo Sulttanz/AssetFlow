@@ -643,7 +643,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" data-testid="asset-form">
         <Tabs defaultValue="basic" className="w-full">
-          <TabsList className={`grid w-full sticky top-0 z-20 bg-background ${isEdit ? 'grid-cols-8' : 'grid-cols-6'}`}>
+          <TabsList className={`sticky top-0 z-20 grid w-full bg-background ${isEdit ? 'grid-cols-2 sm:grid-cols-4 xl:grid-cols-8' : 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-6'}`}>
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="ownership">Ownership</TabsTrigger>

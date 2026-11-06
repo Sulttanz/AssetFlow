@@ -136,20 +136,20 @@ export default function Problems() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col items-stretch justify-between gap-3 border-b bg-white px-4 py-4 sm:flex-row sm:items-center sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
           <AlertTriangle className="h-6 w-6 text-orange-600" />
           <div>
             <h1 className="text-xl font-semibold">Problem Management</h1>
             <p className="text-sm text-muted-foreground">Root cause analysis, known errors, and workarounds</p>
           </div>
         </div>
-        <Button onClick={openCreate} className="gap-2"><Plus className="h-4 w-4" /> New Problem</Button>
+        <Button onClick={openCreate} className="w-full gap-2 sm:w-auto"><Plus className="h-4 w-4" /> New Problem</Button>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
+      <div className="flex-1 space-y-4 overflow-auto p-4 sm:p-6">
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {(["open","investigating","known_error","resolved"] as const).map(s => (
             <Card key={s}><CardContent className="pt-4 pb-3">
               <div className="text-2xl font-bold">{problems.filter(p => p.status === s).length}</div>
@@ -158,7 +158,7 @@ export default function Problems() {
           ))}
         </div>
 
-        <div className="relative max-w-sm">
+        <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search problems…" className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
@@ -235,14 +235,14 @@ export default function Problems() {
             <DialogTitle>{currentProblem?.title}</DialogTitle>
           </DialogHeader>
           <Tabs defaultValue="details">
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 w-full justify-start">
               <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="rca">RCA & Workaround</TabsTrigger>
               <TabsTrigger value="incidents">Linked Incidents ({currentProblem?.linkedTickets?.length ?? 0})</TabsTrigger>
             </TabsList>
             <TabsContent value="details" className="space-y-3">
               <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Description</p><p className="text-sm">{currentProblem?.description || "No description"}</p></div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Category</p><p className="text-sm">{currentProblem?.category || "—"}</p></div>
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Assigned To</p><p className="text-sm">{currentProblem?.assignedTo ? `${currentProblem.assignedTo.firstName ?? ""} ${currentProblem.assignedTo.lastName ?? ""}`.trim() || currentProblem.assignedTo.username : "—"}</p></div>
               </div>

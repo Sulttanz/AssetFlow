@@ -7,7 +7,7 @@ const FilterBar = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivE
     <div
       ref={ref}
       data-slot="filter-bar"
-      className={cn("flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4", className)}
+      className={cn("flex min-w-0 flex-col items-stretch gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4", className)}
       {...props}
     />
   ),

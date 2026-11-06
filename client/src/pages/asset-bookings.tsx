@@ -212,29 +212,29 @@ export default function AssetBookingsPage() {
   }
 
   return (
-    <div className="flex-1 p-8 overflow-auto">
+    <div className="flex-1 overflow-auto p-4 sm:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-3xl font-bold">Asset Bookings</h1>
             <p className="text-muted-foreground">Manage asset reservations and schedule</p>
           </div>
-          <div className="flex gap-2">
-            <Button 
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button className="w-full sm:w-auto"
               variant={viewMode === "calendar" ? "default" : "outline"} 
               onClick={() => setViewMode("calendar")}
             >
               <CalendarIcon className="w-4 h-4 mr-2" />
               Calendar
             </Button>
-            <Button 
+            <Button className="w-full sm:w-auto"
               variant={viewMode === "list" ? "default" : "outline"} 
               onClick={() => setViewMode("list")}
             >
               <List className="w-4 h-4 mr-2" />
               List
             </Button>
-            <Button onClick={handleNewBooking}>
+            <Button className="w-full sm:w-auto" onClick={handleNewBooking}>
               <Plus className="w-4 h-4 mr-2" />
               New Booking
             </Button>
@@ -244,7 +244,7 @@ export default function AssetBookingsPage() {
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-              <div className="relative w-full md:w-96">
+              <div className="relative w-full sm:max-w-md sm:flex-1">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by asset or employee..."
@@ -254,7 +254,7 @@ export default function AssetBookingsPage() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[180px]">
+                <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Filter by status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -359,7 +359,7 @@ export default function AssetBookingsPage() {
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3 md:gap-8">
                 <div className="col-span-1 border rounded-lg p-4 bg-card shadow-xs">
                   <DayPicker
                     mode="single"
@@ -377,8 +377,8 @@ export default function AssetBookingsPage() {
                     }}
                   />
                 </div>
-                <div className="col-span-2 space-y-4">
-                  <div className="flex justify-between items-center">
+                <div className="col-span-1 min-w-0 space-y-4 md:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-lg font-semibold">
                       Bookings for {selectedDate ? appFormatDate(selectedDate) : "Selected Date"}
                     </h3>

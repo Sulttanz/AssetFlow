@@ -559,7 +559,7 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
   return (
     <div className="space-y-6">
       {/* Time KPIs */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border p-3 text-center">
           <p className="text-xs text-muted-foreground mb-1">Lead Time</p>
           <p className="text-lg font-bold">{leadTime !== null ? durationLabel(leadTime) : "—"}</p>

@@ -139,7 +139,7 @@ export default function VendorForm({ vendor, onSubmit, onSuccess, onCancel }: Ve
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
             <TabsTrigger value="basic" className="flex items-center gap-2">
               <Building className="h-4 w-4" />
               Basic

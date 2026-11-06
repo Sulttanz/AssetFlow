@@ -142,8 +142,46 @@
 @media (max-width: 767px) {
   [role="tablist"] {
     max-width: 100%;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    flex-wrap: wrap;
+    overflow: visible;
+    gap: 0.5rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-workspace {
+    min-width: 0;
+    max-width: 100vw;
+  }
+
+  .app-workspace :is([class~="p-8"], [class~="px-8"]) {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .app-workspace :is(button, [role="button"], [role="tab"]) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .app-workspace [class~="md:grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  [data-slot="filter-bar"] {
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  [data-slot="filter-bar"] > * {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  [data-slot="dialog-footer"] > :is(button, a, [role="button"]) {
+    width: 100%;
   }
 
   :is([data-radix-dialog-content], [data-radix-alert-dialog-content]):not([data-mobile-sheet]) {
@@ -312,6 +350,12 @@
   table[data-mobile-cards="true"] tbody td[data-mobile-actions="true"]::before,
   table[data-mobile-cards="true"] tfoot td[data-mobile-actions="true"]::before {
     flex: 0 0 100%;
+  }
+
+  table[data-mobile-cards="true"] :is(td[data-mobile-actions="true"] > div, td[data-mobile-actions="true"] > span) {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
   }
 
   table[data-mobile-cards="true"] td.hidden {

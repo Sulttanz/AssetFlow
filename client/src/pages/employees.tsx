@@ -285,7 +285,7 @@ export default function Employees() {
 
             {/* Pagination */}
             {!isLoading && filteredEmployees && filteredEmployees.length > 0 && (
-              <div className="flex items-center justify-between px-2 py-4 border-t mt-4">
+              <div className="mt-4 flex flex-col items-start justify-between gap-3 border-t px-2 py-4 sm:flex-row sm:items-center">
                 <div className="text-sm text-muted-foreground">
                   Showing <span className="font-medium">{((currentPage - 1) * ITEMS_PER_PAGE) + 1}</span> to{" "}
                   <span className="font-medium">{Math.min(currentPage * ITEMS_PER_PAGE, filteredEmployees.length)}</span> of{" "}

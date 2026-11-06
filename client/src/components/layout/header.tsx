@@ -102,7 +102,7 @@ export default function Header({
   return (
     <header className="bg-card px-4 py-5 md:px-8 md:py-6" data-testid="page-header">
       {/* Row 1: Title + Bell (always visible) */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl font-semibold text-foreground leading-tight" data-testid="page-title">
             {title}
@@ -113,9 +113,9 @@ export default function Header({
         </div>
 
         {/* Bell always stays in the top-right corner on mobile */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0">
           {showAddButton && onAddClick && (
-            <Button onClick={onAddClick} aria-label={addButtonText} data-testid="add-button" size="sm" className="shrink-0">
+            <Button onClick={onAddClick} aria-label={addButtonText} data-testid="add-button" size="sm" className="w-full sm:w-auto sm:shrink-0">
               <Plus className="h-4 w-4" />
               <span>{addButtonText}</span>
             </Button>
@@ -123,7 +123,7 @@ export default function Header({
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <button
-                className="relative rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="relative h-11 w-11 shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 data-testid="notifications-button"
                 aria-label={badgeCount > 0 ? `Notifications, ${badgeCount} alerts` : "Notifications"}
               >
@@ -189,13 +189,13 @@ export default function Header({
       </div>
 
       {/* Row 2: Existing search and page controls share one responsive toolbar. */}
-      {(showSearch && onSearch || children) && <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background p-3">
+      {(showSearch && onSearch || children) && <div className="mt-5 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-background p-3 sm:flex-row sm:flex-wrap sm:items-center">
         {showSearch && onSearch && <div className="relative min-w-0 flex-1 basis-full sm:basis-56">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input type="text" placeholder={searchPlaceholder} className="w-full border-transparent bg-card pl-10 pr-4 shadow-none focus-visible:border-ring" onChange={(e) => onSearch(e.target.value)} data-testid="search-input" />
         </div>}
 
-        <div className="flex max-w-full flex-wrap items-center gap-2">
+        <div className="flex w-full max-w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
           {children}
         </div>
       </div>}

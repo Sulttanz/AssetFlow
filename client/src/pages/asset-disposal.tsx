@@ -215,9 +215,9 @@ export default function AssetDisposalPage() {
   };
 
   return (
-    <div className="flex-1 p-8 overflow-auto">
+    <div className="flex-1 overflow-auto p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+        <div className="mb-6 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Asset Disposal</h1>
             <p className="text-muted-foreground">Manage end-of-life workflow for retired assets</p>
@@ -225,7 +225,7 @@ export default function AssetDisposalPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-6">
-          <TabsList>
+              <TabsList className="w-full justify-start sm:w-auto">
             <TabsTrigger value="pending" className="flex items-center gap-2">
               <Trash2 className="w-4 h-4" />
               Pending Disposal
@@ -243,12 +243,12 @@ export default function AssetDisposalPage() {
           <TabsContent value="pending" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+                <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-start">
+                  <div className="min-w-0">
                     <CardTitle>Assets Marked for Retirement</CardTitle>
                     <CardDescription>Assets with status "retired" that require final disposal processing</CardDescription>
                   </div>
-                  <div className="relative w-64 shrink-0">
+                  <div className="relative w-full sm:w-64 sm:shrink-0">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search by name, tag, type…"
@@ -319,12 +319,12 @@ export default function AssetDisposalPage() {
           <TabsContent value="history" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+                  <div className="flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-start">
+                    <div className="min-w-0">
                     <CardTitle>Disposal Records</CardTitle>
                     <CardDescription>Historical record of processed asset disposals</CardDescription>
                   </div>
-                  <div className="relative w-64 shrink-0">
+                  <div className="relative w-full sm:w-64 sm:shrink-0">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       placeholder="Search by asset, method, approver…"

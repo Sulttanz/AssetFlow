@@ -62,7 +62,7 @@ export default function ProjectAllocationsReportPage() {
               <div className="space-y-3 md:hidden">
                 {rows.map(person => <article key={person.userId} className="space-y-2 rounded-lg border border-slate-200 p-3">
                   <div><h3 className="font-medium">{person.name}</h3><p className="text-xs text-muted-foreground">{person.username}</p></div>
-                  <div className="grid grid-cols-3 gap-2 text-sm"><span>{person.projectCount} projects</span><span>{person.taskCount} tasks</span><span>{person.loggedHours.toFixed(2)}h logged</span></div>
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3"><span>{person.projectCount} projects</span><span>{person.taskCount} tasks</span><span className="col-span-2 sm:col-span-1">{person.loggedHours.toFixed(2)}h logged</span></div>
                   <ul className="space-y-1 border-t pt-2 text-sm">{person.projects.map(project => <li key={project.projectId}><span className="font-medium">{project.projectTitle}</span><span className="block text-xs text-muted-foreground">{project.roleTitle} · {project.taskCount} tasks · {project.loggedHours.toFixed(2)}h logged</span></li>)}</ul>
                 </article>)}
                 {!rows.length && <p className="py-8 text-center text-sm text-muted-foreground">No allocations match this search.</p>}
