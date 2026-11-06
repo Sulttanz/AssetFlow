@@ -192,6 +192,39 @@ export function isServiceContractApiRequest(
     query.status !== undefined;
 }
 
+export function moduleForApiRequest(
+  method: string,
+  path: string,
+  query: Record<string, unknown> = {},
+  body: Record<string, unknown> = {},
+): string | undefined {
+  return isServiceContractApiRequest(method, path, query, body)
+    ? "asset_management"
+    : moduleForApiPath(path);
+}
+
+function requireContractPermission(method: string) {
+  return (req: any, res: any, next: any) => {
+    const path = req.params?.id ? `/contracts/${req.params.id}` : "/contracts";
+    const serviceContractRequest = isServiceContractApiRequest(
+      method,
+      path,
+      req.query as Record<string, unknown>,
+      req.body as Record<string, unknown>,
+    );
+    if (serviceContractRequest) {
+      const permissionGuard = method.toUpperCase() === "GET"
+        ? requireAnyPermission("asset_view", "asset_update", "system_admin")
+        : requireAnyPermission("asset_update", "system_admin");
+      return permissionGuard(req, res, next);
+    }
+    if (method.toUpperCase() === "GET") {
+      return requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin")(req, res, next);
+    }
+    return requirePermission("system_admin")(req, res, next);
+  };
+}
+
 export function getServiceContractStatus(
   contract: { status: string; startDate: string; endDate: string; renewalNoticeDays: number },
   today = new Date(),
@@ -590,12 +623,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // scoped even when an individual handler only has authentication middleware.
   app.use("/api", (req, res, next) => {
     const apiPath = req.originalUrl.split("?")[0].replace(/^\/api(?=\/|$)/, "");
-    const moduleKey = isServiceContractApiRequest(
+    const moduleKey = moduleForApiRequest(
       req.method,
       apiPath,
       req.query as Record<string, unknown>,
       req.body as Record<string, unknown>,
-    ) ? "itsm" : moduleForApiPath(apiPath);
+    );
     const personaGuardedPaths = [
       "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/my/asset-handovers", "/dashboard/executive",
       "/cmdb", "/consumables", "/data-migrations", "/import",
@@ -915,7 +948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Contracts routes
-  app.get("/api/contracts", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "budget_create", "budget_update", "system_admin"), async (req, res) => {
+  app.get("/api/contracts", requireAuth, requireContractPermission("GET"), async (req, res) => {
     if (isServiceContractApiRequest("GET", "/contracts", req.query as Record<string, unknown>)) {
       return listServiceContracts(req, res);
     }
@@ -941,7 +974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/contracts", requireAuth, requirePermission('system_admin'), async (req, res) => {
+  app.post("/api/contracts", requireAuth, requireContractPermission("POST"), async (req, res) => {
     if (isServiceContractApiRequest("POST", "/contracts", {}, req.body as Record<string, unknown>)) {
       return createServiceContract(req, res);
     }
@@ -956,7 +989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/contracts/:id", requireAuth, async (req, res) => {
+  app.get("/api/contracts/:id", requireAuth, requireContractPermission("GET"), async (req, res) => {
     if (/^\d+$/.test(req.params.id)) return getServiceContractById(Number(req.params.id), res);
     try {
       const contract = await storage.getContract(req.params.id);
@@ -967,7 +1000,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+  app.put("/api/contracts/:id", requireAuth, requireContractPermission("PUT"), async (req, res) => {
     if (/^\d+$/.test(req.params.id)) return updateServiceContract(Number(req.params.id), req, res);
     try {
       if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "Manage this SLA contract in Vendors → Contracts & SLAs to keep its financial record and links consistent" });
@@ -983,7 +1016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/contracts/:id", requireAuth, requirePermission('system_admin'), async (req, res) => {
+  app.delete("/api/contracts/:id", requireAuth, requireContractPermission("DELETE"), async (req, res) => {
     if (/^\d+$/.test(req.params.id)) return deleteServiceContract(Number(req.params.id), req, res);
     try {
       if (await isGovernedVendorContract(req.params.id)) return res.status(409).json({ message: "SLA contract history is retained. Terminate the contract in Vendors → Contracts & SLAs instead." });

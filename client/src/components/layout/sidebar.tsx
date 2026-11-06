@@ -182,6 +182,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "asset_management",
       items: [
         { name: "Assets", href: "/assets", icon: Laptop, current: location === "/assets" },
+        { name: "Service Contracts", href: "/service-contracts", icon: FileSignature, current: location === "/service-contracts", permission: ["asset_view", "asset_update", "system_admin"] },
         { name: "Consumables", href: "/consumables", icon: Boxes, current: location === "/consumables" || location === "/inventory" },
         { name: "Employees", href: "/employees", icon: Users, current: location === "/employees", permission: ["employee_update", "offboarding_approve", "system_admin"] },
         { name: "Access Governance", href: "/access-governance", icon: Shield, current: location === "/access-governance", permission: ["employee_update", "access_governance_view", "system_admin"] },

@@ -21,7 +21,7 @@ The application already uses `/api/contracts` for financial contracts. To preser
 - A POST body containing `contractName` selects service-contract creation; legacy financial creation continues to use `name`.
 - Numeric `/api/contracts/:id` paths address service contracts. Existing financial contract IDs are UUID strings.
 
-Service-contract requests use the ITSM feature gate; financial requests retain the Asset Management gate. Existing authentication/persona/contract permissions remain enforced, and mutations require `system_admin`.
+Service-contract requests use the Asset Management feature gate. Reads require `asset_view`, `asset_update`, or `system_admin`; mutations require `asset_update` or `system_admin`. Financial requests retain their existing Asset Management gate and finance permissions; financial mutations remain restricted to `system_admin`.
 
 ## Endpoints
 

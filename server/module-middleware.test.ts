@@ -6,7 +6,7 @@ vi.mock("./storage", () => ({
   storage: { getModuleSetting },
 }));
 
-import { checkModuleEnabled, getServiceContractStatus, isServiceContractApiRequest, moduleForApiPath } from "./routes";
+import { checkModuleEnabled, getServiceContractStatus, isServiceContractApiRequest, moduleForApiPath, moduleForApiRequest } from "./routes";
 import { insertServiceContractSchema, updateServiceContractSchema } from "@shared/schema";
 
 describe("module API guard", () => {
@@ -66,7 +66,7 @@ describe("module API guard", () => {
     expect(moduleForApiPath("/module-status")).toBeUndefined();
   });
 
-  it("routes service-contract requests through ITSM without changing financial-contract requests", () => {
+  it("gates service-contract requests through Asset Management while preserving financial contracts", () => {
     expect(isServiceContractApiRequest("GET", "/contracts")).toBe(false);
     expect(isServiceContractApiRequest("GET", "/contracts", { kind: "service" })).toBe(true);
     expect(isServiceContractApiRequest("GET", "/contracts", { projectId: "project-uuid" })).toBe(true);
@@ -75,6 +75,9 @@ describe("module API guard", () => {
     expect(isServiceContractApiRequest("POST", "/contracts", {}, { name: "Financial contract" })).toBe(false);
     expect(isServiceContractApiRequest("GET", "/contracts/42")).toBe(true);
     expect(isServiceContractApiRequest("GET", "/contracts/financial-uuid")).toBe(false);
+    expect(moduleForApiRequest("GET", "/contracts", { kind: "service" })).toBe("asset_management");
+    expect(moduleForApiRequest("POST", "/contracts", {}, { contractName: "Support SLA" })).toBe("asset_management");
+    expect(moduleForApiRequest("GET", "/contracts")).toBe("asset_management");
   });
 
   it("validates service contract inputs and derives date-based lifecycle status", () => {

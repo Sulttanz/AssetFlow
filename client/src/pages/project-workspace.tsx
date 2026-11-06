@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardList, FileText, Pencil, ShieldAlert, Workflow } from "lucide-react";
+import { ArrowLeft, ClipboardList, FileText, Pencil, ShieldAlert, ShieldCheck, Workflow } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { isPersonaApiAllowed, isSystemAdministrator } from "@shared/personas";
 import { ProjectChangesTab } from "@/components/projects/project-changes-tab";
@@ -9,6 +9,7 @@ import { ProjectEditorDialog } from "@/components/projects/project-editor-dialog
 import { ProjectOverviewTab } from "@/components/projects/project-overview-tab";
 import { ProjectRiskRegisterTab } from "@/components/projects/project-risk-register-tab";
 import { ProjectTasksTab } from "@/components/projects/project-tasks-tab";
+import { SupportSlaWarranty } from "@/components/service-contracts/support-sla-warranty";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,6 +54,8 @@ export default function ProjectWorkspacePage() {
   const isProjectManager = project?.managers?.some(manager => manager.userId === user?.id) ?? false;
   const mayMutate = !!user && isPersonaApiAllowed(user.roles?.map(role => role.name) ?? [], user.permissions ?? [], "/projects", "POST");
   const canManage = mayMutate && (isAdmin || !!user?.permissions?.includes("project_manage") || isProjectManager);
+  const canViewSupportContracts = isModuleEnabled("asset_management") &&
+    (isAdmin || !!user?.permissions?.some(permission => ["asset_view", "asset_update"].includes(permission)));
 
   const saveMutation = useMutation({
     mutationFn: (input: ProjectMutation) => projectApi<ProjectRecord>(`/api/projects/${id}`, {
@@ -102,12 +105,14 @@ export default function ProjectWorkspacePage() {
           <TabsTrigger value="risks" className="min-h-11"><ShieldAlert className="mr-2 h-4 w-4" />Risk register</TabsTrigger>
           <TabsTrigger value="changes" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />Project changes</TabsTrigger>
           <TabsTrigger value="documents" className="min-h-11"><FileText className="mr-2 h-4 w-4" />Documents</TabsTrigger>
+          {canViewSupportContracts && <TabsTrigger value="support-contracts" className="min-h-11"><ShieldCheck className="mr-2 h-4 w-4" />Support &amp; SLA warranty</TabsTrigger>}
         </TabsList>
         <TabsContent value="overview"><ProjectOverviewTab project={project} canManage={canManage} assetsAvailable={assetsAvailable} /></TabsContent>
         <TabsContent value="tasks"><ProjectTasksTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
         <TabsContent value="risks"><ProjectRiskRegisterTab project={project} options={options} canManage={canManage} userId={mayMutate ? user?.id ?? "" : ""} /></TabsContent>
         <TabsContent value="changes"><ProjectChangesTab project={project} canManage={canManage} /></TabsContent>
         <TabsContent value="documents"><ProjectDocumentsTab project={project} canManage={canManage} /></TabsContent>
+        {canViewSupportContracts && <TabsContent value="support-contracts"><SupportSlaWarranty projectId={project.id} /></TabsContent>}
       </Tabs>
 
       <ProjectEditorDialog

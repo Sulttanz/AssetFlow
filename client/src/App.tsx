@@ -62,6 +62,7 @@ const Settings = lazy(() => import("@/pages/settings"));
 const AssetDisposal = lazy(() => import("@/pages/asset-disposal"));
 const AssetBookings = lazy(() => import("@/pages/asset-bookings"));
 const Contracts = lazy(() => import("@/pages/contracts"));
+const ServiceContracts = lazy(() => import("@/components/service-contracts/service-contracts-register"));
 const AssetAudits = lazy(() => import("@/pages/asset-audits"));
 const AssetRequests = lazy(() => import("@/pages/asset-requests"));
 const TicketReport = lazy(() => import("@/pages/reports/tickets"));
@@ -169,6 +170,7 @@ function Router() {
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
                   <ProtectedRoute path="/bookings" component={AssetBookings} requiredModule="asset_management" />
                   <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/service-contracts" component={ServiceContracts} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "system_admin"]} />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
                   <ProtectedRoute path="/incidents/new" component={NewIncidentPage} requiredModule="itsm" />
