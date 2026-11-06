@@ -106,6 +106,9 @@ try {
     RUN_DATABASE_INTEGRATION_TESTS: "1",
     VITEST_NATIVE_PG: "1",
     SESSION_SECRET: "isolated-full-vitest-session-secret",
+    ...(process.env.RUN_COMPREHENSIVE_SEED_TESTS === "1"
+      ? { RUN_COMPREHENSIVE_SEED_TESTS: "1" }
+      : {}),
   });
   const runVitest = (args) => spawnSync(
     process.execPath,
