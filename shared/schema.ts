@@ -2208,7 +2208,9 @@ export const incidents = pgTable("incidents", {
   category: text("category"),
   creatorId: varchar("creator_id").references(() => users.id, { onDelete: "set null" }),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  contractId: integer("contract_id").references(() => serviceContracts.id, { onDelete: "set null" }),
   slaPolicyId: varchar("sla_policy_id").references(() => slaPolicies.id, { onDelete: "set null" }),
+  isWarrantyExpired: boolean("is_warranty_expired").notNull().default(false),
   assignmentGroup: text("assignment_group"),
   assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -2228,8 +2230,16 @@ export const incidents = pgTable("incidents", {
   index("incidents_status_priority_idx").on(table.status, table.priority),
   index("incidents_assigned_to_idx").on(table.assignedToId),
   index("incidents_project_id_idx").on(table.projectId),
+  index("incidents_contract_id_idx").on(table.contractId),
   index("incidents_creator_id_idx").on(table.creatorId),
 ]);
+
+export const incidentsRelations = relations(incidents, ({ one }) => ({
+  serviceContract: one(serviceContracts, {
+    fields: [incidents.contractId],
+    references: [serviceContracts.id],
+  }),
+}));
 
 export const incidentActivities = pgTable("incident_activities", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

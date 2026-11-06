@@ -58,6 +58,7 @@ import { registerDataMigrationRoutes } from "./data-migration-center";
 import { registerProjectManagementRoutes } from "./project-management";
 import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
 import { registerPersonnelReportRoute } from "./personnel-report";
+import { resolveIncidentContractContext } from "./incident-contract-resolution";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -1377,7 +1378,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
       const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
-      const parsed = insertIncidentSchema.parse({ ...req.body, creatorId: req.user.id, requesterId });
+      const parsed = insertIncidentSchema.parse({
+        ...req.body,
+        creatorId: req.user.id,
+        requesterId,
+        contractId: null,
+        isWarrantyExpired: false,
+      });
       if (!["P1", "P2", "P3", "P4"].includes(parsed.priority ?? "")) {
         return res.status(400).json({ message: "priority must be P1, P2, P3, or P4" });
       }
@@ -1385,10 +1392,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
-      if (parsed.slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(and(eq(slaPolicies.id, parsed.slaPolicyId), eq(slaPolicies.isActive, true)))).length) {
+      const contractContext = await resolveIncidentContractContext(parsed.projectId);
+      const contractId = contractContext.contractId;
+      const isWarrantyExpired = contractContext.isWarrantyExpired;
+      const slaPolicyId = contractContext.applyContractSla ? contractContext.slaPolicyId : parsed.slaPolicyId ?? null;
+      if (slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(and(eq(slaPolicies.id, slaPolicyId), eq(slaPolicies.isActive, true)))).length) {
         return res.status(400).json({ message: "Active SLA policy not found" });
       }
-      const incident = await storage.createIncident({ ...parsed, status: "New" });
+      const incident = await storage.createIncident({
+        ...parsed,
+        contractId,
+        isWarrantyExpired,
+        slaPolicyId,
+        ...(contractContext.applyContractSla ? { responseDueAt: undefined, resolveDueAt: undefined } : {}),
+        status: "New",
+      });
       await db.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Incident created", details: incident.title });
       await logAudit(req.user.id, "CREATE", "incidents", incident.id, incident.title, null, incident, req);
       res.status(201).json(incident);
