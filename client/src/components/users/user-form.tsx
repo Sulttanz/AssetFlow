@@ -93,24 +93,27 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
 
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const { passwordConfirm, selectedRoles, ...userData } = data;
+      const { passwordConfirm, selectedRoles = [], ...userData } = data;
       const response = await apiRequest("POST", "/api/users", userData);
-      return response.json();
-    },
-    onSuccess: async (newUser) => {
-      // Assign roles if any were selected
-      const selectedRoles = form.getValues("selectedRoles") || [];
-      if (selectedRoles.length > 0) {
-        for (const roleId of selectedRoles) {
+      const newUser = await response.json();
+      const roleWarnings: string[] = [];
+      for (const roleId of selectedRoles) {
+        try {
           await apiRequest("POST", `/api/users/${newUser.id}/roles`, { roleId });
+        } catch (error) {
+          roleWarnings.push(error instanceof Error ? error.message : `Could not assign role ${roleId}.`);
         }
       }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({
-        title: "Success",
-        description: "User created successfully",
-      });
+      return { newUser, roleWarnings };
+    },
+    onSuccess: async ({ newUser, roleWarnings }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/users"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users", newUser.id, "roles"] }),
+      ]);
+      toast(roleWarnings.length
+        ? { title: "User created; role assignment incomplete", description: roleWarnings.join(" "), variant: "destructive" }
+        : { title: "Success", description: "User created successfully" });
       onSuccess();
     },
     onError: (error: any) => {
@@ -124,7 +127,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const { passwordConfirm, selectedRoles, ...userData } = data;
+      const { passwordConfirm, selectedRoles = [], ...userData } = data;
       
       // Only include password if it's been provided and is not empty
       const updateData = userData.password && userData.password.trim() !== '' 
@@ -137,33 +140,41 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       }
       
       const response = await apiRequest("PUT", `/api/users/${user!.id}`, updateData);
-      return response.json();
-    },
-    onSuccess: async () => {
-      // Update role assignments
-      const selectedRoles = form.getValues("selectedRoles") || [];
+      const updatedUser = await response.json();
       const currentRoleIds = userRoles.map(role => role.id);
-      
+      const roleWarnings: string[] = [];
+
       // Remove roles that are no longer selected
       for (const roleId of currentRoleIds) {
         if (!selectedRoles.includes(roleId)) {
-          await apiRequest("DELETE", `/api/users/${user!.id}/roles/${roleId}`);
+          try {
+            await apiRequest("DELETE", `/api/users/${user!.id}/roles/${roleId}`);
+          } catch (error) {
+            roleWarnings.push(error instanceof Error ? error.message : `Could not remove role ${roleId}.`);
+          }
         }
       }
       
       // Add newly selected roles
       for (const roleId of selectedRoles) {
         if (!currentRoleIds.includes(roleId)) {
-          await apiRequest("POST", `/api/users/${user!.id}/roles`, { roleId });
+          try {
+            await apiRequest("POST", `/api/users/${user!.id}/roles`, { roleId });
+          } catch (error) {
+            roleWarnings.push(error instanceof Error ? error.message : `Could not assign role ${roleId}.`);
+          }
         }
       }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users", user!.id, "roles"] });
-      toast({
-        title: "Success", 
-        description: "User updated successfully",
-      });
+      return { updatedUser, roleWarnings };
+    },
+    onSuccess: async ({ roleWarnings }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/users"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users", user!.id, "roles"] }),
+      ]);
+      toast(roleWarnings.length
+        ? { title: "Profile saved; role assignment incomplete", description: roleWarnings.join(" "), variant: "destructive" }
+        : { title: "Success", description: "User updated successfully" });
       onSuccess();
     },
     onError: (error: any) => {

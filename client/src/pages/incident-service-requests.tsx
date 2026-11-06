@@ -147,9 +147,11 @@ export function IncidentsPage() {
   const updateAssignment = useMutation({
     mutationFn: async (payload: { id: string; assignmentGroup: string; assigneeId: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}/assignment`, { assignmentGroup: payload.assignmentGroup || null, assigneeId: payload.assigneeId || null })).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedId, "activity"] });
+    onSuccess: async (_result, payload) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents", payload.id, "activity"] }),
+      ]);
       toast({ title: "Assignment updated", description: "The change was added to incident activity." });
     },
     onError: (error: Error) => toast({ title: "Assignment failed", description: error.message, variant: "destructive" }),
@@ -157,13 +159,23 @@ export function IncidentsPage() {
   const updateStatus = useMutation({
     mutationFn: async (payload: { id: string; status: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}/status`, { status: payload.status, category: resolutionCategory || null, resolutionCode: resolutionCode || null, resolutionNotes: resolutionNotes || null })).json(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }); queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedId, "activity"] }); toast({ title: "Incident status updated" }); },
+    onSuccess: async (_result, payload) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents", payload.id, "activity"] }),
+      ]);
+      toast({ title: "Incident status updated" });
+    },
     onError: (error: Error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
   });
   const createChange = useMutation({
     mutationFn: async (id: string) => (await apiRequest("POST", `/api/incidents/${id}/to-change`, {})).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+    onSuccess: async (_result, incidentId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents", incidentId, "activity"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/changes"] }),
+      ]);
       toast({ title: "Linked change request created" });
     },
     onError: (error: Error) => toast({ title: "Could not create change request", description: error.message, variant: "destructive" }),
@@ -207,7 +219,7 @@ export function IncidentsPage() {
           {user?.permissions?.includes("ticket_manage") && <>
             <section className="grid gap-3"><h3 className="font-semibold">Assignment</h3><label className="grid gap-1 text-sm">Assignment group<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssignmentGroup} onChange={event => setIncidentAssignmentGroup(event.target.value)}><option value="">Unassigned</option>{Array.from(new Set([...(options?.assignmentGroups ?? []), selected.assignmentGroup ?? ""])).filter(Boolean).map(group => <option key={group} value={group}>{group}</option>)}</select></label>
               <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)}><option value="">Unassigned</option>{options?.users.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-              <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={updateAssignment.isPending}>Save assignment</Button>
+               <Button variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={updateAssignment.isPending}>{updateAssignment.isPending ? "Saving assignment…" : "Save assignment"}</Button>
             </section>
               <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Incident / resolution category<Input value={resolutionCategory} onChange={e => setResolutionCategory(e.target.value)} placeholder="e.g. Hardware, Network, Access" /></label><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
                <label className="grid gap-1 text-sm">Resolution / closure note<Textarea value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} placeholder="Record the outcome and reason for resolving or closing this incident." /></label>
@@ -221,9 +233,9 @@ export function IncidentsPage() {
                     Resolved: ["In Progress", "Closed"],
                     Closed: [],
                   } as Record<string, string[]>)[normalized] ?? [];
-                  return <div className="flex flex-wrap gap-2">{next.map(status => <Button key={status} size="sm" variant="outline" onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || (["Resolved", "Closed"].includes(status) && (!resolutionCategory.trim() || !resolutionCode || !resolutionNotes.trim()))}>{status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div>;
+                   return <div className="flex flex-wrap gap-2">{next.map(status => <Button key={status} size="sm" variant="outline" onClick={() => updateStatus.mutate({ id: selected.id, status })} disabled={updateStatus.isPending || (["Resolved", "Closed"].includes(status) && (!resolutionCategory.trim() || !resolutionCode || !resolutionNotes.trim()))}>{updateStatus.isPending && updateStatus.variables?.status === status ? "Updating…" : status === "Closed" ? "Closed (False Alarm / Cancelled)" : status}</Button>)}</div>;
                 })()}
-                <p className="text-xs text-muted-foreground">Only valid lifecycle transitions are available. Resolving or closing requires a category, resolution code, and notes; SLA target results are added to activity.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>Create linked change</Button>
+                 <p className="text-xs text-muted-foreground">Only valid lifecycle transitions are available. Resolving or closing requires a category, resolution code, and notes; SLA target results are added to activity.</p><Button variant="outline" onClick={() => createChange.mutate(selected.id)} disabled={createChange.isPending || Boolean(selected.changeRequestId)}>{createChange.isPending ? "Creating change…" : "Create linked change"}</Button>
             </section>
           </>}
           {canManageKnowledge(user) && <TicketKnowledgeLinks ticketType="incidents" ticketId={selected.id} />}

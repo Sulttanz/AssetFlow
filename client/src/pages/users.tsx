@@ -42,17 +42,17 @@ export default function UsersPage() {
     mutationFn: async (userId: string) => {
       await apiRequest("DELETE", `/api/users/${userId}`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       toast({
         title: "Success",
         description: "User deleted successfully",
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error", 
-        description: "Failed to delete user",
+        description: error.message || "Failed to delete user",
         variant: "destructive",
       });
     },
@@ -245,6 +245,7 @@ export default function UsersPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteUser(user.id, user.username)}
+                          disabled={deleteUserMutation.isPending}
                           className="text-destructive hover:text-destructive"
                           data-testid={`button-delete-${user.id}`}
                         >

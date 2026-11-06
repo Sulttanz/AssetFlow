@@ -71,19 +71,21 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, initialTab
       const response = await apiRequest("POST", "/api/employees", data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/managers"] }),
+      ]);
       toast({
         title: "Success",
         description: "Employee created successfully",
       });
       onSuccess();
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to create employee",
+        description: error.message || "Failed to create employee",
         variant: "destructive",
       });
     },
@@ -94,19 +96,21 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, initialTab
       const response = await apiRequest("PUT", `/api/employees/${employee!.id}`, data);
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/managers"] }),
+      ]);
       toast({
         title: "Success",
         description: "Employee updated successfully",
       });
       onSuccess();
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to update employee",
+        description: error.message || "Failed to update employee",
         variant: "destructive",
       });
     },

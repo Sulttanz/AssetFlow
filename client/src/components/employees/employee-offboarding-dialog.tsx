@@ -77,10 +77,12 @@ export default function EmployeeOffboardingDialog({
     }
   }, [open, employee?.id]);
 
-  const refreshReview = () => {
+  const refreshReview = async () => {
     if (employee) {
-      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      refetch();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/employees"] }),
+        refetch(),
+      ]);
     }
   };
 

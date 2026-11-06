@@ -63,8 +63,8 @@ export default function NewIncidentPage() {
       urgency: string; impact: string; projectId: string | null; slaPolicyId: string | null; assignmentGroup: string | null;
       requesterId?: string;
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       toast({ title: "Incident submitted", description: "Your support team can now triage the issue." });
       navigate("/portal");
     },

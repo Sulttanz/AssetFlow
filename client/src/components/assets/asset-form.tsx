@@ -280,17 +280,18 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
         body: formData,
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Upload failed");
-      return res.json();
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.message || result.error || `Upload failed (${res.status})`);
+      return result;
     },
-    onSuccess: () => {
-      refetchAttachments();
+    onSuccess: async () => {
+      await refetchAttachments();
       setAttachmentFile(null);
       setAttachmentDescription("");
       toast({ title: "File uploaded", description: "Attachment saved successfully" });
     },
-    onError: () => {
-      toast({ title: "Upload failed", description: "Could not upload the file", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Upload failed", description: error.message || "Could not upload the file", variant: "destructive" });
     },
   });
 
@@ -298,10 +299,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     mutationFn: async (attachId: string) => {
       await apiRequest("DELETE", `/api/assets/${asset?.id}/attachments/${attachId}`);
     },
-    onSuccess: () => {
-      refetchAttachments();
+    onSuccess: async () => {
+      await refetchAttachments();
       toast({ title: "Deleted", description: "Attachment removed" });
     },
+    onError: (error: Error) => toast({ title: "Could not delete attachment", description: error.message, variant: "destructive" }),
   });
 
   const { data: disposalRecords = [] } = useQuery<any[]>({
@@ -338,12 +340,12 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       const response = await apiRequest("POST", "/api/asset-relationships", data);
       return response.json();
     },
-    onSuccess: () => {
-      refetchRelationships();
+    onSuccess: async () => {
+      await refetchRelationships();
       toast({ title: "Success", description: "Relationship added" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add relationship", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Could not add relationship", description: error.message, variant: "destructive" });
     },
   });
 
@@ -351,13 +353,11 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/asset-relationships/${id}`);
     },
-    onSuccess: () => {
-      refetchRelationships();
+    onSuccess: async () => {
+      await refetchRelationships();
       toast({ title: "Success", description: "Relationship deleted" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete relationship", variant: "destructive" });
-    },
+    onError: (error: Error) => toast({ title: "Could not delete relationship", description: error.message, variant: "destructive" }),
   });
 
   const form = useForm<FormData>({
@@ -473,10 +473,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       });
       onSuccess();
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to create asset",
+        description: error.message || "Failed to create asset",
         variant: "destructive",
       });
     },
@@ -500,10 +500,10 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
       });
       onSuccess();
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to update asset",
+        description: error.message || "Failed to update asset",
         variant: "destructive",
       });
     },
