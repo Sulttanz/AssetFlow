@@ -30,6 +30,7 @@ const store = vi.hoisted(() => ({
   getTickets: vi.fn(),
 }));
 const notify = vi.hoisted(() => vi.fn());
+const alertDb = vi.hoisted(() => ({ select: vi.fn() }));
 const streamAccess = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const cabLeases = vi.hoisted(() => [] as Array<{
   id: string;
@@ -41,7 +42,7 @@ const leaseQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("./storage", () => ({ storage: store }));
 vi.mock("./db", () => ({
-  db: {},
+  db: alertDb,
   pool: {
     query: notify,
     connect: async () => ({ query: leaseQuery, release: vi.fn() }),
@@ -118,6 +119,14 @@ describe("CAB route notifications across signed-in sessions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cabLeases.length = 0;
+    alertDb.select.mockImplementation(() => {
+      const query: any = {};
+      query.from = vi.fn(() => query);
+      query.where = vi.fn(() => query);
+      query.orderBy = vi.fn(() => query);
+      query.limit = vi.fn().mockResolvedValue([]);
+      return query;
+    });
     leaseQuery.mockImplementation(async (sql: string, parameters: any[] = []) => {
       const statement = sql.replace(/\s+/g, " ").trim();
       if (["BEGIN", "COMMIT", "ROLLBACK"].includes(statement) ||

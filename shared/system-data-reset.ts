@@ -10,7 +10,7 @@ export const RESET_BUSINESS_TABLES = [
   "service_contracts", "projects", "assets", "software_license_allocations", "assignments", "asset_handovers",
   "vendors", "consumables", "consumable_stock_movements", "consumable_dispatch_log",
   "purchase_orders", "purchase_order_items", "purchase_order_item_receipts", "budgets",
-  "maintenance_schedules", "maintenance_records", "audit_logs", "data_migration_batches",
+  "maintenance_schedules", "maintenance_records", "audit_logs", "system_notifications", "data_migration_batches",
   "cmdb_applications", "servers", "application_server_links", "network_zones", "network_devices",
   "network_device_links", "firewall_rules", "firewall_rule_reviews", "backup_schedules",
   "backup_job_runs", "backup_restore_tests", "it_component_compliance_reviews",

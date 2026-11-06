@@ -17,7 +17,7 @@ import {
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
-  insertServiceContractSchema, updateServiceContractSchema, serviceContracts, projectManagers,
+  insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
@@ -59,7 +59,6 @@ import { registerProjectManagementRoutes } from "./project-management";
 import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
 import { registerPersonnelReportRoute } from "./personnel-report";
 import { resolveIncidentContractContext } from "./incident-contract-resolution";
-import { buildContractRenewalAlert } from "./services/contract-renewal-checker";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -1429,7 +1428,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const contractContext = await resolveIncidentContractContext(parsed.projectId);
       const contractId = contractContext.contractId;
       const isWarrantyExpired = contractContext.isWarrantyExpired;
-      const slaPolicyId = contractContext.applyContractSla ? contractContext.slaPolicyId : parsed.slaPolicyId ?? null;
+      let slaPolicyId = contractContext.applyContractSla
+        ? contractContext.slaPolicyId
+        : parsed.slaPolicyId ?? null;
+      if (contractContext.isWarrantyExpired && !slaPolicyId) {
+        const priorityMap: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
+        const policies = await db.select().from(slaPolicies).where(and(
+          eq(slaPolicies.priority, priorityMap[parsed.priority ?? "P3"] ?? "medium"),
+          eq(slaPolicies.isActive, true),
+        ));
+        const baselinePolicy = (parsed.category
+          ? policies.find(policy => policy.ticketType === "incident" && policy.category === parsed.category)
+          : undefined) ??
+          policies.find(policy => policy.ticketType === "incident" && !policy.category) ??
+          policies.find(policy => !policy.ticketType && !policy.category);
+        slaPolicyId = baselinePolicy?.id ?? null;
+      }
       if (slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(and(eq(slaPolicies.id, slaPolicyId), eq(slaPolicies.isActive, true)))).length) {
         return res.status(400).json({ message: "Active SLA policy not found" });
       }
@@ -4769,8 +4783,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const in90Days = new Date(today); in90Days.setDate(today.getDate() + 90);
       const in30Days = new Date(today); in30Days.setDate(today.getDate() + 30);
       const currentUserId = (req.user as any).id;
-      const [assetEnabled, itsmEnabled, projectManagementEnabled] = await Promise.all([
-        isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"), isFeatureEnabled("project_management"),
+      const [assetEnabled, itsmEnabled] = await Promise.all([
+        isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"),
       ]);
       const currentUserPermissions = assetEnabled || itsmEnabled
         ? await storage.getUserPermissions(currentUserId)
@@ -4778,16 +4792,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const canManageChanges = currentUserPermissions.some(permission =>
         ["system_admin", "change_manage"].includes(permission),
       );
-      const canReviewAllSupportContracts = currentUserPermissions.includes("system_admin");
-      const canReviewManagedProjectContracts = currentUserPermissions.some(permission =>
-        ["project_view", "project_manage"].includes(permission),
-      );
-      const managedProjectIds = projectManagementEnabled && canReviewManagedProjectContracts && !canReviewAllSupportContracts
-        ? (await db.select({ projectId: projectManagers.projectId })
-          .from(projectManagers)
-          .where(eq(projectManagers.userId, currentUserId)))
-          .map(row => row.projectId)
-        : [];
 
       const [assets, maintenanceSchedules, budgets, tickets, pendingCabChanges, disabledCabChanges] = await Promise.all([
         assetEnabled ? storage.getAssets() : [],
@@ -4797,17 +4801,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         itsmEnabled ? storage.getPendingCabAlertChanges(currentUserId) : [],
         canManageChanges ? storage.getDisabledCabAlertChanges() : [],
       ]);
-      const renewalContracts = assetEnabled && (canReviewAllSupportContracts || managedProjectIds.length)
-        ? await db.select().from(serviceContracts).where(and(
-          inArray(serviceContracts.status, ["near_expiration", "expired"]),
-          canReviewAllSupportContracts ? undefined : inArray(serviceContracts.projectId, managedProjectIds),
-        ))
+      const renewalNotifications = assetEnabled
+        ? await db.select().from(systemNotifications).where(and(
+          eq(systemNotifications.userId, currentUserId),
+          eq(systemNotifications.type, "service_contract"),
+          eq(systemNotifications.isRead, false),
+        )).orderBy(desc(systemNotifications.createdAt)).limit(25)
         : [];
-      const linkedProjectIds = Array.from(new Set(renewalContracts.map(contract => contract.projectId).filter((id): id is string => Boolean(id))));
-      const linkedProjects = projectManagementEnabled && linkedProjectIds.length
-        ? await db.select({ id: projects.id, title: projects.title }).from(projects).where(inArray(projects.id, linkedProjectIds))
-        : [];
-      const projectNameById = new Map(linkedProjects.map(project => [project.id, project.title]));
 
       const alerts: any[] = [];
 
@@ -4988,15 +4988,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       });
 
-      // Like other bell items, support-renewal notifications are derived from
-      // current contract state and scoped to admins or assigned project managers.
-      for (const contract of renewalContracts) {
-        const alert = buildContractRenewalAlert(
-          contract,
-          contract.projectId ? projectNameById.get(contract.projectId) : undefined,
-          today,
-        );
-        if (alert) alerts.push(alert);
+      for (const notification of renewalNotifications) {
+        alerts.push({
+          type: "service_contract",
+          severity: notification.severity,
+          title: notification.title,
+          message: notification.message,
+          contractId: notification.relatedId ? Number(notification.relatedId) : undefined,
+          notificationId: notification.id,
+          link: notification.link ?? "/service-contracts",
+        });
       }
 
       res.json(alerts);

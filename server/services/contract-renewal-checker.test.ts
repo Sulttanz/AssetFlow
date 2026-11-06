@@ -76,14 +76,19 @@ describe("contract renewal checker", () => {
     const auditEntries: Record<string, unknown>[] = [];
     let updateIndex = 0;
 
-    const selectQuery: any = {};
-    selectQuery.from = vi.fn(() => selectQuery);
-    selectQuery.where = vi.fn(() => selectQuery);
-    selectQuery.then = (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
-      Promise.resolve(rows).then(resolve, reject);
+    const makeSelectQuery = (resultRows: unknown[]) => {
+      const query: any = {};
+      query.from = vi.fn(() => query);
+      query.innerJoin = vi.fn(() => query);
+      query.where = vi.fn(() => query);
+      query.then = (resolve: (value: unknown[]) => unknown, reject: (reason: unknown) => unknown) =>
+        Promise.resolve(resultRows).then(resolve, reject);
+      return query;
+    };
 
     const transaction: any = {
-      select: vi.fn(() => selectQuery),
+      select: vi.fn(() => makeSelectQuery(rows)),
+      selectDistinct: vi.fn(() => makeSelectQuery([])),
       update: vi.fn(() => {
         const index = updateIndex++;
         const builder: any = {};
@@ -103,7 +108,7 @@ describe("contract renewal checker", () => {
     };
     const executor = { transaction: vi.fn((callback: (tx: any) => Promise<unknown>) => callback(transaction)) };
 
-    const transitions = await runContractRenewalCheck(now, executor as any);
+    const transitions = await runContractRenewalCheck(now, executor as any, { projectManagementEnabled: false });
 
     expect(transitions.map(item => [item.contractNumber, item.status])).toEqual([
       ["CNT-NEAR", "near_expiration"],

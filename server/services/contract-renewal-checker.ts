@@ -1,5 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { auditLogs, serviceContracts } from "@shared/schema";
+import {
+  auditLogs, permissions, projectManagers, rolePermissions, serviceContracts, systemNotifications, userRoles,
+} from "@shared/schema";
 import { formatDateDisplay, toDateInputValue } from "@shared/date-format";
 import { isFeatureEnabled } from "../module-access";
 import { db } from "../db";
@@ -83,10 +85,33 @@ type RenewalExecutor = {
   transaction: (callback: (transaction: any) => Promise<unknown>) => Promise<unknown>;
 };
 
+async function getContractNotificationRecipients(
+  transaction: any,
+  projectId: string | null,
+  projectManagementEnabled: boolean,
+): Promise<string[]> {
+  const adminRows = await transaction.selectDistinct({ userId: userRoles.userId })
+    .from(userRoles)
+    .innerJoin(rolePermissions, eq(rolePermissions.roleId, userRoles.roleId))
+    .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+    .where(eq(permissions.name, "system_admin"));
+  const managerRows = projectManagementEnabled && projectId
+    ? await transaction.select({ userId: projectManagers.userId })
+      .from(projectManagers)
+      .where(eq(projectManagers.projectId, projectId))
+    : [];
+  return Array.from(new Set([
+    ...adminRows.map((row: { userId: string }) => row.userId),
+    ...managerRows.map((row: { userId: string }) => row.userId),
+  ]));
+}
+
 export async function runContractRenewalCheck(
   now = new Date(),
   executor: RenewalExecutor = db,
+  options: { projectManagementEnabled?: boolean } = {},
 ): Promise<ContractRenewalTransition[]> {
+  const projectManagementEnabled = options.projectManagementEnabled ?? await isFeatureEnabled("project_management");
   return await executor.transaction(async transaction => {
     const rows = await transaction.select().from(serviceContracts).where(
       inArray(serviceContracts.status, ["active", "near_expiration"]),
@@ -129,6 +154,27 @@ export async function runContractRenewalCheck(
         ipAddress: "system",
         userAgent: "contract-renewal-checker",
       });
+      const notification = buildContractRenewalAlert({
+        ...contract,
+        status: nextStatus,
+      }, undefined, now);
+      if (notification) {
+        const recipients = await getContractNotificationRecipients(transaction, contract.projectId, projectManagementEnabled);
+        if (recipients.length) {
+          const dedupeKey = `contract:${contract.id}:${contract.endDate}:${nextStatus}`;
+          await transaction.insert(systemNotifications).values(recipients.map(userId => ({
+            userId,
+            type: notification.type,
+            severity: notification.severity,
+            title: notification.title,
+            message: notification.message,
+            link: notification.link,
+            relatedType: "service_contract",
+            relatedId: String(contract.id),
+            dedupeKey,
+          }))).onConflictDoNothing();
+        }
+      }
 
       transitions.push({
         ...updated,

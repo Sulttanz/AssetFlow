@@ -881,6 +881,24 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+export const systemNotifications = pgTable("system_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  severity: text("severity").notNull().default("medium"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  link: text("link"),
+  relatedType: text("related_type"),
+  relatedId: text("related_id"),
+  dedupeKey: text("dedupe_key").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("system_notifications_user_dedupe_uq").on(table.userId, table.dedupeKey),
+  index("system_notifications_user_created_idx").on(table.userId, table.createdAt),
+]);
+
 export const dataMigrationBatches = pgTable("data_migration_batches", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   moduleKey: text("module_key").notNull(),
