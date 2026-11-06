@@ -136,6 +136,19 @@ describe("Enterprise sidebar navigation", () => {
     expect(button("Overview").getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("opens the mobile drawer and closes it after selecting a destination", () => {
+    render(<Sidebar />);
+    const menuButton = button("Open menu");
+    fireEvent.click(menuButton);
+    expect(menuButton.getAttribute("aria-expanded")).toBe("true");
+    const mobileNavigation = document.getElementById("mobile-navigation");
+    expect(mobileNavigation?.getAttribute("data-state")).toBe("open");
+    const dashboardLink = mobileNavigation?.querySelector('a[href="/dashboard"]');
+    expect(dashboardLink).toBeTruthy();
+    fireEvent.click(dashboardLink!);
+    expect(menuButton.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("keeps compliance visible when Risk Management is disabled and Asset Management is enabled", () => {
     state.disabled = ["risk_management"];
     path("/reports/hardware-inventory");

@@ -549,18 +549,18 @@ export default function Sidebar() {
       <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 shadow-sm md:hidden">
         <button
           onClick={() => setMobileOpen(true)}
-          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
           aria-label="Open menu"
           aria-expanded={mobileOpen}
           aria-controls="mobile-navigation"
         >
           <Menu className="w-5 h-5" />
         </button>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <div className="w-7 h-7 bg-primary rounded-md flex items-center justify-center">
             <Server className="text-primary-foreground w-4 h-4" />
           </div>
-          <span className="font-semibold text-sm text-foreground">IT Asset Manager</span>
+          <span className="truncate font-semibold text-sm text-foreground">IT Asset Manager</span>
         </div>
       </div>
 

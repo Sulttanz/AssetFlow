@@ -197,12 +197,30 @@
   }
 
   [data-radix-popper-content-wrapper] {
-    max-width: calc(100vw - 1rem);
+    max-width: calc(100vw - 0.5rem);
   }
 
   [data-radix-popper-content-wrapper] > * {
     box-sizing: border-box;
-    max-width: calc(100vw - 1rem) !important;
+    max-width: calc(100vw - 0.5rem) !important;
+  }
+
+  [data-radix-popper-content-wrapper] .rdp-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+
+  [data-radix-popper-content-wrapper] .rdp-head_cell,
+  [data-radix-popper-content-wrapper] .rdp-cell {
+    width: 14.285%;
+    padding: 0;
+  }
+
+  [data-radix-popper-content-wrapper] .rdp-day {
+    width: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
   }
 
   :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet], [data-radix-popper-content-wrapper]) :is(

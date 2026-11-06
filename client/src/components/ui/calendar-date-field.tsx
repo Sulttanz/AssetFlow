@@ -116,8 +116,8 @@ export const CalendarDateField = React.forwardRef<HTMLInputElement, Props>(
               <CalendarIcon className="h-4 w-4" />
             </button>
           </PopoverTrigger>
-           <PopoverContent align="start" className="w-auto max-w-[calc(100vw-1.5rem)] p-0">
-            <Calendar mode="single" initialFocus selected={parseDateValue(iso)}
+            <PopoverContent align="start" className="w-auto max-w-[calc(100vw-0.5rem)] p-0">
+             <Calendar className="p-0 sm:p-3" mode="single" initialFocus selected={parseDateValue(iso)}
               defaultMonth={parseDateValue(iso) ?? parseDateValue(minIso)}
               disabled={date => {
                 const candidate = toDateInputValue(date);

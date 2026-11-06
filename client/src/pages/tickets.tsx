@@ -1143,14 +1143,15 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                         </label>
                       </div>
                     )}
-                    <div className="flex gap-2">
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
                       <Textarea
                         placeholder={commentIsInternal ? "Add an internal note (only visible to agents)..." : "Add a comment..."}
                         value={commentText}
                         onChange={(e) => setCommentText(e.target.value)}
-                        className={`min-h-[60px] ${commentIsInternal ? "border-amber-300 bg-amber-50" : ""}`}
+                        className={`min-h-[60px] min-w-0 sm:flex-1 ${commentIsInternal ? "border-amber-300 bg-amber-50" : ""}`}
                       />
                       <Button
+                        className="self-end sm:self-auto"
                         size="icon"
                         disabled={!commentText.trim() || commentMutation.isPending}
                         onClick={() => commentMutation.mutate({ id: selectedTicket.id, message: commentText, isInternal: commentIsInternal })}
@@ -1186,7 +1187,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                 )}
 
                 {isRequestsView && ["open", "in_progress"].includes(selectedTicket.status) && (
-                  <div className="border-t pt-4 flex justify-end">
+                  <div className="flex flex-col justify-end gap-2 border-t pt-4 sm:flex-row">
                     <Button variant="destructive" onClick={() => setIsCancelOpen(true)}>
                       Cancel Request
                     </Button>
@@ -1194,7 +1195,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
                 )}
 
                 {isRequestsView && selectedTicket.status === "closed" && (
-                  <div className="border-t pt-4 flex justify-end">
+                  <div className="flex flex-col justify-end gap-2 border-t pt-4 sm:flex-row">
                     <Button variant="outline" onClick={() => setIsReopenOpen(true)}>
                       Reopen Request
                     </Button>

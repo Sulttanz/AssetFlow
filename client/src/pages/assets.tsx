@@ -283,9 +283,9 @@ export default function Assets() {
         showSearch={false}
       />
 
-      <main className="p-6" data-testid="assets-content">
+      <main className="p-3 sm:p-6" data-testid="assets-content">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-6">
             {/* Filters */}
             <FilterBar className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5" aria-label="Asset search and filters">
               <div className="relative md:col-span-2 lg:col-span-5">
