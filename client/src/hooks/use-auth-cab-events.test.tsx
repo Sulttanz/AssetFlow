@@ -321,6 +321,64 @@ it.each([
   expect(screen.queryByText("Sign-in page")).toBeNull();
 });
 
+it("keeps a protected page available through a temporary session-check outage and recovers on the next poll", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const fetchSession = vi.fn()
+    .mockResolvedValueOnce(response(503))
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true, username: "alice" }));
+  vi.stubGlobal("fetch", fetchSession);
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "private page data" });
+  const intervalSpy = vi.spyOn(globalThis, "setInterval");
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ProtectedRoute path="/" component={PrivatePage} />
+        <Route path="/auth"><div>Sign-in page</div></Route>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+
+  const sessionCheck = intervalSpy.mock.calls
+    .find(([, delay]) => delay === 5 * 60_000)?.[0];
+  expect(typeof sessionCheck).toBe("function");
+
+  await act(async () => {
+    if (typeof sessionCheck === "function") sessionCheck();
+    await flushAsyncWork();
+  });
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+  });
+  expect(queryClient.getQueryData(["/api/private"])).toEqual({
+    secret: "private page data",
+  });
+  expect(screen.getByText("private page data")).toBeTruthy();
+  expect(screen.queryByText("Sign-in page")).toBeNull();
+
+  await act(async () => {
+    if (typeof sessionCheck === "function") sessionCheck();
+    await flushAsyncWork();
+  });
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+  expect(fetchSession).toHaveBeenCalledTimes(2);
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+    username: "alice",
+  });
+  expect(queryClient.getQueryData(["/api/private"])).toEqual({
+    secret: "private page data",
+  });
+  expect(screen.getByText("private page data")).toBeTruthy();
+  expect(screen.queryByText("Sign-in page")).toBeNull();
+});
+
 it.each(["/api/login", "/api/auth/verify-password"])(
   "keeps the session when %s returns 401 for invalid credentials",
   async (url) => {
