@@ -177,6 +177,12 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.departments, { name: "Retained department" });
     await seed(s.warehouseLocations, { name: "Retained warehouse", code: "RESET-WH" });
     await seed(s.slaPolicies, { name: "Retained SLA", priority: "high", responseHours: 1, resolutionHours: 4 });
+    await seed(s.changeBlackouts, {
+      title: "Retained quarter-end freeze",
+      startDate: "2026-12-20",
+      endDate: "2026-12-31",
+      createdById: adminId,
+    });
     await setupPool.query(`CREATE TABLE "${schema}"."_onprem_migrations" (name text PRIMARY KEY)`);
     await setupPool.query(`INSERT INTO "${schema}"."_onprem_migrations" VALUES ('retained-migration')`);
 

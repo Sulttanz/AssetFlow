@@ -2260,6 +2260,28 @@ export const changes = pgTable("changes", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
+export const changeBlackouts = pgTable("change_blackouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: text("title").notNull(),
+  reason: text("reason"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  check("change_blackouts_date_range_check", sql`${table.endDate} >= ${table.startDate}`),
+  index("change_blackouts_date_range_idx").on(table.startDate, table.endDate),
+]);
+
+export const insertChangeBlackoutSchema = createInsertSchema(changeBlackouts).omit({
+  id: true,
+  createdById: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ChangeBlackout = typeof changeBlackouts.$inferSelect;
+
 // Dedicated ITIL practice records. The legacy tickets table remains during
 // migration so existing comments, attachments, and external references remain intact.
 export const incidents = pgTable("incidents", {

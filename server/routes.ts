@@ -19,7 +19,7 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
+  assetAttachments, ticketAttachments, risks, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
@@ -32,7 +32,7 @@ import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
 import { db } from "./db";
-import { eq, and, inArray, isNull, sql, or, ilike, desc, asc } from "drizzle-orm";
+import { eq, and, inArray, isNull, isNotNull, sql, or, ilike, desc, asc, gte, lt, lte } from "drizzle-orm";
 import {
   ACCESS_DROPDOWN_CATEGORIES,
   ACCESS_TYPES,
@@ -9126,6 +9126,110 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ applications: applicationRows, servers: serverRows });
     } catch {
       res.status(500).json({ message: "Failed to load change target catalog" });
+    }
+  });
+
+  const blackoutDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Enter a valid calendar date");
+  const blackoutPayloadSchema = z.object({
+    title: z.string().trim().min(1).max(120),
+    reason: z.string().trim().max(500).nullable().optional(),
+    startDate: blackoutDateSchema,
+    endDate: blackoutDateSchema,
+  }).strict().refine(value => value.endDate >= value.startDate, {
+    message: "End date must be on or after start date",
+    path: ["endDate"],
+  });
+
+  app.get("/api/changes/calendar", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
+    try {
+      const fromResult = blackoutDateSchema.safeParse(req.query.from);
+      const toResult = blackoutDateSchema.safeParse(req.query.to);
+      if (!fromResult.success || !toResult.success || fromResult.data > toResult.data) {
+        return res.status(400).json({ message: "Provide a valid calendar date range" });
+      }
+      const from = fromResult.data;
+      const to = toResult.data;
+      const fromTime = new Date(`${from}T00:00:00.000Z`);
+      const toExclusive = new Date(new Date(`${to}T00:00:00.000Z`).getTime() + 86400000);
+      if ((toExclusive.getTime() - fromTime.getTime()) / 86400000 > 62) {
+        return res.status(400).json({ message: "Calendar range cannot exceed 62 days" });
+      }
+      const [plannedChanges, blackoutRows] = await Promise.all([
+        db.select({
+          id: changes.id,
+          changeNumber: changes.changeNumber,
+          title: changes.title,
+          status: changes.status,
+          type: changes.type,
+          scheduledStart: changes.scheduledStart,
+          scheduledEnd: changes.scheduledEnd,
+          risk: changes.risk,
+        }).from(changes).where(and(
+          inArray(changes.status, ["submitted", "approved", "in_progress"]),
+          isNotNull(changes.scheduledStart),
+          isNotNull(changes.scheduledEnd),
+          lt(changes.scheduledStart, toExclusive),
+          gte(changes.scheduledEnd, fromTime),
+        )).orderBy(asc(changes.scheduledStart), asc(changes.changeNumber)),
+        db.select({
+          id: changeBlackouts.id,
+          title: changeBlackouts.title,
+          reason: changeBlackouts.reason,
+          startDate: changeBlackouts.startDate,
+          endDate: changeBlackouts.endDate,
+          createdAt: changeBlackouts.createdAt,
+        }).from(changeBlackouts).where(and(
+          lte(changeBlackouts.startDate, to),
+          gte(changeBlackouts.endDate, from),
+        )).orderBy(asc(changeBlackouts.startDate), asc(changeBlackouts.title)),
+      ]);
+      res.json({ changes: plannedChanges, blackouts: blackoutRows });
+    } catch {
+      res.status(500).json({ message: "Failed to load change calendar" });
+    }
+  });
+
+  app.post("/api/change-blackouts", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
+    const parsed = blackoutPayloadSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid blackout period" });
+    try {
+      const [created] = await db.insert(changeBlackouts).values({
+        ...parsed.data,
+        reason: parsed.data.reason || null,
+        createdById: (req.user as any).id,
+      }).returning();
+      res.status(201).json(created);
+    } catch {
+      res.status(500).json({ message: "Failed to create blackout period" });
+    }
+  });
+
+  app.put("/api/change-blackouts/:id", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
+    const parsed = blackoutPayloadSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid blackout period" });
+    try {
+      const [updated] = await db.update(changeBlackouts).set({
+        ...parsed.data,
+        reason: parsed.data.reason || null,
+        updatedAt: new Date(),
+      }).where(eq(changeBlackouts.id, req.params.id)).returning();
+      if (!updated) return res.status(404).json({ message: "Blackout period not found" });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ message: "Failed to update blackout period" });
+    }
+  });
+
+  app.delete("/api/change-blackouts/:id", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
+    try {
+      const [deleted] = await db.delete(changeBlackouts).where(eq(changeBlackouts.id, req.params.id)).returning({ id: changeBlackouts.id });
+      if (!deleted) return res.status(404).json({ message: "Blackout period not found" });
+      res.json({ success: true });
+    } catch {
+      res.status(500).json({ message: "Failed to delete blackout period" });
     }
   });
 

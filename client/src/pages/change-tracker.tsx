@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import ChangeCalendar from "@/components/itsm/change-calendar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,7 +62,7 @@ export default function ChangeTracker() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "change_manage" || permission === "system_admin");
-  const [view, setView] = useState<"open" | "closed" | "risks">("open");
+  const [view, setView] = useState<"open" | "closed" | "risks" | "calendar">("open");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -202,8 +203,16 @@ export default function ChangeTracker() {
               <div className="inline-flex w-fit rounded-md border border-[#d9e2dd] bg-[#f1f5f2] p-1">
                 {(["open", "closed"] as const).map((tab) => <button key={tab} onClick={() => setView(tab)} className={`rounded px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${view === tab ? "bg-white text-[#164b40] shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>{`${tab} · ${tab === "open" ? openCount : changes.length - openCount}`}</button>)}
               </div>
+              {canManageRisks && <button
+                type="button"
+                onClick={() => setView(view === "calendar" ? "open" : "calendar")}
+                aria-pressed={view === "calendar"}
+                className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-xs font-semibold transition-colors ${view === "calendar" ? "border-[#b9d2c7] bg-[#e2eee8] text-[#164b40]" : "border-[#d9e2dd] bg-white text-slate-600 hover:bg-[#f7faf8] hover:text-[#164b40]"}`}
+              >
+                <CalendarDays className="h-3.5 w-3.5" /> Calendar
+              </button>}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            {view !== "calendar" && <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={view === "risks" ? "Search risk, change, owner…" : "Search number, title, owner…"} className="h-10 border-[#d9e2dd] bg-white pl-9 text-sm" />
@@ -226,10 +235,10 @@ export default function ChangeTracker() {
                   <option value="all">All risk statuses</option><option value="identified">Identified</option><option value="mitigating">Mitigating</option><option value="accepted">Accepted</option><option value="closed">Closed</option>
                 </select>
               </div>}
-            </div>
+            </div>}
           </div>
 
-          {view !== "risks" ? <div className="overflow-x-auto">
+          {view === "calendar" ? <ChangeCalendar canManage={canManageRisks} /> : view !== "risks" ? <div className="overflow-x-auto">
             <table className="w-full min-w-[1020px] border-collapse text-left">
               <thead className="bg-[#f3f6f4] text-[10px] font-bold uppercase tracking-[.13em] text-slate-500">
                 <tr><th className="px-5 py-3">Change / ownership</th><th className="px-4 py-3">State</th><th className="px-4 py-3">Priority / risk</th><th className="px-4 py-3">Planned window</th><th className="px-4 py-3">CAB progress</th><th className="px-4 py-3">Deployment</th><th className="px-4 py-3 text-right">Record</th></tr>
@@ -279,10 +288,10 @@ export default function ChangeTracker() {
               </tbody>
             </table>
           </div>}
-          <footer className="flex flex-col justify-between gap-2 border-t border-[#e0e7e3] bg-[#f8faf8] px-5 py-3 text-[11px] text-slate-500 sm:flex-row sm:items-center">
+          {view !== "calendar" && <footer className="flex flex-col justify-between gap-2 border-t border-[#e0e7e3] bg-[#f8faf8] px-5 py-3 text-[11px] text-slate-500 sm:flex-row sm:items-center">
             <span>Portfolio data refreshes from the change service.</span>
             <span className="flex items-center gap-1.5 font-mono"><span className="h-1.5 w-1.5 rounded-full bg-teal-600" /> {view === "risks" ? `${filteredRisks.length} risks shown` : `${filteredChanges.length} of ${view === "open" ? openCount : changes.length - openCount} changes shown`}</span>
-          </footer>
+          </footer>}
         </section>
       </div>
 
