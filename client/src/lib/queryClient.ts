@@ -5,18 +5,89 @@ const nonSessionUnauthorizedPaths = new Set([
   "/api/auth/verify-password",
 ]);
 
-function clearPrivateDataForRevokedSession(url: string, status: number) {
-  const path = url.split(/[?#]/, 1)[0];
-  if (status !== 401 || nonSessionUnauthorizedPaths.has(path)) return;
-  if (!queryClient.getQueryData(["/api/user"])) return;
+const SESSION_REVOCATION_CHANNEL_NAME = "session-revoked";
+type SessionRevocationMessage = {
+  type: "session-revoked";
+  userId: string;
+};
+
+let sessionRevocationChannel: BroadcastChannel | null = null;
+let defaultChannelSubscriberCount = 0;
+
+function getSessionRevocationChannel() {
+  if (typeof window === "undefined" || typeof window.BroadcastChannel !== "function") {
+    return null;
+  }
+  if (!sessionRevocationChannel) {
+    try {
+      sessionRevocationChannel = new window.BroadcastChannel(SESSION_REVOCATION_CHANNEL_NAME);
+    } catch {
+      return null;
+    }
+  }
+  return sessionRevocationChannel;
+}
+
+function clearPrivateQueryState(client: QueryClient, expectedUserId?: string) {
+  const currentUser = client.getQueryData<{ id?: string }>(["/api/user"]);
+  if (!currentUser || (expectedUserId !== undefined && currentUser.id !== expectedUserId)) {
+    return false;
+  }
 
   // Update auth state first so protected routes unmount immediately, then
   // discard every other cached response from the revoked session.
-  queryClient.setQueryData(["/api/user"], null);
-  queryClient.removeQueries({
+  client.setQueryData(["/api/user"], null);
+  client.removeQueries({
     predicate: (query) => query.queryKey[0] !== "/api/user",
   });
-  queryClient.getMutationCache().clear();
+  client.getMutationCache().clear();
+  return true;
+}
+
+function broadcastSessionRevocation(userId: string) {
+  getSessionRevocationChannel()?.postMessage({
+    type: "session-revoked",
+    userId,
+  } satisfies SessionRevocationMessage);
+}
+
+export function subscribeToSessionRevocation(
+  client: QueryClient,
+  channel = getSessionRevocationChannel(),
+) {
+  if (!channel) return () => {};
+  const usesDefaultChannel = channel === sessionRevocationChannel;
+  const listener = (event: MessageEvent<unknown>) => {
+    const message = event.data as Partial<SessionRevocationMessage> | null;
+    if (
+      !message ||
+      message.type !== "session-revoked" ||
+      typeof message.userId !== "string"
+    ) return;
+    clearPrivateQueryState(client, message.userId);
+  };
+  channel.addEventListener("message", listener);
+  if (usesDefaultChannel) defaultChannelSubscriberCount++;
+  let subscribed = true;
+  return () => {
+    if (!subscribed) return;
+    subscribed = false;
+    channel.removeEventListener("message", listener);
+    if (usesDefaultChannel && --defaultChannelSubscriberCount === 0) {
+      channel.close();
+      sessionRevocationChannel = null;
+    }
+  };
+}
+
+function clearPrivateDataForRevokedSession(url: string, status: number) {
+  const path = url.split(/[?#]/, 1)[0];
+  if (status !== 401 || nonSessionUnauthorizedPaths.has(path)) return;
+  const currentUser = queryClient.getQueryData<{ id?: string }>(["/api/user"]);
+  if (!currentUser) return;
+  if (clearPrivateQueryState(queryClient) && typeof currentUser.id === "string") {
+    broadcastSessionRevocation(currentUser.id);
+  }
 }
 
 async function throwIfResNotOk(res: Response) {

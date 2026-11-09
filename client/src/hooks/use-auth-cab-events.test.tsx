@@ -1,9 +1,14 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Route } from "wouter";
 import { AuthProvider } from "./use-auth";
-import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
+import {
+  apiRequest,
+  getQueryFn,
+  queryClient,
+  subscribeToSessionRevocation,
+} from "@/lib/queryClient";
 import { ProtectedRoute } from "@/lib/protected-route";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -21,6 +26,31 @@ class FakeEventSource extends EventTarget {
   constructor(public url: string) {
     super();
     FakeEventSource.instances.push(this);
+  }
+}
+
+class FakeBroadcastChannel extends EventTarget {
+  static instances: FakeBroadcastChannel[] = [];
+  onmessage: ((this: BroadcastChannel, ev: MessageEvent) => unknown) | null = null;
+  onmessageerror: ((this: BroadcastChannel, ev: MessageEvent) => unknown) | null = null;
+  postedMessages: unknown[] = [];
+  closed = false;
+
+  constructor(public name: string) {
+    super();
+    FakeBroadcastChannel.instances.push(this);
+  }
+
+  postMessage(data: unknown) {
+    this.postedMessages.push(data);
+    for (const peer of FakeBroadcastChannel.instances) {
+      if (peer === this || peer.closed || peer.name !== this.name) continue;
+      queueMicrotask(() => peer.dispatchEvent(new MessageEvent("message", { data })));
+    }
+  }
+
+  close() {
+    this.closed = true;
   }
 }
 
@@ -57,6 +87,8 @@ afterEach(() => {
   queryClient.clear();
   window.history.replaceState({}, "", "/");
   FakeEventSource.instances = [];
+  for (const channel of FakeBroadcastChannel.instances) channel.close();
+  FakeBroadcastChannel.instances = [];
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -160,6 +192,92 @@ it("signs out and hides an open protected page when an idle session is revoked",
     expect(screen.queryByText("private page data")).toBeNull();
     expect(screen.getByText("Sign-in page")).toBeTruthy();
   });
+});
+
+it("clears the matching session in other tabs after a confirmed revocation", async () => {
+  vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+
+  const aliceTabClient = new QueryClient();
+  const aliceTabChannel = new FakeBroadcastChannel("session-revoked");
+  aliceTabClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  aliceTabClient.setQueryData(["/api/private"], { secret: "alice private data" });
+  const unsubscribeAlice = subscribeToSessionRevocation(aliceTabClient, aliceTabChannel);
+
+  const bobTabClient = new QueryClient();
+  const bobTabChannel = new FakeBroadcastChannel("session-revoked");
+  bobTabClient.setQueryData(["/api/user"], { id: "bob", isActive: true });
+  bobTabClient.setQueryData(["/api/private"], { secret: "bob private data" });
+  const unsubscribeBob = subscribeToSessionRevocation(bobTabClient, bobTabChannel);
+
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "revoked tab data" });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(401)));
+
+  await expect(apiRequest("GET", "/api/private")).rejects.toThrow("401:");
+
+  await waitFor(() => {
+    expect(aliceTabClient.getQueryData(["/api/user"])).toBeNull();
+    expect(aliceTabClient.getQueryData(["/api/private"])).toBeUndefined();
+  });
+  expect(bobTabClient.getQueryData(["/api/user"])).toEqual({
+    id: "bob",
+    isActive: true,
+  });
+  expect(bobTabClient.getQueryData(["/api/private"])).toEqual({
+    secret: "bob private data",
+  });
+  expect(FakeBroadcastChannel.instances.flatMap((channel) => channel.postedMessages)).toEqual([
+    { type: "session-revoked", userId: "alice" },
+  ]);
+
+  unsubscribeAlice();
+  unsubscribeBob();
+});
+
+it.each([
+  {
+    name: "a permission denial",
+    method: "GET",
+    url: "/api/private",
+    fetchResult: () => Promise.resolve(response(403)),
+  },
+  {
+    name: "a network failure",
+    method: "GET",
+    url: "/api/private",
+    fetchResult: () => Promise.reject(new Error("offline")),
+  },
+  {
+    name: "an invalid login attempt",
+    method: "POST",
+    url: "/api/login",
+    fetchResult: () => Promise.resolve(response(401)),
+  },
+])("does not broadcast sign-out after $name", async ({ fetchResult, method, url }) => {
+  vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+  const receiverClient = new QueryClient();
+  receiverClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  receiverClient.setQueryData(["/api/private"], { secret: "still private" });
+  const receiverChannel = new FakeBroadcastChannel("session-revoked");
+  const unsubscribe = subscribeToSessionRevocation(receiverClient, receiverChannel);
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  vi.stubGlobal("fetch", vi.fn(fetchResult));
+
+  await expect(apiRequest(method, url, method === "POST" ? {} : undefined)).rejects.toThrow();
+
+  expect(receiverClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+  });
+  expect(receiverClient.getQueryData(["/api/private"])).toEqual({
+    secret: "still private",
+  });
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({
+    id: "alice",
+    isActive: true,
+  });
+  expect(FakeBroadcastChannel.instances.flatMap((channel) => channel.postedMessages)).toEqual([]);
+  unsubscribe();
 });
 
 it.each([

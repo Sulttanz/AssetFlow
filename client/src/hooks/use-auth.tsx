@@ -5,7 +5,12 @@ import {
   UseMutationResult,
 } from "@tanstack/react-query";
 import { insertUserSchema, User as SelectUser, InsertUser, UserWithDetails } from "@shared/schema";
-import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
+import {
+  getQueryFn,
+  apiRequest,
+  queryClient,
+  subscribeToSessionRevocation,
+} from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ModuleSettingView } from "@/hooks/use-modules";
 
@@ -37,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 10, // 10 minutes (previously cacheTime)
   });
+
+  useEffect(() => subscribeToSessionRevocation(queryClient), []);
 
   useEffect(() => {
     if (!user?.id) return;
