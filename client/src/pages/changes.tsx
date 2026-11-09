@@ -72,6 +72,7 @@ interface ChangeWithDetails {
   impactAnalysis?: {
     selectedApplicationIds: string[];
     selectedServerIds: string[];
+    selectedAssetIds: string[];
     applications: Array<{
       id: string; name: string; category: string; criticalityRating: string;
       businessOwnerId: string | null; businessOwnerName: string | null;
@@ -81,6 +82,10 @@ interface ChangeWithDetails {
     servers: Array<{
       id: string; hostname: string; ipAddress: string | null; environment: string; status: string;
       osPlatform: string; location: string | null; affectedThrough: string[];
+    }>;
+    assets: Array<{
+      id: string; name: string; assetTag: string | null; type: string; category: string | null;
+      criticalityRating: string | null; lifecycleStatus: string | null; affectedThrough: string[];
     }>;
     affectedOwners: Array<{ id: string; name: string; role: "Business Owner" | "Technical Owner"; applications: string[] }>;
   };
@@ -175,6 +180,7 @@ const formSchema = z.object({
   cabScheduledFor: z.string().optional(),
   targetApplicationIds: z.array(z.string()).default([]),
   targetServerIds: z.array(z.string()).default([]),
+  targetAssetIds: z.array(z.string()).default([]),
 });
 type FormData = z.infer<typeof formSchema>;
 
@@ -708,7 +714,7 @@ export default function Changes() {
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
-    defaultValues: { title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", targetApplicationIds: [], targetServerIds: [] },
+    defaultValues: { title: "", description: "", type: "normal", priority: "medium", risk: "low", impact: "", implementationPlan: "", rollbackPlan: "", testPlan: "", scheduledStart: "", scheduledEnd: "", assignedToId: "", departmentId: "", targetApplicationIds: [], targetServerIds: [], targetAssetIds: [] },
   });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -833,6 +839,7 @@ export default function Changes() {
       cabScheduledFor: detailedChange.cabScheduledFor ? detailedChange.cabScheduledFor.split("T")[0] : "",
       targetApplicationIds: detailedChange.impactAnalysis?.selectedApplicationIds ?? [],
       targetServerIds: detailedChange.impactAnalysis?.selectedServerIds ?? [],
+      targetAssetIds: detailedChange.impactAnalysis?.selectedAssetIds ?? [],
     });
     setDialogOpen(true);
   }
@@ -848,6 +855,7 @@ export default function Changes() {
       cabScheduledFor: data.cabScheduledFor || null,
       targetApplicationIds: data.targetApplicationIds,
       targetServerIds: data.targetServerIds,
+      targetAssetIds: data.targetAssetIds,
     };
     if (editingChange) updateMutation.mutate({ id: editingChange.id, data: payload });
   }
@@ -1261,14 +1269,15 @@ export default function Changes() {
             </TabsContent>
 
             <TabsContent value="impact" className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-4">
                 <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Affected applications</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.applications.length ?? 0}</p></div>
                 <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Infrastructure servers</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.servers.length ?? 0}</p></div>
+                <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">Registered assets</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.assets.length ?? 0}</p></div>
                 <div className="rounded-lg border bg-muted/20 p-3"><p className="text-xs text-muted-foreground">System owners</p><p className="mt-1 text-xl font-semibold">{currentChange?.impactAnalysis?.affectedOwners.length ?? 0}</p></div>
               </div>
-              {!currentChange?.impactAnalysis?.applications.length && !currentChange?.impactAnalysis?.servers.length ? (
+              {!currentChange?.impactAnalysis?.applications.length && !currentChange?.impactAnalysis?.servers.length && !currentChange?.impactAnalysis?.assets.length ? (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  No CMDB targets are linked to this change yet. Edit the request to select affected applications or servers.
+                  No services or assets are linked to this change yet. Edit the request to select affected configuration items.
                 </div>
               ) : (
                 <>
@@ -1292,6 +1301,27 @@ export default function Changes() {
                       </Table>
                     </div>
                   </section>
+                  {(currentChange?.impactAnalysis?.assets.length ?? 0) > 0 && (
+                    <section className="space-y-2">
+                      <h3 className="text-sm font-semibold">Affected registered assets and relationships</h3>
+                      <div className="overflow-x-auto rounded-lg border">
+                        <Table>
+                          <TableHeader><TableRow><TableHead>Asset</TableHead><TableHead>Type / category</TableHead><TableHead>Criticality</TableHead><TableHead>Lifecycle</TableHead><TableHead>Impact path</TableHead></TableRow></TableHeader>
+                          <TableBody>
+                            {currentChange?.impactAnalysis?.assets.map(asset => (
+                              <TableRow key={asset.id}>
+                                <TableCell><span className="font-medium">{asset.name}</span>{asset.assetTag && <span className="block font-mono text-xs text-muted-foreground">{asset.assetTag}</span>}</TableCell>
+                                <TableCell>{asset.category || asset.type}</TableCell>
+                                <TableCell>{asset.criticalityRating || "—"}</TableCell>
+                                <TableCell>{asset.lifecycleStatus || "—"}</TableCell>
+                                <TableCell className="max-w-[240px] text-xs text-muted-foreground">{asset.affectedThrough.join(", ")}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </section>
+                  )}
                   <section className="space-y-2">
                     <h3 className="text-sm font-semibold">Infrastructure blast radius</h3>
                     <div className="overflow-x-auto rounded-lg border">
@@ -1777,9 +1807,11 @@ export default function Changes() {
               <ChangeImpactSelector
                 applicationIds={form.watch("targetApplicationIds") ?? []}
                 serverIds={form.watch("targetServerIds") ?? []}
+                assetIds={form.watch("targetAssetIds") ?? []}
                 onChange={selection => {
                   form.setValue("targetApplicationIds", selection.applicationIds, { shouldDirty: true });
                   form.setValue("targetServerIds", selection.serverIds, { shouldDirty: true });
+                  form.setValue("targetAssetIds", selection.assetIds, { shouldDirty: true });
                 }}
               />
               <div className="grid grid-cols-2 gap-4">

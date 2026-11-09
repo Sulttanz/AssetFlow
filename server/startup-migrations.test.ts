@@ -90,6 +90,7 @@ describe("on-prem startup migrations", () => {
       "20261031_cmdb_applications_servers_documents.sql",
       "20261101_access_expiry_offboarding_clearances.sql",
       "20261102_cmdb_dependency_change_impact.sql",
+      "20261128_change_asset_impact_links.sql",
       "20261107_network_backup_policy_compliance.sql",
       "20261108_it_component_compliance_reviews.sql",
       "20261111_enterprise_project_management.sql",

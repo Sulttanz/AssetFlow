@@ -158,7 +158,9 @@ describe("CAB route notifications across signed-in sessions", () => {
     });
     approvals = [];
     change = { id: "change-1", changeNumber: "CHG-000001", title: "Upgrade network", type: "normal", status: "draft" };
-    store.getModuleSetting.mockResolvedValue(undefined);
+    store.getModuleSetting.mockImplementation(async (moduleKey: string) =>
+      moduleKey === "cmdb" ? { moduleKey, enabled: false } : undefined,
+    );
     store.getUserPermissions.mockImplementation(async (id: string) => id === "manager" ? ["change_manage", "ticket_view_all"] : ["ticket_view_all"]);
     store.getUserRoles.mockResolvedValue([]);
     store.createAuditLog.mockResolvedValue({});

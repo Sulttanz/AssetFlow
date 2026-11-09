@@ -71,7 +71,7 @@ describe("change risk routes", () => {
     state.storage.getRolesWithDetails.mockResolvedValue([]);
     state.storage.createRole.mockResolvedValue({ id: "role" });
     state.storage.assignRolePermission.mockResolvedValue(undefined);
-    state.storage.getModuleSetting.mockImplementation(async (moduleKey: string) => ({ moduleKey, enabled: true }));
+    state.storage.getModuleSetting.mockImplementation(async (moduleKey: string) => ({ moduleKey, enabled: moduleKey !== "cmdb" }));
     state.storage.getUserRoles.mockResolvedValue([]);
     state.storage.createAuditLog.mockResolvedValue({});
 

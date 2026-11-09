@@ -249,6 +249,8 @@ export default function ChangesReport() {
             risk: c.risk || "low",
             requestedBy: c.requestedByLabel ?? "N/A",
             assignedTo: c.assignedToLabel ?? "Unassigned",
+            affectedServices: c.impactSummary?.services.join(", ") || "None",
+            affectedAssets: c.impactSummary?.assets.join(", ") || "None",
             scheduledStart: c.scheduledStart ? formatDate(c.scheduledStart as any) : "N/A",
             scheduledEnd: c.scheduledEnd ? formatDate(c.scheduledEnd as any) : "N/A",
             createdAt: c.createdAt ? formatDate(c.createdAt as any) : "N/A",
@@ -262,6 +264,8 @@ export default function ChangesReport() {
             { header: "Risk", key: "risk", width: 12 },
             { header: "Requested By", key: "requestedBy", width: 20 },
             { header: "Assigned To", key: "assignedTo", width: 20 },
+            { header: "Affected Services", key: "affectedServices", width: 32 },
+            { header: "Affected Assets", key: "affectedAssets", width: 36 },
             { header: "Scheduled Start", key: "scheduledStart", width: 16 },
             { header: "Scheduled End", key: "scheduledEnd", width: 16 },
             { header: "Created", key: "createdAt", width: 14 },
@@ -277,9 +281,11 @@ export default function ChangesReport() {
             c.status.replace("_", " "),
             c.risk || "low",
             c.requestedByLabel ?? "N/A",
+            c.impactSummary?.services.join(", ") || "None",
+            c.impactSummary?.assets.join(", ") || "None",
             c.createdAt ? formatDate(c.createdAt as any) : "N/A",
           ]),
-          ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Created"],
+          ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Affected Services", "Affected Assets", "Created"],
           "Change Management Report",
           "changes-report"
         );
@@ -561,6 +567,8 @@ export default function ChangesReport() {
                       <TableHead>Status</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Risk</TableHead>
+                      <TableHead>Affected Services</TableHead>
+                      <TableHead>Affected Assets</TableHead>
                       <TableHead>Approvals</TableHead>
                       <TableHead>Requested By</TableHead>
                       <TableHead>Scheduled Start</TableHead>
@@ -582,6 +590,12 @@ export default function ChangesReport() {
                           <TableCell className="capitalize">{c.priority}</TableCell>
                           <TableCell>
                             <Badge className={riskColors[c.risk || "low"]}>{c.risk || "low"}</Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[220px] text-xs" title={c.impactSummary?.services.join(", ") || ""}>
+                            {c.impactSummary?.services.join(", ") || <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell className="max-w-[240px] text-xs" title={c.impactSummary?.assets.join(", ") || ""}>
+                            {c.impactSummary?.assets.join(", ") || <span className="text-muted-foreground">—</span>}
                           </TableCell>
                           <TableCell>
                             {c.activeApprovalCount > 0 ? (

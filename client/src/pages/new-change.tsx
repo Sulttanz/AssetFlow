@@ -40,6 +40,7 @@ export default function NewChangePage() {
   const [projectId, setProjectId] = useState("");
   const [targetApplicationIds, setTargetApplicationIds] = useState<string[]>([]);
   const [targetServerIds, setTargetServerIds] = useState<string[]>([]);
+  const [targetAssetIds, setTargetAssetIds] = useState<string[]>([]);
   const [validationError, setValidationError] = useState("");
   const options = useQuery<ChangeOptions>({
     queryKey: ["/api/incidents/options"],
@@ -49,7 +50,7 @@ export default function NewChangePage() {
     mutationFn: async (payload: {
       title: string; description: string; type: ChangeType; priority: Rating; risk: Rating; impact: string;
       implementationPlan: string; rollbackPlan: string; testPlan: string; scheduledStart: string; scheduledEnd: string; projectId: string | null;
-      targetApplicationIds: string[]; targetServerIds: string[];
+      targetApplicationIds: string[]; targetServerIds: string[]; targetAssetIds: string[];
     }) => (await apiRequest("POST", "/api/changes", payload)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
@@ -92,6 +93,7 @@ export default function NewChangePage() {
       projectId: projectId || null,
       targetApplicationIds,
       targetServerIds,
+      targetAssetIds,
     });
   }
 
@@ -132,9 +134,11 @@ export default function NewChangePage() {
           <ChangeImpactSelector
             applicationIds={targetApplicationIds}
             serverIds={targetServerIds}
+            assetIds={targetAssetIds}
             onChange={selection => {
               setTargetApplicationIds(selection.applicationIds);
               setTargetServerIds(selection.serverIds);
+              setTargetAssetIds(selection.assetIds);
             }}
           />
 

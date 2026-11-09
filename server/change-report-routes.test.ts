@@ -53,7 +53,9 @@ describe("change report and KPI endpoints", () => {
   beforeAll(async () => {
     store.getPermissions.mockResolvedValue([]);
     store.getRolesWithDetails.mockResolvedValue([]);
-    store.getModuleSetting.mockResolvedValue(undefined);
+    store.getModuleSetting.mockImplementation(async (moduleKey: string) =>
+      moduleKey === "cmdb" ? { moduleKey, enabled: false } : undefined,
+    );
     const app = express();
     app.use(express.json());
     server = await registerRoutes(app);
@@ -73,7 +75,9 @@ describe("change report and KPI endpoints", () => {
     vi.clearAllMocks();
     store.getPermissions.mockResolvedValue([]);
     store.getRolesWithDetails.mockResolvedValue([]);
-    store.getModuleSetting.mockResolvedValue(undefined);
+    store.getModuleSetting.mockImplementation(async (moduleKey: string) =>
+      moduleKey === "cmdb" ? { moduleKey, enabled: false } : undefined,
+    );
     store.getTickets.mockResolvedValue([]);
     store.getAssets.mockResolvedValue([]);
     store.getProblems.mockResolvedValue([]);

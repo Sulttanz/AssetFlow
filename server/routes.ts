@@ -24,7 +24,7 @@ import {
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
-  cmdbApplications, servers, applicationServerLinks, changeCiLinks,
+  cmdbApplications, servers, applicationServerLinks, changeCiLinks, changeAssetLinks, assetRelationships,
   configurationDocuments, insertCmdbApplicationSchema, insertServerSchema,
   employeeOffboardingSubmissionSchema
 } from "@shared/schema";
@@ -8830,12 +8830,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).from(risks)
         .leftJoin(users, eq(risks.ownerId, users.id))
         .leftJoin(changes, eq(risks.changeId, changes.id));
+      const impactSummaries = await getChangeImpactSummaries(rows.flatMap(row => row.linkedChangeId ? [row.linkedChangeId] : []));
       res.json(rows.map(row => ({
         ...row.risk,
         change: row.linkedChangeId ? {
           id: row.linkedChangeId,
           changeNumber: row.linkedChangeNumber,
           title: row.linkedChangeTitle,
+          impactSummary: impactSummaries.get(row.linkedChangeId),
         } : null,
         owner: row.linkedOwnerId ? {
           id: row.linkedOwnerId, username: row.linkedOwnerUsername,
@@ -8936,6 +8938,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const changeTargetSchema = z.object({
     targetApplicationIds: z.array(z.string().uuid()).max(100).optional(),
     targetServerIds: z.array(z.string().uuid()).max(100).optional(),
+    targetAssetIds: z.array(z.string().uuid()).max(100).optional(),
   });
   const validateChangeCiTargets = async (executor: any, applicationIds: string[], serverIds: string[]) => {
     const uniqueApplicationIds = applicationIds.filter((id, index) => applicationIds.indexOf(id) === index);
@@ -8970,9 +8973,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (links.length) await executor.insert(changeCiLinks).values(links);
   };
 
+  const validateChangeAssetTargets = async (executor: any, assetIds: string[]) => {
+    const uniqueAssetIds = assetIds.filter((id, index) => assetIds.indexOf(id) === index);
+    if (uniqueAssetIds.length !== assetIds.length) {
+      throw Object.assign(new Error("Choose each asset only once"), { status: 400 });
+    }
+    if (uniqueAssetIds.length) {
+      const found = await executor.select({ id: assets.id }).from(assets)
+        .where(inArray(assets.id, uniqueAssetIds));
+      if (found.length !== uniqueAssetIds.length) {
+        throw Object.assign(new Error("One or more selected assets do not exist"), { status: 400 });
+      }
+    }
+  };
+  const syncChangeAssetLinks = async (executor: any, changeId: string, assetIds: string[]) => {
+    const uniqueAssetIds = assetIds.filter((id, index) => assetIds.indexOf(id) === index);
+    await validateChangeAssetTargets(executor, assetIds);
+    await executor.delete(changeAssetLinks).where(eq(changeAssetLinks.changeRequestId, changeId));
+    if (uniqueAssetIds.length) {
+      await executor.insert(changeAssetLinks).values(uniqueAssetIds.map(assetId => ({ changeRequestId: changeId, assetId })));
+    }
+  };
+
+  const getChangeImpactSummaries = async (changeIds: string[]) => {
+    const uniqueChangeIds = Array.from(new Set(changeIds));
+    const summaries = new Map(uniqueChangeIds.map(id => [id, { services: [] as string[], assets: [] as string[] }]));
+    if (!uniqueChangeIds.length || !await isFeatureEnabled("cmdb")) return summaries;
+    const assetManagementEnabled = await isFeatureEnabled("asset_management");
+    const [ciRows, assetRows] = await Promise.all([
+      db.select({
+        changeId: changeCiLinks.changeRequestId,
+        serverId: changeCiLinks.serverId,
+        applicationName: cmdbApplications.name,
+        serverName: servers.hostname,
+      }).from(changeCiLinks)
+        .leftJoin(cmdbApplications, eq(cmdbApplications.id, changeCiLinks.applicationId))
+        .leftJoin(servers, eq(servers.id, changeCiLinks.serverId))
+        .where(inArray(changeCiLinks.changeRequestId, uniqueChangeIds)),
+      assetManagementEnabled ? db.select({
+        changeId: changeAssetLinks.changeRequestId,
+        assetId: changeAssetLinks.assetId,
+        assetName: assets.name,
+        assetTag: assets.assetTag,
+      }).from(changeAssetLinks)
+        .innerJoin(assets, eq(assets.id, changeAssetLinks.assetId))
+        .where(inArray(changeAssetLinks.changeRequestId, uniqueChangeIds)) : Promise.resolve([]),
+    ]);
+    for (const row of ciRows) {
+      const summary = summaries.get(row.changeId);
+      if (!summary) continue;
+      if (row.applicationName && !summary.services.includes(row.applicationName)) summary.services.push(row.applicationName);
+      if (row.serverName && !summary.assets.includes(row.serverName)) summary.assets.push(row.serverName);
+    }
+    const targetedServerIds = Array.from(new Set(ciRows.flatMap(row => row.serverId ? [row.serverId] : [])));
+    if (targetedServerIds.length) {
+      const relatedServices = await db.select({
+        serverId: applicationServerLinks.serverId,
+        applicationName: cmdbApplications.name,
+      }).from(applicationServerLinks)
+        .innerJoin(cmdbApplications, eq(cmdbApplications.id, applicationServerLinks.applicationId))
+        .where(inArray(applicationServerLinks.serverId, targetedServerIds));
+      const changesByServer = new Map<string, string[]>();
+      for (const row of ciRows) {
+        if (!row.serverId) continue;
+        const linkedChanges = changesByServer.get(row.serverId) ?? [];
+        linkedChanges.push(row.changeId);
+        changesByServer.set(row.serverId, linkedChanges);
+      }
+      for (const row of relatedServices) {
+        for (const changeId of changesByServer.get(row.serverId) ?? []) {
+          const summary = summaries.get(changeId);
+          if (summary && !summary.services.includes(row.applicationName)) summary.services.push(row.applicationName);
+        }
+      }
+    }
+    const directlyLinkedAssets = assetRows.length
+      ? assetRows.map(row => ({ changeId: row.changeId, assetId: row.assetId }))
+      : [];
+    const targetedAssetIds = Array.from(new Set(directlyLinkedAssets.map(row => row.assetId)));
+    if (targetedAssetIds.length) {
+      const relationships = await db.select().from(assetRelationships)
+        .where(or(
+          inArray(assetRelationships.parentAssetId, targetedAssetIds),
+          inArray(assetRelationships.childAssetId, targetedAssetIds),
+        ));
+      const directlyLinkedIds = new Set(targetedAssetIds);
+      const relatedIds = Array.from(new Set<string>(relationships.map(row =>
+        directlyLinkedIds.has(row.parentAssetId) ? row.childAssetId : row.parentAssetId,
+      ).filter(id => !directlyLinkedIds.has(id))));
+      if (relatedIds.length) {
+        const relatedAssets = await db.select({ id: assets.id, name: assets.name, assetTag: assets.assetTag })
+          .from(assets).where(inArray(assets.id, relatedIds));
+        const relatedById = new Map(relatedAssets.map(row => [row.id, row]));
+        for (const link of directlyLinkedAssets) {
+          for (const relationship of relationships.filter(row =>
+            row.parentAssetId === link.assetId || row.childAssetId === link.assetId,
+          )) {
+            const relatedId = relationship.parentAssetId === link.assetId ? relationship.childAssetId : relationship.parentAssetId;
+            const related = relatedById.get(relatedId);
+            const summary = summaries.get(link.changeId);
+            if (!related || !summary) continue;
+            const label = related.assetTag ? `${related.assetTag} — ${related.name}` : related.name;
+            if (!summary.assets.includes(label)) summary.assets.push(label);
+          }
+        }
+      }
+    }
+    for (const row of assetRows) {
+      const summary = summaries.get(row.changeId);
+      const label = row.assetTag ? `${row.assetTag} — ${row.assetName}` : row.assetName;
+      if (summary && !summary.assets.includes(label)) summary.assets.push(label);
+    }
+    for (const summary of Array.from(summaries.values())) {
+      summary.services.sort((a, b) => a.localeCompare(b));
+      summary.assets.sort((a, b) => a.localeCompare(b));
+    }
+    return summaries;
+  };
+
   const getChangeImpactAnalysis = async (changeId: string, executor: any = db) => {
     if (!await isFeatureEnabled("cmdb")) {
-      return { selectedApplicationIds: [], selectedServerIds: [], applications: [], servers: [], affectedOwners: [] };
+      return { selectedApplicationIds: [], selectedServerIds: [], selectedAssetIds: [], applications: [], servers: [], assets: [], affectedOwners: [] };
     }
     const employeeDirectoryEnabled = await isFeatureEnabled("asset_management");
     const applicationFields = {
@@ -9018,6 +9139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       directlySelectedServers,
       serversHostingTargetedApplications,
       applicationsHostedOnTargetServers,
+      selectedAssetLinks,
     ] = await Promise.all([
       executor.select(applicationFields).from(changeCiLinks)
         .innerJoin(cmdbApplications, eq(cmdbApplications.id, changeCiLinks.applicationId))
@@ -9043,11 +9165,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .innerJoin(cmdbApplications, eq(cmdbApplications.id, applicationServerLinks.applicationId))
         .innerJoin(servers, eq(servers.id, changeCiLinks.serverId))
         .where(eq(changeCiLinks.changeRequestId, changeId)),
+      employeeDirectoryEnabled ? executor.select({
+        id: assets.id,
+        name: assets.name,
+        assetTag: assets.assetTag,
+        type: assets.type,
+        category: assets.category,
+        criticalityRating: assets.criticalityRating,
+        lifecycleStatus: assets.lifecycleStatus,
+      }).from(changeAssetLinks)
+        .innerJoin(assets, eq(assets.id, changeAssetLinks.assetId))
+        .where(eq(changeAssetLinks.changeRequestId, changeId)) : Promise.resolve([]),
     ]) as [
       ApplicationImpactRow[],
       ServerImpactRow[],
       (ServerImpactRow & { targetApplicationId: string; targetApplicationName: string })[],
       (ApplicationImpactRow & { targetServerId: string; targetServerHostname: string })[],
+      Array<{ id: string; name: string; assetTag: string | null; type: string; category: string | null; criticalityRating: string | null; lifecycleStatus: string | null }>,
     ];
 
     type ImpactApplication = ApplicationImpactRow & { affectedThrough: string[] };
@@ -9094,19 +9228,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    type ImpactAsset = {
+      id: string;
+      name: string;
+      assetTag: string | null;
+      type: string;
+      category: string | null;
+      criticalityRating: string | null;
+      lifecycleStatus: string | null;
+      affectedThrough: string[];
+    };
+    const assetsById = new Map<string, ImpactAsset>(
+      selectedAssetLinks.map(asset => [asset.id, { ...asset, affectedThrough: ["Direct asset target"] }]),
+    );
+    if (selectedAssetLinks.length) {
+      const selectedById = new Map(selectedAssetLinks.map(asset => [asset.id, asset]));
+      const relationships = await executor.select().from(assetRelationships)
+        .where(or(
+          inArray(assetRelationships.parentAssetId, selectedAssetLinks.map(asset => asset.id)),
+          inArray(assetRelationships.childAssetId, selectedAssetLinks.map(asset => asset.id)),
+        ));
+      const relatedLinks: Array<{ selectedId: string; relatedId: string; relationshipType: string }> = relationships.map((relationship: typeof assetRelationships.$inferSelect) => {
+        const selectedId = selectedById.has(relationship.parentAssetId) ? relationship.parentAssetId : relationship.childAssetId;
+        return {
+          selectedId,
+          relatedId: selectedId === relationship.parentAssetId ? relationship.childAssetId : relationship.parentAssetId,
+          relationshipType: relationship.relationshipType,
+        };
+      });
+      const relatedIds: string[] = Array.from(new Set<string>(relatedLinks.map(link => link.relatedId).filter((id: string) => !selectedById.has(id))));
+      if (relatedIds.length) {
+        const relatedAssets = await executor.select({
+          id: assets.id,
+          name: assets.name,
+          assetTag: assets.assetTag,
+          type: assets.type,
+          category: assets.category,
+          criticalityRating: assets.criticalityRating,
+          lifecycleStatus: assets.lifecycleStatus,
+        }).from(assets).where(inArray(assets.id, relatedIds));
+        const relatedById = new Map<string, (typeof relatedAssets)[number]>(relatedAssets.map((asset: (typeof relatedAssets)[number]) => [asset.id, asset]));
+        for (const link of relatedLinks) {
+          const relatedAsset = relatedById.get(link.relatedId);
+          const selectedAsset = selectedById.get(link.selectedId);
+          if (!relatedAsset || !selectedAsset) continue;
+          const item: ImpactAsset = assetsById.get(relatedAsset.id) ?? { ...relatedAsset, affectedThrough: [] };
+          const path = `${link.relationshipType} relationship with ${selectedAsset.name}`;
+          if (!item.affectedThrough.includes(path)) item.affectedThrough.push(path);
+          assetsById.set(item.id, item);
+        }
+      }
+    }
+
     return {
       selectedApplicationIds: directlySelectedApplications.map(row => row.id),
       selectedServerIds: directlySelectedServers.map(row => row.id),
+      selectedAssetIds: selectedAssetLinks.map(row => row.id),
       applications: applications.sort((a, b) => a.name.localeCompare(b.name)),
       servers: serversById.sort((a, b) => a.hostname.localeCompare(b.hostname)),
+      assets: Array.from(assetsById.values()).sort((a, b) => a.name.localeCompare(b.name)),
       affectedOwners: owners.sort((a, b) => a.name.localeCompare(b.name) || a.role.localeCompare(b.role)),
     };
   };
 
   app.get("/api/cmdb/change-options", requireAuth, requireModule("itsm"), requireModule("cmdb"), async (_req, res) => {
     try {
-      const employeeDirectoryEnabled = await isFeatureEnabled("asset_management");
-      const [applicationRows, serverRows] = await Promise.all([
+      const assetManagementEnabled = await isFeatureEnabled("asset_management");
+      const employeeDirectoryEnabled = assetManagementEnabled;
+      const [applicationRows, serverRows, assetRows] = await Promise.all([
         db.select({
           id: cmdbApplications.id,
           name: cmdbApplications.name,
@@ -9122,8 +9311,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           environment: servers.environment,
           status: servers.status,
         }).from(servers).where(sql`${servers.status} <> 'offline'`).orderBy(asc(servers.hostname)),
+        assetManagementEnabled ? db.select({
+          id: assets.id,
+          name: assets.name,
+          assetTag: assets.assetTag,
+          type: assets.type,
+          category: assets.category,
+          criticalityRating: assets.criticalityRating,
+          lifecycleStatus: assets.lifecycleStatus,
+        }).from(assets).orderBy(asc(assets.name)) : Promise.resolve([]),
       ]);
-      res.json({ applications: applicationRows, servers: serverRows });
+      res.json({ applications: applicationRows, servers: serverRows, assets: assetRows });
     } catch {
       res.status(500).json({ message: "Failed to load change target catalog" });
     }
@@ -9249,10 +9447,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           (status !== undefined && (typeof status !== "string" || !["draft", "submitted", "approved", "rejected", "in_progress", "completed", "cancelled", "failed"].includes(status)))) {
         return res.status(400).json({ message: "Invalid change list parameters" });
       }
-      res.json(await storage.getChangesPage({
+      const result = await storage.getChangesPage({
         page, pageSize, search: search as string | undefined, type: type as string | undefined, status: status as string | undefined,
         ...(!canViewAll ? { requestedById: userId } : {}),
-      }));
+      });
+      const impactSummaries = await getChangeImpactSummaries(result.changes.map(change => change.id));
+      res.json({
+        ...result,
+        changes: result.changes.map(change => ({ ...change, impactSummary: impactSummaries.get(change.id) })),
+      });
     }
     catch { res.status(500).json({ message: "Failed to fetch changes" }); }
   });
@@ -9285,10 +9488,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetIds = changeTargetSchema.parse(body);
       const targetApplicationIds = targetIds.targetApplicationIds ?? [];
       const targetServerIds = targetIds.targetServerIds ?? [];
+      const targetAssetIds = targetIds.targetAssetIds ?? [];
       const cmdbEnabled = await isFeatureEnabled("cmdb");
       if (!cmdbEnabled && (targetApplicationIds.length || targetServerIds.length)) return sendFeatureNotEnabled(res, "cmdb");
+      const assetManagementEnabled = await isFeatureEnabled("asset_management");
+      if (!assetManagementEnabled && targetAssetIds.length) return sendFeatureNotEnabled(res, "asset_management");
       delete body.targetApplicationIds;
       delete body.targetServerIds;
+      delete body.targetAssetIds;
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
       if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
       if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
@@ -9301,6 +9508,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Project not found" });
       }
       if (cmdbEnabled) await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
+      if (assetManagementEnabled) await validateChangeAssetTargets(db, targetAssetIds);
       // New changes always start as draft regardless of caller-supplied status
       body.status = "draft";
       // Compute authoritative cabRequired from type/risk on creation
@@ -9310,7 +9518,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body.cabRequired = true;
       }
       const change = await storage.createChange({ ...body, requestedById: user.id });
-      if (cmdbEnabled) await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
+      if (cmdbEnabled || assetManagementEnabled) await db.transaction(async tx => {
+        if (cmdbEnabled) await syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds);
+        if (assetManagementEnabled) await syncChangeAssetLinks(tx, change.id, targetAssetIds);
+      });
       res.status(201).json({ ...change, impactAnalysis: await getChangeImpactAnalysis(change.id) });
     } catch (err) {
       console.error("Failed to create change:", err);
@@ -9328,12 +9539,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetIds = changeTargetSchema.parse(body);
       const cmdbEnabled = await isFeatureEnabled("cmdb");
       if (!cmdbEnabled && (targetIds.targetApplicationIds?.length || targetIds.targetServerIds?.length)) return sendFeatureNotEnabled(res, "cmdb");
+      const assetManagementEnabled = await isFeatureEnabled("asset_management");
+      if (!assetManagementEnabled && targetIds.targetAssetIds?.length) return sendFeatureNotEnabled(res, "asset_management");
       if (body.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
       delete body.targetApplicationIds;
       delete body.targetServerIds;
+      delete body.targetAssetIds;
       const linkUpdateRequested = cmdbEnabled && (targetIds.targetApplicationIds !== undefined || targetIds.targetServerIds !== undefined);
       const currentLinks = linkUpdateRequested
         ? await db.select().from(changeCiLinks).where(eq(changeCiLinks.changeRequestId, req.params.id))
@@ -9341,6 +9555,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetApplicationIds = targetIds.targetApplicationIds ?? currentLinks.flatMap(link => link.applicationId ? [link.applicationId] : []);
       const targetServerIds = targetIds.targetServerIds ?? currentLinks.flatMap(link => link.serverId ? [link.serverId] : []);
       if (linkUpdateRequested) await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
+      const assetLinkUpdateRequested = assetManagementEnabled && targetIds.targetAssetIds !== undefined;
+      const currentAssetLinks = assetLinkUpdateRequested
+        ? []
+        : assetManagementEnabled
+          ? await db.select().from(changeAssetLinks).where(eq(changeAssetLinks.changeRequestId, req.params.id))
+          : [];
+      const targetAssetIds = targetIds.targetAssetIds ?? currentAssetLinks.map(link => link.assetId);
+      if (assetLinkUpdateRequested) await validateChangeAssetTargets(db, targetAssetIds);
       if (body.scheduledStart) body.scheduledStart = new Date(body.scheduledStart);
       if (body.scheduledEnd)   body.scheduledEnd   = new Date(body.scheduledEnd);
       if (body.actualStart)    body.actualStart    = new Date(body.actualStart);
@@ -9376,8 +9598,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const change = result.change;
       if (!change) return res.status(404).json({ message: "Change not found" });
-      if (linkUpdateRequested) {
-        await db.transaction(tx => syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds));
+      if (linkUpdateRequested || assetLinkUpdateRequested) {
+        await db.transaction(async tx => {
+          if (linkUpdateRequested) await syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds);
+          if (assetLinkUpdateRequested) await syncChangeAssetLinks(tx, change.id, targetAssetIds);
+        });
       }
       res.json({
         ...change,
@@ -9785,7 +10010,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }),
         storage.getChangeReportSummary(startOfMonth),
       ]);
-      res.json({ ...result, page, pageSize, summary });
+      const impactSummaries = await getChangeImpactSummaries(result.changes.map(change => change.id));
+      res.json({
+        ...result,
+        changes: result.changes.map(change => ({ ...change, impactSummary: impactSummaries.get(change.id) })),
+        page,
+        pageSize,
+        summary,
+      });
     }
     catch { res.status(500).json({ message: "Failed to fetch change report" }); }
   });

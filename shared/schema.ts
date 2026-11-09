@@ -2490,6 +2490,17 @@ export const changeCiLinks = pgTable("change_ci_links", {
   index("change_ci_links_server_idx").on(table.serverId),
 ]);
 
+export const changeAssetLinks = pgTable("change_asset_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeRequestId: varchar("change_request_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  uniqueIndex("change_asset_links_pair_unique").on(table.changeRequestId, table.assetId),
+  index("change_asset_links_change_idx").on(table.changeRequestId),
+  index("change_asset_links_asset_idx").on(table.assetId),
+]);
+
 export const changeApprovals = pgTable("change_approvals", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
@@ -2593,7 +2604,10 @@ export type ChangeWithDetails = Change & {
   removedApprovals: (ChangeApproval & { removedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
   removedApproverIds: string[];
   stages?: (ChangeEnvironmentStage & { deployedBy?: Pick<User, "id" | "username" | "firstName" | "lastName"> })[];
+  impactSummary?: { services: string[]; assets: string[] };
 };
+
+export type ChangeImpactSummary = { services: string[]; assets: string[] };
 
 export type ChangeReportRow = Pick<
   Change,
@@ -2605,6 +2619,7 @@ export type ChangeReportRow = Pick<
   activeApprovalCount: number;
   approvedCount: number;
   pendingCount: number;
+  impactSummary?: ChangeImpactSummary;
 };
 
 export type ProblemWithDetails = Problem & {

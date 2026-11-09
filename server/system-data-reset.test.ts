@@ -264,6 +264,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     const infrastructure = await seed(s.servers, { hostname: "reset-server", osPlatform: "Linux", environment: "production" });
     await seed(s.applicationServerLinks, { applicationId: application, serverId: infrastructure });
     await seed(s.changeCiLinks, { changeRequestId: change, serverId: infrastructure });
+    await seed(s.changeAssetLinks, { changeRequestId: change, assetId: asset });
     await seed(s.configurationDocuments, { serverId: infrastructure, documentType: "configuration", originalName: "server.conf", fileName: "server.conf", filePath: "/fixture/server.conf" });
     const contract = await seed(s.contracts, { name: "Fixture SLA", vendorId: vendor });
     await seed(s.vendorContracts, { id: contract, vendorId: vendor, title: "Fixture SLA", contractNumber: "CON-RESET", contractType: "SLA Support", startDate: "2026-01-01", endDate: "2026-12-31" });

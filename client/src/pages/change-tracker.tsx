@@ -23,12 +23,13 @@ type ChangeRow = {
   priority?: string; risk?: string; scheduledStart?: string | null; scheduledEnd?: string | null;
   requestedBy?: Person; assignedTo?: Person; requestedById?: string; assignedToId?: string;
   approvals?: { decision?: string | null }[]; stages?: { environment?: string; status?: string }[];
+  impactSummary?: { services: string[]; assets: string[] };
 };
 type RiskRow = {
   id: string; title: string; description?: string; category?: string; likelihood?: number; impact?: number;
   mitigation?: string; contingency?: string; ownerId?: string; owner?: Person; dueDate?: string | null;
   residualLikelihood?: number; residualImpact?: number; status?: string;
-  changeId?: string; change?: ChangeRow; acceptanceReason?: string | null;
+  changeId?: string; change?: ChangeRow & { impactSummary?: { services: string[]; assets: string[] } }; acceptanceReason?: string | null;
 };
 type RiskForm = {
   title: string; description: string; category: string; likelihood: string; impact: string;
@@ -97,7 +98,7 @@ export default function ChangeTracker() {
       (statusFilter === "all" || change.status === statusFilter) &&
       (changeRiskFilter === "all" || change.risk === changeRiskFilter) &&
       (assigneeFilter === "all" || change.assignedToId === assigneeFilter) &&
-      (!query || `${change.changeNumber} ${change.title} ${personName(change.assignedTo)} ${personName(change.requestedBy)}`.toLowerCase().includes(query));
+      (!query || `${change.changeNumber} ${change.title} ${personName(change.assignedTo)} ${personName(change.requestedBy)} ${change.impactSummary?.services.join(" ")} ${change.impactSummary?.assets.join(" ")}`.toLowerCase().includes(query));
   }), [changes, search, typeFilter, statusFilter, changeRiskFilter, assigneeFilter, view]);
   const assignees = useMemo(() => Array.from(new Map(changes
     .filter((change) => change.assignedToId)
@@ -255,7 +256,7 @@ export default function ChangeTracker() {
                     <td className="px-5 py-4">
                       <div className="flex items-start gap-3">
                         <span className="mt-0.5 flex h-8 min-w-8 items-center justify-center rounded-md bg-[#e4eee9] font-mono text-[10px] font-bold text-[#205748]">{change.changeNumber?.replace(/[^0-9]/g, "").slice(-3) || "CH"}</span>
-                        <div className="min-w-0"><Link href="/changes" className="block max-w-[290px] truncate text-sm font-semibold text-slate-800 hover:text-teal-800">{change.title}</Link><div className="mt-1 flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-slate-500">{change.changeNumber || "Change record"}</span><span className="text-slate-300">·</span><span className="text-[11px] capitalize text-slate-500">{change.type || "normal"}</span></div><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500"><span>Owner <b className="font-medium text-slate-700">{personName(change.assignedTo)}</b></span><span>Requester <b className="font-medium text-slate-700">{personName(change.requestedBy)}</b></span></div></div>
+                      <div className="min-w-0"><Link href="/changes" className="block max-w-[290px] truncate text-sm font-semibold text-slate-800 hover:text-teal-800">{change.title}</Link><div className="mt-1 flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-slate-500">{change.changeNumber || "Change record"}</span><span className="text-slate-300">·</span><span className="text-[11px] capitalize text-slate-500">{change.type || "normal"}</span></div><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500"><span>Owner <b className="font-medium text-slate-700">{personName(change.assignedTo)}</b></span><span>Requester <b className="font-medium text-slate-700">{personName(change.requestedBy)}</b></span></div><p className="mt-1 max-w-[310px] truncate text-[11px] text-teal-800" title={`Services: ${(change.impactSummary?.services ?? []).join(", ") || "None"} · Assets: ${(change.impactSummary?.assets ?? []).join(", ") || "None"}`}>{change.impactSummary?.services.length || change.impactSummary?.assets.length ? `${change.impactSummary?.services.length ?? 0} services · ${change.impactSummary?.assets.length ?? 0} assets affected` : "No linked services or assets"}</p></div>
                       </div>
                     </td>
                     <td className="px-4 py-4"><Badge variant="outline" className="border-[#dce5e0] bg-white px-2 capitalize text-slate-700">{statusLabel(change.status)}</Badge></td>
@@ -276,7 +277,7 @@ export default function ChangeTracker() {
                 {risksLoading && Array.from({ length: 4 }).map((_, i) => <tr key={i} className="animate-pulse"><td colSpan={7} className="px-5 py-5"><div className="h-4 w-2/3 rounded bg-[#e8eeea]" /></td></tr>)}
                 {risksError && <tr><td colSpan={7} className="px-5 py-14 text-center"><AlertCircle className="mx-auto mb-2 h-6 w-6 text-rose-600" /><p className="font-medium">Risk register could not be loaded.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => retryRisks()}>Retry</Button></td></tr>}
                 {!risksLoading && !risksError && filteredRisks.map((risk) => <tr key={risk.id} className="hover:bg-[#f7faf8]">
-                  <td className="max-w-[360px] px-5 py-4"><p className="truncate text-sm font-semibold text-slate-800">{risk.title}</p><p className="mt-1 truncate text-xs text-slate-500">{risk.change?.changeNumber || "Unlinked change"} · {risk.change?.title || "Change details unavailable"}</p></td>
+                  <td className="max-w-[360px] px-5 py-4"><p className="truncate text-sm font-semibold text-slate-800">{risk.title}</p><p className="mt-1 truncate text-xs text-slate-500">{risk.change?.changeNumber || "Unlinked change"} · {risk.change?.title || "Change details unavailable"}</p>{(risk.change?.impactSummary?.services.length || risk.change?.impactSummary?.assets.length) ? <p className="mt-1 truncate text-[11px] text-teal-800" title={`Services: ${risk.change?.impactSummary?.services.join(", ") || "None"} · Assets: ${risk.change?.impactSummary?.assets.join(", ") || "None"}`}>Exposure: {risk.change?.impactSummary?.services.length ?? 0} services · {risk.change?.impactSummary?.assets.length ?? 0} assets</p> : null}</td>
                   <td className="px-4 py-4 text-xs text-slate-700">{risk.category || "—"}</td>
                   <td className="px-4 py-4"><RiskScore likelihood={risk.likelihood} impact={risk.impact} /></td>
                   <td className="px-4 py-4"><RiskScore likelihood={risk.residualLikelihood} impact={risk.residualImpact} residual /></td>
@@ -299,8 +300,13 @@ export default function ChangeTracker() {
         <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto border-[#d6e1db] bg-[#fbfcfb]">
           <DialogHeader><div className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg bg-[#e5eee9] text-teal-900"><ShieldAlert className="h-4 w-4" /></div><DialogTitle>{editingRisk ? "Update risk record" : "Add change risk"}</DialogTitle><DialogDescription>Record the exposure, named owner and response plan for the audit trail.</DialogDescription></DialogHeader>
           <form onSubmit={submitRisk} className="space-y-5">
+            {editingRisk?.change?.impactSummary && (editingRisk.change.impactSummary.services.length > 0 || editingRisk.change.impactSummary.assets.length > 0) && (
+              <div className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-900">
+                Linked change exposure — Services: {editingRisk.change.impactSummary.services.join(", ") || "None"} · Assets: {editingRisk.change.impactSummary.assets.join(", ") || "None"}
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
-              {!editingRisk && <Field label="Linked change"><select className={selectClass} required value={riskChangeId} onChange={(event) => setRiskChangeId(event.target.value)}><option value="">Select a change…</option>{changes.map((change) => <option key={change.id} value={change.id}>{change.changeNumber} — {change.title}</option>)}</select></Field>}
+              {!editingRisk && <Field label="Linked change"><select className={selectClass} required value={riskChangeId} onChange={(event) => setRiskChangeId(event.target.value)}><option value="">Select a change…</option>{changes.map((change) => <option key={change.id} value={change.id}>{change.changeNumber} — {change.title}</option>)}</select>{(() => { const linkedChange = changes.find(change => change.id === riskChangeId); return linkedChange && (linkedChange.impactSummary?.services.length || linkedChange.impactSummary?.assets.length) ? <span className="block text-xs font-normal text-teal-800">Impact: {linkedChange.impactSummary?.services.join(", ") || "No services"} · {linkedChange.impactSummary?.assets.join(", ") || "No assets"}</span> : null; })()}</Field>}
               <Field label="Risk title" className={!editingRisk ? "" : "sm:col-span-2"}><Input required value={riskForm.title} onChange={(event) => setRiskField("title", event.target.value)} placeholder="e.g. Database failover exceeds window" /></Field>
                <Field label="Category"><select className={selectClass} value={riskForm.category} onChange={(event) => setRiskField("category", event.target.value)}><option value="security">Security</option><option value="availability">Availability</option><option value="data">Data</option><option value="schedule">Schedule</option><option value="operational">Operational</option><option value="compliance">Compliance</option><option value="vendor">Vendor</option><option value="other">Other</option></select></Field>
               <Field label="Risk owner"><select className={selectClass} value={riskForm.ownerId} onChange={(event) => setRiskField("ownerId", event.target.value)}><option value="">Select owner…</option>{users.map((user) => <option key={user.id} value={user.id}>{personName(user)}</option>)}</select></Field>
