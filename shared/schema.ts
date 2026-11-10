@@ -727,10 +727,50 @@ export const consumableDispatchLog = pgTable("consumable_dispatch_log", {
 ]);
 
 // Financial Management
+export const vendorQuotations = pgTable("vendor_quotations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "restrict" }),
+  quoteNumber: text("quote_number").notNull().unique(),
+  issueDate: date("issue_date").notNull(),
+  validUntil: date("valid_until"),
+  currency: text("currency").notNull().default("USD"),
+  subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  taxAmount: decimal("tax_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  totalAmount: decimal("total_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  status: text("status").notNull().default("draft"), // draft, submitted, accepted, converted, rejected, expired
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  check("vendor_quotations_status_check", sql`${table.status} IN ('draft','submitted','accepted','converted','rejected','expired')`),
+  check("vendor_quotations_amounts_check", sql`${table.subtotal} >= 0 AND ${table.taxAmount} >= 0 AND ${table.totalAmount} >= 0`),
+  index("vendor_quotations_vendor_status_idx").on(table.vendorId, table.status),
+]);
+
+export const vendorQuotationItems = pgTable("vendor_quotation_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  quotationId: varchar("quotation_id").notNull().references(() => vendorQuotations.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  itemType: text("item_type").notNull().default("asset"),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  totalPrice: decimal("total_price", { precision: 14, scale: 2 }).notNull(),
+  assetType: text("asset_type"),
+  consumableCategory: text("consumable_category"),
+  modelPartNumber: text("model_part_number"),
+  warehouseLocationId: varchar("warehouse_location_id").references(() => warehouseLocations.id, { onDelete: "set null" }),
+}, table => [
+  check("vendor_quotation_items_type_check", sql`${table.itemType} IN ('asset','consumable')`),
+  check("vendor_quotation_items_amount_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalPrice} >= 0`),
+  index("vendor_quotation_items_quote_idx").on(table.quotationId),
+]);
+
 export const purchaseOrders = pgTable("purchase_orders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   poNumber: text("po_number").notNull().unique(),
   vendorId: varchar("vendor_id").references(() => vendors.id),
+  quotationId: varchar("quotation_id").references(() => vendorQuotations.id, { onDelete: "set null" }),
   vendor: text("vendor"), // Legacy field for backward compatibility
   reference: text("reference"), // Reference number or description
   orderDate: date("order_date").notNull(),
@@ -766,6 +806,110 @@ export const purchaseOrderItemReceipts = pgTable("purchase_order_item_receipts",
   purchaseOrderItemId: varchar("purchase_order_item_id").notNull().unique().references(() => purchaseOrderItems.id),
   processedAt: timestamp("processed_at").notNull().default(sql`now()`),
 });
+
+export const purchaseInvoices = pgTable("purchase_invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "restrict" }),
+  purchaseOrderId: varchar("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "restrict" }),
+  invoiceNumber: text("invoice_number").notNull(),
+  issueDate: date("issue_date").notNull(),
+  dueDate: date("due_date").notNull(),
+  currency: text("currency").notNull().default("USD"),
+  subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull(),
+  taxAmount: decimal("tax_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  grandTotal: decimal("grand_total", { precision: 14, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").notNull(), // cash, bank_transfer, credit_terms
+  paymentTerms: text("payment_terms"),
+  paymentStatus: text("payment_status").notNull().default("pending"), // pending, paid, partially_paid
+  status: text("status").notNull().default("pending"), // pending, approved, received, void
+  receivedAt: timestamp("received_at"),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  uniqueIndex("purchase_invoices_vendor_number_unique").on(table.vendorId, table.invoiceNumber),
+  check("purchase_invoices_method_check", sql`${table.paymentMethod} IN ('cash','bank_transfer','credit_terms')`),
+  check("purchase_invoices_payment_status_check", sql`${table.paymentStatus} IN ('pending','paid','partially_paid')`),
+  check("purchase_invoices_status_check", sql`${table.status} IN ('pending','approved','received','void')`),
+  check("purchase_invoices_amounts_check", sql`${table.subtotal} >= 0 AND ${table.taxAmount} >= 0 AND ${table.grandTotal} >= 0`),
+  check("purchase_invoices_dates_check", sql`${table.dueDate} >= ${table.issueDate}`),
+  index("purchase_invoices_vendor_status_idx").on(table.vendorId, table.paymentStatus, table.dueDate),
+  index("purchase_invoices_po_idx").on(table.purchaseOrderId),
+]);
+
+// Each invoice line ties back to both an ordered line and its inventory receipt
+// for auditable three-way matching.
+export const purchaseInvoiceItems = pgTable("purchase_invoice_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => purchaseInvoices.id, { onDelete: "cascade" }),
+  purchaseOrderItemId: varchar("purchase_order_item_id").notNull().references(() => purchaseOrderItems.id, { onDelete: "restrict" }),
+  receiptId: varchar("receipt_id").notNull().references(() => purchaseOrderItemReceipts.id, { onDelete: "restrict" }),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  totalPrice: decimal("total_price", { precision: 14, scale: 2 }).notNull(),
+}, table => [
+  check("purchase_invoice_items_amount_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalPrice} >= 0`),
+  index("purchase_invoice_items_invoice_idx").on(table.invoiceId),
+]);
+
+export const purchaseInvoicePayments = pgTable("purchase_invoice_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => purchaseInvoices.id, { onDelete: "restrict" }),
+  paymentDate: date("payment_date").notNull(),
+  amount: decimal("amount", { precision: 14, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").notNull(), // cash, bank_transfer, credit_terms
+  referenceNumber: text("reference_number"),
+  notes: text("notes"),
+  recordedBy: varchar("recorded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => [
+  check("purchase_invoice_payments_amount_check", sql`${table.amount} > 0`),
+  check("purchase_invoice_payments_method_check", sql`${table.paymentMethod} IN ('cash','bank_transfer','credit_terms')`),
+  index("purchase_invoice_payments_invoice_idx").on(table.invoiceId, table.paymentDate),
+]);
+
+export const purchaseReturns = pgTable("purchase_returns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  returnNumber: text("return_number").notNull().unique(),
+  debitNoteNumber: text("debit_note_number").notNull().unique(),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "restrict" }),
+  purchaseOrderId: varchar("purchase_order_id").notNull().references(() => purchaseOrders.id, { onDelete: "restrict" }),
+  purchaseInvoiceId: varchar("purchase_invoice_id").references(() => purchaseInvoices.id, { onDelete: "set null" }),
+  returnDate: date("return_date").notNull().default(sql`CURRENT_DATE`),
+  reasonCode: text("reason_code").notNull(),
+  status: text("status").notNull().default("draft"), // draft, approved, rejected
+  currency: text("currency").notNull().default("USD"),
+  totalCredit: decimal("total_credit", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  notes: text("notes"),
+  processedAt: timestamp("processed_at"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => [
+  check("purchase_returns_reason_check", sql`${table.reasonCode} IN ('defective','wrong_item','excess','other')`),
+  check("purchase_returns_status_check", sql`${table.status} IN ('draft','approved','rejected')`),
+  check("purchase_returns_credit_check", sql`${table.totalCredit} >= 0`),
+  index("purchase_returns_vendor_date_idx").on(table.vendorId, table.returnDate),
+]);
+
+export const purchaseReturnItems = pgTable("purchase_return_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  returnId: varchar("return_id").notNull().references(() => purchaseReturns.id, { onDelete: "cascade" }),
+  purchaseOrderItemId: varchar("purchase_order_item_id").notNull().references(() => purchaseOrderItems.id, { onDelete: "restrict" }),
+  consumableId: varchar("consumable_id").references(() => consumables.id, { onDelete: "restrict" }),
+  assetId: varchar("asset_id").references(() => assets.id, { onDelete: "restrict" }),
+  warehouseLocationId: varchar("warehouse_location_id").references(() => warehouseLocations.id, { onDelete: "set null" }),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  totalCredit: decimal("total_credit", { precision: 14, scale: 2 }).notNull(),
+  reasonCode: text("reason_code").notNull(),
+}, table => [
+  check("purchase_return_items_quantity_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalCredit} >= 0`),
+  check("purchase_return_items_target_check", sql`(${table.consumableId} IS NOT NULL AND ${table.assetId} IS NULL) OR (${table.consumableId} IS NULL AND ${table.assetId} IS NOT NULL)`),
+  index("purchase_return_items_return_idx").on(table.returnId),
+]);
 
 export const budgets = pgTable("budgets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1808,11 +1952,66 @@ export const insertAssetHandoverSchema = createInsertSchema(assetHandovers).omit
 export type InsertAssetHandover = z.infer<typeof insertAssetHandoverSchema>;
 export type AssetHandover = typeof assetHandovers.$inferSelect;
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
+export const insertVendorQuotationSchema = createInsertSchema(vendorQuotations).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  status: z.enum(["draft", "submitted", "accepted", "converted", "rejected", "expired"]).default("draft"),
+  items: z.array(z.object({
+    description: z.string().trim().min(1).max(500),
+    itemType: z.enum(["asset", "consumable"]).default("asset"),
+    quantity: z.coerce.number().int().min(1).max(100000),
+    unitPrice: z.coerce.number().min(0),
+    assetType: z.string().trim().max(100).nullable().optional(),
+    consumableCategory: z.string().trim().max(100).nullable().optional(),
+    modelPartNumber: z.string().trim().max(160).nullable().optional(),
+    warehouseLocationId: z.string().uuid().nullable().optional(),
+  })).min(1).max(500),
+}).superRefine((value, context) => {
+  if (value.validUntil && value.validUntil < value.issueDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ["validUntil"], message: "Quote validity cannot end before issue date" });
+});
 export const insertPurchaseOrderSchema = createInsertSchema(purchaseOrders).omit({ id: true });
 export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderItems, {
   itemType: z.enum(["asset", "consumable"]),
   quantity: z.number().int().min(1).max(100000),
 }).omit({ id: true });
+export const insertPurchaseInvoiceSchema = createInsertSchema(purchaseInvoices).omit({ id: true, createdAt: true, updatedAt: true, receivedAt: true, approvedAt: true }).extend({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  paymentMethod: z.enum(["cash", "bank_transfer", "credit_terms"]),
+  paymentStatus: z.enum(["pending", "paid", "partially_paid"]).default("pending"),
+  status: z.enum(["pending", "approved", "received", "void"]).default("pending"),
+  items: z.array(z.object({
+    purchaseOrderItemId: z.string().uuid(),
+    receiptId: z.string().uuid(),
+    quantity: z.coerce.number().int().min(1),
+    unitPrice: z.coerce.number().min(0),
+  })).min(1).max(500),
+}).superRefine((value, context) => {
+  if (value.dueDate < value.issueDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ["dueDate"], message: "Due date cannot precede invoice issue date" });
+});
+export const insertPurchaseReturnSchema = createInsertSchema(purchaseReturns).omit({ id: true, returnNumber: true, debitNoteNumber: true, createdAt: true, processedAt: true, totalCredit: true }).extend({
+  currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
+  reasonCode: z.enum(["defective", "wrong_item", "excess", "other"]),
+  status: z.enum(["draft", "approved", "rejected"]).default("draft"),
+  items: z.array(z.object({
+    purchaseOrderItemId: z.string().uuid(),
+    consumableId: z.string().uuid().nullable().optional(),
+    assetId: z.string().uuid().nullable().optional(),
+    warehouseLocationId: z.string().uuid().nullable().optional(),
+    quantity: z.coerce.number().int().min(1),
+    reasonCode: z.enum(["defective", "wrong_item", "excess", "other"]),
+  })).min(1).max(500),
+}).superRefine((value, context) => {
+  value.items.forEach((item, index) => {
+    if (Boolean(item.consumableId) === Boolean(item.assetId)) context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["items", index],
+      message: "Each return line must identify exactly one asset or consumable stock row",
+    });
+  });
+});
+export const insertPurchaseInvoicePaymentSchema = createInsertSchema(purchaseInvoicePayments).omit({ id: true, createdAt: true, recordedBy: true }).extend({
+  amount: z.coerce.number().positive(),
+  paymentMethod: z.enum(["cash", "bank_transfer", "credit_terms"]),
+});
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });
 export const insertMaintenanceScheduleSchema = createInsertSchema(maintenanceSchedules).omit({ id: true });
 export const insertMaintenanceRecordSchema = createInsertSchema(maintenanceRecords).omit({ id: true });
@@ -1851,6 +2050,17 @@ export type EmployeeOffboardingClearance = typeof employeeOffboardingClearances.
 export type InsertEmployeeAccessRight = z.infer<typeof insertEmployeeAccessRightSchema>;
 export type InsertAssignment = z.infer<typeof insertAssignmentSchema>;
 export type InsertVendor = z.infer<typeof insertVendorSchema>;
+export type VendorQuotation = typeof vendorQuotations.$inferSelect;
+export type VendorQuotationItem = typeof vendorQuotationItems.$inferSelect;
+export type PurchaseInvoice = typeof purchaseInvoices.$inferSelect;
+export type PurchaseInvoiceItem = typeof purchaseInvoiceItems.$inferSelect;
+export type PurchaseInvoicePayment = typeof purchaseInvoicePayments.$inferSelect;
+export type PurchaseReturn = typeof purchaseReturns.$inferSelect;
+export type PurchaseReturnItem = typeof purchaseReturnItems.$inferSelect;
+export type InsertVendorQuotation = z.infer<typeof insertVendorQuotationSchema>;
+export type InsertPurchaseInvoice = z.infer<typeof insertPurchaseInvoiceSchema>;
+export type InsertPurchaseInvoicePayment = z.infer<typeof insertPurchaseInvoicePaymentSchema>;
+export type InsertPurchaseReturn = z.infer<typeof insertPurchaseReturnSchema>;
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
 export type InsertPurchaseOrderItem = z.infer<typeof insertPurchaseOrderItemSchema>;
 export type InsertBudget = z.infer<typeof insertBudgetSchema>;
@@ -2020,6 +2230,59 @@ export const vendorsRelations = relations(vendors, ({ many }) => ({
   assets: many(assets),
   certifications: many(vendorCertifications),
   contracts: many(vendorContracts),
+  quotations: many(vendorQuotations),
+  invoices: many(purchaseInvoices),
+  returns: many(purchaseReturns),
+}));
+
+export const vendorQuotationsRelations = relations(vendorQuotations, ({ one, many }) => ({
+  vendor: one(vendors, { fields: [vendorQuotations.vendorId], references: [vendors.id] }),
+  items: many(vendorQuotationItems),
+  purchaseOrders: many(purchaseOrders),
+}));
+
+export const vendorQuotationItemsRelations = relations(vendorQuotationItems, ({ one }) => ({
+  quotation: one(vendorQuotations, { fields: [vendorQuotationItems.quotationId], references: [vendorQuotations.id] }),
+}));
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+  vendor: one(vendors, { fields: [purchaseOrders.vendorId], references: [vendors.id] }),
+  quotation: one(vendorQuotations, { fields: [purchaseOrders.quotationId], references: [vendorQuotations.id] }),
+  items: many(purchaseOrderItems),
+  invoices: many(purchaseInvoices),
+  returns: many(purchaseReturns),
+}));
+
+export const purchaseInvoicesRelations = relations(purchaseInvoices, ({ one, many }) => ({
+  vendor: one(vendors, { fields: [purchaseInvoices.vendorId], references: [vendors.id] }),
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseInvoices.purchaseOrderId], references: [purchaseOrders.id] }),
+  items: many(purchaseInvoiceItems),
+  payments: many(purchaseInvoicePayments),
+  returns: many(purchaseReturns),
+}));
+
+export const purchaseInvoiceItemsRelations = relations(purchaseInvoiceItems, ({ one }) => ({
+  invoice: one(purchaseInvoices, { fields: [purchaseInvoiceItems.invoiceId], references: [purchaseInvoices.id] }),
+  purchaseOrderItem: one(purchaseOrderItems, { fields: [purchaseInvoiceItems.purchaseOrderItemId], references: [purchaseOrderItems.id] }),
+  receipt: one(purchaseOrderItemReceipts, { fields: [purchaseInvoiceItems.receiptId], references: [purchaseOrderItemReceipts.id] }),
+}));
+
+export const purchaseInvoicePaymentsRelations = relations(purchaseInvoicePayments, ({ one }) => ({
+  invoice: one(purchaseInvoices, { fields: [purchaseInvoicePayments.invoiceId], references: [purchaseInvoices.id] }),
+}));
+
+export const purchaseReturnsRelations = relations(purchaseReturns, ({ one, many }) => ({
+  vendor: one(vendors, { fields: [purchaseReturns.vendorId], references: [vendors.id] }),
+  purchaseOrder: one(purchaseOrders, { fields: [purchaseReturns.purchaseOrderId], references: [purchaseOrders.id] }),
+  purchaseInvoice: one(purchaseInvoices, { fields: [purchaseReturns.purchaseInvoiceId], references: [purchaseInvoices.id] }),
+  items: many(purchaseReturnItems),
+}));
+
+export const purchaseReturnItemsRelations = relations(purchaseReturnItems, ({ one }) => ({
+  purchaseReturn: one(purchaseReturns, { fields: [purchaseReturnItems.returnId], references: [purchaseReturns.id] }),
+  purchaseOrderItem: one(purchaseOrderItems, { fields: [purchaseReturnItems.purchaseOrderItemId], references: [purchaseOrderItems.id] }),
+  consumable: one(consumables, { fields: [purchaseReturnItems.consumableId], references: [consumables.id] }),
+  asset: one(assets, { fields: [purchaseReturnItems.assetId], references: [assets.id] }),
 }));
 
 export const assignmentsRelations = relations(assignments, ({ one }) => ({

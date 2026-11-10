@@ -225,11 +225,31 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       vendorId: vendor, certificationName: "SOC 2 Type II", certificateNumber: "RESET-CERT",
       issueDate: "2026-01-01", expiryDate: "2027-01-01", documentUrl: "https://example.test/reset-cert.pdf",
     });
-    const po = await seed(s.purchaseOrders, { poNumber: "RESET-PO", orderDate: "2026-10-22", totalAmount: "10.00", vendorId: vendor });
+    const quotation = await seed(s.vendorQuotations, {
+      vendorId: vendor, quoteNumber: "RESET-QUOTE", issueDate: "2026-10-20", validUntil: "2026-11-20",
+      currency: "USD", subtotal: "10.00", taxAmount: "0.00", totalAmount: "10.00", status: "converted",
+    });
+    await seed(s.vendorQuotationItems, { quotationId: quotation, description: "Fixture", itemType: "asset", quantity: 1, unitPrice: "10.00", totalPrice: "10.00" });
+    const po = await seed(s.purchaseOrders, { poNumber: "RESET-PO", orderDate: "2026-10-22", totalAmount: "10.00", vendorId: vendor, quotationId: quotation });
     const item = await seed(s.purchaseOrderItems, { purchaseOrderId: po, description: "Fixture", unitPrice: "10.00", totalPrice: "10.00" });
-    await seed(s.purchaseOrderItemReceipts, { purchaseOrderId: po, purchaseOrderItemId: item });
+    const receipt = await seed(s.purchaseOrderItemReceipts, { purchaseOrderId: po, purchaseOrderItemId: item });
+    const invoice = await seed(s.purchaseInvoices, {
+      vendorId: vendor, purchaseOrderId: po, invoiceNumber: "RESET-INV", issueDate: "2026-10-22", dueDate: "2026-11-22",
+      currency: "USD", subtotal: "10.00", taxAmount: "0.00", grandTotal: "10.00",
+      paymentMethod: "bank_transfer", paymentStatus: "partially_paid", status: "received",
+    });
+    await seed(s.purchaseInvoiceItems, { invoiceId: invoice, purchaseOrderItemId: item, receiptId: receipt, description: "Fixture", quantity: 1, unitPrice: "10.00", totalPrice: "10.00" });
+    await seed(s.purchaseInvoicePayments, { invoiceId: invoice, paymentDate: "2026-10-23", amount: "4.00", paymentMethod: "bank_transfer" });
     await seed(s.budgets, { name: "Fixture budget", fiscalYear: 2026, budgetAmount: "100.00", category: "hardware" });
-    const asset = await seed(s.assets, { name: "Fixture asset", type: "laptop", locationId: ids.locations, departmentId: ids.departments });
+    const asset = await seed(s.assets, { name: "Fixture", type: "laptop", locationId: ids.locations, departmentId: ids.departments, purchaseOrderNumber: "RESET-PO", purchasePrice: "10.00" });
+    const supplierReturn = await seed(s.purchaseReturns, {
+      returnNumber: "RET-RESET", debitNoteNumber: "DN-RESET", vendorId: vendor, purchaseOrderId: po, purchaseInvoiceId: invoice,
+      returnDate: "2026-10-24", reasonCode: "defective", status: "approved", currency: "USD", totalCredit: "10.00",
+    });
+    await seed(s.purchaseReturnItems, {
+      returnId: supplierReturn, purchaseOrderItemId: item, assetId: asset, quantity: 1, unitPrice: "10.00",
+      totalCredit: "10.00", reasonCode: "defective",
+    });
     await seed(s.projectAssets, { projectId: project, assetId: asset, associationType: "Deployed" });
     await seed(s.softwareLicenseAllocations, { assetId: asset, employeeId: employee });
     const assignment = await seed(s.assignments, { assetId: asset, employeeId: employee, assignedDate: "2026-10-22" });

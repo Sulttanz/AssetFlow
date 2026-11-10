@@ -1397,6 +1397,7 @@ export class MemStorage implements IStorage {
       status: insertPO.status || "pending",
       vendor: insertPO.vendor ?? null,
       vendorId: insertPO.vendorId ?? null,
+      quotationId: insertPO.quotationId ?? null,
       reference: insertPO.reference ?? null,
       expectedDelivery: insertPO.expectedDelivery === "" ? null : (insertPO.expectedDelivery ?? null),
       actualDelivery: insertPO.actualDelivery === "" ? null : (insertPO.actualDelivery ?? null),

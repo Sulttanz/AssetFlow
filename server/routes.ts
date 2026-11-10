@@ -11,7 +11,7 @@ import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
-  insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema,
+  insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema, departments,
   insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertPurchaseOrderItemSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
@@ -23,6 +23,9 @@ import {
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
+  vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoicePayments,
+  purchaseReturns, purchaseReturnItems,
+  insertVendorQuotationSchema, insertPurchaseInvoiceSchema, insertPurchaseInvoicePaymentSchema, insertPurchaseReturnSchema,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
   cmdbApplications, servers, applicationServerLinks, changeCiLinks, changeAssetLinks, assetRelationships,
   configurationDocuments, insertCmdbApplicationSchema, insertServerSchema,
@@ -61,6 +64,7 @@ import { IncidentTransitionError, transitionIncident } from "./incident-lifecycl
 import { registerPersonnelReportRoute } from "./personnel-report";
 import { resolveIncidentContractContext } from "./incident-contract-resolution";
 import { registerEnterpriseReportingRoutes } from "./enterprise-reporting";
+import { receivePurchaseOrderInventory } from "./procurement-inventory";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -144,6 +148,9 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/locations",
     "/vendors",
     "/purchase-orders",
+    "/vendor-quotations",
+    "/purchase-invoices",
+    "/purchase-returns",
     "/budgets",
     "/contracts",
     "/reports",
@@ -6223,6 +6230,556 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status) return res.status(status).json({ message: (error as Error).message });
       console.error('Create assets from PO error:', error);
       res.status(500).json({ message: "Failed to create assets from purchase order" });
+    }
+  });
+
+  // Procure-to-Pay: quotations -> purchase orders -> matched invoices/payments -> returns/debit notes.
+  app.get("/api/vendor-quotations", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
+    try {
+      const rows = await db.select().from(vendorQuotations).orderBy(desc(vendorQuotations.createdAt));
+      const result = await Promise.all(rows.map(async quotation => ({
+        ...quotation,
+        items: await db.select().from(vendorQuotationItems).where(eq(vendorQuotationItems.quotationId, quotation.id)),
+      })));
+      res.json(result);
+    } catch (error) {
+      console.error("Vendor quotation list failed:", error);
+      res.status(500).json({ message: "Failed to fetch vendor quotations" });
+    }
+  });
+
+  app.post("/api/vendor-quotations", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
+    try {
+      const parsed = insertVendorQuotationSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid quotation", errors: parsed.error.issues });
+      const { items, ...quotationInput } = parsed.data;
+      const subtotal = items.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
+      const taxAmount = Number(quotationInput.taxAmount ?? 0);
+      const expectedTotal = subtotal + taxAmount;
+      if (Math.abs(expectedTotal - Number(quotationInput.totalAmount)) > 0.01) {
+        return res.status(400).json({ message: "Quotation total must equal line subtotal plus tax" });
+      }
+      if (items.some(line => line.itemType === "consumable" && !line.warehouseLocationId)) {
+        return res.status(400).json({ message: "Consumable quotation lines require a warehouse location" });
+      }
+      const saved = await db.transaction(async tx => {
+        const [quotation] = await tx.insert(vendorQuotations).values({
+          ...quotationInput,
+          subtotal: subtotal.toFixed(2),
+          taxAmount: taxAmount.toFixed(2),
+          totalAmount: expectedTotal.toFixed(2),
+          createdBy: req.user!.id,
+        }).returning();
+        await tx.insert(vendorQuotationItems).values(items.map(line => ({
+          quotationId: quotation.id,
+          description: line.description,
+          itemType: line.itemType,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice.toFixed(2),
+          totalPrice: (line.quantity * line.unitPrice).toFixed(2),
+          assetType: line.assetType ?? null,
+          consumableCategory: line.consumableCategory ?? null,
+          modelPartNumber: line.modelPartNumber ?? null,
+          warehouseLocationId: line.warehouseLocationId ?? null,
+        })));
+        return quotation;
+      });
+      await logAudit(req.user?.id, "CREATE", "vendor_quotations", saved.id, `Quotation ${saved.quoteNumber}`, null, saved, req);
+      res.status(201).json({ ...saved, items });
+    } catch (error) {
+      console.error("Vendor quotation create failed:", error);
+      res.status(500).json({ message: "Failed to create vendor quotation" });
+    }
+  });
+
+  app.put("/api/vendor-quotations/:id/status", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
+    try {
+      const status = z.enum(["submitted", "accepted", "rejected", "expired"]).parse(req.body?.status);
+      const [quotation] = await db.select().from(vendorQuotations).where(eq(vendorQuotations.id, req.params.id));
+      if (!quotation) return res.status(404).json({ message: "Vendor quotation not found" });
+      if (quotation.status === "converted") return res.status(409).json({ message: "Converted quotations cannot be changed" });
+      const [updated] = await db.update(vendorQuotations).set({ status, updatedAt: new Date() }).where(eq(vendorQuotations.id, quotation.id)).returning();
+      await logAudit(req.user?.id, "UPDATE", "vendor_quotations", quotation.id, `Quotation ${quotation.quoteNumber}`, quotation, updated, req);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid quotation status" });
+      res.status(500).json({ message: "Failed to update quotation" });
+    }
+  });
+
+  app.post("/api/vendor-quotations/:id/convert-to-po", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
+    try {
+      const result = await db.transaction(async tx => {
+        const [quotation] = await tx.select().from(vendorQuotations).where(eq(vendorQuotations.id, req.params.id)).for("update");
+        if (!quotation) throw Object.assign(new Error("Quotation not found"), { status: 404 });
+        if (quotation.status !== "accepted") throw Object.assign(new Error("Only accepted quotations can be converted to a purchase order"), { status: 409 });
+        const quotationItems = await tx.select().from(vendorQuotationItems).where(eq(vendorQuotationItems.quotationId, quotation.id));
+        const [po] = await tx.insert(purchaseOrders).values({
+          poNumber: z.string().trim().min(1).max(100).parse(req.body?.poNumber ?? `PO-${Date.now()}`),
+          vendorId: quotation.vendorId,
+          vendor: (await tx.select({ name: vendors.name }).from(vendors).where(eq(vendors.id, quotation.vendorId)))[0]?.name ?? null,
+          quotationId: quotation.id,
+          reference: `Quotation ${quotation.quoteNumber}`,
+          orderDate: toDateInputValue(new Date()),
+          expectedDelivery: req.body?.expectedDelivery ?? null,
+          actualDelivery: null,
+          totalAmount: quotation.totalAmount,
+          status: "pending",
+          departmentId: req.body?.departmentId || null,
+          notes: quotation.notes,
+          assetsCreated: false,
+        }).returning();
+        await tx.insert(purchaseOrderItems).values(quotationItems.map(line => ({
+          purchaseOrderId: po.id,
+          description: line.description,
+          assetType: line.assetType ?? "other",
+          itemType: line.itemType,
+          consumableId: null,
+          consumableCategory: line.consumableCategory,
+          modelPartNumber: line.modelPartNumber,
+          warehouseLocationId: line.warehouseLocationId,
+          serialNumber: null,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          totalPrice: line.totalPrice,
+          assetId: null,
+        })));
+        await tx.update(vendorQuotations).set({ status: "converted", updatedAt: new Date() }).where(eq(vendorQuotations.id, quotation.id));
+        return { purchaseOrder: po, items: quotationItems };
+      });
+      await logAudit(req.user?.id, "CREATE", "purchase_orders", result.purchaseOrder.id, `PO ${result.purchaseOrder.poNumber}`, null, { quotationId: req.params.id }, req);
+      res.status(201).json(result);
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid purchase order conversion data", errors: error.issues });
+      res.status(500).json({ message: "Failed to convert quotation" });
+    }
+  });
+
+  app.get("/api/purchase-invoices", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
+    try {
+      const rows = await db.select().from(purchaseInvoices).orderBy(desc(purchaseInvoices.issueDate));
+      res.json(await Promise.all(rows.map(async invoice => ({
+        ...invoice,
+        items: await db.select().from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id)),
+        payments: await db.select().from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id)).orderBy(desc(purchaseInvoicePayments.paymentDate)),
+      }))));
+    } catch (error) {
+      console.error("Purchase invoice list failed:", error);
+      res.status(500).json({ message: "Failed to fetch purchase invoices" });
+    }
+  });
+
+  app.get("/api/purchase-orders/:id/receipts", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (req, res) => {
+    try {
+      const rows = await db.select({
+        receiptId: purchaseOrderItemReceipts.id,
+        purchaseOrderItemId: purchaseOrderItems.id,
+        description: purchaseOrderItems.description,
+        itemType: purchaseOrderItems.itemType,
+        quantity: purchaseOrderItems.quantity,
+        unitPrice: purchaseOrderItems.unitPrice,
+        consumableId: purchaseOrderItems.consumableId,
+        warehouseLocationId: purchaseOrderItems.warehouseLocationId,
+      }).from(purchaseOrderItemReceipts)
+        .innerJoin(purchaseOrderItems, eq(purchaseOrderItemReceipts.purchaseOrderItemId, purchaseOrderItems.id))
+        .where(eq(purchaseOrderItemReceipts.purchaseOrderId, req.params.id));
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch received PO lines" });
+    }
+  });
+
+  app.get("/api/purchase-orders/:id/returnable-assets", requireAuth, requireAnyPermission("finance_view", "purchase_order_update", "system_admin"), async (req, res) => {
+    try {
+      const [po] = await db.select({ poNumber: purchaseOrders.poNumber }).from(purchaseOrders).where(eq(purchaseOrders.id, req.params.id));
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      const itemId = typeof req.query.purchaseOrderItemId === "string" ? req.query.purchaseOrderItemId : "";
+      const [poItem] = itemId ? await db.select({ description: purchaseOrderItems.description }).from(purchaseOrderItems)
+        .where(and(eq(purchaseOrderItems.id, itemId), eq(purchaseOrderItems.purchaseOrderId, req.params.id))) : [];
+      if (itemId && !poItem) return res.status(400).json({ message: "Selected line is not on this purchase order" });
+      const assetQuery = db.select({
+        id: assets.id,
+        name: assets.name,
+        assetTag: assets.assetTag,
+        status: assets.status,
+        purchaseOrderNumber: assets.purchaseOrderNumber,
+      }).from(assets).where(and(
+        eq(assets.purchaseOrderNumber, po.poNumber),
+        inArray(assets.status, ["available", "in_stock", "maintenance"]),
+        ...(poItem ? [or(eq(assets.name, poItem.description), ilike(assets.name, `${poItem.description} #%`))] : []),
+      ));
+      const rows = await assetQuery;
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch returnable assets" });
+    }
+  });
+
+  app.post("/api/purchase-invoices", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
+    try {
+      const parsed = insertPurchaseInvoiceSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid purchase invoice", errors: parsed.error.issues });
+      const { items, ...invoiceInput } = parsed.data;
+      const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoiceInput.purchaseOrderId));
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      if (po.vendorId !== invoiceInput.vendorId) return res.status(400).json({ message: "Invoice vendor must match the purchase order vendor" });
+      if (po.quotationId) {
+        const [linkedQuote] = await db.select({ currency: vendorQuotations.currency }).from(vendorQuotations).where(eq(vendorQuotations.id, po.quotationId));
+        if (linkedQuote && linkedQuote.currency !== invoiceInput.currency) return res.status(400).json({ message: "Invoice currency must match its accepted quotation" });
+      }
+      const lines: Array<Omit<typeof purchaseInvoiceItems.$inferInsert, "invoiceId">> = [];
+      const requestedInvoiceQuantities = new Map<string, number>();
+      for (const line of items) {
+        const [poItem] = await db.select().from(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, line.purchaseOrderItemId), eq(purchaseOrderItems.purchaseOrderId, po.id)));
+        const [receipt] = await db.select().from(purchaseOrderItemReceipts).where(and(eq(purchaseOrderItemReceipts.id, line.receiptId), eq(purchaseOrderItemReceipts.purchaseOrderId, po.id), eq(purchaseOrderItemReceipts.purchaseOrderItemId, line.purchaseOrderItemId)));
+        if (!poItem || !receipt) return res.status(400).json({ message: "Invoice lines must match a received PO line and its inventory receipt" });
+        if (Math.abs(Number(poItem.unitPrice) - line.unitPrice) > 0.01) return res.status(400).json({ message: `Invoice unit price does not match PO line "${poItem.description}"` });
+        const previous = await db.select({ quantity: purchaseInvoiceItems.quantity, status: purchaseInvoices.status })
+          .from(purchaseInvoiceItems).innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+          .where(eq(purchaseInvoiceItems.purchaseOrderItemId, poItem.id));
+        const invoiced = previous.filter(row => row.status !== "void").reduce((sum, row) => sum + row.quantity, 0);
+        const requestedQuantity = (requestedInvoiceQuantities.get(poItem.id) ?? 0) + line.quantity;
+        if (invoiced + requestedQuantity > poItem.quantity) return res.status(400).json({ message: `Invoice quantity exceeds received quantity for "${poItem.description}"` });
+        requestedInvoiceQuantities.set(poItem.id, requestedQuantity);
+        lines.push({
+          purchaseOrderItemId: poItem.id,
+          receiptId: receipt.id,
+          description: poItem.description,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice.toFixed(2),
+          totalPrice: (line.quantity * line.unitPrice).toFixed(2),
+        });
+      }
+      const lineSubtotal = lines.reduce((sum, line) => sum + Number(line.totalPrice), 0);
+      const total = lineSubtotal + Number(invoiceInput.taxAmount ?? 0);
+      if (Math.abs(lineSubtotal - Number(invoiceInput.subtotal)) > 0.01 || Math.abs(total - Number(invoiceInput.grandTotal)) > 0.01) {
+        return res.status(400).json({ message: "Invoice totals must match the validated lines plus tax" });
+      }
+      const saved = await db.transaction(async tx => {
+        const [invoice] = await tx.insert(purchaseInvoices).values({
+          ...invoiceInput,
+          subtotal: lineSubtotal.toFixed(2),
+          taxAmount: Number(invoiceInput.taxAmount ?? 0).toFixed(2),
+          grandTotal: total.toFixed(2),
+          createdBy: req.user!.id,
+        }).returning();
+        await tx.insert(purchaseInvoiceItems).values(lines.map(line => ({ ...line, invoiceId: invoice.id })));
+        return invoice;
+      });
+      await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.id, `Invoice ${saved.invoiceNumber}`, null, saved, req);
+      res.status(201).json({ ...saved, items: lines, payments: [] });
+    } catch (error) {
+      console.error("Purchase invoice create failed:", error);
+      res.status(500).json({ message: "Failed to create purchase invoice" });
+    }
+  });
+
+  app.put("/api/purchase-invoices/:id/status", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
+    try {
+      const status = z.enum(["pending", "approved", "received", "void"]).parse(req.body?.status);
+      const [invoice] = await db.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id));
+      if (!invoice) return res.status(404).json({ message: "Purchase invoice not found" });
+      if (invoice.status === "void" && status !== "void") return res.status(409).json({ message: "Voided invoices cannot be reopened" });
+      if (invoice.status === "received" && status !== "received") return res.status(409).json({ message: "Received invoices cannot be reversed after inventory processing" });
+      if (invoice.status === "approved" && status === "pending") return res.status(409).json({ message: "Approved invoices cannot return to pending review" });
+      if (invoice.status === "pending" && status === "received") return res.status(409).json({ message: "Approve the invoice before receiving it into inventory" });
+      if (status === "void") {
+        const recordedPayments = await db.select({ id: purchaseInvoicePayments.id }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
+        if (recordedPayments.length) return res.status(409).json({ message: "An invoice with recorded payments cannot be voided; record a supplier credit instead" });
+      }
+      if (status === "received") {
+        const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoice.purchaseOrderId));
+        if (!po) return res.status(404).json({ message: "Linked purchase order not found" });
+        if (po.status !== "received") await db.update(purchaseOrders).set({ status: "received", actualDelivery: toDateInputValue(new Date()) }).where(eq(purchaseOrders.id, po.id));
+        await receivePurchaseOrderInventory(po.id, req.user!.id);
+      }
+      const [updated] = await db.update(purchaseInvoices).set({
+        status,
+        approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
+        receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
+        updatedAt: new Date(),
+      }).where(eq(purchaseInvoices.id, invoice.id)).returning();
+      await logAudit(req.user?.id, "UPDATE", "purchase_invoices", invoice.id, `Invoice ${invoice.invoiceNumber}`, invoice, updated, req);
+      res.json(updated);
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid invoice status" });
+      console.error("Purchase invoice status update failed:", error);
+      res.status(500).json({ message: "Failed to update invoice status" });
+    }
+  });
+
+  app.post("/api/purchase-invoices/:id/payments", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
+    try {
+      const parsed = insertPurchaseInvoicePaymentSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid payment", errors: parsed.error.issues });
+      const payment = await db.transaction(async tx => {
+        const [invoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id)).for("update");
+        if (!invoice) throw Object.assign(new Error("Purchase invoice not found"), { status: 404 });
+        if (invoice.status === "void" || invoice.status === "pending") throw Object.assign(new Error("Only approved invoices can receive payments"), { status: 409 });
+        const existing = await tx.select({ amount: purchaseInvoicePayments.amount }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
+        const paid = existing.reduce((sum, row) => sum + Number(row.amount), 0);
+        const amount = parsed.data.amount;
+        if (paid + amount > Number(invoice.grandTotal) + 0.01) throw Object.assign(new Error("Payment exceeds the remaining invoice balance"), { status: 400 });
+        const [savedPayment] = await tx.insert(purchaseInvoicePayments).values({
+          invoiceId: invoice.id,
+          paymentDate: parsed.data.paymentDate,
+          amount: amount.toFixed(2),
+          paymentMethod: parsed.data.paymentMethod,
+          referenceNumber: parsed.data.referenceNumber ?? null,
+          notes: parsed.data.notes ?? null,
+          recordedBy: req.user!.id,
+        }).returning();
+        const totalPaid = paid + amount;
+        await tx.update(purchaseInvoices).set({
+          paymentStatus: totalPaid >= Number(invoice.grandTotal) - 0.01 ? "paid" : "partially_paid",
+          updatedAt: new Date(),
+        }).where(eq(purchaseInvoices.id, invoice.id));
+        return { payment: savedPayment, invoice, totalPaid };
+      });
+      await logAudit(req.user?.id, "CREATE", "purchase_invoice_payments", payment.payment.id, `Payment for invoice ${payment.invoice.invoiceNumber}`, null, payment.payment, req);
+      res.status(201).json(payment);
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid payment" });
+      console.error("Purchase invoice payment failed:", error);
+      res.status(500).json({ message: "Failed to record invoice payment" });
+    }
+  });
+
+  app.get("/api/purchase-returns", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
+    try {
+      const rows = await db.select().from(purchaseReturns).orderBy(desc(purchaseReturns.returnDate));
+      res.json(await Promise.all(rows.map(async purchaseReturn => ({
+        ...purchaseReturn,
+        items: await db.select().from(purchaseReturnItems).where(eq(purchaseReturnItems.returnId, purchaseReturn.id)),
+      }))));
+    } catch {
+      res.status(500).json({ message: "Failed to fetch purchase returns" });
+    }
+  });
+
+  app.post("/api/purchase-returns", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
+    try {
+      const parsed = insertPurchaseReturnSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid purchase return", errors: parsed.error.issues });
+      const { items, ...returnInput } = parsed.data;
+      const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, returnInput.purchaseOrderId));
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      if (po.vendorId !== returnInput.vendorId) return res.status(400).json({ message: "Return vendor must match the purchase order vendor" });
+      if (returnInput.purchaseInvoiceId) {
+        const [invoice] = await db.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, returnInput.purchaseInvoiceId));
+        if (!invoice || invoice.purchaseOrderId !== po.id || invoice.vendorId !== po.vendorId) return res.status(400).json({ message: "Return invoice must belong to the selected purchase order and vendor" });
+      }
+      const returnNumber = `RET-${Date.now()}`;
+      const debitNoteNumber = `DN-${Date.now()}`;
+      const result = await db.transaction(async tx => {
+        const checkedItems = [];
+        const requestedReturnQuantities = new Map<string, number>();
+        for (const line of items) {
+          const [poItem] = await tx.select().from(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, line.purchaseOrderItemId), eq(purchaseOrderItems.purchaseOrderId, po.id))).for("update");
+          if (!poItem) throw Object.assign(new Error("Return item must match a line on the selected purchase order"), { status: 400 });
+          const quantity = line.quantity;
+          const previousReturns = await tx.select({ quantity: purchaseReturnItems.quantity, status: purchaseReturns.status })
+            .from(purchaseReturnItems).innerJoin(purchaseReturns, eq(purchaseReturnItems.returnId, purchaseReturns.id))
+            .where(eq(purchaseReturnItems.purchaseOrderItemId, poItem.id));
+          const alreadyReturned = previousReturns.filter(row => row.status === "approved").reduce((sum, row) => sum + row.quantity, 0);
+          const requestQuantity = (requestedReturnQuantities.get(poItem.id) ?? 0) + quantity;
+          if (alreadyReturned + requestQuantity > poItem.quantity) throw Object.assign(new Error(`Return quantity exceeds the received quantity for "${poItem.description}"`), { status: 400 });
+          requestedReturnQuantities.set(poItem.id, requestQuantity);
+          if (poItem.itemType === "consumable") {
+            const consumableId = line.consumableId ?? poItem.consumableId;
+            const warehouseId = line.warehouseLocationId ?? poItem.warehouseLocationId;
+            if (!consumableId || !warehouseId || (poItem.consumableId && consumableId !== poItem.consumableId)) {
+              throw Object.assign(new Error(`Select the received consumable stock row for "${poItem.description}"`), { status: 400 });
+            }
+            const [stock] = await tx.select().from(consumables).where(and(eq(consumables.id, consumableId), eq(consumables.warehouseLocationId, warehouseId))).for("update");
+            if (!stock || stock.quantityInStock < quantity) throw Object.assign(new Error(`Insufficient stock to return "${poItem.description}"`), { status: 409 });
+            checkedItems.push({ poItem, consumable: stock, asset: null, quantity, price: Number(poItem.unitPrice), reasonCode: line.reasonCode });
+          } else {
+            if (!line.assetId || quantity !== 1) throw Object.assign(new Error(`Select one received asset for "${poItem.description}"`), { status: 400 });
+            const [asset] = await tx.select().from(assets).where(and(eq(assets.id, line.assetId), eq(assets.purchaseOrderNumber, po.poNumber))).for("update");
+            if (!asset || (asset.name !== poItem.description && !asset.name.startsWith(`${poItem.description} #`)) ||
+                asset.status === "assigned" || asset.status === "disposed" || asset.status === "returned_to_vendor") {
+              throw Object.assign(new Error("Only an unassigned, active asset from this purchase order can be returned"), { status: 409 });
+            }
+            checkedItems.push({ poItem, consumable: null, asset, quantity, price: Number(poItem.unitPrice), reasonCode: line.reasonCode });
+          }
+        }
+        const totalCredit = checkedItems.reduce((sum, line) => sum + line.quantity * line.price, 0);
+        const [savedReturn] = await tx.insert(purchaseReturns).values({
+          ...returnInput,
+          returnNumber,
+          debitNoteNumber,
+          status: "approved",
+          totalCredit: totalCredit.toFixed(2),
+          processedAt: new Date(),
+          createdBy: req.user!.id,
+        }).returning();
+        for (const line of checkedItems) {
+          const credit = (line.quantity * line.price).toFixed(2);
+          await tx.insert(purchaseReturnItems).values({
+            returnId: savedReturn.id,
+            purchaseOrderItemId: line.poItem.id,
+            consumableId: line.consumable?.id ?? null,
+            assetId: line.asset?.id ?? null,
+            warehouseLocationId: line.consumable?.warehouseLocationId ?? null,
+            quantity: line.quantity,
+            unitPrice: line.price.toFixed(2),
+            totalCredit: credit,
+            reasonCode: line.reasonCode,
+          });
+          if (line.consumable) {
+            await tx.update(consumables).set({
+              quantityInStock: line.consumable.quantityInStock - line.quantity,
+              updatedAt: new Date(),
+            }).where(eq(consumables.id, line.consumable.id));
+            await tx.insert(consumableStockMovements).values({
+              consumableId: line.consumable.id,
+              movementType: "supplier_return",
+              quantity: line.quantity,
+              fromWarehouseLocationId: line.consumable.warehouseLocationId,
+              actorId: req.user!.id,
+              purchaseOrderId: po.id,
+              notes: `Supplier return ${returnNumber}; debit note ${debitNoteNumber}; ${line.reasonCode}`,
+            });
+          } else if (line.asset) {
+            await tx.update(assets).set({
+              status: "returned_to_vendor",
+              currentBookValue: "0.00",
+              currentValue: "0.00",
+            }).where(eq(assets.id, line.asset.id));
+          }
+        }
+        return savedReturn;
+      });
+      await logAudit(req.user?.id, "CREATE", "purchase_returns", result.id, `Return ${returnNumber}`, null, result, req);
+      res.status(201).json(result);
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid purchase return" });
+      console.error("Purchase return failed:", error);
+      res.status(500).json({ message: "Failed to process purchase return" });
+    }
+  });
+
+  app.get("/api/reports/procurement-finance", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
+    try {
+      const [quotations, invoiceRows, paymentRows, returnRows, poRows, vendorRows] = await Promise.all([
+        db.select().from(vendorQuotations),
+        db.select().from(purchaseInvoices).where(sql`${purchaseInvoices.status} <> 'void'`),
+        db.select().from(purchaseInvoicePayments),
+        db.select().from(purchaseReturns).where(eq(purchaseReturns.status, "approved")),
+        db.select().from(purchaseOrders),
+        db.select({ id: vendors.id, name: vendors.name }).from(vendors),
+      ]);
+      const vendorName = new Map(vendorRows.map(vendor => [vendor.id, vendor.name]));
+      const poById = new Map(poRows.map(po => [po.id, po]));
+      const invoicePayments = new Map<string, number>();
+      for (const payment of paymentRows) invoicePayments.set(payment.invoiceId, (invoicePayments.get(payment.invoiceId) ?? 0) + Number(payment.amount));
+      const approvedCreditsByInvoice = new Map<string, number>();
+      for (const row of returnRows) {
+        if (row.purchaseInvoiceId) approvedCreditsByInvoice.set(row.purchaseInvoiceId, (approvedCreditsByInvoice.get(row.purchaseInvoiceId) ?? 0) + Number(row.totalCredit));
+      }
+      const spendByVendor = new Map<string, { vendorId: string; vendorName: string; currency: string; amount: number }>();
+      const payableByMethod = new Map<string, { paymentMethod: string; currency: string; pending: number; paid: number; partiallyPaid: number }>();
+      for (const invoice of invoiceRows) {
+        const currencyCode = invoice.currency || "USD";
+        const vendorKey = `${currencyCode}:${invoice.vendorId}`;
+        const vendorSummary = spendByVendor.get(vendorKey) ?? {
+          vendorId: invoice.vendorId,
+          vendorName: vendorName.get(invoice.vendorId) ?? "Unknown vendor",
+          currency: currencyCode,
+          amount: 0,
+        };
+        vendorSummary.amount += Number(invoice.grandTotal);
+        spendByVendor.set(vendorKey, vendorSummary);
+        const methodKey = `${currencyCode}:${invoice.paymentMethod}`;
+        const summary = payableByMethod.get(methodKey) ?? { paymentMethod: invoice.paymentMethod, currency: currencyCode, pending: 0, paid: 0, partiallyPaid: 0 };
+        const paidAmount = invoicePayments.get(invoice.id) ?? 0;
+        const creditAmount = approvedCreditsByInvoice.get(invoice.id) ?? 0;
+        if (invoice.paymentStatus === "paid") summary.paid += paidAmount;
+        else if (invoice.paymentStatus === "partially_paid") summary.partiallyPaid += Math.max(Number(invoice.grandTotal) - paidAmount - creditAmount, 0);
+        else summary.pending += Math.max(Number(invoice.grandTotal) - paidAmount - creditAmount, 0);
+        payableByMethod.set(methodKey, summary);
+      }
+      const categoryTotals = new Map<string, { category: string; currency: string; amount: number }>();
+      const departmentTotals = new Map<string, { departmentId: string; departmentName: string; currency: string; amount: number }>();
+      const invoiceLines = await db.select({
+        invoiceId: purchaseInvoiceItems.invoiceId,
+        totalPrice: purchaseInvoiceItems.totalPrice,
+        itemType: purchaseOrderItems.itemType,
+        assetType: purchaseOrderItems.assetType,
+        consumableCategory: purchaseOrderItems.consumableCategory,
+        departmentId: purchaseOrders.departmentId,
+      }).from(purchaseInvoiceItems)
+        .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+        .innerJoin(purchaseOrderItems, eq(purchaseInvoiceItems.purchaseOrderItemId, purchaseOrderItems.id))
+        .innerJoin(purchaseOrders, eq(purchaseInvoices.purchaseOrderId, purchaseOrders.id))
+        .where(sql`${purchaseInvoices.status} <> 'void'`);
+      const invoiceCurrency = new Map(invoiceRows.map(invoice => [invoice.id, invoice.currency || "USD"]));
+      const departmentNames = await db.select({ id: departments.id, name: departments.name }).from(departments);
+      const departmentName = new Map(departmentNames.map(department => [department.id, department.name]));
+      for (const line of invoiceLines) {
+        const currencyCode = invoiceCurrency.get(line.invoiceId) ?? "USD";
+        const category = line.itemType === "consumable" ? (line.consumableCategory || "Consumables") : (line.assetType || "Hardware");
+        const categoryKey = `${currencyCode}:${category}`;
+        const categorySummary = categoryTotals.get(categoryKey) ?? { category, currency: currencyCode, amount: 0 };
+        categorySummary.amount += Number(line.totalPrice);
+        categoryTotals.set(categoryKey, categorySummary);
+        if (line.departmentId) {
+          const departmentKey = `${currencyCode}:${line.departmentId}`;
+          const departmentSummary = departmentTotals.get(departmentKey) ?? {
+            departmentId: line.departmentId,
+            departmentName: departmentName.get(line.departmentId) ?? "Unknown department",
+            currency: currencyCode,
+            amount: 0,
+          };
+          departmentSummary.amount += Number(line.totalPrice);
+          departmentTotals.set(departmentKey, departmentSummary);
+        }
+      }
+      const paymentSummary = Array.from(payableByMethod.values());
+      const returns = returnRows.map(row => ({ ...row, vendorName: vendorName.get(row.vendorId) ?? "Unknown vendor", purchaseOrderNumber: poById.get(row.purchaseOrderId)?.poNumber ?? "" }));
+      const spendByCurrency = new Map<string, number>();
+      for (const invoice of invoiceRows) spendByCurrency.set(invoice.currency || "USD", (spendByCurrency.get(invoice.currency || "USD") ?? 0) + Number(invoice.grandTotal));
+      const returnsByCurrency = new Map<string, number>();
+      for (const row of returns) returnsByCurrency.set(row.currency || "USD", (returnsByCurrency.get(row.currency || "USD") ?? 0) + Number(row.totalCredit));
+      const paidByCurrency = new Map<string, number>();
+      for (const payment of paymentRows) {
+        const invoiceCurrencyCode = invoiceCurrency.get(payment.invoiceId) ?? "USD";
+        paidByCurrency.set(invoiceCurrencyCode, (paidByCurrency.get(invoiceCurrencyCode) ?? 0) + Number(payment.amount));
+      }
+      res.json({
+        procurementSpend: {
+          totalByCurrency: Array.from(spendByCurrency.entries()).map(([currency, amount]) => ({ currency, amount })),
+          byVendor: Array.from(spendByVendor.values()),
+          byCategory: Array.from(categoryTotals.values()),
+          byDepartment: Array.from(departmentTotals.values()),
+        },
+        accountsPayable: {
+          invoiceCount: invoiceRows.length,
+          paidCount: invoiceRows.filter(invoice => invoice.paymentStatus === "paid").length,
+          partiallyPaidCount: invoiceRows.filter(invoice => invoice.paymentStatus === "partially_paid").length,
+          pendingCount: invoiceRows.filter(invoice => invoice.paymentStatus === "pending").length,
+          paidAmountByCurrency: Array.from(paidByCurrency.entries()).map(([currency, amount]) => ({ currency, amount })),
+          byPaymentMethod: paymentSummary,
+        },
+        returns: {
+          count: returns.length,
+          totalByCurrency: Array.from(returnsByCurrency.entries()).map(([currency, amount]) => ({ currency, amount })),
+          records: returns,
+        },
+        quotations: { count: quotations.length, convertedCount: quotations.filter(quote => quote.status === "converted").length },
+      });
+    } catch (error) {
+      console.error("Procurement finance report failed:", error);
+      res.status(500).json({ message: "Failed to generate procurement finance report" });
     }
   });
 

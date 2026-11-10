@@ -30,6 +30,7 @@ const Locations = lazy(() => import("@/pages/locations"));
 const Departments = lazy(() => import("@/pages/departments"));
 const Vendors = lazy(() => import("@/pages/vendors"));
 const PurchaseOrders = lazy(() => import("@/pages/purchase-orders"));
+const ProcureToPay = lazy(() => import("@/pages/procure-to-pay"));
 const Consumables = lazy(() => import("@/pages/consumables"));
 const Budgets = lazy(() => import("@/pages/budgets"));
 const Maintenance = lazy(() => import("@/pages/maintenance"));
@@ -52,6 +53,7 @@ const HardwareInventoryReport = lazy(() => import("@/pages/reports/hardware-inve
 const AssignmentsReport = lazy(() => import("@/pages/reports/assignments"));
 const MaintenanceReport = lazy(() => import("@/pages/reports/maintenance"));
 const PurchaseOrdersReport = lazy(() => import("@/pages/reports/purchase-orders"));
+const ProcurementFinanceReport = lazy(() => import("@/pages/reports/procurement-finance"));
 const BudgetReport = lazy(() => import("@/pages/reports/budget"));
 const DepartmentReport = lazy(() => import("@/pages/reports/department"));
 const WarrantiesReport = lazy(() => import("@/pages/reports/warranties"));
@@ -136,6 +138,7 @@ function Router() {
                   <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
                   <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />
                   <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/procure-to-pay" component={ProcureToPay} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/consumables" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
@@ -160,6 +163,7 @@ function Router() {
                   <ProtectedRoute path="/reports/assignments" component={AssignmentsReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/maintenance" component={MaintenanceReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/purchase-orders" component={PurchaseOrdersReport} requiredModule="asset_management" />
+                  <ProtectedRoute path="/reports/procurement-finance" component={ProcurementFinanceReport} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/reports/budget" component={BudgetReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/department" component={DepartmentReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/warranties" component={WarrantiesReport} requiredModule="asset_management" />

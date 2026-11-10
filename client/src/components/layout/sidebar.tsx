@@ -233,6 +233,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "asset_management",
       items: [
         { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, current: location === "/purchase-orders" },
+        { name: "Procure-to-Pay", href: "/procure-to-pay", icon: ClipboardList, current: location === "/procure-to-pay" },
+        { name: "Procurement Finance Reports", href: "/reports/procurement-finance", icon: FileBarChart, current: location === "/reports/procurement-finance", permission: ["finance_view", "purchase_order_update", "system_admin"] },
         { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
         { name: "Contracts", href: "/contracts", icon: FileSignature, current: location === "/contracts" },
       ]

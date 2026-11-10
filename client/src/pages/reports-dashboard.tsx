@@ -48,6 +48,7 @@ const reportCategories: ReportCategory[] = [
       { title: "Hardware Depreciation & Lifecycle", description: "Review asset depreciation, values, and lifecycle details.", href: "/reports/hardware-lifecycle", permissions: ["asset_view", "asset_update", "system_admin"] },
       { title: "Consumable Stock & Reorder Alerts", description: "Review stock levels and warehouse reorder thresholds.", href: "/reports/consumables-stock", permissions: ["asset_view", "inventory_view", "system_admin"] },
       { title: "Enterprise Operations & Asset Exposure", description: "Review inventory valuation and 30/60-day support contract expiry alerts.", href: "/reports/enterprise-operations", permissions: ["asset_view", "asset_update", "inventory_view", "finance_view", "system_admin"] },
+      { title: "Procurement Spend, Payables & Returns", description: "Review vendor/category/department spend, invoice payments, and debit notes.", href: "/reports/procurement-finance", permissions: ["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"] },
     ],
   },
   {
