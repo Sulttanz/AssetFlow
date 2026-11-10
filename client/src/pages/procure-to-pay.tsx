@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { FileText, Plus, RotateCcw, WalletCards, Check, ArrowRightLeft } from "lucide-react";
+import { FileText, Plus, RotateCcw, WalletCards, ArrowRightLeft, Search } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateDisplay } from "@/lib/date-utils";
 
 type Vendor = { id: string; name: string };
@@ -32,8 +31,16 @@ const currency = (value: string | number, code = "USD") => {
 };
 const isAcceptedQuotation = (status: string) => status === "accepted" || status === "converted";
 
-export default function ProcureToPay() {
+type ProcurementSection = "quotations" | "invoices" | "returns";
+
+export function QuotationsPage() { return <ProcureToPay section="quotations" />; }
+export function PurchaseInvoicesPage() { return <ProcureToPay section="invoices" />; }
+export function PurchaseReturnsPage() { return <ProcureToPay section="returns" />; }
+
+export default function ProcureToPay({ section = "quotations" }: { section?: ProcurementSection }) {
   const { toast } = useToast();
+  const [quoteSearch, setQuoteSearch] = useState("");
+  const [quoteStatusFilter, setQuoteStatusFilter] = useState("__all__");
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
@@ -45,22 +52,22 @@ export default function ProcureToPay() {
   const [returnForm, setReturnForm] = useState({ purchaseOrderId: "", purchaseInvoiceId: "", reasonCode: "defective", returnDate: today(), purchaseOrderItemId: "", assetId: "", consumableId: "", warehouseLocationId: "", quantity: "1", notes: "" });
   const [paymentForm, setPaymentForm] = useState({ paymentDate: today(), amount: "", paymentMethod: "bank_transfer", referenceNumber: "", notes: "" });
 
-  const vendorsQuery = useQuery<Vendor[]>({ queryKey: ["/api/vendors"] });
-  const ordersQuery = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"] });
-  const quotesQuery = useQuery<Quotation[]>({ queryKey: ["/api/vendor-quotations"] });
-  const invoicesQuery = useQuery<Invoice[]>({ queryKey: ["/api/purchase-invoices"] });
-  const returnsQuery = useQuery<any[]>({ queryKey: ["/api/purchase-returns"] });
-  const consumablesQuery = useQuery<Consumable[]>({ queryKey: ["/api/consumables"] });
+  const vendorsQuery = useQuery<Vendor[]>({ queryKey: ["/api/vendors"], enabled: Boolean(quoteOpen || invoiceOpen || returnOpen || section) });
+  const ordersQuery = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"], enabled: section === "invoices" || section === "returns" });
+  const quotesQuery = useQuery<Quotation[]>({ queryKey: ["/api/vendor-quotations"], enabled: section === "quotations" || section === "invoices" || section === "returns" });
+  const invoicesQuery = useQuery<Invoice[]>({ queryKey: ["/api/purchase-invoices"], enabled: section === "invoices" || section === "returns" });
+  const returnsQuery = useQuery<any[]>({ queryKey: ["/api/purchase-returns"], enabled: section === "returns" });
+  const consumablesQuery = useQuery<Consumable[]>({ queryKey: ["/api/consumables"], enabled: section === "quotations" || section === "returns" });
   const returnableAssetsQuery = useQuery<Asset[]>({
     queryKey: ["/api/purchase-orders", returnForm.purchaseOrderId, "returnable-assets", returnForm.purchaseOrderItemId],
     queryFn: async () => (await apiRequest("GET", `/api/purchase-orders/${returnForm.purchaseOrderId}/returnable-assets?purchaseOrderItemId=${encodeURIComponent(returnForm.purchaseOrderItemId)}`)).json(),
-    enabled: Boolean(returnForm.purchaseOrderId && returnForm.purchaseOrderItemId),
+    enabled: section === "returns" && Boolean(returnForm.purchaseOrderId && returnForm.purchaseOrderItemId),
   });
-  const warehousesQuery = useQuery<{ id: string; name: string; code: string; isActive: boolean }[]>({ queryKey: ["/api/warehouse-locations"] });
+  const warehousesQuery = useQuery<{ id: string; name: string; code: string; isActive: boolean }[]>({ queryKey: ["/api/warehouse-locations"], enabled: section === "quotations" || section === "returns" });
   const receiptQuery = useQuery<ReceiptLine[]>({
     queryKey: ["/api/purchase-orders", invoiceForm.purchaseOrderId, "receipts"],
     queryFn: async () => (await apiRequest("GET", `/api/purchase-orders/${invoiceForm.purchaseOrderId}/receipts`)).json(),
-    enabled: Boolean(invoiceForm.purchaseOrderId),
+    enabled: section === "invoices" && Boolean(invoiceForm.purchaseOrderId),
   });
   const selectedOrder = ordersQuery.data?.find(order => order.id === invoiceForm.purchaseOrderId);
   const selectedReceipt = receiptQuery.data?.find(line => line.receiptId === invoiceForm.receiptId);
@@ -74,6 +81,25 @@ export default function ProcureToPay() {
   const acceptedReturnQuote = returnOrder?.quotationId ? (quotesQuery.data ?? []).find(quote => quote.id === returnOrder.quotationId && isAcceptedQuotation(quote.status)) : undefined;
   const returnCurrency = selectedReturnInvoice?.currency || acceptedReturnQuote?.currency || "USD";
   const selectedInvoiceOutstanding = paymentInvoice ? Math.max(Number(paymentInvoice.outstandingAmount ?? 0), 0) : 0;
+  const sectionCopy = {
+    quotations: {
+      title: "Supplier Quotations & RFQs",
+      subtitle: "Review supplier quotes, compare submitted lines, and convert accepted quotations into purchase orders.",
+    },
+    invoices: {
+      title: "Purchase Invoices",
+      subtitle: "Match supplier bills to received purchase-order lines, approve invoices, and track each settlement.",
+    },
+    returns: {
+      title: "Purchase Returns & Debit Notes",
+      subtitle: "Record supplier returns, create debit-note credits, and adjust warehouse stock or returned assets.",
+    },
+  }[section];
+  const filteredQuotes = (quotesQuery.data ?? []).filter(quote => {
+    const vendorName = vendorsQuery.data?.find(vendor => vendor.id === quote.vendorId)?.name ?? "";
+    const matchesSearch = !quoteSearch.trim() || `${quote.quoteNumber} ${vendorName} ${quote.status}`.toLowerCase().includes(quoteSearch.trim().toLowerCase());
+    return matchesSearch && (quoteStatusFilter === "__all__" || quote.status === quoteStatusFilter);
+  });
 
   const refresh = async (...keys: string[][]) => Promise.all(keys.map(queryKey => queryClient.invalidateQueries({ queryKey })));
   const resetQuotationForm = () => {
@@ -195,29 +221,36 @@ export default function ProcureToPay() {
   return (
     <main className="min-w-0 space-y-6 p-4 sm:p-6" data-testid="procure-to-pay-page">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><p className="text-sm font-medium text-blue-700">Finance workspace</p><h1 className="text-2xl font-semibold tracking-tight">Procure-to-Pay</h1><p className="mt-1 text-sm text-muted-foreground">Manage supplier quotations, purchase orders, matched bills, payments, and returns.</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setQuoteOpen(true)}><Plus className="mr-2 h-4 w-4" />New quotation</Button><Button onClick={() => setInvoiceOpen(true)}><FileText className="mr-2 h-4 w-4" />Record invoice</Button><Button variant="outline" onClick={() => setReturnOpen(true)}><RotateCcw className="mr-2 h-4 w-4" />Purchase return</Button></div>
+        <div><p className="text-sm font-medium text-blue-700">Finance workspace</p><h1 className="text-2xl font-semibold tracking-tight">{sectionCopy.title}</h1><p className="mt-1 text-sm text-muted-foreground">{sectionCopy.subtitle}</p></div>
+        {section === "quotations" && <Button onClick={() => setQuoteOpen(true)} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" />New quotation</Button>}
+        {section === "invoices" && <Button onClick={() => setInvoiceOpen(true)} className="w-full sm:w-auto"><FileText className="mr-2 h-4 w-4" />Record invoice</Button>}
+        {section === "returns" && <Button onClick={() => setReturnOpen(true)} className="w-full sm:w-auto"><RotateCcw className="mr-2 h-4 w-4" />Purchase return</Button>}
       </header>
-      <div className="grid gap-3 sm:grid-cols-3">
+      {section === "quotations" && !quotesQuery.isError && <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-blue-50 p-2 text-blue-700"><FileText className="h-4 w-4" /></span><div><p className="text-sm text-muted-foreground">Quotations</p><p className="text-xl font-semibold">{quotesQuery.data?.length ?? 0}</p></div></CardContent></Card>
-        <Card><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-amber-50 p-2 text-amber-700"><WalletCards className="h-4 w-4" /></span><div><p className="text-sm text-muted-foreground">Open invoices</p><p className="text-xl font-semibold">{invoicesQuery.data?.filter(invoice => invoice.paymentStatus !== "paid" && invoice.status !== "void").length ?? 0}</p></div></CardContent></Card>
-        <Card><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-rose-50 p-2 text-rose-700"><RotateCcw className="h-4 w-4" /></span><div><p className="text-sm text-muted-foreground">Purchase returns</p><p className="text-xl font-semibold">{returnsQuery.data?.length ?? 0}</p></div></CardContent></Card>
-      </div>
+        <Card><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-amber-50 p-2 text-amber-700"><WalletCards className="h-4 w-4" /></span><div><p className="text-sm text-muted-foreground">Awaiting review</p><p className="text-xl font-semibold">{quotesQuery.data?.filter(quote => quote.status === "submitted").length ?? 0}</p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-3 p-4"><span className="rounded-lg bg-emerald-50 p-2 text-emerald-700"><ArrowRightLeft className="h-4 w-4" /></span><div><p className="text-sm text-muted-foreground">Converted to POs</p><p className="text-xl font-semibold">{quotesQuery.data?.filter(quote => quote.status === "converted").length ?? 0}</p></div></CardContent></Card>
+      </div>}
 
-       {(quotesQuery.isError || ordersQuery.isError || invoicesQuery.isError || returnsQuery.isError || vendorsQuery.isError || consumablesQuery.isError || warehousesQuery.isError) && <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">One or more procurement records could not be loaded. Failed sections are identified below; they are not empty records. Stock balances are unavailable when consumables fail to load.</div>}
-       <Tabs defaultValue="quotations">
-        <TabsList><TabsTrigger value="quotations">Quotations & POs</TabsTrigger><TabsTrigger value="invoices">Invoices & Payments</TabsTrigger><TabsTrigger value="returns">Returns & Debit Notes</TabsTrigger></TabsList>
-        <TabsContent value="quotations">
+       {((section === "quotations" && (quotesQuery.isError || vendorsQuery.isError || warehousesQuery.isError)) ||
+         (section === "invoices" && (invoicesQuery.isError || ordersQuery.isError || vendorsQuery.isError)) ||
+         (section === "returns" && (returnsQuery.isError || ordersQuery.isError || vendorsQuery.isError || invoicesQuery.isError))) &&
+         <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">One or more records for this page could not be loaded. Failed sections are identified below; they are not empty records.</div>}
+       <div>
+        {section === "quotations" && <>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+            <div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search supplier quotations" className="pl-9" placeholder="Search quote number or vendor" value={quoteSearch} onChange={event => setQuoteSearch(event.target.value)} /></div>
+            <Select value={quoteStatusFilter} onValueChange={setQuoteStatusFilter}><SelectTrigger className="w-full sm:w-56" aria-label="Filter quotations by status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all__">All statuses</SelectItem>{["submitted","accepted","converted","rejected","expired"].map(status => <SelectItem key={status} value={status}>{status.replace("_"," ")}</SelectItem>)}</SelectContent></Select>
+          </div>
           <Card><CardHeader><CardTitle>Vendor quotations</CardTitle></CardHeader><CardContent className="overflow-x-auto">
             {quotesQuery.isLoading ? <p>Loading quotations…</p> : <table className="w-full min-w-[720px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Quote</th><th className="p-2">Vendor</th><th className="p-2">Issue date</th><th className="p-2">Lines</th><th className="p-2">Total</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
-              {(quotesQuery.data ?? []).map(quote => <tr key={quote.id}><td className="p-2 font-medium">{quote.quoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === quote.vendorId)?.name ?? "Vendor"}</td><td className="p-2">{formatDateDisplay(quote.issueDate)}</td><td className="p-2">{quote.items?.length ?? 0}</td><td className="p-2">{currency(quote.totalAmount, quote.currency)}</td><td className="p-2"><Badge variant={quote.status === "converted" ? "default" : "secondary"}>{quote.status}</Badge></td><td className="p-2"><div className="flex flex-wrap gap-1">{quote.status === "submitted" && <Button size="sm" variant="outline" onClick={() => quoteStatus.mutate({ id: quote.id, status: "accepted" })}>Accept</Button>}{quote.status === "accepted" && <Button size="sm" onClick={() => convertQuote.mutate(quote.id)}><ArrowRightLeft className="mr-1 h-3 w-3" />Convert to PO</Button>}</div></td></tr>)}
+              {filteredQuotes.map(quote => <tr key={quote.id}><td className="p-2 font-medium">{quote.quoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === quote.vendorId)?.name ?? "Vendor"}</td><td className="p-2">{formatDateDisplay(quote.issueDate)}</td><td className="p-2">{quote.items?.length ?? 0}</td><td className="p-2">{currency(quote.totalAmount, quote.currency)}</td><td className="p-2"><Badge variant={quote.status === "converted" ? "default" : "secondary"}>{quote.status}</Badge></td><td className="p-2"><div className="flex flex-wrap gap-1">{quote.status === "submitted" && <Button size="sm" variant="outline" onClick={() => quoteStatus.mutate({ id: quote.id, status: "accepted" })}>Accept</Button>}{quote.status === "accepted" && <Button size="sm" onClick={() => convertQuote.mutate(quote.id)}><ArrowRightLeft className="mr-1 h-3 w-3" />Convert to PO</Button>}</div></td></tr>)}
              {quotesQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load quotations.</td></tr>}
-             {!quotesQuery.isError && !quotesQuery.isLoading && !quotesQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No quotations yet.</td></tr>}
+             {!quotesQuery.isError && !quotesQuery.isLoading && !filteredQuotes.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No quotations match these filters.</td></tr>}
             </tbody></table>}
           </CardContent></Card>
-           <Card className="mt-4"><CardHeader><CardTitle>Purchase orders</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[620px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">PO</th><th className="p-2">Vendor</th><th className="p-2">Order date</th><th className="p-2">Value</th><th className="p-2">Status</th><th className="p-2">Inventory</th></tr></thead><tbody className="divide-y">{(ordersQuery.data ?? []).map(po => { const quote = po.quotationId ? quotesQuery.data?.find(row => row.id === po.quotationId) : undefined; return <tr key={po.id}><td className="p-2 font-medium">{po.poNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === po.vendorId)?.name ?? "—"}</td><td className="p-2">{formatDateDisplay((po as any).orderDate)}</td><td className="p-2">{currency(po.totalAmount ?? "0", quote?.currency ?? "USD")}</td><td className="p-2"><Badge variant="outline">{po.status}</Badge></td><td className="p-2">{(po as any).assetsCreated ? <Badge className="bg-emerald-100 text-emerald-800">Received</Badge> : po.status === "received" ? <Badge variant="secondary">Awaiting processing</Badge> : "—"}</td></tr>;})}{ordersQuery.isError && <tr><td colSpan={6} className="p-8 text-center text-destructive">Could not load purchase orders.</td></tr>}{!ordersQuery.isError && !ordersQuery.isLoading && !ordersQuery.data?.length && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No purchase orders.</td></tr>}</tbody></table></CardContent></Card>
-        </TabsContent>
-        <TabsContent value="invoices"><Card><CardHeader><CardTitle>Purchase invoices & payment history</CardTitle><p className="text-sm text-muted-foreground">Receive inventory in the purchase-order workflow before creating a matched invoice. <a className="font-medium text-primary underline-offset-4 hover:underline" href="/purchase-orders">Go to purchase orders to receive inventory</a>.</p></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Invoice</th><th className="p-2">Vendor / PO</th><th className="p-2">Due date</th><th className="p-2">Total</th><th className="p-2">Payment status</th><th className="p-2">Workflow</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
+        </>}
+        {section === "invoices" && <Card><CardHeader><CardTitle>Purchase invoices & payment history</CardTitle><p className="text-sm text-muted-foreground">Receive inventory in the purchase-order workflow before creating a matched invoice. <a className="font-medium text-primary underline-offset-4 hover:underline" href="/finance/purchase-orders">Go to purchase orders to receive inventory</a>.</p></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Invoice</th><th className="p-2">Vendor / PO</th><th className="p-2">Due date</th><th className="p-2">Total</th><th className="p-2">Payment status</th><th className="p-2">Workflow</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
           {(invoicesQuery.data ?? []).map(invoice => {
             const vendor = vendorsQuery.data?.find(row => row.id === invoice.vendorId)?.name ?? "Vendor";
             const po = ordersQuery.data?.find(row => row.id === invoice.purchaseOrderId);
@@ -227,9 +260,9 @@ export default function ProcureToPay() {
           })}
            {invoicesQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load invoices.</td></tr>}
            {!invoicesQuery.isError && !invoicesQuery.isLoading && !invoicesQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No invoices recorded.</td></tr>}
-        </tbody></table></CardContent></Card></TabsContent>
-        <TabsContent value="returns"><Card><CardHeader><CardTitle>Purchase returns & debit notes</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Return</th><th className="p-2">Debit note</th><th className="p-2">Vendor / PO</th><th className="p-2">Date</th><th className="p-2">Reason</th><th className="p-2">Credit</th><th className="p-2">Status</th></tr></thead><tbody className="divide-y">{(returnsQuery.data ?? []).map(row => <tr key={row.id}><td className="p-2 font-medium">{row.returnNumber}</td><td className="p-2">{row.debitNoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === row.vendorId)?.name ?? "Vendor"} · {ordersQuery.data?.find(po => po.id === row.purchaseOrderId)?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(row.returnDate)}</td><td className="p-2 capitalize">{row.reasonCode.replace("_", " ")}</td><td className="p-2">{currency(row.totalCredit, row.currency)}</td><td className="p-2"><Badge variant="secondary">{row.status}</Badge></td></tr>)}{returnsQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load purchase returns.</td></tr>}{!returnsQuery.isError && !returnsQuery.isLoading && !returnsQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No supplier returns or debit notes.</td></tr>}</tbody></table></CardContent></Card></TabsContent>
-      </Tabs>
+        </tbody></table></CardContent></Card>}
+        {section === "returns" && <Card><CardHeader><CardTitle>Purchase returns & debit notes</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Return</th><th className="p-2">Debit note</th><th className="p-2">Vendor / PO</th><th className="p-2">Date</th><th className="p-2">Reason</th><th className="p-2">Credit</th><th className="p-2">Status</th></tr></thead><tbody className="divide-y">{(returnsQuery.data ?? []).map(row => <tr key={row.id}><td className="p-2 font-medium">{row.returnNumber}</td><td className="p-2">{row.debitNoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === row.vendorId)?.name ?? "Vendor"} · {ordersQuery.data?.find(po => po.id === row.purchaseOrderId)?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(row.returnDate)}</td><td className="p-2 capitalize">{row.reasonCode.replace("_", " ")}</td><td className="p-2">{currency(row.totalCredit, row.currency)}</td><td className="p-2"><Badge variant="secondary">{row.status}</Badge></td></tr>)}{returnsQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load purchase returns.</td></tr>}{!returnsQuery.isError && !returnsQuery.isLoading && !returnsQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No supplier returns or debit notes.</td></tr>}</tbody></table></CardContent></Card>}
+       </div>
 
       <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>New vendor quotation</DialogTitle><DialogDescription>Capture the supplier quote and line items before converting an accepted quotation to a PO.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitQuotation}>
         <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="quote-number">Quote number</Label><Input id="quote-number" required value={quoteForm.quoteNumber} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} /></div><div><Label htmlFor="quote-vendor">Vendor</Label><Select value={quoteForm.vendorId} onValueChange={vendorId => setQuoteForm({ ...quoteForm, vendorId })}><SelectTrigger id="quote-vendor"><SelectValue placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Select vendor"} /></SelectTrigger><SelectContent>{vendorsQuery.data?.map(vendor => <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="quote-issue-date">Issue date</Label><CalendarDateField id="quote-issue-date" required value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div><div><Label htmlFor="quote-valid-until">Valid until</Label><CalendarDateField id="quote-valid-until" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div></div>

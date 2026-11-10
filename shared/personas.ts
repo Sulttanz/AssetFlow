@@ -26,7 +26,8 @@ const IT_AGENT_PAGE_PREFIXES = [
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
   "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
-  "/procure-to-pay", "/reports/procurement-finance",
+  "/procure-to-pay", "/finance/quotations", "/finance/purchase-orders", "/finance/invoices",
+  "/finance/returns", "/finance/budgets", "/finance/contracts", "/reports/procurement-finance",
   "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis", "/projects", "/migration", "/import",
   "/reports/project-variance", "/reports/project-velocity", "/reports/risk-heatmap", "/reports/itsm-cab",
 ];
@@ -96,7 +97,8 @@ export function isPersonaPageAllowed(
       return [
         "/dashboard", "/changes", "/applications", "/servers", "/network-topology", "/purchase-orders",
         "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors", "/reports/itsm-cab",
-        "/procure-to-pay", "/reports/procurement-finance",
+        "/procure-to-pay", "/finance/quotations", "/finance/purchase-orders", "/finance/invoices",
+        "/finance/returns", "/finance/budgets", "/finance/contracts", "/reports/procurement-finance",
       ].some(prefix => matchesPath(path, prefix));
     }
     return ["/assets", "/access-governance", "/audit-logs", "/network-topology", "/backup-schedules", "/knowledge-base", "/reports/hardware-lifecycle", "/reports/consumables-stock"]

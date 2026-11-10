@@ -46,6 +46,7 @@ import {
   Network,
   DatabaseBackup,
   FolderKanban,
+  RotateCcw,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -109,11 +110,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       key: "itam",
       name: "IT Asset Management",
       moduleKey: "asset_management",
-      permission: ["asset_view", "asset_update", "inventory_view", "system_admin"],
+      permission: ["asset_view", "asset_update", "inventory_view", "finance_view", "purchase_order_create", "purchase_order_update", "system_admin"],
       items: [
         { name: "Hardware Depreciation & Lifecycle", href: "/reports/hardware-lifecycle", moduleKey: "asset_management", permission: ["asset_view", "asset_update", "system_admin"] },
         { name: "Consumable Stock & Reorder Alerts", href: "/reports/consumables-stock", moduleKey: "asset_management", permission: ["asset_view", "inventory_view", "system_admin"] },
         { name: "Enterprise Operations & Asset Exposure", href: "/reports/enterprise-operations", moduleKey: "asset_management", permission: ["asset_view", "asset_update", "inventory_view", "finance_view", "system_admin"] },
+        { name: "Procurement Spend, Payables & Returns", href: "/reports/procurement-finance", moduleKey: "asset_management", permission: ["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"] },
       ],
     },
     {
@@ -232,11 +234,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "Financial",
       moduleKey: "asset_management",
       items: [
-        { name: "Purchase Orders", href: "/purchase-orders", icon: ShoppingCart, current: location === "/purchase-orders" },
-        { name: "Procure-to-Pay", href: "/procure-to-pay", icon: ClipboardList, current: location === "/procure-to-pay" },
-        { name: "Procurement Finance Reports", href: "/reports/procurement-finance", icon: FileBarChart, current: location === "/reports/procurement-finance", permission: ["finance_view", "purchase_order_update", "system_admin"] },
-        { name: "Budgets", href: "/budgets", icon: DollarSign, current: location === "/budgets" },
-        { name: "Contracts", href: "/contracts", icon: FileSignature, current: location === "/contracts" },
+        { name: "Quotations", href: "/finance/quotations", icon: FileText, current: location === "/finance/quotations" },
+        { name: "Purchase Orders", href: "/finance/purchase-orders", icon: ShoppingCart, current: location === "/finance/purchase-orders" },
+        { name: "Purchase Invoices", href: "/finance/invoices", icon: FileText, current: location === "/finance/invoices" },
+        { name: "Purchase Returns", href: "/finance/returns", icon: RotateCcw, current: location === "/finance/returns" },
+        { name: "Budgets", href: "/finance/budgets", icon: DollarSign, current: location === "/finance/budgets" },
+        { name: "Contracts", href: "/finance/contracts", icon: FileSignature, current: location === "/finance/contracts" },
       ]
     },
     {

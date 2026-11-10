@@ -30,7 +30,9 @@ const Locations = lazy(() => import("@/pages/locations"));
 const Departments = lazy(() => import("@/pages/departments"));
 const Vendors = lazy(() => import("@/pages/vendors"));
 const PurchaseOrders = lazy(() => import("@/pages/purchase-orders"));
-const ProcureToPay = lazy(() => import("@/pages/procure-to-pay"));
+const Quotations = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.QuotationsPage })));
+const PurchaseInvoices = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseInvoicesPage })));
+const PurchaseReturns = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseReturnsPage })));
 const Consumables = lazy(() => import("@/pages/consumables"));
 const Budgets = lazy(() => import("@/pages/budgets"));
 const Maintenance = lazy(() => import("@/pages/maintenance"));
@@ -138,10 +140,15 @@ function Router() {
                   <ProtectedRoute path="/departments" component={Departments} requiredModule="asset_management" />
                   <ProtectedRoute path="/vendors" component={Vendors} requiredModule="asset_management" />
                   <ProtectedRoute path="/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
-                  <ProtectedRoute path="/procure-to-pay" component={ProcureToPay} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/quotations" component={Quotations} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/invoices" component={PurchaseInvoices} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/returns" component={PurchaseReturns} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/procure-to-pay" component={Quotations} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/consumables" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports" component={Reports} />
                   <ProtectedRoute path="/reports/enterprise-operations" component={EnterpriseOperationsReport} requiredAnyPermission={["ticket_view_all", "asset_view", "asset_update", "inventory_view", "finance_view", "audit_view", "system_admin"]} />
@@ -178,6 +185,7 @@ function Router() {
                   <ProtectedRoute path="/asset-disposal" component={AssetDisposal} requiredModule="asset_management" />
                   <ProtectedRoute path="/bookings" component={AssetBookings} requiredModule="asset_management" />
                   <ProtectedRoute path="/contracts" component={Contracts} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/contracts" component={Contracts} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/service-contracts" component={ServiceContracts} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "system_admin"]} />
                   <ProtectedRoute path="/asset-audits" component={AssetAudits} requiredModule="asset_management" />
                   <ProtectedRoute path="/asset-requests" component={AssetRequests} requiredModule="asset_management" />
