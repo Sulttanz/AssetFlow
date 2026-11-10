@@ -131,6 +131,10 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       assignmentGroup: group.name, assigneeId: actorId,
     });
     expect(assigned).toMatchObject({ assignmentGroup: group.name, assigneeId: actorId, assignedToId: actorId });
+    const queueReport = await request("GET", `/api/enterprise-reporting/operations?assignmentGroupId=${group.id}`);
+    expect(queueReport.itsm.assignmentGroups).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: group.name, openCount: 1 }),
+    ]));
     await request("DELETE", `/api/assignment-groups/${group.id}/members/${actorId}`, undefined, 204);
     expect(await request("GET", `/api/assignment-groups/${group.id}/members`)).toEqual([]);
     const categoryOnly = await request("PATCH", `/api/incidents/${incidentId}`, { category: "Connectivity" });
@@ -154,6 +158,17 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     expect(closed.status).toBe("Closed");
     expect(closed.closedAt).toBeTruthy();
     expect(closed.resolvedAt).toBe(resolved.resolvedAt);
+    const operationsReport = await request("GET", `/api/enterprise-reporting/operations?assignmentGroupId=${group.id}`);
+    expect(operationsReport.capabilities).toMatchObject({ itsm: true, itam: true });
+    expect(operationsReport.itsm.mttrByPriority).toEqual(expect.arrayContaining([
+      expect.objectContaining({ priority: "P2", resolvedCount: expect.any(Number) }),
+    ]));
+    expect(operationsReport.itam).toHaveProperty("supportContracts.contracts");
+    const auditReport = await request("GET", `/api/enterprise-reporting/audit-events?category=itsm&assignmentGroupId=${group.id}`);
+    expect(auditReport).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tableName: "incidents", action: "UPDATE", summary: expect.stringContaining("status:") }),
+      expect.objectContaining({ tableName: "incidents", action: "UPDATE", summary: expect.stringContaining("assignmentGroup:") }),
+    ]));
     await request("PATCH", `/api/incidents/${incidentId}`, { resolutionNotes: null }, 400);
     const incidentList = await request("GET", "/api/incidents");
     expect(incidentList.find((row: { id: string }) => row.id === incidentId)).toMatchObject({

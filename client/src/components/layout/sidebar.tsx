@@ -113,6 +113,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Hardware Depreciation & Lifecycle", href: "/reports/hardware-lifecycle", moduleKey: "asset_management", permission: ["asset_view", "asset_update", "system_admin"] },
         { name: "Consumable Stock & Reorder Alerts", href: "/reports/consumables-stock", moduleKey: "asset_management", permission: ["asset_view", "inventory_view", "system_admin"] },
+        { name: "Enterprise Operations & Asset Exposure", href: "/reports/enterprise-operations", moduleKey: "asset_management", permission: ["asset_view", "asset_update", "inventory_view", "finance_view", "system_admin"] },
       ],
     },
     {
@@ -134,7 +135,16 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Incident MTTR & P1-P4 Breakdown", href: "/reports/itsm-mttr", moduleKey: "itsm", permission: ["ticket_view_all", "system_admin"] },
         { name: "SLA Breach & Escalation Metrics", href: "/reports/itsm-sla", moduleKey: "itsm", permission: ["ticket_view_all", "system_admin"] },
+        { name: "Assignment Group Queue & Workload", href: "/reports/enterprise-operations", moduleKey: "itsm", permission: ["ticket_view_all", "system_admin"] },
         { name: "Change Enablement (CAB) Success Rates", href: "/reports/itsm-cab", moduleKey: "itsm", permission: ["ticket_view_all", "change_view", "system_admin"] },
+      ],
+    },
+    {
+      key: "audit",
+      name: "Audit & Compliance",
+      permission: ["audit_view", "system_admin"],
+      items: [
+        { name: "Audit Activity & Change Evidence", href: "/reports/enterprise-operations", permission: ["audit_view", "system_admin"] },
       ],
     },
   ];

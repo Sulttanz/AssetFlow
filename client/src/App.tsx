@@ -44,6 +44,8 @@ const Reports = lazy(() => import("@/pages/reports-dashboard"));
 const PersonnelDetailReport = lazy(() => import("@/pages/reports/personnel-detail"));
 const ConsumablesStockReport = lazy(() => import("@/pages/reports/consumables-stock"));
 const PlannedAnalyticsReport = lazy(() => import("@/pages/reports/planned-report"));
+const EnterpriseOperationsReport = lazy(() => import("@/pages/reports/enterprise-operations"));
+const TicketReport = lazy(() => import("@/pages/reports/tickets"));
 const AssetSummaryReport = lazy(() => import("@/pages/reports/asset-summary"));
 const LifecycleReport = lazy(() => import("@/pages/reports/lifecycle"));
 const HardwareInventoryReport = lazy(() => import("@/pages/reports/hardware-inventory"));
@@ -66,7 +68,6 @@ const Contracts = lazy(() => import("@/pages/contracts"));
 const ServiceContracts = lazy(() => import("@/components/service-contracts/service-contracts-register"));
 const AssetAudits = lazy(() => import("@/pages/asset-audits"));
 const AssetRequests = lazy(() => import("@/pages/asset-requests"));
-const TicketReport = lazy(() => import("@/pages/reports/tickets"));
 const ProblemsReport = lazy(() => import("@/pages/reports/problems"));
 const ChangesReport = lazy(() => import("@/pages/reports/changes"));
 const KnowledgeBaseReport = lazy(() => import("@/pages/reports/knowledge-base"));
@@ -140,6 +141,7 @@ function Router() {
                   <ProtectedRoute path="/budgets" component={Budgets} requiredModule="asset_management" requiredAnyPermission={["finance_view", "budget_create", "budget_update", "system_admin"]} />
                   <ProtectedRoute path="/maintenance" component={Maintenance} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports" component={Reports} />
+                  <ProtectedRoute path="/reports/enterprise-operations" component={EnterpriseOperationsReport} requiredAnyPermission={["ticket_view_all", "asset_view", "asset_update", "inventory_view", "finance_view", "audit_view", "system_admin"]} />
                   <ProtectedRoute path="/reports/personnel" component={PersonnelDetailReport} />
                   <ProtectedRoute path="/reports/employee-directory" component={PersonnelDetailReport} />
                   <ProtectedRoute path="/reports/workload-heatmap" component={PersonnelDetailReport} />
@@ -149,8 +151,8 @@ function Router() {
                   <ProtectedRoute path="/reports/project-variance" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/reports/project-velocity" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/reports/risk-heatmap" component={PlannedAnalyticsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
-                  <ProtectedRoute path="/reports/itsm-mttr" component={TicketReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
-                  <ProtectedRoute path="/reports/itsm-sla" component={PlannedAnalyticsReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
+                  <ProtectedRoute path="/reports/itsm-mttr" component={EnterpriseOperationsReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
+                  <ProtectedRoute path="/reports/itsm-sla" component={EnterpriseOperationsReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "system_admin"]} />
                   <ProtectedRoute path="/reports/itsm-cab" component={ChangesReport} requiredModule="itsm" requiredAnyPermission={["ticket_view_all", "change_view", "system_admin"]} />
                   <ProtectedRoute path="/reports/asset-summary" component={AssetSummaryReport} requiredModule="asset_management" />
                   <ProtectedRoute path="/reports/lifecycle" component={LifecycleReport} requiredModule="asset_management" />

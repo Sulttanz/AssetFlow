@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowUpRight, BriefcaseBusiness, ChevronDown, FileBarChart, HardDrive, Users, Wrench } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, ChevronDown, FileBarChart, HardDrive, ShieldCheck, Users, Wrench } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { isPersonaPageAllowed } from "@shared/personas";
@@ -47,6 +47,7 @@ const reportCategories: ReportCategory[] = [
     items: [
       { title: "Hardware Depreciation & Lifecycle", description: "Review asset depreciation, values, and lifecycle details.", href: "/reports/hardware-lifecycle", permissions: ["asset_view", "asset_update", "system_admin"] },
       { title: "Consumable Stock & Reorder Alerts", description: "Review stock levels and warehouse reorder thresholds.", href: "/reports/consumables-stock", permissions: ["asset_view", "inventory_view", "system_admin"] },
+      { title: "Enterprise Operations & Asset Exposure", description: "Review inventory valuation and 30/60-day support contract expiry alerts.", href: "/reports/enterprise-operations", permissions: ["asset_view", "asset_update", "inventory_view", "finance_view", "system_admin"] },
     ],
   },
   {
@@ -71,8 +72,19 @@ const reportCategories: ReportCategory[] = [
     permissions: ["ticket_view_all", "change_view", "system_admin"],
     items: [
       { title: "Incident MTTR & P1-P4 Breakdown", description: "Review incident priorities and resolution duration.", href: "/reports/itsm-mttr", permissions: ["ticket_view_all", "system_admin"] },
-      { title: "SLA Breach & Escalation Metrics", description: "Monitor service objectives, breaches, and escalation trends.", href: "/reports/itsm-sla", permissions: ["ticket_view_all", "system_admin"], planned: true },
+      { title: "SLA Breach & Escalation Metrics", description: "Monitor incident SLA compliance, backlog age, and overdue exposure.", href: "/reports/itsm-sla", permissions: ["ticket_view_all", "system_admin"] },
+      { title: "Assignment Group Queue & Workload", description: "Compare open queues and overdue tickets across support teams.", href: "/reports/enterprise-operations", permissions: ["ticket_view_all", "system_admin"] },
       { title: "Change Enablement (CAB) Success Rates", description: "Review change outcomes, CAB decisions, and approval history.", href: "/reports/itsm-cab", permissions: ["ticket_view_all", "change_view", "system_admin"] },
+    ],
+  },
+  {
+    key: "audit",
+    label: "Audit & Compliance",
+    description: "Exportable evidence for transitions, assignments, and controlled changes.",
+    icon: ShieldCheck,
+    permissions: ["audit_view", "system_admin"],
+    items: [
+      { title: "Audit Activity & Change Evidence", description: "Filter and export state transitions and assignment actions with actor and timestamp.", href: "/reports/enterprise-operations", permissions: ["audit_view", "system_admin"] },
     ],
   },
 ];

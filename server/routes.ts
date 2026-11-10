@@ -60,6 +60,7 @@ import { registerProjectManagementRoutes } from "./project-management";
 import { IncidentTransitionError, transitionIncident } from "./incident-lifecycle";
 import { registerPersonnelReportRoute } from "./personnel-report";
 import { resolveIncidentContractContext } from "./incident-contract-resolution";
+import { registerEnterpriseReportingRoutes } from "./enterprise-reporting";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -592,6 +593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication system
   setupAuth(app);
   registerPersonnelReportRoute(app);
+  registerEnterpriseReportingRoutes(app);
 
   await ensureItsmPermissions();
   await ensurePersonaRoles();
@@ -1501,6 +1503,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await tx.insert(incidentActivities).values({ incidentId: incident.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assignee: ${assignedUser || "Unassigned"}` });
         return result;
       });
+      await logAudit(req.user.id, "UPDATE", "incidents", currentIncident.id, currentIncident.title,
+        { assignmentGroup: currentIncident.assignmentGroup, assigneeId: currentIncident.assigneeId ?? currentIncident.assignedToId },
+        { assignmentGroup: updated.assignmentGroup, assigneeId: updated.assigneeId ?? updated.assignedToId }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
@@ -1517,6 +1522,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resolutionCode: z.string().trim().max(120).nullable().optional(),
         resolutionNotes: z.string().trim().max(4000).nullable().optional(),
       }).parse(req.body);
+      const [before] = await db.select({
+        id: incidents.id,
+        title: incidents.title,
+        status: incidents.status,
+      }).from(incidents).where(eq(incidents.id, req.params.id));
+      if (!before) return res.status(404).json({ message: "Incident not found" });
       const updated = await transitionIncident({
         incidentId: req.params.id,
         actorId: req.user.id,
@@ -1525,6 +1536,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         resolutionCode,
         resolutionNotes,
       });
+      await logAudit(req.user.id, "UPDATE", "incidents", updated.id, updated.title,
+        { status: before.status }, { status: updated.status }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.issues });
@@ -1565,6 +1578,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (parsed.status) {
         const { status, ...rest } = parsed;
+        const [before] = await db.select({ id: incidents.id, title: incidents.title, status: incidents.status })
+          .from(incidents).where(eq(incidents.id, req.params.id));
+        if (!before) {
+          res.status(404).json({ message: "Incident not found" });
+          return;
+        }
         const incident = await transitionIncident({
           incidentId: req.params.id,
           actorId: (req as any).user.id,
@@ -1574,6 +1593,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           resolutionNotes: parsed.resolutionNotes,
           updates: rest as Partial<typeof incidents.$inferSelect>,
         });
+        await logAudit((req as any).user.id, "UPDATE", "incidents", incident.id, incident.title,
+          { status: before.status }, { status: incident.status }, req);
         res.json(incident);
         return;
       }
@@ -1798,7 +1819,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "This request is already closed" });
       }
       const updated = await storage.updateServiceRequest(existing.id, { fulfillmentStage: "Cancelled", fulfillmentStatus: "Cancelled", closureNote });
+      if (!updated) return res.status(404).json({ message: "Service request not found" });
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Request closed", details: closureNote });
+      await logAudit(req.user.id, "UPDATE", "service_requests", existing.id, existing.title,
+        { fulfillmentStatus: existing.fulfillmentStatus, fulfillmentStage: existing.fulfillmentStage },
+        { fulfillmentStatus: updated.fulfillmentStatus, fulfillmentStage: updated.fulfillmentStage }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "A closure note is required", errors: error.issues });
@@ -1815,7 +1840,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing.approvalStatus !== "pending") return res.status(409).json({ message: "This request has already been reviewed" });
       const stage = decision === "approved" ? "Approved" : "Rejected";
       const updated = await storage.updateServiceRequest(existing.id, { approvalStatus: decision, fulfillmentStage: stage });
+      if (!updated) return res.status(404).json({ message: "Service request not found" });
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: decision === "approved" ? "Request approved" : "Request rejected" });
+      await logAudit(req.user.id, "UPDATE", "service_requests", existing.id, existing.title,
+        { approvalStatus: existing.approvalStatus, fulfillmentStage: existing.fulfillmentStage },
+        { approvalStatus: updated.approvalStatus, fulfillmentStage: updated.fulfillmentStage }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid approval decision", errors: error.issues });
@@ -1836,9 +1865,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(assignment.assignmentGroup !== undefined ? { assignmentGroup: assignment.assignmentGroup || null } : {}),
         ...(assignment.assigneeId !== undefined ? { assigneeId: assignment.assigneeId, assignedToId: assignment.assigneeId } : {}),
       });
+      if (!updated) return res.status(404).json({ message: "Service request not found" });
       const assignedGroup = assignment.assignmentGroup !== undefined ? assignment.assignmentGroup : existing.assignmentGroup;
       const assignedUser = assignment.assigneeId !== undefined ? assignment.assigneeId : existing.assigneeId ?? existing.assignedToId;
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Assignment updated", details: `Group: ${assignedGroup || "Unassigned"}; assigned to: ${assignedUser || "Unassigned"}` });
+      await logAudit(req.user.id, "UPDATE", "service_requests", existing.id, existing.title,
+        { assignmentGroup: existing.assignmentGroup, assigneeId: existing.assigneeId ?? existing.assignedToId },
+        { assignmentGroup: updated.assignmentGroup, assigneeId: updated.assigneeId ?? updated.assignedToId }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
@@ -1875,7 +1908,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fulfillmentStage: stage,
         ...(stage === "Completed" ? { fulfilledAssetId: fulfilledAssetId ?? null } : {}),
       });
+      if (!updated) return res.status(404).json({ message: "Service request not found" });
       await db.insert(serviceRequestActivities).values({ serviceRequestId: existing.id, actorId: req.user.id, action: "Fulfillment stage changed", details: `${existing.fulfillmentStage ?? existing.fulfillmentStatus} → ${stage}` });
+      await logAudit(req.user.id, "UPDATE", "service_requests", existing.id, existing.title,
+        { fulfillmentStage: existing.fulfillmentStage ?? existing.fulfillmentStatus },
+        { fulfillmentStage: updated.fulfillmentStage ?? updated.fulfillmentStatus }, req);
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid fulfillment stage", errors: error.issues });
