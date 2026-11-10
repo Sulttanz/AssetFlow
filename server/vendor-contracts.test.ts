@@ -2,7 +2,10 @@ import express from "express";
 import type { Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { contractLifecycle, managedVendorInput, vendorContractInput, vendorPermissions } from "@shared/vendor-contracts";
+import {
+  certificationLifecycle, contractLifecycle, managedVendorInput, vendorCertificationInput,
+  vendorContractInput, vendorPermissions, vendorPerformanceStatus,
+} from "@shared/vendor-contracts";
 import { isPersonaApiAllowed, isPersonaPageAllowed } from "@shared/personas";
 import { assertAdditiveMigration } from "./startup-migrations";
 
@@ -88,6 +91,26 @@ describe("vendor contract lifecycle and data contracts", () => {
   it("uses calendar day boundaries instead of elapsed DST hours", () => {
     expect(contractLifecycle({ endDate: "2026-03-30", renewalNoticeDays: 1, status: "Active" }, "2026-03-29").daysUntilExpiry).toBe(1);
   });
+  it.each([
+    ["2026-11-10", 0, "Expiring Soon"],
+    ["2026-12-10", 30, "Expiring Soon"],
+    ["2026-12-11", 31, "Current"],
+    ["2026-11-09", -1, "Expired"],
+  ])("flags certification expiry %s at %s days", (expiry, days, status) => {
+    expect(certificationLifecycle(expiry, "2026-11-10")).toMatchObject({
+      daysUntilExpiry: days, status, needsAttention: Number(days) <= 30,
+    });
+  });
+  it("validates certification dates and HTTP evidence links", () => {
+    const valid = { certificationName: "ISO/IEC 27001", certificateNumber: "CERT-01", issueDate: "2025-01-01", expiryDate: "2026-12-10", documentUrl: "https://example.com/cert.pdf" };
+    expect(vendorCertificationInput.safeParse(valid).success).toBe(true);
+    expect(vendorCertificationInput.safeParse({ ...valid, expiryDate: "2024-12-31" }).success).toBe(false);
+    expect(vendorCertificationInput.safeParse({ ...valid, documentUrl: "javascript:alert(1)" }).success).toBe(false);
+  });
+  it("maps annual performance scores to Green, Amber, and Red bands", () => {
+    expect([vendorPerformanceStatus(4), vendorPerformanceStatus(3.5), vendorPerformanceStatus(2.9), vendorPerformanceStatus(null)])
+      .toEqual(["Green", "Amber", "Red", null]);
+  });
   it.each(["2026-02-30", "2026-13-01", "31-12-2026"])("rejects invalid or display-format API date %s", date => {
     expect(vendorContractInput.safeParse({ ...input, startDate: date }).success).toBe(false);
   });
@@ -108,6 +131,10 @@ describe("vendor contract lifecycle and data contracts", () => {
     expect(managedVendorInput.safeParse({ ...valid, tier: "Tier X" }).success).toBe(false);
     expect(managedVendorInput.parse({ ...valid, tier: "Tier 1 - Strategic", status: "under_review", accountManager: "Taylor", slaTerms: "24/7 P1 response" }))
       .toMatchObject({ tier: "Tier 1 - Strategic", status: "under_review", accountManager: "Taylor", slaTerms: "24/7 P1 response" });
+    expect(managedVendorInput.parse({ ...valid, performanceRating: 4.5, lastPerformanceReview: "2026-10-15" }))
+      .toMatchObject({ performanceRating: 4.5, lastPerformanceReview: "2026-10-15" });
+    expect(managedVendorInput.safeParse({ ...valid, performanceRating: 5.5 }).success).toBe(false);
+    expect(managedVendorInput.safeParse({ ...valid, lastPerformanceReview: "31-12-2026" }).success).toBe(false);
   });
   it("synchronizes canonical and legacy contact/status fields in both directions", () => {
     expect(normalizeVendorContacts({ primaryContactName: "IT Support", primaryContactEmail: null, status: "Inactive", code: " SUP-1 " }))
@@ -139,6 +166,14 @@ describe("vendor contract lifecycle and data contracts", () => {
       expect(source).toContain(`ADD COLUMN IF NOT EXISTS ${column}`);
     }
     expect(source).toContain("DEFAULT 'Tier 2 - Preferred'");
+  });
+  it("adds certification evidence with expiry indexes and restrictive dates", async () => {
+    const source = await readFile("migrations/onprem/20261130_vendor_compliance_scorecards.sql", "utf8");
+    expect(() => assertAdditiveMigration(source, "vendor-certifications")).not.toThrow();
+    expect(source).toContain("CREATE TABLE IF NOT EXISTS vendor_certifications");
+    expect(source).toContain("REFERENCES vendors(id) ON DELETE CASCADE");
+    expect(source).toContain("expiry_date >= issue_date");
+    expect(source).toContain("(vendor_id, expiry_date)");
   });
 });
 
@@ -205,10 +240,11 @@ describe("governed vendor and SLA API", () => {
     mock.state.selects.push([{ value: "Hardware Supplier" }]);
     expect((await request("/api/vendor-management/vendors", "POST", {
       name: "Supplier", code: "SUP-01", category: "Hardware Supplier", primaryContactName: "Helpdesk",
-      primaryContactEmail: "support@example.com", status: "inactive",
+      primaryContactEmail: "support@example.com", status: "inactive", performanceRating: 4.5, lastPerformanceReview: "2026-10-15",
     })).status).toBe(201);
     expect(mock.state.inserts.find(row => row.table === "vendors").values).toMatchObject({
       contactPerson: "Helpdesk", email: "support@example.com", primaryContactEmail: "support@example.com", isActive: "false", status: "inactive",
+      performanceRating: "4.50", lastPerformanceReview: "2026-10-15",
     });
   });
   it("derives list badges and returns resource identities without duplicating financial rows", async () => {
@@ -224,6 +260,8 @@ describe("governed vendor and SLA API", () => {
       [{ id: assetId, name: "Workstation", type: "laptop", assetTag: "AST-1", serialNumber: "SER-1", status: "assigned", warrantyExpiry: "2027-01-01", manufacturer: "OEM", model: "X1" }],
       [{ ...oldContract, vendorName: "Supplier" }], [], [], [],
       [{ id: poId, poNumber: "PO-1", orderDate: "2026-01-01", status: "delivered", totalAmount: "500.00" }],
+      [{ id: "cert-1", vendorId, certificationName: "SOC 2 Type II", issueDate: "2025-01-01", expiryDate: "2026-11-25" }],
+      [{ incidentCount: 3, resolvedIncidentCount: 2, averageResolutionHours: "4.5", slaBreachCount: 1 }],
     );
     const response = await request(`/api/vendor-management/vendors/${vendorId}`);
     expect(response.status).toBe(200);
@@ -233,6 +271,20 @@ describe("governed vendor and SLA API", () => {
       contracts: [expect.objectContaining({ id: contractId, lifecycleStatus: expect.any(String) })],
       warranties: [expect.objectContaining({ id: assetId })],
       purchaseOrders: [expect.objectContaining({ id: poId, poNumber: "PO-1" })],
+      certifications: [expect.objectContaining({ certificationName: "SOC 2 Type II", status: "Expiring Soon", isExpiringWithin30Days: true })],
+      expiringCertificationCount: 1,
+      performance: { linkedIncidentCount: 3, resolvedIncidentCount: 2, averageResolutionHours: 4.5, slaBreachCount: 1 },
     });
+  });
+  it("creates vendor certifications with an audit entry and rejects unauthorized certification edits", async () => {
+    mock.state.selects.push([{ id: vendorId }]);
+    const body = { certificationName: "NCA Compliance", issueDate: "2026-01-01", expiryDate: "2027-01-01", documentUrl: "" };
+    const created = await request(`/api/vendor-management/vendors/${vendorId}/certifications`, "POST", body);
+    expect(created.status).toBe(201);
+    expect(mock.state.inserts.find(row => row.table === "vendor_certifications").values).toMatchObject({ vendorId, certificationName: "NCA Compliance", documentUrl: null });
+    expect(mock.state.inserts.find(row => row.table === "audit_logs").values.tableName).toBe("vendor_certifications");
+
+    mock.state.role = "end_user";
+    expect((await request(`/api/vendor-management/vendors/${vendorId}/certifications`, "POST", body)).status).toBe(403);
   });
 });

@@ -29,7 +29,37 @@ export const managedVendorInput = z.object({
   taxId: optionalText,
   paymentTerms: optionalText,
   rating: z.number().int().min(1).max(5).optional(),
+  performanceRating: z.number().min(1).max(5).nullable().optional(),
+  lastPerformanceReview: calendarDate.nullable().optional(),
 }).strict();
+export const vendorCertificationInput = z.object({
+  certificationName: z.string().trim().min(2).max(200),
+  certificateNumber: z.string().trim().max(150).nullable().optional(),
+  issueDate: calendarDate,
+  expiryDate: calendarDate,
+  documentUrl: z.union([
+    z.string().trim().url().refine(value => /^https?:\/\//i.test(value), "Use an HTTP or HTTPS document link"),
+    z.literal(""),
+  ]).nullable().optional(),
+  notes: optionalText,
+}).strict().refine(value => value.expiryDate >= value.issueDate, {
+  path: ["expiryDate"], message: "Expiry date must be on or after the issue date",
+});
+export type VendorCertificationInput = z.infer<typeof vendorCertificationInput>;
+export function certificationLifecycle(expiryDate: string, today = new Date().toISOString().slice(0, 10)) {
+  const daysUntilExpiry = Math.round((Date.parse(`${expiryDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  return {
+    daysUntilExpiry,
+    status: daysUntilExpiry < 0 ? "Expired" as const : daysUntilExpiry <= 30 ? "Expiring Soon" as const : "Current" as const,
+    needsAttention: daysUntilExpiry <= 30,
+    isExpiringWithin30Days: daysUntilExpiry >= 0 && daysUntilExpiry <= 30,
+  };
+}
+export function vendorPerformanceStatus(score?: number | string | null) {
+  const value = score == null ? null : Number(score);
+  if (value == null || !Number.isFinite(value)) return null;
+  return value >= 4 ? "Green" as const : value >= 3 ? "Amber" as const : "Red" as const;
+}
 const linkedIds = z.array(z.string().uuid()).max(500).default([]).transform(values => Array.from(new Set(values)));
 export const vendorContractInput = z.object({
   vendorId: z.string().uuid(),

@@ -18,6 +18,7 @@ export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Prop
     primaryContactName: "", primaryContactEmail: "", primaryContactPhone: "", supportHotline: "",
     website: "", supportUrl: "", slaTerms: "", status: "active" as VendorStatus, notes: "",
     address: "", city: "", state: "", zipCode: "", country: "USA", taxId: "", paymentTerms: "Net 30", rating: "5",
+    performanceRating: "", lastPerformanceReview: "",
   });
   const [error, setError] = useState("");
 
@@ -46,6 +47,8 @@ export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Prop
       taxId: vendor?.taxId ?? "",
       paymentTerms: vendor?.paymentTerms ?? "Net 30",
       rating: String(vendor?.rating ?? 5),
+      performanceRating: vendor?.performanceRating == null ? "" : String(vendor.performanceRating),
+      lastPerformanceReview: vendor?.lastPerformanceReview ?? "",
     });
     setError("");
   }, [vendor]);
@@ -73,6 +76,11 @@ export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Prop
     if (website === undefined) return;
     const supportUrl = normalizeUrl(form.supportUrl, "support URL");
     if (supportUrl === undefined) return;
+    const performanceRating = form.performanceRating.trim() ? Number(form.performanceRating) : null;
+    if (performanceRating !== null && (!Number.isFinite(performanceRating) || performanceRating < 1 || performanceRating > 5)) {
+      setError("Annual performance score must be between 1 and 5.");
+      return;
+    }
     onSave({
       name: form.name.trim(), code: form.code.trim(), category: form.category.trim(), tier: form.tier,
       accountManager: form.accountManager.trim() || null,
@@ -92,6 +100,8 @@ export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Prop
       taxId: form.taxId.trim() || null,
       paymentTerms: form.paymentTerms.trim() || null,
       rating: Math.min(5, Math.max(1, Number(form.rating) || 5)),
+      performanceRating,
+      lastPerformanceReview: form.lastPerformanceReview || null,
     });
   };
 
@@ -151,6 +161,8 @@ export function VendorEditor({ vendor, options, saving, onSave, onCancel }: Prop
         {field("Tax ID", "taxId")}
           <label className="space-y-1.5 text-sm font-medium"><span>Payment terms</span><select className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={form.paymentTerms} onChange={event => update("paymentTerms", event.target.value)}><option value="Net 30">Net 30</option><option value="Net 60">Net 60</option><option value="Net 90">Net 90</option><option value="COD">COD</option><option value="Prepaid">Prepaid</option></select></label>
          <label className="space-y-1.5 text-sm font-medium"><span>Vendor rating</span><select className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={form.rating} onChange={event => update("rating", event.target.value)}>{[1, 2, 3, 4, 5].map(rating => <option key={rating} value={rating}>{rating} / 5</option>)}</select></label>
+         <label className="space-y-1.5 text-sm font-medium"><span>Annual performance score</span><Input aria-label="Annual performance score" className="min-h-11" type="number" min={1} max={5} step={0.1} placeholder="Not rated" value={form.performanceRating} onChange={event => update("performanceRating", event.target.value)} /></label>
+         <label className="space-y-1.5 text-sm font-medium"><span>Annual performance review date</span><Input aria-label="Annual performance review date" className="min-h-11" type="date" value={form.lastPerformanceReview} onChange={event => update("lastPerformanceReview", event.target.value)} /></label>
       </div>
     </details>
     <label className="block space-y-1.5 text-sm font-medium"><span>Procurement notes</span><Textarea rows={3} value={form.notes} onChange={event => update("notes", event.target.value)} placeholder="Context worth preserving for the next renewal…" /></label>

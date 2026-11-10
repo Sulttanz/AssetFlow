@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowUpRight, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, FileText, Globe2, Mail, Phone, Plus, Search, Server, ShieldCheck, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Award, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, FileText, Globe2, Mail, Pencil, Phone, Plus, Search, Server, ShieldAlert, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { ContractEditor } from "@/components/vendors/contract-editor";
 import { VendorEditor } from "@/components/vendors/vendor-editor";
-import { ContractPayload, VendorContract, VendorOptions, VendorPayload, VendorProfile, VendorRow, VendorStatus } from "@/components/vendors/types";
+import { ContractPayload, VendorCertification, VendorCertificationPayload, VendorContract, VendorOptions, VendorPayload, VendorProfile, VendorRow, VendorStatus } from "@/components/vendors/types";
+import { VendorCertificationEditor } from "@/components/vendors/vendor-certification-editor";
 
 type Tab = "vendors" | "contracts";
 type ContractStatus = VendorContract["status"];
@@ -49,6 +50,19 @@ function vendorStatusTone(status?: string | null) {
   return "border-slate-300 bg-slate-100 text-slate-700";
 }
 
+function certificationTone(status: VendorCertification["status"]) {
+  if (status === "Current") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (status === "Expiring Soon") return "border-amber-300 bg-amber-50 text-amber-900";
+  return "border-rose-300 bg-rose-50 text-rose-800";
+}
+
+function performanceTone(status?: "Green" | "Amber" | "Red" | null) {
+  if (status === "Green") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (status === "Amber") return "border-amber-300 bg-amber-50 text-amber-900";
+  if (status === "Red") return "border-rose-300 bg-rose-50 text-rose-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
+}
+
 function currencyLabel(value: string | number, currency: string) {
   const amount = Number(value);
   try {
@@ -78,6 +92,8 @@ export default function Vendors() {
   const [vendorEditorOpen, setVendorEditorOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<VendorRow | null>(null);
   const [selectedVendor, setSelectedVendor] = useState<VendorRow | null>(null);
+  const [certificationEditorOpen, setCertificationEditorOpen] = useState(false);
+  const [editingCertification, setEditingCertification] = useState<VendorCertification | null>(null);
   const [contractEditorOpen, setContractEditorOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<VendorContract | null>(null);
 
@@ -135,6 +151,21 @@ export default function Vendors() {
     },
     onError: (error: Error) => toast({ title: "Could not save contract", description: error.message, variant: "destructive" }),
   });
+  const certificationSave = useMutation({
+    mutationFn: async ({ id, vendorId, payload }: { id?: string; vendorId: string; payload: VendorCertificationPayload }) =>
+      responseData<VendorCertification>(await apiRequest(
+        id ? "PUT" : "POST",
+        id ? `/api/vendor-management/certifications/${id}` : `/api/vendor-management/vendors/${vendorId}/certifications`,
+        payload,
+      )),
+    onSuccess: async (_data, variables) => {
+      await invalidateManagement();
+      setCertificationEditorOpen(false);
+      setEditingCertification(null);
+      toast({ title: variables.id ? "Certification updated" : "Certification added", description: "Vendor compliance evidence has been saved." });
+    },
+    onError: (error: Error) => toast({ title: "Could not save certification", description: error.message, variant: "destructive" }),
+  });
 
   const filteredVendors = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
@@ -178,6 +209,9 @@ export default function Vendors() {
   const openContractEdit = (contract: VendorContract) => { setEditingContract(contract); setContractEditorOpen(true); };
   const submitVendor = (payload: VendorPayload) => vendorSave.mutate({ id: editingVendor?.id, payload });
   const submitContract = (payload: ContractPayload) => contractSave.mutate({ id: editingContract?.id, payload });
+  const submitCertification = (payload: VendorCertificationPayload) => {
+    if (selectedVendor?.id) certificationSave.mutate({ id: editingCertification?.id, vendorId: selectedVendor.id, payload });
+  };
 
   if (optionsQuery.isLoading) return <main className="min-h-[100dvh] space-y-5 p-4 sm:p-7"><div className="h-36 animate-pulse rounded-2xl bg-muted/40" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(item => <div key={item} className="h-48 animate-pulse rounded-xl bg-muted/40" />)}</div></main>;
   if (optionsQuery.isError || !options) return <main className="p-5 sm:p-8"><Card><CardContent className="p-10 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-3 font-semibold">Vendor workspace unavailable</h1><p className="mt-1 text-sm text-muted-foreground">{optionsQuery.error instanceof Error ? optionsQuery.error.message : "We could not confirm your access."}</p><Button variant="outline" className="mt-4" onClick={() => void optionsQuery.refetch()}>Retry</Button></CardContent></Card></main>;
@@ -313,10 +347,16 @@ export default function Vendors() {
         {profileQuery.isLoading ? <div className="space-y-3 py-8"><div className="h-5 animate-pulse rounded bg-muted" /><div className="h-32 animate-pulse rounded bg-muted" /></div>
           : profileQuery.isError || !profileQuery.data ? <div className="py-8 text-center"><p className="font-medium">Vendor profile could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void profileQuery.refetch()}>Retry</Button></div>
           : <Tabs defaultValue="overview" className="min-w-0">
+            {profileQuery.data.expiringCertificationCount > 0 && <div role="status" className="mb-3 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div><p className="font-semibold">{profileQuery.data.expiringCertificationCount} certification{profileQuery.data.expiringCertificationCount === 1 ? "" : "s"} expired or expiring within 30 days</p><p className="text-sm">Review the Compliance tab and request renewed evidence from this vendor.</p></div>
+            </div>}
             <TabsList className="h-auto w-full flex-wrap justify-start">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="assets">Linked Assets <span className="ml-2 text-xs text-muted-foreground">{profileQuery.data.assets.length}</span></TabsTrigger>
               <TabsTrigger value="contracts">Contracts &amp; Warranties <span className="ml-2 text-xs text-muted-foreground">{profileQuery.data.contracts.length}</span></TabsTrigger>
+              <TabsTrigger value="certifications">Compliance <span className="ml-2 text-xs text-muted-foreground">{profileQuery.data.certifications.length}</span></TabsTrigger>
+              <TabsTrigger value="performance">Performance &amp; Metrics</TabsTrigger>
             </TabsList>
             <TabsContent value="overview" className="mt-4 space-y-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -355,7 +395,49 @@ export default function Vendors() {
                 {profileQuery.data.purchaseOrders.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[500px] text-left text-sm"><thead className="bg-muted/45 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2.5">PO</th><th className="px-3 py-2.5">Order date</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5">Total</th></tr></thead><tbody className="divide-y">{profileQuery.data.purchaseOrders.map(po => <tr key={po.id}><td className="px-3 py-3"><a href="/purchase-orders" className="text-primary hover:underline">{po.poNumber}</a></td><td className="px-3 py-3">{formatDateDisplay(po.orderDate)}</td><td className="px-3 py-3">{po.status}</td><td className="px-3 py-3">{Number(po.totalAmount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No purchase orders are directly linked to this vendor.</p>}
               </section>
             </TabsContent>
+            <TabsContent value="certifications" className="mt-4 space-y-4">
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div><h3 className="font-semibold">Compliance certifications</h3><p className="text-sm text-muted-foreground">Track standards, evidence links, issue dates, and renewal deadlines.</p></div>
+                {options.canUpdateVendor && <Button className="min-h-11 w-full sm:w-auto" onClick={() => { setEditingCertification(null); setCertificationEditorOpen(true); }}><Plus className="mr-2 h-4 w-4" />Add certification</Button>}
+              </div>
+              {profileQuery.data.certifications.length ? <div className="space-y-3">
+                {profileQuery.data.certifications.map(certification => <Card key={certification.id}>
+                  <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{certification.certificationName}</h4><Badge variant="outline" className={certificationTone(certification.status)}>{certification.status}</Badge></div>
+                      <p className="text-xs text-muted-foreground">{certification.certificateNumber ? `Certificate ${certification.certificateNumber} · ` : ""}Issued {formatDateDisplay(certification.issueDate)} · Expires {formatDateDisplay(certification.expiryDate)}</p>
+                      <p className={`text-sm ${certification.needsAttention ? "font-medium text-amber-800" : "text-muted-foreground"}`}>
+                        {certification.daysUntilExpiry < 0 ? `Expired ${Math.abs(certification.daysUntilExpiry)} days ago` : certification.daysUntilExpiry === 0 ? "Expires today" : `${certification.daysUntilExpiry} days remaining`}
+                      </p>
+                      {certification.notes && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{certification.notes}</p>}
+                      {certification.documentUrl && <a href={certification.documentUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 text-sm text-primary hover:underline"><ExternalLink className="h-3.5 w-3.5" />Open certificate evidence</a>}
+                    </div>
+                    {options.canUpdateVendor && <Button variant="outline" className="min-h-11 shrink-0" onClick={() => { setEditingCertification(certification); setCertificationEditorOpen(true); }}><Pencil className="mr-2 h-4 w-4" />Edit</Button>}
+                  </CardContent>
+                </Card>)}
+              </div> : <div className="rounded-lg border border-dashed p-8 text-center"><Award className="mx-auto h-8 w-8 text-muted-foreground" /><p className="mt-2 font-medium">No certifications recorded</p><p className="mt-1 text-sm text-muted-foreground">Add vendor certificates such as ISO/IEC 27001, SOC 2 Type II, NCA, or SAMA evidence.</p></div>}
+            </TabsContent>
+            <TabsContent value="performance" className="mt-4 space-y-4">
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/15 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div><h3 className="font-semibold">Vendor performance scorecard</h3><p className="text-sm text-muted-foreground">Operational metrics are based on incidents linked to assets supplied or covered by this vendor.</p></div>
+                {options.canUpdateVendor && <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => openVendorEdit(profileQuery.data.vendor)}><Pencil className="mr-2 h-4 w-4" />Update annual review</Button>}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <Card><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">Linked incidents</p><p className="mt-2 text-2xl font-semibold">{profileQuery.data.performance.linkedIncidentCount}</p><p className="text-xs text-muted-foreground">{profileQuery.data.performance.resolvedIncidentCount} resolved</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">Mean time to resolution</p><p className="mt-2 text-2xl font-semibold">{profileQuery.data.performance.averageResolutionHours == null ? "—" : `${profileQuery.data.performance.averageResolutionHours}h`}</p><p className="text-xs text-muted-foreground">Resolved linked incidents</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">SLA breaches</p><p className="mt-2 text-2xl font-semibold">{profileQuery.data.performance.slaBreachCount}</p><p className="text-xs text-muted-foreground">Late or currently overdue resolution targets</p></CardContent></Card>
+                <Card><CardContent className="p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">Annual vendor rating</p><div className="mt-2 flex items-center gap-2"><p className="text-2xl font-semibold">{profileQuery.data.performance.annualScore == null ? "Not rated" : `${profileQuery.data.performance.annualScore.toFixed(1)} / 5`}</p>{profileQuery.data.performance.annualStatus && <Badge variant="outline" className={performanceTone(profileQuery.data.performance.annualStatus)}>{profileQuery.data.performance.annualStatus}</Badge>}</div><p className="text-xs text-muted-foreground">Last reviewed {profileQuery.data.performance.lastReviewDate ? formatDateDisplay(profileQuery.data.performance.lastReviewDate) : "not recorded"}</p></CardContent></Card>
+              </div>
+              <Card><CardContent className="flex items-start gap-3 p-4"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><p className="font-medium">Metric scope</p><p className="mt-1 text-sm text-muted-foreground">Incidents are included when linked to a hardware/software asset whose primary vendor is this vendor or whose asset is linked to one of its vendor contracts. MTTR is averaged over resolved incidents; breach counts include late resolutions and unresolved incidents past their resolution due date.</p></div></CardContent></Card>
+            </TabsContent>
           </Tabs>}
+      </DialogContent>
+    </Dialog>
+
+    <Dialog open={certificationEditorOpen} onOpenChange={open => { setCertificationEditorOpen(open); if (!open) setEditingCertification(null); }}>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[92dvh] max-w-2xl overflow-y-auto">
+        <DialogHeader><DialogTitle>{editingCertification ? "Edit certification" : "Add vendor certification"}</DialogTitle><DialogDescription>Keep current compliance evidence and renewal dates available for vendor reviews.</DialogDescription></DialogHeader>
+        <VendorCertificationEditor key={editingCertification?.id ?? "new-certification"} certification={editingCertification} saving={certificationSave.isPending} onSave={submitCertification} onCancel={() => { setCertificationEditorOpen(false); setEditingCertification(null); }} />
       </DialogContent>
     </Dialog>
 

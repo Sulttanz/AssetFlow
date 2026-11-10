@@ -16,7 +16,14 @@ const data = vi.hoisted(() => ({
     supportUrl: "https://support.example.com", slaTerms: "24/7 response" },
     assets: [{ id: "asset-1", name: "Laptop", type: "laptop", assetTag: "AST-1", serialNumber: "SER-1",
       status: "assigned", warrantyExpiry: "2027-01-01", manufacturer: "OEM", model: "X1" }],
-    contracts: [], warranties: [], purchaseOrders: [] },
+     contracts: [], warranties: [], purchaseOrders: [],
+    certifications: [{ id: "cert-1", vendorId: "vendor-1", certificationName: "SOC 2 Type II", certificateNumber: "SOC-77",
+      issueDate: "2025-01-01", expiryDate: "2026-11-25", documentUrl: "https://example.com/cert.pdf", notes: null,
+      daysUntilExpiry: 15, status: "Expiring Soon", needsAttention: true, isExpiringWithin30Days: true }],
+    expiringCertificationCount: 1,
+    performance: { linkedIncidentCount: 4, resolvedIncidentCount: 3, averageResolutionHours: 6.5, slaBreachCount: 1,
+      annualScore: 4.4, annualStatus: "Green", lastReviewDate: "2026-08-10" },
+   },
 }));
 vi.mock("@tanstack/react-query", async importOriginal => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -64,6 +71,13 @@ describe("vendor directory and 360 profile", () => {
     expect(screen.getByRole("dialog", { name: "Supplier One" })).toBeTruthy();
     const dialog = screen.getByRole("dialog", { name: "Supplier One" });
     expect(within(dialog).getByText("Tier 1 - Strategic", { selector: "p" })).toBeTruthy();
+    expect(within(dialog).getByText(/1 certification expired or expiring within 30 days/)).toBeTruthy();
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: /Compliance/ }), { button: 0, ctrlKey: false });
+    expect(within(dialog).getByText("SOC 2 Type II")).toBeTruthy();
+    expect(within(dialog).getByText("15 days remaining")).toBeTruthy();
+    fireEvent.mouseDown(within(dialog).getByRole("tab", { name: /Performance & Metrics/ }), { button: 0, ctrlKey: false });
+    expect(within(dialog).getByText("6.5h")).toBeTruthy();
+    expect(within(dialog).getByText("4.4 / 5")).toBeTruthy();
     fireEvent.mouseDown(within(dialog).getByRole("tab", { name: /Linked Assets/ }), { button: 0, ctrlKey: false });
     expect(within(dialog).getByText("Laptop")).toBeTruthy();
     expect(within(dialog).getByText("01-01-2027")).toBeTruthy();

@@ -644,6 +644,29 @@ export const vendors = pgTable("vendors", {
   uniqueIndex("vendors_code_normalized_unique").on(sql`lower(btrim(${table.code}))`).where(sql`${table.code} IS NOT NULL`),
 ]);
 
+export const vendorCertifications = pgTable("vendor_certifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  certificationName: text("certification_name").notNull(),
+  certificateNumber: text("certificate_number"),
+  issueDate: date("issue_date").notNull(),
+  expiryDate: date("expiry_date").notNull(),
+  documentUrl: text("document_url"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: varchar("updated_by").references(() => users.id, { onDelete: "set null" }),
+}, table => [
+  index("vendor_certifications_vendor_expiry_idx").on(table.vendorId, table.expiryDate),
+  check("vendor_certifications_dates_check", sql`${table.expiryDate} >= ${table.issueDate}`),
+  check("vendor_certifications_document_url_check", sql`${table.documentUrl} IS NULL OR ${table.documentUrl} ~* '^https?://'`),
+]);
+export const insertVendorCertificationSchema = createInsertSchema(vendorCertifications).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type VendorCertification = typeof vendorCertifications.$inferSelect;
+export type InsertVendorCertification = z.infer<typeof insertVendorCertificationSchema>;
+
 export const warehouseLocations = pgTable("warehouse_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -1991,6 +2014,12 @@ export const assetsRelations = relations(assets, ({ one, many }) => ({
     references: [vendors.id],
   }),
   assignments: many(assignments),
+}));
+
+export const vendorsRelations = relations(vendors, ({ many }) => ({
+  assets: many(assets),
+  certifications: many(vendorCertifications),
+  contracts: many(vendorContracts),
 }));
 
 export const assignmentsRelations = relations(assignments, ({ one }) => ({

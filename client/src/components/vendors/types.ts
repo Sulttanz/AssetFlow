@@ -48,6 +48,9 @@ export type VendorRow = {
   purchaseOrderCount?: number;
   linkedAssetCount?: number;
   totalSpent?: number | string | null;
+  performanceRating?: number | string | null;
+  performanceStatus?: "Green" | "Amber" | "Red" | null;
+  lastPerformanceReview?: string | null;
 };
 
 export type VendorAsset = {
@@ -63,7 +66,34 @@ export type VendorProfile = {
   contracts: VendorContract[];
   warranties: VendorAsset[];
   purchaseOrders: VendorPurchaseOrder[];
+  certifications: VendorCertification[];
+  expiringCertificationCount: number;
+  performance: {
+    linkedIncidentCount: number;
+    resolvedIncidentCount: number;
+    averageResolutionHours: number | null;
+    slaBreachCount: number;
+    annualScore: number | null;
+    annualStatus: "Green" | "Amber" | "Red" | null;
+    lastReviewDate: string | null;
+  };
 };
+
+export type VendorCertification = {
+  id: string;
+  vendorId: string;
+  certificationName: string;
+  certificateNumber: string | null;
+  issueDate: string;
+  expiryDate: string;
+  documentUrl: string | null;
+  notes: string | null;
+  daysUntilExpiry: number;
+  status: "Current" | "Expiring Soon" | "Expired";
+  needsAttention: boolean;
+  isExpiringWithin30Days: boolean;
+};
+export type VendorCertificationPayload = Omit<VendorCertification, "id" | "vendorId" | "daysUntilExpiry" | "status" | "needsAttention" | "isExpiringWithin30Days">;
 
 export type LinkedAsset = { id: string; name: string; assetTag: string; type: string };
 export type LinkedPurchaseOrder = { id: string; poNumber: string };
@@ -115,6 +145,8 @@ export type VendorPayload = {
   taxId?: string | null;
   paymentTerms?: string | null;
   rating?: number;
+  performanceRating: number | null;
+  lastPerformanceReview: string | null;
   status: VendorStatus;
   notes: string | null;
 };

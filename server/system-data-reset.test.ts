@@ -221,6 +221,10 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       mimeType: "application/pdf", fileSize: 1,
     });
     const vendor = await seed(s.vendors, { name: "Fixture vendor" });
+    await seed(s.vendorCertifications, {
+      vendorId: vendor, certificationName: "SOC 2 Type II", certificateNumber: "RESET-CERT",
+      issueDate: "2026-01-01", expiryDate: "2027-01-01", documentUrl: "https://example.test/reset-cert.pdf",
+    });
     const po = await seed(s.purchaseOrders, { poNumber: "RESET-PO", orderDate: "2026-10-22", totalAmount: "10.00", vendorId: vendor });
     const item = await seed(s.purchaseOrderItems, { purchaseOrderId: po, description: "Fixture", unitPrice: "10.00", totalPrice: "10.00" });
     await seed(s.purchaseOrderItemReceipts, { purchaseOrderId: po, purchaseOrderItemId: item });

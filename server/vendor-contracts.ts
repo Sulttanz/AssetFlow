@@ -3,11 +3,14 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  assets, auditLogs, contracts, dropdownOptions, purchaseOrders, servers, vendors,
+  assets, auditLogs, contracts, dropdownOptions, incidents, purchaseOrders, servers, vendorCertifications, vendors,
   vendorContracts, vendorContractAssets, vendorContractPurchaseOrders, vendorContractServers,
   type InsertVendor,
 } from "@shared/schema";
-import { contractLifecycle, managedVendorInput, vendorContractInput, vendorPermissions } from "@shared/vendor-contracts";
+import {
+  certificationLifecycle, contractLifecycle, managedVendorInput, vendorCertificationInput,
+  vendorContractInput, vendorPermissions, vendorPerformanceStatus,
+} from "@shared/vendor-contracts";
 import { db } from "./db";
 import { storage } from "./storage";
 
@@ -156,26 +159,90 @@ export function registerVendorContractRoutes(app: Express, requireAuth: RequestH
   app.get("/api/vendor-management/vendors/:id", requireAuth, handle(async (req, res) => {
     const [vendor] = await db.select().from(vendors).where(eq(vendors.id, req.params.id));
     if (!vendor) throw new VendorError(404, "Vendor not found");
-    const [linkedAssets, linkedContracts, linkedPurchaseOrders] = await Promise.all([
+    const [linkedAssets, linkedContracts, linkedPurchaseOrders, certifications, incidentMetrics] = await Promise.all([
       db.select({
         id: assets.id, name: assets.name, type: assets.type, assetTag: assets.assetTag,
         serialNumber: assets.serialNumber, status: assets.status, warrantyExpiry: assets.warrantyExpiry,
         manufacturer: assets.manufacturer, model: assets.model,
-      }).from(assets).where(eq(assets.primaryVendorId, vendor.id)).orderBy(asc(assets.name)),
+      }).from(assets).where(sql`${assets.primaryVendorId} = ${vendor.id} OR EXISTS (
+        SELECT 1 FROM vendor_contract_assets vca
+        INNER JOIN vendor_contracts vc ON vc.id = vca.contract_id
+        WHERE vca.asset_id = ${assets.id} AND vc.vendor_id = ${vendor.id}
+      )`).orderBy(asc(assets.name)),
       contractRows(vendor.id),
       db.select({
         id: purchaseOrders.id, poNumber: purchaseOrders.poNumber, orderDate: purchaseOrders.orderDate,
         status: purchaseOrders.status, totalAmount: purchaseOrders.totalAmount,
       }).from(purchaseOrders).where(eq(purchaseOrders.vendorId, vendor.id)).orderBy(asc(purchaseOrders.orderDate)),
+      db.select().from(vendorCertifications).where(eq(vendorCertifications.vendorId, vendor.id)).orderBy(asc(vendorCertifications.expiryDate)),
+      db.select({
+        incidentCount: sql<number>`count(*)::int`,
+        resolvedIncidentCount: sql<number>`count(*) FILTER (WHERE ${incidents.resolvedAt} IS NOT NULL)::int`,
+        averageResolutionHours: sql<number>`round(avg(extract(epoch FROM (${incidents.resolvedAt} - ${incidents.createdAt})) / 3600) FILTER (WHERE ${incidents.resolvedAt} IS NOT NULL), 1)`,
+        slaBreachCount: sql<number>`count(*) FILTER (
+          WHERE ${incidents.resolveDueAt} IS NOT NULL AND (
+            (${incidents.resolvedAt} IS NOT NULL AND ${incidents.resolvedAt} > ${incidents.resolveDueAt})
+            OR (${incidents.resolvedAt} IS NULL AND ${incidents.resolveDueAt} < now())
+          )
+        )::int`,
+      }).from(incidents).innerJoin(assets, eq(incidents.assetId, assets.id))
+        .where(sql`${assets.primaryVendorId} = ${vendor.id} OR EXISTS (
+          SELECT 1 FROM vendor_contract_assets vca
+          INNER JOIN vendor_contracts vc ON vc.id = vca.contract_id
+          WHERE vca.asset_id = ${assets.id} AND vc.vendor_id = ${vendor.id}
+        )`),
     ]);
+    const performanceScore = vendor.performanceRating == null ? null : Number(vendor.performanceRating);
+    const certificationRows = certifications.map(certification => ({ ...certification, ...certificationLifecycle(certification.expiryDate) }));
     res.json({
       vendor: { ...vendor, primaryContactName: vendor.primaryContactName ?? vendor.contactPerson,
-        primaryContactEmail: vendor.primaryContactEmail ?? vendor.email, primaryContactPhone: vendor.primaryContactPhone ?? vendor.phone },
+        primaryContactEmail: vendor.primaryContactEmail ?? vendor.email, primaryContactPhone: vendor.primaryContactPhone ?? vendor.phone,
+        performanceStatus: vendorPerformanceStatus(performanceScore) },
       assets: linkedAssets,
       contracts: linkedContracts,
       warranties: linkedAssets.filter(asset => asset.warrantyExpiry),
       purchaseOrders: linkedPurchaseOrders,
+      certifications: certificationRows,
+      expiringCertificationCount: certificationRows.filter(certification => certification.needsAttention).length,
+      performance: {
+        linkedIncidentCount: Number(incidentMetrics[0]?.incidentCount ?? 0),
+        resolvedIncidentCount: Number(incidentMetrics[0]?.resolvedIncidentCount ?? 0),
+        averageResolutionHours: incidentMetrics[0]?.averageResolutionHours == null ? null : Number(incidentMetrics[0].averageResolutionHours),
+        slaBreachCount: Number(incidentMetrics[0]?.slaBreachCount ?? 0),
+        annualScore: performanceScore,
+        annualStatus: vendorPerformanceStatus(performanceScore),
+        lastReviewDate: vendor.lastPerformanceReview,
+      },
     });
+  }));
+  app.post("/api/vendor-management/vendors/:id/certifications", requireAuth, handle(async (req, res, user) => {
+    if (!vendorPermissions(user).canUpdateVendor) throw new VendorError(403, "Vendor update permission required");
+    const input = vendorCertificationInput.parse(req.body);
+    const [vendor] = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, req.params.id));
+    if (!vendor) throw new VendorError(404, "Vendor not found");
+    const saved = await db.transaction(async tx => {
+      const [row] = await tx.insert(vendorCertifications).values({
+        ...input, vendorId: vendor.id, documentUrl: input.documentUrl || null,
+        updatedBy: user.id,
+      }).returning();
+      await audit(tx, req, user, "vendor_certifications", row.id, null, row);
+      return { ...row, ...certificationLifecycle(row.expiryDate) };
+    });
+    res.status(201).json(saved);
+  }));
+  app.put("/api/vendor-management/certifications/:id", requireAuth, handle(async (req, res, user) => {
+    if (!vendorPermissions(user).canUpdateVendor) throw new VendorError(403, "Vendor update permission required");
+    const input = vendorCertificationInput.parse(req.body);
+    const saved = await db.transaction(async tx => {
+      const [old] = await tx.select().from(vendorCertifications).where(eq(vendorCertifications.id, req.params.id)).for("update");
+      if (!old) throw new VendorError(404, "Vendor certification not found");
+      const [row] = await tx.update(vendorCertifications).set({
+        ...input, documentUrl: input.documentUrl || null, updatedAt: new Date(), updatedBy: user.id,
+      }).where(eq(vendorCertifications.id, old.id)).returning();
+      await audit(tx, req, user, "vendor_certifications", row.id, old, row);
+      return { ...row, ...certificationLifecycle(row.expiryDate) };
+    });
+    res.json(saved);
   }));
   for (const method of ["post", "put"] as const) app[method](method === "post" ? "/api/vendor-management/vendors" : "/api/vendor-management/vendors/:id", requireAuth, handle(async (req, res, user) => {
     const permissions = vendorPermissions(user);
@@ -185,7 +252,11 @@ export function registerVendorContractRoutes(app: Express, requireAuth: RequestH
       const old = method === "put" ? (await tx.select().from(vendors).where(eq(vendors.id, req.params.id)).for("update"))[0] : null;
       if (method === "put" && !old) throw new VendorError(404, "Vendor not found");
       const category = await lookup(tx, "vendor_category", input.category, old?.category);
-      const values = { ...normalizeVendorContacts({ ...input, category }), lastUpdatedDate: new Date(), lastUpdatedBy: user.id };
+      const values = { ...normalizeVendorContacts({
+        ...input,
+        category,
+        performanceRating: input.performanceRating == null ? null : input.performanceRating.toFixed(2),
+      }), lastUpdatedDate: new Date(), lastUpdatedBy: user.id };
       const [row] = old ? await tx.update(vendors).set(values).where(eq(vendors.id, old.id)).returning()
         : await tx.insert(vendors).values({ ...values, name: input.name, createdBy: user.id }).returning();
       await audit(tx, req, user, "vendors", row.id, old, row);
