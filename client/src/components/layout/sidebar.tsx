@@ -219,8 +219,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Locations", href: "/locations", icon: MapPin, current: location === "/locations" },
         { name: "Departments", href: "/departments", icon: Building2, current: location === "/departments" },
-        { name: "Vendors", href: "/vendors", icon: Building, current: location === "/vendors" },
       ]
+    },
+    {
+      title: "Vendors Management",
+      moduleKey: "asset_management",
+      items: [
+        { name: "Vendors Management", href: "/vendors", icon: Building, current: location === "/vendors" },
+      ],
     },
     {
       title: "Financial",

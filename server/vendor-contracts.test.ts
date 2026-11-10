@@ -101,9 +101,13 @@ describe("vendor contract lifecycle and data contracts", () => {
     });
   it("requires contact email and website to be valid, preserving procurement fields", () => {
     const valid = { name: "Supplier", code: "SUP-01", category: "Hardware Supplier", website: "https://example.com", address: "Office", paymentTerms: "Net 60", rating: 4 };
-    expect(managedVendorInput.parse(valid)).toMatchObject(valid);
+    expect(managedVendorInput.parse(valid)).toMatchObject({ ...valid, tier: "Tier 2 - Preferred", status: "active" });
     expect(managedVendorInput.safeParse({ ...valid, website: "javascript:alert(1)" }).success).toBe(false);
     expect(managedVendorInput.safeParse({ ...valid, primaryContactEmail: "bad" }).success).toBe(false);
+    expect(managedVendorInput.safeParse({ ...valid, supportUrl: "ftp://example.com" }).success).toBe(false);
+    expect(managedVendorInput.safeParse({ ...valid, tier: "Tier X" }).success).toBe(false);
+    expect(managedVendorInput.parse({ ...valid, tier: "Tier 1 - Strategic", status: "under_review", accountManager: "Taylor", slaTerms: "24/7 P1 response" }))
+      .toMatchObject({ tier: "Tier 1 - Strategic", status: "under_review", accountManager: "Taylor", slaTerms: "24/7 P1 response" });
   });
   it("synchronizes canonical and legacy contact/status fields in both directions", () => {
     expect(normalizeVendorContacts({ primaryContactName: "IT Support", primaryContactEmail: null, status: "Inactive", code: " SUP-1 " }))
@@ -127,6 +131,14 @@ describe("vendor contract lifecycle and data contracts", () => {
     for (const table of ["vendor_contracts", "vendor_contract_assets", "vendor_contract_purchase_orders", "vendor_contract_servers"])
       expect(source).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
     expect(source).toContain("REFERENCES contracts(id) ON DELETE RESTRICT");
+  });
+  it("adds vendor lifecycle profile fields without replacing existing vendor records", async () => {
+    const source = await readFile("migrations/onprem/20261129_vendor_management_profile.sql", "utf8");
+    expect(() => assertAdditiveMigration(source, "vendor-management")).not.toThrow();
+    for (const column of ["tier", "account_manager", "support_url", "sla_terms"]) {
+      expect(source).toContain(`ADD COLUMN IF NOT EXISTS ${column}`);
+    }
+    expect(source).toContain("DEFAULT 'Tier 2 - Preferred'");
   });
 });
 
@@ -205,5 +217,22 @@ describe("governed vendor and SLA API", () => {
     const response = await request("/api/vendor-contracts");
     expect(response.status).toBe(200);
     expect((await response.json())[0]).toMatchObject({ status: "Expired", lifecycleStatus: "Expired", renewalDue: true, assetIds: [assetId] });
+  });
+  it("returns a vendor 360 profile with supplied assets, support contracts and purchase history", async () => {
+    mock.state.selects.push(
+      [{ ...vendor, tier: "Tier 1 - Strategic", accountManager: "Taylor", supportUrl: "https://support.example.com", slaTerms: "24/7" }],
+      [{ id: assetId, name: "Workstation", type: "laptop", assetTag: "AST-1", serialNumber: "SER-1", status: "assigned", warrantyExpiry: "2027-01-01", manufacturer: "OEM", model: "X1" }],
+      [{ ...oldContract, vendorName: "Supplier" }], [], [], [],
+      [{ id: poId, poNumber: "PO-1", orderDate: "2026-01-01", status: "delivered", totalAmount: "500.00" }],
+    );
+    const response = await request(`/api/vendor-management/vendors/${vendorId}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vendor: { id: vendorId, tier: "Tier 1 - Strategic", accountManager: "Taylor", slaTerms: "24/7" },
+      assets: [expect.objectContaining({ id: assetId, warrantyExpiry: "2027-01-01" })],
+      contracts: [expect.objectContaining({ id: contractId, lifecycleStatus: expect.any(String) })],
+      warranties: [expect.objectContaining({ id: assetId })],
+      purchaseOrders: [expect.objectContaining({ id: poId, poNumber: "PO-1" })],
+    });
   });
 });

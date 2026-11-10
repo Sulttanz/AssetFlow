@@ -32,7 +32,7 @@ describe("Enterprise sidebar navigation", () => {
     fireEvent.click(button("Project Management"));
     expect(screen.getByRole("link", { name: "Projects" })).toBeTruthy();
     for (const title of ["Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
-      "Organization", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance"]) {
+      "Organization", "Vendors Management", "Financial", "Operations", "IT Service Management", "Risk Management & Compliance"]) {
       expect(screen.queryByRole("button", { name: title })).toBeNull();
     }
     fireEvent.click(button("Analytics & Reports"));
@@ -44,7 +44,7 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     expect(screen.getAllByTestId(/^section-toggle-/).map(element => element.textContent)).toEqual([
       "Overview", "Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",
-      "Organization", "Financial", "Project Management", "Operations", "IT Service Management", "Risk Management & Compliance",
+      "Organization", "Vendors Management", "Financial", "Project Management", "Operations", "IT Service Management", "Risk Management & Compliance",
       "Analytics & Reports", "Tools", "Administration", "System",
     ]);
     expect(button("Overview").getAttribute("aria-expanded")).toBe("true");

@@ -69,10 +69,12 @@ async function lookup(tx: Transaction, category: string, value: string, previous
 export async function isGovernedVendorContract(id: string): Promise<boolean> {
   return (await db.select({ id: vendorContracts.id }).from(vendorContracts).where(eq(vendorContracts.id, id))).length > 0;
 }
-async function contractRows() {
+async function contractRows(vendorId?: string) {
   const [rows, assetLinks, poLinks, serverLinks] = await Promise.all([
     db.select({ ...getTableColumns(vendorContracts), vendorName: vendors.name }).from(vendorContracts)
-      .innerJoin(vendors, eq(vendors.id, vendorContracts.vendorId)).orderBy(asc(vendorContracts.endDate)),
+      .innerJoin(vendors, eq(vendors.id, vendorContracts.vendorId))
+      .where(vendorId ? eq(vendorContracts.vendorId, vendorId) : undefined)
+      .orderBy(asc(vendorContracts.endDate)),
     db.select({ contractId: vendorContractAssets.contractId, id: assets.id, name: assets.name, assetTag: assets.assetTag, type: assets.type })
       .from(vendorContractAssets).innerJoin(assets, eq(assets.id, vendorContractAssets.assetId)),
     db.select({ contractId: vendorContractPurchaseOrders.contractId, id: purchaseOrders.id, poNumber: purchaseOrders.poNumber })
@@ -125,15 +127,55 @@ export function registerVendorContractRoutes(app: Express, requireAuth: RequestH
       assets: assetOptions, purchaseOrders: poOptions, servers: serverOptions });
   }));
   app.get("/api/vendor-management/vendors", requireAuth, handle(async (_req, res) => {
-    const [rows, counts] = await Promise.all([
+    const [rows, counts, purchaseOrderCounts, assetCounts] = await Promise.all([
       db.select().from(vendors).orderBy(asc(vendors.name)),
       db.select({ vendorId: vendorContracts.vendorId, total: sql<number>`count(*)::int` }).from(vendorContracts)
-        .where(sql`${vendorContracts.status} <> 'Terminated' AND ${vendorContracts.endDate} >= CURRENT_DATE`).groupBy(vendorContracts.vendorId),
+        .where(sql`${vendorContracts.status} <> 'Terminated' AND ${vendorContracts.startDate} <= CURRENT_DATE AND ${vendorContracts.endDate} >= CURRENT_DATE`).groupBy(vendorContracts.vendorId),
+      db.select({
+        vendorId: purchaseOrders.vendorId,
+        vendorName: purchaseOrders.vendor,
+        total: sql<number>`count(*)::int`,
+      }).from(purchaseOrders).groupBy(purchaseOrders.vendorId, purchaseOrders.vendor),
+      db.select({ vendorId: assets.primaryVendorId, total: sql<number>`count(*)::int` }).from(assets)
+        .where(sql`${assets.primaryVendorId} IS NOT NULL`).groupBy(assets.primaryVendorId),
     ]);
     const byVendor = new Map(counts.map(row => [row.vendorId, row.total]));
+    const byPurchaseOrderVendorId = new Map<string, number>();
+    const byPurchaseOrderVendorName = new Map<string, number>();
+    for (const row of purchaseOrderCounts) {
+      if (row.vendorId) byPurchaseOrderVendorId.set(row.vendorId, (byPurchaseOrderVendorId.get(row.vendorId) ?? 0) + row.total);
+      else if (row.vendorName) byPurchaseOrderVendorName.set(row.vendorName.trim().toLowerCase(), (byPurchaseOrderVendorName.get(row.vendorName.trim().toLowerCase()) ?? 0) + row.total);
+    }
+    const byAssetVendor = new Map(assetCounts.map(row => [row.vendorId!, row.total]));
     res.json(rows.map(row => ({ ...row, primaryContactName: row.primaryContactName ?? row.contactPerson,
       primaryContactEmail: row.primaryContactEmail ?? row.email, primaryContactPhone: row.primaryContactPhone ?? row.phone,
-      activeContractCount: byVendor.get(row.id) ?? 0 })));
+      activeContractCount: byVendor.get(row.id) ?? 0,
+      purchaseOrderCount: byPurchaseOrderVendorId.get(row.id) ?? byPurchaseOrderVendorName.get(row.name.trim().toLowerCase()) ?? 0,
+      linkedAssetCount: byAssetVendor.get(row.id) ?? 0 })));
+  }));
+  app.get("/api/vendor-management/vendors/:id", requireAuth, handle(async (req, res) => {
+    const [vendor] = await db.select().from(vendors).where(eq(vendors.id, req.params.id));
+    if (!vendor) throw new VendorError(404, "Vendor not found");
+    const [linkedAssets, linkedContracts, linkedPurchaseOrders] = await Promise.all([
+      db.select({
+        id: assets.id, name: assets.name, type: assets.type, assetTag: assets.assetTag,
+        serialNumber: assets.serialNumber, status: assets.status, warrantyExpiry: assets.warrantyExpiry,
+        manufacturer: assets.manufacturer, model: assets.model,
+      }).from(assets).where(eq(assets.primaryVendorId, vendor.id)).orderBy(asc(assets.name)),
+      contractRows(vendor.id),
+      db.select({
+        id: purchaseOrders.id, poNumber: purchaseOrders.poNumber, orderDate: purchaseOrders.orderDate,
+        status: purchaseOrders.status, totalAmount: purchaseOrders.totalAmount,
+      }).from(purchaseOrders).where(eq(purchaseOrders.vendorId, vendor.id)).orderBy(asc(purchaseOrders.orderDate)),
+    ]);
+    res.json({
+      vendor: { ...vendor, primaryContactName: vendor.primaryContactName ?? vendor.contactPerson,
+        primaryContactEmail: vendor.primaryContactEmail ?? vendor.email, primaryContactPhone: vendor.primaryContactPhone ?? vendor.phone },
+      assets: linkedAssets,
+      contracts: linkedContracts,
+      warranties: linkedAssets.filter(asset => asset.warrantyExpiry),
+      purchaseOrders: linkedPurchaseOrders,
+    });
   }));
   for (const method of ["post", "put"] as const) app[method](method === "post" ? "/api/vendor-management/vendors" : "/api/vendor-management/vendors/:id", requireAuth, handle(async (req, res, user) => {
     const permissions = vendorPermissions(user);

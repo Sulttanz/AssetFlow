@@ -542,6 +542,10 @@ export const vendors = pgTable("vendors", {
   // Vendor Classification & Risk
   vendorType: text("vendor_type"), // Manufacturer, Reseller, Service Provider, Cloud Provider, Subcontractor
   category: text("category"), // Hardware, Software, Services, etc.
+  tier: text("tier").notNull().default("Tier 2 - Preferred"),
+  accountManager: text("account_manager"),
+  supportUrl: text("support_url"),
+  slaTerms: text("sla_terms"),
   vendorRiskRating: text("vendor_risk_rating"), // High, Medium, Low
   businessCriticalityLevel: text("business_criticality_level"), // Critical, High, Medium, Low
   dataAccessLevel: text("data_access_level"), // Full, Limited, None

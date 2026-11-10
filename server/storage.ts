@@ -1196,6 +1196,10 @@ export class MemStorage implements IStorage {
       id,
       name: insertVendor.name, // Ensure name is included - required field
       code: normalizeField(insertVendor.code),
+      tier: insertVendor.tier ?? "Tier 2 - Preferred",
+      accountManager: normalizeField(insertVendor.accountManager),
+      supportUrl: normalizeField(insertVendor.supportUrl),
+      slaTerms: normalizeField(insertVendor.slaTerms),
       primaryContactName: normalizeField(insertVendor.primaryContactName ?? insertVendor.contactPerson),
       primaryContactEmail: normalizeField(insertVendor.primaryContactEmail ?? insertVendor.email),
       primaryContactPhone: normalizeField(insertVendor.primaryContactPhone ?? insertVendor.phone),

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowUpRight, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, FileText, Globe2, Mail, Phone, Plus, Search, Server, ShieldCheck, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, FileText, Globe2, Mail, Phone, Plus, Search, Server, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { ContractEditor } from "@/components/vendors/contract-editor";
 import { VendorEditor } from "@/components/vendors/vendor-editor";
-import { ContractPayload, VendorContract, VendorOptions, VendorPayload, VendorRow } from "@/components/vendors/types";
+import { ContractPayload, VendorContract, VendorOptions, VendorPayload, VendorProfile, VendorRow, VendorStatus } from "@/components/vendors/types";
 
 type Tab = "vendors" | "contracts";
 type ContractStatus = VendorContract["status"];
@@ -31,6 +31,22 @@ function lifecycleTone(status: string) {
   if (status === "Expiring Soon") return "border-amber-300 bg-amber-50 text-amber-800";
   if (status === "Terminated") return "border-slate-300 bg-slate-100 text-slate-700";
   return "border-rose-300 bg-rose-50 text-rose-800";
+}
+
+function vendorStatusLabel(status?: string | null) {
+  const labels: Record<string, string> = {
+    active: "Active", onboarding: "Onboarding", under_review: "Under Review",
+    blacklisted: "Blacklisted", inactive: "Inactive", suspended: "Suspended", terminated: "Terminated",
+  };
+  return status ? labels[status.toLowerCase().replaceAll(" ", "_")] ?? status : "Active";
+}
+
+function vendorStatusTone(status?: string | null) {
+  const key = status?.toLowerCase().replaceAll(" ", "_") ?? "active";
+  if (key === "active") return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (key === "onboarding" || key === "under_review") return "border-amber-300 bg-amber-50 text-amber-900";
+  if (key === "blacklisted" || key === "terminated") return "border-rose-300 bg-rose-50 text-rose-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
 }
 
 function currencyLabel(value: string | number, currency: string) {
@@ -52,6 +68,7 @@ export default function Vendors() {
   const [tab, setTab] = useState<Tab>(() => new URLSearchParams(window.location.search).get("tab") === "contracts" ? "contracts" : "vendors");
   const [search, setSearch] = useState("");
   const [vendorCategory, setVendorCategory] = useState("all");
+  const [vendorTier, setVendorTier] = useState("all");
   const [vendorStatus, setVendorStatus] = useState("all");
   const [contractStatus, setContractStatus] = useState("all");
   const [contractVendor, setContractVendor] = useState("all");
@@ -60,6 +77,7 @@ export default function Vendors() {
   const [page, setPage] = useState(1);
   const [vendorEditorOpen, setVendorEditorOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<VendorRow | null>(null);
+  const [selectedVendor, setSelectedVendor] = useState<VendorRow | null>(null);
   const [contractEditorOpen, setContractEditorOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<VendorContract | null>(null);
 
@@ -79,6 +97,11 @@ export default function Vendors() {
     queryFn: async () => responseData<VendorContract[]>(await apiRequest("GET", "/api/vendor-contracts")),
     enabled: Boolean(options),
   });
+  const profileQuery = useQuery<VendorProfile>({
+    queryKey: ["vendor-profile", selectedVendor?.id, user?.id],
+    queryFn: async () => responseData<VendorProfile>(await apiRequest("GET", `/api/vendor-management/vendors/${selectedVendor?.id}`)),
+    enabled: Boolean(selectedVendor?.id && user?.id),
+  });
   const vendors = vendorsQuery.data ?? [];
   const contracts = contractsQuery.data ?? [];
 
@@ -89,6 +112,7 @@ export default function Vendors() {
       queryClient.invalidateQueries({ queryKey: ["/api/vendors"] }),
       queryClient.invalidateQueries({ queryKey: ["/api/contracts"] }),
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/executive"] }),
+      queryClient.invalidateQueries({ queryKey: ["vendor-profile"] }),
     ]);
   };
   const vendorSave = useMutation({
@@ -97,9 +121,9 @@ export default function Vendors() {
       await invalidateManagement();
       setVendorEditorOpen(false);
       setEditingVendor(null);
-      toast({ title: variables.id ? "Supplier updated" : "Supplier created", description: "Supplier record and procurement context are up to date." });
+      toast({ title: variables.id ? "Vendor updated" : "Vendor created", description: "Vendor identity and linked procurement context are up to date." });
     },
-    onError: (error: Error) => toast({ title: "Could not save supplier", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not save vendor", description: error.message, variant: "destructive" }),
   });
   const contractSave = useMutation({
     mutationFn: async ({ id, payload }: { id?: string; payload: ContractPayload }) => responseData(await apiRequest(id ? "PUT" : "POST", id ? `/api/vendor-contracts/${id}` : "/api/vendor-contracts", payload)),
@@ -116,11 +140,12 @@ export default function Vendors() {
     const term = search.trim().toLocaleLowerCase();
     return vendors.filter(vendor => {
       const active = vendor.status ? vendor.status.toLowerCase() === "active" : vendor.isActive !== "false";
-      return (!term || `${vendor.name} ${vendor.code ?? ""} ${vendor.category ?? ""} ${vendor.primaryContactName ?? vendor.contactPerson ?? ""}`.toLocaleLowerCase().includes(term)) &&
+       return (!term || `${vendor.name} ${vendor.code ?? ""} ${vendor.category ?? ""} ${vendor.tier ?? ""} ${vendor.accountManager ?? ""} ${vendor.primaryContactName ?? vendor.contactPerson ?? ""}`.toLocaleLowerCase().includes(term)) &&
         (vendorCategory === "all" || vendor.category === vendorCategory) &&
-        (vendorStatus === "all" || (vendorStatus === "active" ? active : !active));
+         (vendorTier === "all" || vendor.tier === vendorTier) &&
+         (vendorStatus === "all" || (vendor.status?.toLowerCase().replaceAll(" ", "_") ?? (active ? "active" : "inactive")) === vendorStatus);
     });
-  }, [vendors, search, vendorCategory, vendorStatus]);
+  }, [vendors, search, vendorCategory, vendorTier, vendorStatus]);
   const filteredContracts = useMemo(() => {
     const term = search.trim().toLocaleLowerCase();
     return contracts.filter(contract =>
@@ -147,6 +172,7 @@ export default function Vendors() {
 
   const setTabAndReset = (value: string) => { setTab(value as Tab); setPage(1); setSearch(""); };
   const openVendorEdit = (vendor: VendorRow) => { setEditingVendor(vendor); setVendorEditorOpen(true); };
+  const openVendorProfile = (vendor: VendorRow) => { setSelectedVendor(vendor); };
   const startVendorCreate = () => { setEditingVendor(null); setVendorEditorOpen(true); };
   const startContractCreate = () => { setEditingContract(null); setContractEditorOpen(true); };
   const openContractEdit = (contract: VendorContract) => { setEditingContract(contract); setContractEditorOpen(true); };
@@ -154,7 +180,7 @@ export default function Vendors() {
   const submitContract = (payload: ContractPayload) => contractSave.mutate({ id: editingContract?.id, payload });
 
   if (optionsQuery.isLoading) return <main className="min-h-[100dvh] space-y-5 p-4 sm:p-7"><div className="h-36 animate-pulse rounded-2xl bg-muted/40" /><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map(item => <div key={item} className="h-48 animate-pulse rounded-xl bg-muted/40" />)}</div></main>;
-  if (optionsQuery.isError || !options) return <main className="p-5 sm:p-8"><Card><CardContent className="p-10 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-3 font-semibold">Supplier workspace unavailable</h1><p className="mt-1 text-sm text-muted-foreground">{optionsQuery.error instanceof Error ? optionsQuery.error.message : "We could not confirm your access."}</p><Button variant="outline" className="mt-4" onClick={() => void optionsQuery.refetch()}>Retry</Button></CardContent></Card></main>;
+  if (optionsQuery.isError || !options) return <main className="p-5 sm:p-8"><Card><CardContent className="p-10 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-3 font-semibold">Vendor workspace unavailable</h1><p className="mt-1 text-sm text-muted-foreground">{optionsQuery.error instanceof Error ? optionsQuery.error.message : "We could not confirm your access."}</p><Button variant="outline" className="mt-4" onClick={() => void optionsQuery.refetch()}>Retry</Button></CardContent></Card></main>;
 
   return <main className="min-h-[100dvh] bg-background p-4 text-foreground sm:p-7">
     <div className="mx-auto max-w-7xl space-y-6">
@@ -162,58 +188,81 @@ export default function Vendors() {
         <div className="absolute -right-10 -top-20 h-64 w-64 rounded-full border-[34px] border-primary/[0.06]" aria-hidden="true" />
         <div className="relative flex flex-wrap items-end justify-between gap-5">
           <div className="max-w-2xl">
-            <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-primary"><ShieldCheck className="h-4 w-4" /> Supplier governance · Module 03</div>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Vendors & commitments</h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">Keep every support promise, renewal window, and purchasing trail connected to the supplier behind it.</p>
+             <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-primary"><ShieldCheck className="h-4 w-4" /> Vendor governance · Module 03</div>
+             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Vendors Management</h1>
+             <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">Manage supplier lifecycle, operational contacts, support terms, contracts, and supplied assets in one place.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {tab === "vendors" && options.canCreateVendor && <Button onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add supplier</Button>}
-            {tab === "contracts" && options.canManageContracts && <Button onClick={startContractCreate}><Plus className="mr-2 h-4 w-4" />New contract</Button>}
+            {tab === "vendors" && options.canCreateVendor && <Button className="w-full sm:w-auto" onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add Vendor</Button>}
+            {tab === "contracts" && options.canManageContracts && <Button className="w-full sm:w-auto" onClick={startContractCreate}><Plus className="mr-2 h-4 w-4" />New contract</Button>}
           </div>
         </div>
       </header>
 
       <section className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Users className="h-5 w-5" /></div><div><p className="text-xs uppercase tracking-wider text-muted-foreground">Supplier network</p><p className="text-2xl font-semibold">{vendors.length}<span className="ml-2 text-sm font-normal text-muted-foreground">records</span></p></div></CardContent></Card>
+        <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Users className="h-5 w-5" /></div><div><p className="text-xs uppercase tracking-wider text-muted-foreground">Vendor network</p><p className="text-2xl font-semibold">{vendors.length}<span className="ml-2 text-sm font-normal text-muted-foreground">records</span></p></div></CardContent></Card>
         <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/10 text-emerald-700"><FileText className="h-5 w-5" /></div><div><p className="text-xs uppercase tracking-wider text-muted-foreground">In-force commitments</p><p className="text-2xl font-semibold">{activeContractCount}<span className="ml-2 text-sm font-normal text-muted-foreground">contracts</span></p></div></CardContent></Card>
         <Card><CardContent className="flex items-center gap-4 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-500/10 text-amber-700"><Wallet className="h-5 w-5" /></div><div className="min-w-0"><p className="text-xs uppercase tracking-wider text-muted-foreground">Portfolio valuation</p><p className="truncate text-lg font-semibold">{currencyTotals.length ? currencyTotals.map(([currency, amount]) => currencyLabel(amount, currency)).join(" · ") : "No active value"}</p></div></CardContent></Card>
       </section>
 
       <Tabs value={tab} onValueChange={setTabAndReset}>
         <TabsList className="h-auto flex-wrap justify-start">
-          <TabsTrigger value="vendors">Vendors <span className="ml-2 text-xs text-muted-foreground">{vendors.length}</span></TabsTrigger>
+          <TabsTrigger value="vendors">Vendor Directory <span className="ml-2 text-xs text-muted-foreground">{vendors.length}</span></TabsTrigger>
           <TabsTrigger value="contracts">Contracts &amp; SLAs <span className="ml-2 text-xs text-muted-foreground">{contracts.length}</span></TabsTrigger>
         </TabsList>
         <div className="mt-4 flex flex-col gap-3 rounded-xl border bg-card p-3 lg:flex-row lg:items-center">
-          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search" placeholder={tab === "vendors" ? "Search suppliers, codes, contacts…" : "Search contracts, numbers, suppliers…"} className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search" placeholder={tab === "vendors" ? "Search vendors, codes, contacts…" : "Search contracts, numbers, vendors…"} className="pl-9" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
           {tab === "vendors" ? <>
-            <select aria-label="Filter supplier category" className="h-10 rounded-md border bg-background px-3 text-sm" value={vendorCategory} onChange={event => { setVendorCategory(event.target.value); setPage(1); }}><option value="all">All categories</option>{options.categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-            <select aria-label="Filter supplier status" className="h-10 rounded-md border bg-background px-3 text-sm" value={vendorStatus} onChange={event => { setVendorStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            <select aria-label="Filter vendor category" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={vendorCategory} onChange={event => { setVendorCategory(event.target.value); setPage(1); }}><option value="all">All categories</option>{options.categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+            <select aria-label="Filter vendor tier" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={vendorTier} onChange={event => { setVendorTier(event.target.value); setPage(1); }}><option value="all">All tiers</option>{(["Tier 1 - Strategic", "Tier 2 - Preferred", "Tier 3 - Transactional"] as const).map(tier => <option key={tier} value={tier}>{tier}</option>)}</select>
+            <select aria-label="Filter vendor status" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={vendorStatus} onChange={event => { setVendorStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option>{(["active", "onboarding", "under_review", "blacklisted", "inactive"] as VendorStatus[]).map(status => <option key={status} value={status}>{vendorStatusLabel(status)}</option>)}</select>
           </> : <>
-            <select aria-label="Filter lifecycle" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractStatus} onChange={event => { setContractStatus(event.target.value); setPage(1); }}><option value="all">All lifecycles</option>{(["Active", "Expiring Soon", "Expired", "Terminated"] as ContractStatus[]).map(status => <option key={status} value={status}>{status}</option>)}</select>
-            <select aria-label="Filter contract supplier" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractVendor} onChange={event => { setContractVendor(event.target.value); setPage(1); }}><option value="all">All suppliers</option>{vendors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-            <select aria-label="Filter contract type" className="h-10 rounded-md border bg-background px-3 text-sm" value={contractType} onChange={event => { setContractType(event.target.value); setPage(1); }}><option value="all">All contract types</option>{options.contractTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+            <select aria-label="Filter contract lifecycle" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractStatus} onChange={event => { setContractStatus(event.target.value); setPage(1); }}><option value="all">All lifecycles</option>{(["Active", "Expiring Soon", "Expired", "Terminated"] as ContractStatus[]).map(status => <option key={status} value={status}>{status}</option>)}</select>
+            <select aria-label="Filter contract vendor" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractVendor} onChange={event => { setContractVendor(event.target.value); setPage(1); }}><option value="all">All vendors</option>{vendors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <select aria-label="Filter contract type" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractType} onChange={event => { setContractType(event.target.value); setPage(1); }}><option value="all">All contract types</option>{options.contractTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
           </>}
         </div>
 
         <TabsContent value="vendors" className="mt-5">
           {vendorsQuery.isLoading ? <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[0,1,2].map(i => <div key={i} className="h-56 animate-pulse rounded-xl border bg-card" />)}</div>
-            : vendorsQuery.isError ? <Card><CardContent className="p-10 text-center"><p className="font-semibold">Supplier records could not be loaded</p><Button variant="outline" className="mt-4" onClick={() => void vendorsQuery.refetch()}>Retry</Button></CardContent></Card>
-            : filteredVendors.length === 0 ? <div className="rounded-xl border border-dashed bg-card px-5 py-14 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h2 className="mt-3 font-semibold">{vendors.length ? "No suppliers match those filters" : "No suppliers in the register"}</h2><p className="mt-1 text-sm text-muted-foreground">{vendors.length ? "Change your search or filter to see other suppliers." : "Add a supplier to start tracking support relationships and commercial history."}</p>{vendors.length === 0 && options.canCreateVendor && <Button className="mt-4" onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add supplier</Button>}</div>
-            : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{vendorPageRows.map(vendor => {
-              const contactName = vendor.primaryContactName ?? vendor.contactPerson;
-              const email = vendor.primaryContactEmail ?? vendor.email;
-              const phone = vendor.primaryContactPhone ?? vendor.phone;
-              const active = vendor.status ? vendor.status.toLowerCase() === "active" : vendor.isActive !== "false";
-              return <Card key={vendor.id} className="group flex min-w-0 flex-col overflow-hidden transition-transform hover:-translate-y-0.5 hover:shadow-md">
-                <CardContent className="flex flex-1 flex-col p-5">
-                  <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Building2 className="h-5 w-5" /></div><div className="min-w-0"><h2 className="truncate text-lg font-semibold tracking-tight">{vendor.name}</h2><p className="truncate text-xs text-muted-foreground">{vendor.code || "Legacy record"} · {vendor.category || "Category needs review"}</p></div></div><Badge variant="outline" className={active ? "shrink-0 border-emerald-300 bg-emerald-50 text-emerald-800" : "shrink-0"}>{active ? "Active" : vendor.status || "Inactive"}</Badge></div>
-                  <div className="mt-5 rounded-lg bg-muted/40 p-3"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Primary contact</p><p className="mt-1 truncate font-medium">{contactName || "Contact not recorded"}</p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm">{email && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`mailto:${email}`}><Mail className="h-3.5 w-3.5" />Email</a>}{phone && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`tel:${phone}`}><Phone className="h-3.5 w-3.5" />Call</a>}{vendor.supportHotline && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={`tel:${vendor.supportHotline}`}><Phone className="h-3.5 w-3.5" />Support line</a>}{vendor.website && <a className="inline-flex items-center gap-1.5 text-primary hover:underline" href={vendor.website.startsWith("http") ? vendor.website : `https://${vendor.website}`} target="_blank" rel="noopener noreferrer"><Globe2 className="h-3.5 w-3.5" />Website</a>}</div></div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 border-b pb-4 sm:grid-cols-3"><div><p className="text-xs text-muted-foreground">Active contracts</p><p className="mt-0.5 text-xl font-semibold">{vendor.activeContractCount ?? 0}</p></div><div><p className="text-xs text-muted-foreground">Purchase orders</p><p className="mt-0.5 text-xl font-semibold">{vendor.purchaseOrderCount ?? 0}</p></div><div className="col-span-2 sm:col-span-1"><p className="text-xs text-muted-foreground">Historic spend</p><p className="mt-1 truncate text-sm font-semibold">{vendor.totalSpent == null ? "—" : currencyLabel(vendor.totalSpent, "USD")}</p></div></div>
-                  <div className="mt-auto flex items-center justify-between gap-3 pt-4"><div className="flex flex-wrap gap-3 text-xs"><EntityLink href="/purchase-orders"><ClipboardList className="h-3 w-3" />Purchase orders</EntityLink><EntityLink href="/assets"><ArrowUpRight className="h-3 w-3" />Asset register</EntityLink></div>{options.canUpdateVendor && <Button size="sm" variant="outline" onClick={() => openVendorEdit(vendor)}>Edit supplier</Button>}</div>
-                </CardContent>
-              </Card>;
-            })}</div>}
+            : vendorsQuery.isError ? <Card><CardContent className="p-10 text-center"><p className="font-semibold">Vendor records could not be loaded</p><Button variant="outline" className="mt-4" onClick={() => void vendorsQuery.refetch()}>Retry</Button></CardContent></Card>
+            : filteredVendors.length === 0 ? <div className="rounded-xl border border-dashed bg-card px-5 py-14 text-center"><Building2 className="mx-auto h-8 w-8 text-muted-foreground" /><h2 className="mt-3 font-semibold">{vendors.length ? "No vendors match those filters" : "No vendors in the register"}</h2><p className="mt-1 text-sm text-muted-foreground">{vendors.length ? "Change your search or filter to see other vendors." : "Add a vendor to start tracking lifecycle, supplied assets, and support relationships."}</p>{vendors.length === 0 && options.canCreateVendor && <Button className="mt-4" onClick={startVendorCreate}><Plus className="mr-2 h-4 w-4" />Add Vendor</Button>}</div>
+            : <>
+              <div className="hidden overflow-x-auto rounded-xl border bg-card md:block">
+                <table className="w-full min-w-[1040px] text-left text-sm">
+                  <thead className="border-b bg-muted/45 text-xs uppercase tracking-wider text-muted-foreground"><tr>
+                    {["Vendor", "Category", "Tier", "Status", "Account Manager", "Contracts", "Assets", "Actions"].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
+                  </tr></thead>
+                  <tbody className="divide-y">{vendorPageRows.map(vendor => (
+                    <tr key={vendor.id} className="hover:bg-muted/20">
+                      <td className="px-4 py-3"><div className="font-semibold">{vendor.name}</div><div className="font-mono text-xs text-muted-foreground">{vendor.code || "No code"}{(vendor.primaryContactEmail ?? vendor.email) ? ` · ${vendor.primaryContactEmail ?? vendor.email}` : ""}</div></td>
+                      <td className="px-4 py-3">{vendor.category || "—"}</td>
+                      <td className="px-4 py-3">{vendor.tier || "Tier 2 - Preferred"}</td>
+                      <td className="px-4 py-3"><Badge variant="outline" className={vendorStatusTone(vendor.status)}>{vendorStatusLabel(vendor.status)}</Badge></td>
+                      <td className="px-4 py-3">{vendor.accountManager || "—"}</td>
+                      <td className="px-4 py-3">{vendor.activeContractCount ?? 0}</td>
+                      <td className="px-4 py-3">{vendor.linkedAssetCount ?? 0}</td>
+                      <td className="px-4 py-3"><div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openVendorProfile(vendor)}>View profile</Button>
+                        {options.canUpdateVendor && <Button size="sm" variant="ghost" onClick={() => openVendorEdit(vendor)}>Edit</Button>}
+                      </div></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+              <div className="space-y-3 md:hidden">{vendorPageRows.map(vendor => (
+                <Card key={vendor.id}><CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-semibold">{vendor.name}</h2><p className="truncate font-mono text-xs text-muted-foreground">{vendor.code || "No code"}</p></div><Badge variant="outline" className={vendorStatusTone(vendor.status)}>{vendorStatusLabel(vendor.status)}</Badge></div>
+                  <div className="grid grid-cols-2 gap-3 text-sm"><p><span className="block text-xs text-muted-foreground">Category</span>{vendor.category || "—"}</p><p><span className="block text-xs text-muted-foreground">Tier</span>{vendor.tier || "Tier 2 - Preferred"}</p><p><span className="block text-xs text-muted-foreground">Account manager</span>{vendor.accountManager || "—"}</p><p><span className="block text-xs text-muted-foreground">Active contracts</span>{vendor.activeContractCount ?? 0}</p></div>
+                  <div className="flex flex-wrap gap-2 border-t pt-3">
+                    <Button className="min-h-11 flex-1" variant="outline" onClick={() => openVendorProfile(vendor)}>View profile</Button>
+                    {options.canUpdateVendor && <Button className="min-h-11 flex-1" variant="outline" onClick={() => openVendorEdit(vendor)}>Edit vendor</Button>}
+                    {(vendor.primaryContactEmail ?? vendor.email) && <Button className="min-h-11" variant="ghost" asChild><a aria-label={`Email ${vendor.name}`} href={`mailto:${vendor.primaryContactEmail ?? vendor.email}`}><Mail className="h-4 w-4" /></a></Button>}
+                    {(vendor.primaryContactPhone ?? vendor.phone) && <Button className="min-h-11" variant="ghost" asChild><a aria-label={`Call ${vendor.name}`} href={`tel:${vendor.primaryContactPhone ?? vendor.phone}`}><Phone className="h-4 w-4" /></a></Button>}
+                  </div>
+                </CardContent></Card>
+              ))}</div>
+            </>}
         </TabsContent>
 
         <TabsContent value="contracts" className="mt-5 space-y-5">
@@ -225,7 +274,7 @@ export default function Vendors() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="border-b bg-muted/45 text-xs uppercase tracking-wider text-muted-foreground">
-                  <tr>{["Commitment", "Supplier / SLA", "Term", "Renewal", "Value", "Lifecycle", "Linked records"].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
+                  <tr>{["Commitment", "Vendor / SLA", "Term", "Renewal", "Value", "Lifecycle", "Linked records"].map(label => <th key={label} className="px-4 py-3">{label}</th>)}
                     {options.canManageContracts && <th className="px-4 py-3">Action</th>}
                   </tr>
                 </thead>
@@ -255,11 +304,66 @@ export default function Vendors() {
       {selectedRows.length > 0 && <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><span>Showing {Math.min((page - 1) * pageSize + 1, selectedRows.length)}–{Math.min(page * pageSize, selectedRows.length)} of {selectedRows.length}</span><div className="flex items-center gap-3"><label className="flex items-center gap-2">Rows <select className="h-9 rounded-md border bg-background px-2 text-foreground" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}><option value={20}>20</option><option value={50}>50</option></select></label><Button variant="outline" size="icon" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}><ChevronLeft className="h-4 w-4" /></Button><span className="min-w-16 text-center">Page {page} / {pages}</span><Button variant="outline" size="icon" aria-label="Next page" disabled={page >= pages} onClick={() => setPage(value => Math.min(pages, value + 1))}><ChevronRight className="h-4 w-4" /></Button></div></div>}
     </div>
 
+    <Dialog open={Boolean(selectedVendor)} onOpenChange={open => { if (!open) setSelectedVendor(null); }}>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[92dvh] max-w-5xl overflow-y-auto p-4 sm:p-6">
+        <DialogHeader>
+          <DialogTitle>{profileQuery.data?.vendor.name ?? selectedVendor?.name ?? "Vendor profile"}</DialogTitle>
+          <DialogDescription>360° vendor profile: operational contacts, supplied assets, support commitments, and purchase history.</DialogDescription>
+        </DialogHeader>
+        {profileQuery.isLoading ? <div className="space-y-3 py-8"><div className="h-5 animate-pulse rounded bg-muted" /><div className="h-32 animate-pulse rounded bg-muted" /></div>
+          : profileQuery.isError || !profileQuery.data ? <div className="py-8 text-center"><p className="font-medium">Vendor profile could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void profileQuery.refetch()}>Retry</Button></div>
+          : <Tabs defaultValue="overview" className="min-w-0">
+            <TabsList className="h-auto w-full flex-wrap justify-start">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="assets">Linked Assets <span className="ml-2 text-xs text-muted-foreground">{profileQuery.data.assets.length}</span></TabsTrigger>
+              <TabsTrigger value="contracts">Contracts &amp; Warranties <span className="ml-2 text-xs text-muted-foreground">{profileQuery.data.contracts.length}</span></TabsTrigger>
+            </TabsList>
+            <TabsContent value="overview" className="mt-4 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {[
+                  ["Category", profileQuery.data.vendor.category],
+                  ["Vendor tier", profileQuery.data.vendor.tier],
+                  ["Lifecycle status", vendorStatusLabel(profileQuery.data.vendor.status)],
+                  ["Account manager", profileQuery.data.vendor.accountManager],
+                  ["Primary contact", profileQuery.data.vendor.primaryContactName ?? profileQuery.data.vendor.contactPerson],
+                  ["Contact email", profileQuery.data.vendor.primaryContactEmail ?? profileQuery.data.vendor.email],
+                  ["Contact phone", profileQuery.data.vendor.primaryContactPhone ?? profileQuery.data.vendor.phone],
+                  ["Support hotline", profileQuery.data.vendor.supportHotline],
+                ].map(([label, value]) => <div key={label} className="min-w-0 rounded-lg border bg-card p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium">{value || "Not recorded"}</p></div>)}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Card><CardContent className="p-4"><h3 className="font-semibold">Support &amp; SLA terms</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{profileQuery.data.vendor.slaTerms || "No vendor-level SLA terms recorded."}</p>
+                  {(profileQuery.data.vendor.supportUrl || profileQuery.data.vendor.website) && <a className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm text-primary hover:underline" href={profileQuery.data.vendor.supportUrl || profileQuery.data.vendor.website || "#"} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" />Open support site</a>}
+                </CardContent></Card>
+                <Card><CardContent className="p-4"><h3 className="font-semibold">Vendor notes</h3><p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{profileQuery.data.vendor.notes || "No notes recorded."}</p></CardContent></Card>
+              </div>
+            </TabsContent>
+            <TabsContent value="assets" className="mt-4">
+              {profileQuery.data.assets.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-muted/45 text-xs uppercase text-muted-foreground"><tr>{["Asset", "Tag / Serial", "Type", "Status", "Warranty expiry"].map(label => <th key={label} className="px-3 py-2.5">{label}</th>)}</tr></thead><tbody className="divide-y">{profileQuery.data.assets.map(asset => <tr key={asset.id}><td className="px-3 py-3"><a href="/assets" className="font-medium text-primary hover:underline">{asset.name}</a><p className="text-xs text-muted-foreground">{[asset.manufacturer, asset.model].filter(Boolean).join(" ")}</p></td><td className="px-3 py-3 font-mono text-xs">{asset.assetTag || "—"}<p className="mt-1 text-muted-foreground">{asset.serialNumber || "No serial"}</p></td><td className="px-3 py-3">{asset.type}</td><td className="px-3 py-3"><Badge variant="outline">{asset.status}</Badge></td><td className="px-3 py-3">{asset.warrantyExpiry ? formatDateDisplay(asset.warrantyExpiry) : "Not recorded"}</td></tr>)}</tbody></table></div> : <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No hardware or equipment is directly linked to this vendor.</div>}
+            </TabsContent>
+            <TabsContent value="contracts" className="mt-4 space-y-5">
+              <section className="space-y-3"><h3 className="font-semibold">Support contracts and warranties</h3>
+                {profileQuery.data.contracts.length ? <div className="space-y-2">{profileQuery.data.contracts.map(contract => <div key={contract.id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0"><p className="truncate font-medium">{contract.title}</p><p className="text-xs text-muted-foreground">{contract.contractNumber} · {contract.contractType} · {contract.slaTier || "No SLA tier"}</p><p className="mt-1 text-xs text-muted-foreground">{formatDateDisplay(contract.startDate)} – {formatDateDisplay(contract.endDate)} · {contract.daysUntilExpiry <= 0 ? `${Math.abs(contract.daysUntilExpiry)} days past expiry` : `${contract.daysUntilExpiry} days remaining`}</p></div>
+                  <Badge variant="outline" className={lifecycleTone(contract.lifecycleStatus)}>{contract.lifecycleStatus}</Badge>
+                </div>)}</div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No vendor support contracts recorded.</p>}
+              </section>
+              <section className="space-y-3"><h3 className="font-semibold">Supplied asset warranties</h3>
+                {profileQuery.data.warranties.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[520px] text-left text-sm"><thead className="bg-muted/45 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2.5">Asset</th><th className="px-3 py-2.5">Asset tag</th><th className="px-3 py-2.5">Warranty expiry</th></tr></thead><tbody className="divide-y">{profileQuery.data.warranties.map(asset => <tr key={asset.id}><td className="px-3 py-3">{asset.name}</td><td className="px-3 py-3 font-mono text-xs">{asset.assetTag || "—"}</td><td className="px-3 py-3">{formatDateDisplay(asset.warrantyExpiry)}</td></tr>)}</tbody></table></div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No asset warranty dates are recorded for this vendor.</p>}
+              </section>
+              <section className="space-y-3"><h3 className="font-semibold">Purchase history</h3>
+                {profileQuery.data.purchaseOrders.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[500px] text-left text-sm"><thead className="bg-muted/45 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2.5">PO</th><th className="px-3 py-2.5">Order date</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5">Total</th></tr></thead><tbody className="divide-y">{profileQuery.data.purchaseOrders.map(po => <tr key={po.id}><td className="px-3 py-3"><a href="/purchase-orders" className="text-primary hover:underline">{po.poNumber}</a></td><td className="px-3 py-3">{formatDateDisplay(po.orderDate)}</td><td className="px-3 py-3">{po.status}</td><td className="px-3 py-3">{Number(po.totalAmount).toLocaleString()}</td></tr>)}</tbody></table></div> : <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No purchase orders are directly linked to this vendor.</p>}
+              </section>
+            </TabsContent>
+          </Tabs>}
+      </DialogContent>
+    </Dialog>
+
     <Dialog open={vendorEditorOpen} onOpenChange={open => { setVendorEditorOpen(open); if (!open) setEditingVendor(null); }}>
-      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{editingVendor ? "Edit supplier" : "Add supplier"}</DialogTitle><DialogDescription>Keep contact routes and supplier identity current without losing purchasing history.</DialogDescription></DialogHeader><VendorEditor key={editingVendor?.id ?? "new-vendor"} vendor={editingVendor} options={options} saving={vendorSave.isPending} onSave={submitVendor} onCancel={() => { setVendorEditorOpen(false); setEditingVendor(null); }} /></DialogContent>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[92dvh] max-w-2xl overflow-y-auto"><DialogHeader><DialogTitle>{editingVendor ? "Edit vendor" : "Add vendor"}</DialogTitle><DialogDescription>Record vendor identity, lifecycle, responsible manager, contact routes, and support terms.</DialogDescription></DialogHeader><VendorEditor key={editingVendor?.id ?? "new-vendor"} vendor={editingVendor} options={options} saving={vendorSave.isPending} onSave={submitVendor} onCancel={() => { setVendorEditorOpen(false); setEditingVendor(null); }} /></DialogContent>
     </Dialog>
     <Dialog open={contractEditorOpen} onOpenChange={open => { setContractEditorOpen(open); if (!open) setEditingContract(null); }}>
-      <DialogContent className="max-h-[92dvh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>{editingContract ? "Review / renew commitment" : "Create supplier contract"}</DialogTitle><DialogDescription>Capture the agreed support window, notice period, valuation, and every related record.</DialogDescription></DialogHeader><ContractEditor key={editingContract?.id ?? "new-contract"} contract={editingContract} vendors={vendors} options={options} saving={contractSave.isPending} onSave={submitContract} onCancel={() => { setContractEditorOpen(false); setEditingContract(null); }} /></DialogContent>
+      <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[92dvh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>{editingContract ? "Review / renew commitment" : "Create vendor contract"}</DialogTitle><DialogDescription>Capture the agreed support window, notice period, valuation, and every related record.</DialogDescription></DialogHeader><ContractEditor key={editingContract?.id ?? "new-contract"} contract={editingContract} vendors={vendors} options={options} saving={contractSave.isPending} onSave={submitContract} onCancel={() => { setContractEditorOpen(false); setEditingContract(null); }} /></DialogContent>
     </Dialog>
   </main>;
 }
