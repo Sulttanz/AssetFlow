@@ -2008,8 +2008,8 @@ export const insertPurchaseReturnSchema = createInsertSchema(purchaseReturns).om
     });
   });
 });
-export const insertPurchaseInvoicePaymentSchema = createInsertSchema(purchaseInvoicePayments).omit({ id: true, createdAt: true, recordedBy: true }).extend({
-  amount: z.coerce.number().positive(),
+export const insertPurchaseInvoicePaymentSchema = createInsertSchema(purchaseInvoicePayments).omit({ id: true, invoiceId: true, createdAt: true, recordedBy: true }).extend({
+  amount: z.coerce.number().positive().multipleOf(0.01).max(9999999999.99),
   paymentMethod: z.enum(["cash", "bank_transfer", "credit_terms"]),
 });
 export const insertBudgetSchema = createInsertSchema(budgets).omit({ id: true });

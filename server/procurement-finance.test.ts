@@ -44,8 +44,11 @@ describe("P2P input validation", () => {
 
   it("accepts partial payments and requires exactly one inventory target per return line", () => {
     expect(insertPurchaseInvoicePaymentSchema.safeParse({
-      invoiceId: lineId, paymentDate: "2026-02-01", amount: 4.5, paymentMethod: "cash",
+      paymentDate: "2026-02-01", amount: 4.5, paymentMethod: "cash",
     }).success).toBe(true);
+    expect(insertPurchaseInvoicePaymentSchema.safeParse({
+      paymentDate: "2026-02-01", amount: 0.001, paymentMethod: "cash",
+    }).success).toBe(false);
     const base = {
       vendorId, purchaseOrderId: orderId, returnDate: "2026-02-01", reasonCode: "defective",
       items: [{ purchaseOrderItemId: lineId, consumableId, warehouseLocationId: warehouseId, quantity: 1, reasonCode: "defective" }],

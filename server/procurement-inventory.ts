@@ -7,6 +7,7 @@ export async function receivePurchaseOrderInventory(purchaseOrderId: string, act
   const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, purchaseOrderId));
   if (!po) throw Object.assign(new Error("Purchase order not found"), { status: 404 });
   if (po.status !== "received") throw Object.assign(new Error("Purchase order must be received before inventory can be processed"), { status: 400 });
+  if (po.assetsCreated) return { createdAssets: [], stockUnits: 0, alreadyProcessed: true };
 
   const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, po.id));
   if (!items.length) throw Object.assign(new Error("No items found in purchase order"), { status: 400 });
@@ -85,6 +86,7 @@ export async function receivePurchaseOrderInventory(purchaseOrderId: string, act
           purchaseOrderId: lockedPo.id,
           notes: `Received on PO ${lockedPo.poNumber}`,
         });
+        await tx.update(purchaseOrderItems).set({ consumableId: stock!.id }).where(eq(purchaseOrderItems.id, item.id));
         stockUnits += quantity;
       } else {
         const itemTags = tags.get(item.id) ?? [];

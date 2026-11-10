@@ -34,6 +34,7 @@
 - [Knowledge publication boundary](knowledge-publication-boundary.md) — “public” means authenticated employee access; legacy publication and old revisions must not expose internal content.
 - [Structured service catalog](structured-service-catalog.md) — preserve legacy stock/history links; capture submitted forms and approval policies instead of reinterpreting them after configuration changes.
 - [Contract governance boundaries](vendor-sla-governance.md) — vendor SLAs extend financial contracts; customer support agreements remain separate; preserve lifecycle and currency boundaries.
+- [Procurement settlement boundaries](procurement-settlement-boundary.md) — invoice confirmation must not duplicate stock; supplier debit notes reduce payables without counting as cash paid.
 - [Bulk import governance](bulk-import-governance.md) — migrating records must not bypass publication, approvals, or access authorization.
 - [System data reset boundary](system-data-reset-boundary.md) — business resets preserve identity/configuration; destructive verification needs its own disposable test schema.
 - [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.

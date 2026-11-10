@@ -1,4 +1,5 @@
 import type { Express, RequestHandler } from "express";
+import { randomUUID } from "node:crypto";
 import { ensureDropdownIntegrity } from "./dropdown-integrity";
 import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
@@ -6195,6 +6196,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               purchaseOrderId: lockedPO.id,
               notes: `Received on PO ${lockedPO.poNumber}`,
             });
+            await tx.update(purchaseOrderItems).set({ consumableId: target.id }).where(eq(purchaseOrderItems.id, item.id));
             stockUnits += quantity;
           } else {
             const tags = allocatedTags.get(item.id) ?? [];
@@ -6210,6 +6212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 purchaseDate: lockedPO.orderDate,
                 purchaseOrderNumber: lockedPO.poNumber,
                 departmentId: lockedPO.departmentId,
+                primaryVendorId: lockedPO.vendorId,
               }).returning();
               createdAssets.push(asset);
             }
@@ -6265,6 +6268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const saved = await db.transaction(async tx => {
         const [quotation] = await tx.insert(vendorQuotations).values({
           ...quotationInput,
+          status: "submitted",
           subtotal: subtotal.toFixed(2),
           taxAmount: taxAmount.toFixed(2),
           totalAmount: expectedTotal.toFixed(2),
@@ -6287,6 +6291,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "vendor_quotations", saved.id, `Quotation ${saved.quoteNumber}`, null, saved, req);
       res.status(201).json({ ...saved, items });
     } catch (error) {
+      const code = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (code === "23505") return res.status(409).json({ message: "Quotation number already exists" });
+      if (code === "23503") return res.status(400).json({ message: "Vendor or warehouse reference is invalid" });
       console.error("Vendor quotation create failed:", error);
       res.status(500).json({ message: "Failed to create vendor quotation" });
     }
@@ -6298,7 +6305,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [quotation] = await db.select().from(vendorQuotations).where(eq(vendorQuotations.id, req.params.id));
       if (!quotation) return res.status(404).json({ message: "Vendor quotation not found" });
       if (quotation.status === "converted") return res.status(409).json({ message: "Converted quotations cannot be changed" });
-      const [updated] = await db.update(vendorQuotations).set({ status, updatedAt: new Date() }).where(eq(vendorQuotations.id, quotation.id)).returning();
+      const [updated] = await db.update(vendorQuotations).set({ status, updatedAt: new Date() }).where(and(eq(vendorQuotations.id, quotation.id), sql`${vendorQuotations.status} <> 'converted'`)).returning();
+      if (!updated) return res.status(409).json({ message: "Converted quotations cannot be changed" });
       await logAudit(req.user?.id, "UPDATE", "vendor_quotations", quotation.id, `Quotation ${quotation.quoteNumber}`, quotation, updated, req);
       res.json(updated);
     } catch (error) {
@@ -6360,11 +6368,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/purchase-invoices", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
     try {
       const rows = await db.select().from(purchaseInvoices).orderBy(desc(purchaseInvoices.issueDate));
-      res.json(await Promise.all(rows.map(async invoice => ({
-        ...invoice,
-        items: await db.select().from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id)),
-        payments: await db.select().from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id)).orderBy(desc(purchaseInvoicePayments.paymentDate)),
-      }))));
+      res.json(await Promise.all(rows.map(async invoice => {
+        const [items, payments, credits] = await Promise.all([
+          db.select().from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id)),
+          db.select().from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id)).orderBy(desc(purchaseInvoicePayments.paymentDate)),
+          db.select({ totalCredit: purchaseReturns.totalCredit }).from(purchaseReturns).where(and(eq(purchaseReturns.purchaseInvoiceId, invoice.id), eq(purchaseReturns.status, "approved"))),
+        ]);
+        const creditedAmount = credits.reduce((total, credit) => total + Number(credit.totalCredit), 0);
+        const paidAmount = payments.reduce((total, payment) => total + Number(payment.amount), 0);
+        return { ...invoice, items, payments, creditedAmount, outstandingAmount: Math.max(0, Math.round((Number(invoice.grandTotal) - creditedAmount - paidAmount) * 100) / 100) };
+      })));
     } catch (error) {
       console.error("Purchase invoice list failed:", error);
       res.status(500).json({ message: "Failed to fetch purchase invoices" });
@@ -6458,8 +6471,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invoice totals must match the validated lines plus tax" });
       }
       const saved = await db.transaction(async tx => {
+        // Serialize invoice allocations on the PO, then re-check quantities under
+        // the lock. Preflight validation alone would allow concurrent overbilling.
+        const [lockedOrder] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
+        if (!lockedOrder || lockedOrder.status !== "received") throw Object.assign(new Error("Only received purchase orders can be invoiced"), { status: 409 });
+        for (const [itemId, requested] of Array.from(requestedInvoiceQuantities.entries())) {
+          const [item] = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.id, itemId));
+          const prior = await tx.select({ quantity: purchaseInvoiceItems.quantity }).from(purchaseInvoiceItems)
+            .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+            .where(and(eq(purchaseInvoiceItems.purchaseOrderItemId, itemId), sql`${purchaseInvoices.status} <> 'void'`));
+          if (!item || prior.reduce((sum, row) => sum + row.quantity, 0) + requested > item.quantity) {
+            throw Object.assign(new Error("Invoice quantity exceeds received quantity"), { status: 409 });
+          }
+        }
         const [invoice] = await tx.insert(purchaseInvoices).values({
           ...invoiceInput,
+          status: "pending",
+          paymentStatus: "pending",
           subtotal: lineSubtotal.toFixed(2),
           taxAmount: Number(invoiceInput.taxAmount ?? 0).toFixed(2),
           grandTotal: total.toFixed(2),
@@ -6471,6 +6499,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.id, `Invoice ${saved.invoiceNumber}`, null, saved, req);
       res.status(201).json({ ...saved, items: lines, payments: [] });
     } catch (error) {
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
+      const code = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (code === "23505") return res.status(409).json({ message: "This invoice number already exists for the vendor" });
+      if (code === "23503" || code === "23514" || code === "22007" || code === "22008") return res.status(400).json({ message: "Invoice references, amounts, or dates are invalid" });
       console.error("Purchase invoice create failed:", error);
       res.status(500).json({ message: "Failed to create purchase invoice" });
     }
@@ -6479,28 +6511,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/purchase-invoices/:id/status", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
     try {
       const status = z.enum(["pending", "approved", "received", "void"]).parse(req.body?.status);
-      const [invoice] = await db.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id));
-      if (!invoice) return res.status(404).json({ message: "Purchase invoice not found" });
-      if (invoice.status === "void" && status !== "void") return res.status(409).json({ message: "Voided invoices cannot be reopened" });
-      if (invoice.status === "received" && status !== "received") return res.status(409).json({ message: "Received invoices cannot be reversed after inventory processing" });
-      if (invoice.status === "approved" && status === "pending") return res.status(409).json({ message: "Approved invoices cannot return to pending review" });
-      if (invoice.status === "pending" && status === "received") return res.status(409).json({ message: "Approve the invoice before receiving it into inventory" });
-      if (status === "void") {
-        const recordedPayments = await db.select({ id: purchaseInvoicePayments.id }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
-        if (recordedPayments.length) return res.status(409).json({ message: "An invoice with recorded payments cannot be voided; record a supplier credit instead" });
-      }
-      if (status === "received") {
-        const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoice.purchaseOrderId));
-        if (!po) return res.status(404).json({ message: "Linked purchase order not found" });
-        if (po.status !== "received") await db.update(purchaseOrders).set({ status: "received", actualDelivery: toDateInputValue(new Date()) }).where(eq(purchaseOrders.id, po.id));
-        await receivePurchaseOrderInventory(po.id, req.user!.id);
-      }
-      const [updated] = await db.update(purchaseInvoices).set({
-        status,
-        approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
-        receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
-        updatedAt: new Date(),
-      }).where(eq(purchaseInvoices.id, invoice.id)).returning();
+      const { invoice, updated } = await db.transaction(async tx => {
+        const [invoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id)).for("update");
+        if (!invoice) throw Object.assign(new Error("Purchase invoice not found"), { status: 404 });
+        const conflict = (message: string) => { throw Object.assign(new Error(message), { status: 409 }); };
+        if (invoice.status === "void" && status !== "void") conflict("Voided invoices cannot be reopened");
+        if (invoice.status === "received" && status !== "received") conflict("Received invoices cannot be reversed after inventory processing");
+        if (invoice.status === "approved" && status === "pending") conflict("Approved invoices cannot return to pending review");
+        if (invoice.status === "pending" && status === "received") conflict("Approve the invoice before receiving it into inventory");
+        if (status === "void") {
+          const [payment] = await tx.select({ id: purchaseInvoicePayments.id }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
+          const [credit] = await tx.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.purchaseInvoiceId, invoice.id));
+          if (payment || credit) conflict("Invoices with payments or supplier credits cannot be voided");
+        }
+        if (status === "received") await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id);
+        const [updated] = await tx.update(purchaseInvoices).set({
+          status,
+          approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
+          receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
+          updatedAt: new Date(),
+        }).where(eq(purchaseInvoices.id, invoice.id)).returning();
+        return { invoice, updated };
+      });
       await logAudit(req.user?.id, "UPDATE", "purchase_invoices", invoice.id, `Invoice ${invoice.invoiceNumber}`, invoice, updated, req);
       res.json(updated);
     } catch (error) {
@@ -6522,8 +6554,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (invoice.status === "void" || invoice.status === "pending") throw Object.assign(new Error("Only approved invoices can receive payments"), { status: 409 });
         const existing = await tx.select({ amount: purchaseInvoicePayments.amount }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
         const paid = existing.reduce((sum, row) => sum + Number(row.amount), 0);
+        const credits = await tx.select({ totalCredit: purchaseReturns.totalCredit }).from(purchaseReturns).where(and(eq(purchaseReturns.purchaseInvoiceId, invoice.id), eq(purchaseReturns.status, "approved")));
+        const credited = credits.reduce((sum, row) => sum + Number(row.totalCredit), 0);
         const amount = parsed.data.amount;
-        if (paid + amount > Number(invoice.grandTotal) + 0.01) throw Object.assign(new Error("Payment exceeds the remaining invoice balance"), { status: 400 });
+        if (Math.round((paid + amount + credited) * 100) > Math.round(Number(invoice.grandTotal) * 100)) throw Object.assign(new Error("Payment exceeds the remaining invoice balance after supplier credits"), { status: 400 });
         const [savedPayment] = await tx.insert(purchaseInvoicePayments).values({
           invoiceId: invoice.id,
           paymentDate: parsed.data.paymentDate,
@@ -6535,7 +6569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).returning();
         const totalPaid = paid + amount;
         await tx.update(purchaseInvoices).set({
-          paymentStatus: totalPaid >= Number(invoice.grandTotal) - 0.01 ? "paid" : "partially_paid",
+          paymentStatus: Math.round((totalPaid + credited) * 100) >= Math.round(Number(invoice.grandTotal) * 100) ? "paid" : "partially_paid",
           updatedAt: new Date(),
         }).where(eq(purchaseInvoices.id, invoice.id));
         return { payment: savedPayment, invoice, totalPaid };
@@ -6575,14 +6609,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [invoice] = await db.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, returnInput.purchaseInvoiceId));
         if (!invoice || invoice.purchaseOrderId !== po.id || invoice.vendorId !== po.vendorId) return res.status(400).json({ message: "Return invoice must belong to the selected purchase order and vendor" });
       }
-      const returnNumber = `RET-${Date.now()}`;
-      const debitNoteNumber = `DN-${Date.now()}`;
+      const reference = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+      const returnNumber = `RET-${reference}`;
+      const debitNoteNumber = `DN-${reference}`;
       const result = await db.transaction(async tx => {
+        const [linkedInvoice] = returnInput.purchaseInvoiceId ? await tx.select().from(purchaseInvoices)
+          .where(eq(purchaseInvoices.id, returnInput.purchaseInvoiceId)).for("update") : [];
+        if (returnInput.purchaseInvoiceId && (!linkedInvoice || linkedInvoice.status === "void")) {
+          throw Object.assign(new Error("Select a non-void supplier invoice"), { status: 409 });
+        }
+        const [lockedPo] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
+        if (!lockedPo || lockedPo.status !== "received" || !lockedPo.assetsCreated) {
+          throw Object.assign(new Error("Inventory must be received before processing supplier returns"), { status: 409 });
+        }
+        const [quote] = lockedPo.quotationId ? await tx.select({ currency: vendorQuotations.currency }).from(vendorQuotations).where(eq(vendorQuotations.id, lockedPo.quotationId)) : [];
+        const expectedCurrency = linkedInvoice?.currency ?? quote?.currency;
+        if (expectedCurrency && returnInput.currency !== expectedCurrency) throw Object.assign(new Error("Supplier credit currency must match the invoice or quotation"), { status: 400 });
         const checkedItems = [];
+        const inventoryTargets = new Set<string>();
         const requestedReturnQuantities = new Map<string, number>();
         for (const line of items) {
+          const target = line.assetId ? `asset:${line.assetId}` : `stock:${line.consumableId}`;
+          if (inventoryTargets.has(target)) throw Object.assign(new Error("Combine duplicate stock targets or submit separate asset returns"), { status: 400 });
+          inventoryTargets.add(target);
           const [poItem] = await tx.select().from(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, line.purchaseOrderItemId), eq(purchaseOrderItems.purchaseOrderId, po.id))).for("update");
           if (!poItem) throw Object.assign(new Error("Return item must match a line on the selected purchase order"), { status: 400 });
+          const [receipt] = await tx.select({ id: purchaseOrderItemReceipts.id }).from(purchaseOrderItemReceipts).where(eq(purchaseOrderItemReceipts.purchaseOrderItemId, poItem.id));
+          if (!receipt) throw Object.assign(new Error("This PO line has not been received into inventory"), { status: 409 });
           const quantity = line.quantity;
           const previousReturns = await tx.select({ quantity: purchaseReturnItems.quantity, status: purchaseReturns.status })
             .from(purchaseReturnItems).innerJoin(purchaseReturns, eq(purchaseReturnItems.returnId, purchaseReturns.id))
@@ -6594,11 +6647,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (poItem.itemType === "consumable") {
             const consumableId = line.consumableId ?? poItem.consumableId;
             const warehouseId = line.warehouseLocationId ?? poItem.warehouseLocationId;
-            if (!consumableId || !warehouseId || (poItem.consumableId && consumableId !== poItem.consumableId)) {
+            if (!consumableId || !warehouseId || warehouseId !== poItem.warehouseLocationId || (poItem.consumableId && consumableId !== poItem.consumableId)) {
               throw Object.assign(new Error(`Select the received consumable stock row for "${poItem.description}"`), { status: 400 });
             }
+            const [warehouse] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations).where(and(eq(warehouseLocations.id, warehouseId), eq(warehouseLocations.isActive, true))).for("update");
+            if (!warehouse) throw Object.assign(new Error("Cannot process stock in a disabled warehouse"), { status: 409 });
             const [stock] = await tx.select().from(consumables).where(and(eq(consumables.id, consumableId), eq(consumables.warehouseLocationId, warehouseId))).for("update");
-            if (!stock || stock.quantityInStock < quantity) throw Object.assign(new Error(`Insufficient stock to return "${poItem.description}"`), { status: 409 });
+            if (!stock || stock.quantityInStock < quantity ||
+                (!poItem.consumableId && (stock.name.toLowerCase() !== poItem.description.toLowerCase() ||
+                (stock.modelPartNumber ?? "").toLowerCase() !== (poItem.modelPartNumber ?? "").toLowerCase()))) {
+              throw Object.assign(new Error(`Insufficient or mismatched stock for "${poItem.description}"`), { status: 409 });
+            }
             checkedItems.push({ poItem, consumable: stock, asset: null, quantity, price: Number(poItem.unitPrice), reasonCode: line.reasonCode });
           } else {
             if (!line.assetId || quantity !== 1) throw Object.assign(new Error(`Select one received asset for "${poItem.description}"`), { status: 400 });
@@ -6655,6 +6714,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }).where(eq(assets.id, line.asset.id));
           }
         }
+        if (linkedInvoice) {
+          const credits = await tx.select({ totalCredit: purchaseReturns.totalCredit }).from(purchaseReturns).where(and(eq(purchaseReturns.purchaseInvoiceId, linkedInvoice.id), eq(purchaseReturns.status, "approved")));
+          const payments = await tx.select({ amount: purchaseInvoicePayments.amount }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, linkedInvoice.id));
+          const settled = credits.reduce((sum, row) => sum + Number(row.totalCredit), 0) + payments.reduce((sum, row) => sum + Number(row.amount), 0);
+          await tx.update(purchaseInvoices).set({
+            paymentStatus: Math.round(settled * 100) >= Math.round(Number(linkedInvoice.grandTotal) * 100) ? "paid" : "partially_paid",
+            updatedAt: new Date(),
+          }).where(eq(purchaseInvoices.id, linkedInvoice.id));
+        }
         return savedReturn;
       });
       await logAudit(req.user?.id, "CREATE", "purchase_returns", result.id, `Return ${returnNumber}`, null, result, req);
@@ -6703,8 +6771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const summary = payableByMethod.get(methodKey) ?? { paymentMethod: invoice.paymentMethod, currency: currencyCode, pending: 0, paid: 0, partiallyPaid: 0 };
         const paidAmount = invoicePayments.get(invoice.id) ?? 0;
         const creditAmount = approvedCreditsByInvoice.get(invoice.id) ?? 0;
-        if (invoice.paymentStatus === "paid") summary.paid += paidAmount;
-        else if (invoice.paymentStatus === "partially_paid") summary.partiallyPaid += Math.max(Number(invoice.grandTotal) - paidAmount - creditAmount, 0);
+        if (invoice.paymentStatus === "partially_paid") summary.partiallyPaid += Math.max(Number(invoice.grandTotal) - paidAmount - creditAmount, 0);
         else summary.pending += Math.max(Number(invoice.grandTotal) - paidAmount - creditAmount, 0);
         payableByMethod.set(methodKey, summary);
       }
@@ -6743,6 +6810,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           departmentSummary.amount += Number(line.totalPrice);
           departmentTotals.set(departmentKey, departmentSummary);
         }
+      }
+      // Actual cash settlement follows each payment's method, not the invoice's
+      // intended method (a terms invoice may be settled by several bank payments).
+      for (const payment of paymentRows) {
+        const currency = invoiceCurrency.get(payment.invoiceId);
+        if (!currency) continue;
+        const key = `${currency}:${payment.paymentMethod}`;
+        const summary = payableByMethod.get(key) ?? { paymentMethod: payment.paymentMethod, currency, pending: 0, paid: 0, partiallyPaid: 0 };
+        summary.paid += Number(payment.amount);
+        payableByMethod.set(key, summary);
       }
       const paymentSummary = Array.from(payableByMethod.values());
       const returns = returnRows.map(row => ({ ...row, vendorName: vendorName.get(row.vendorId) ?? "Unknown vendor", purchaseOrderNumber: poById.get(row.purchaseOrderId)?.poNumber ?? "" }));
