@@ -9,6 +9,8 @@ const authTestState = vi.hoisted(() => ({
   sessions: new Map<string, any>(),
   sessionDeleteError: null as Error | null,
   lookupGate: null as null | { username: string; entered: () => void; wait: Promise<void> },
+  sessionSaveGate: null as null | { entered: () => void; wait: Promise<void>; saved: () => void },
+  lockWaitEntered: null as null | (() => void),
   advisoryLocks: new Map<string, { locked: boolean; waiters: Array<() => void> }>(),
   query: vi.fn(async (sql: string, values: unknown[] = []) => {
     if (!sql.includes('DELETE FROM "sessions"')) throw new Error("Unexpected database query");
@@ -29,7 +31,12 @@ const authTestState = vi.hoisted(() => ({
       lock = { locked: false, waiters: [] };
       authTestState.advisoryLocks.set(key, lock);
     }
-    if (lock.locked) await new Promise<void>(resolve => lock!.waiters.push(resolve));
+    if (lock.locked) {
+      await new Promise<void>(resolve => {
+        lock!.waiters.push(resolve);
+        authTestState.lockWaitEntered?.();
+      });
+    }
     lock.locked = true;
   },
   releaseAdvisoryLock: (key: string) => {
@@ -106,6 +113,16 @@ vi.mock("connect-pg-simple", () => ({
       }
 
       set(id: string, savedSession: any, callback?: (error?: Error | null) => void) {
+        const gate = authTestState.sessionSaveGate;
+        if (gate) {
+          gate.entered();
+          void gate.wait.then(() => {
+            authTestState.sessions.set(id, savedSession);
+            gate.saved();
+            callback?.(null);
+          });
+          return;
+        }
         authTestState.sessions.set(id, savedSession);
         callback?.(null);
       }
@@ -150,6 +167,8 @@ describe("user deactivation session revocation", () => {
     authTestState.sessionDeleteError = null;
     authTestState.advisoryLocks.clear();
     authTestState.lookupGate = null;
+    authTestState.sessionSaveGate = null;
+    authTestState.lockWaitEntered = null;
     authTestState.query.mockClear();
     for (const [id, username] of [["admin", "admin"], ["target", "target"]]) {
       authTestState.users.set(id, {
@@ -269,5 +288,60 @@ describe("user deactivation session revocation", () => {
     const reactivation = await setAccountActive(adminSession, true);
     expect(reactivation.status).toBe(200);
     expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+  });
+
+  it("revokes a session saved by a sign-in already holding the account lock", async () => {
+    const adminSession = await signIn("admin");
+    let saveStarted!: () => void;
+    const saveReached = new Promise<void>(resolve => { saveStarted = resolve; });
+    let resumeSave!: () => void;
+    const saveGate = new Promise<void>(resolve => { resumeSave = resolve; });
+    let sessionSaved!: () => void;
+    const savedSession = new Promise<void>(resolve => { sessionSaved = resolve; });
+    authTestState.sessionSaveGate = {
+      entered: saveStarted,
+      wait: saveGate,
+      saved: sessionSaved,
+    };
+
+    const pendingLogin = fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "target", password: "correct horse battery staple" }),
+    });
+    await saveReached;
+
+    let deactivationCompleted = false;
+    let lockWaitStarted!: () => void;
+    const lockWaitReached = new Promise<void>(resolve => { lockWaitStarted = resolve; });
+    authTestState.lockWaitEntered = lockWaitStarted;
+    const deactivation = setAccountActive(adminSession, false).then(response => {
+      deactivationCompleted = true;
+      return response;
+    });
+    await lockWaitReached;
+
+    expect(deactivationCompleted).toBe(false);
+    expect(authTestState.users.get("target")?.isActive).toBe(true);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+
+    authTestState.sessionSaveGate = null;
+    resumeSave();
+    await savedSession;
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(true);
+    expect(deactivationCompleted).toBe(false);
+
+    const loginResponse = await pendingLogin;
+    expect(loginResponse.status).toBe(200);
+    const oldCookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+    expect(oldCookie).toBeTruthy();
+
+    const deactivationResponse = await deactivation;
+    expect(deactivationResponse.status).toBe(200);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+
+    const reactivation = await setAccountActive(adminSession, true);
+    expect(reactivation.status).toBe(200);
+    expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: oldCookie! } })).status).toBe(401);
   });
 });
