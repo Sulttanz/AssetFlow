@@ -33,6 +33,7 @@ const PurchaseOrders = lazy(() => import("@/pages/purchase-orders"));
 const Quotations = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.QuotationsPage })));
 const PurchaseInvoices = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseInvoicesPage })));
 const PurchaseReturns = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseReturnsPage })));
+const FinanceTaxSettings = lazy(() => import("@/pages/finance-tax-settings"));
 const Consumables = lazy(() => import("@/pages/consumables"));
 const Budgets = lazy(() => import("@/pages/budgets"));
 const Maintenance = lazy(() => import("@/pages/maintenance"));
@@ -144,6 +145,7 @@ function Router() {
                   <ProtectedRoute path="/finance/purchase-orders" component={PurchaseOrders} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/finance/invoices" component={PurchaseInvoices} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/finance/returns" component={PurchaseReturns} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
+                  <ProtectedRoute path="/finance/tax-settings" component={FinanceTaxSettings} requiredModule="asset_management" requiredAnyPermission={["finance_view", "system_admin"]} />
                   <ProtectedRoute path="/procure-to-pay" component={Quotations} requiredModule="asset_management" requiredAnyPermission={["finance_view", "purchase_order_create", "purchase_order_update", "system_admin"]} />
                   <ProtectedRoute path="/consumables" component={Consumables} requiredModule="asset_management" />
                   <ProtectedRoute path="/inventory" component={Consumables} requiredModule="asset_management" />

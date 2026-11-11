@@ -11,7 +11,7 @@ export const RESET_BUSINESS_TABLES = [
   "assignment_groups", "assignment_group_members",
   "vendors", "vendor_certifications", "consumables", "consumable_stock_movements", "consumable_dispatch_log",
   "vendor_quotations", "vendor_quotation_items", "purchase_orders", "purchase_order_items", "purchase_order_item_receipts",
-  "purchase_invoices", "purchase_invoice_items", "purchase_invoice_payments", "purchase_returns", "purchase_return_items", "budgets",
+   "purchase_invoices", "purchase_invoice_match_lines", "purchase_invoice_items", "purchase_invoice_payments", "purchase_returns", "purchase_return_items", "budgets",
   "maintenance_schedules", "maintenance_records", "audit_logs", "system_notifications", "data_migration_batches",
   "cmdb_applications", "servers", "application_server_links", "network_zones", "network_devices",
   "network_device_links", "firewall_rules", "firewall_rule_reviews", "backup_schedules",
@@ -31,7 +31,7 @@ export const RESET_PROTECTED_TABLES = [
   "users", "roles", "permissions", "user_roles", "role_permissions",
   "sessions", "cab_stream_leases", "system_settings", "settings", "module_settings",
   "dropdown_options", "locations", "departments", "warehouse_locations", "sla_policies",
-  "change_blackouts",
+   "change_blackouts", "finance_tax_settings",
 ] as const;
 
 export interface SystemDataResetActor {

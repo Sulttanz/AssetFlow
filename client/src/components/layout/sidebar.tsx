@@ -47,6 +47,7 @@ import {
   DatabaseBackup,
   FolderKanban,
   RotateCcw,
+  Percent,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -240,6 +241,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Purchase Returns", href: "/finance/returns", icon: RotateCcw, current: location === "/finance/returns" },
         { name: "Budgets", href: "/finance/budgets", icon: DollarSign, current: location === "/finance/budgets" },
         { name: "Contracts", href: "/finance/contracts", icon: FileSignature, current: location === "/finance/contracts" },
+        { name: "Tax & Financial Settings", href: "/finance/tax-settings", icon: Percent, current: location === "/finance/tax-settings", permission: ["finance_view", "system_admin"] },
       ]
     },
     {

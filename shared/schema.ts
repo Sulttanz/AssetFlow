@@ -734,6 +734,11 @@ export const vendorQuotations = pgTable("vendor_quotations", {
   issueDate: date("issue_date").notNull(),
   validUntil: date("valid_until"),
   currency: text("currency").notNull().default("USD"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxMode: text("tax_mode").notNull().default("exclusive"),
+  documentDiscountType: text("document_discount_type").notNull().default("fixed"),
+  documentDiscountValue: decimal("document_discount_value", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  documentDiscountAmount: decimal("document_discount_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
   subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull().default("0.00"),
   taxAmount: decimal("tax_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
   totalAmount: decimal("total_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
@@ -755,6 +760,11 @@ export const vendorQuotationItems = pgTable("vendor_quotation_items", {
   itemType: text("item_type").notNull().default("asset"),
   quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  discountType: text("discount_type").notNull().default("fixed"),
+  discountValue: decimal("discount_value", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  discountAmount: decimal("discount_amount", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxInclusive: boolean("tax_inclusive").notNull().default(false),
   totalPrice: decimal("total_price", { precision: 14, scale: 2 }).notNull(),
   assetType: text("asset_type"),
   consumableCategory: text("consumable_category"),
@@ -777,6 +787,14 @@ export const purchaseOrders = pgTable("purchase_orders", {
   expectedDelivery: date("expected_delivery"),
   actualDelivery: date("actual_delivery"),
   totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("USD"),
+  subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxMode: text("tax_mode").notNull().default("exclusive"),
+  documentDiscountType: text("document_discount_type").notNull().default("fixed"),
+  documentDiscountValue: decimal("document_discount_value", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  documentDiscountAmount: decimal("document_discount_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  taxAmount: decimal("tax_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
   status: text("status").notNull().default("pending"), // pending, ordered, delivered, cancelled
   departmentId: varchar("department_id").references(() => departments.id),
   notes: text("notes"),
@@ -797,6 +815,11 @@ export const purchaseOrderItems = pgTable("purchase_order_items", {
   serialNumber: text("serial_number"),
   quantity: integer("quantity").notNull().default(1),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  discountType: text("discount_type").notNull().default("fixed"),
+  discountValue: decimal("discount_value", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  discountAmount: decimal("discount_amount", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxInclusive: boolean("tax_inclusive").notNull().default(false),
   totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
 });
 
@@ -815,6 +838,11 @@ export const purchaseInvoices = pgTable("purchase_invoices", {
   issueDate: date("issue_date").notNull(),
   dueDate: date("due_date").notNull(),
   currency: text("currency").notNull().default("USD"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxMode: text("tax_mode").notNull().default("exclusive"),
+  documentDiscountType: text("document_discount_type").notNull().default("fixed"),
+  documentDiscountValue: decimal("document_discount_value", { precision: 14, scale: 2 }).notNull().default("0.00"),
+  documentDiscountAmount: decimal("document_discount_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
   subtotal: decimal("subtotal", { precision: 14, scale: 2 }).notNull(),
   taxAmount: decimal("tax_amount", { precision: 14, scale: 2 }).notNull().default("0.00"),
   grandTotal: decimal("grand_total", { precision: 14, scale: 2 }).notNull(),
@@ -849,10 +877,36 @@ export const purchaseInvoiceItems = pgTable("purchase_invoice_items", {
   description: text("description").notNull(),
   quantity: integer("quantity").notNull(),
   unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  discountType: text("discount_type").notNull().default("fixed"),
+  discountValue: decimal("discount_value", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  discountAmount: decimal("discount_amount", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxInclusive: boolean("tax_inclusive").notNull().default(false),
   totalPrice: decimal("total_price", { precision: 14, scale: 2 }).notNull(),
 }, table => [
   check("purchase_invoice_items_amount_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalPrice} >= 0`),
   index("purchase_invoice_items_invoice_idx").on(table.invoiceId),
+]);
+
+// Staged three-way-match lines are kept separately until the supplier invoice
+// is approved and received; only then are inventory receipt references created.
+export const purchaseInvoiceMatchLines = pgTable("purchase_invoice_match_lines", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  invoiceId: varchar("invoice_id").notNull().references(() => purchaseInvoices.id, { onDelete: "cascade" }),
+  purchaseOrderItemId: varchar("purchase_order_item_id").notNull().references(() => purchaseOrderItems.id, { onDelete: "restrict" }),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 12, scale: 2 }).notNull(),
+  discountType: text("discount_type").notNull().default("fixed"),
+  discountValue: decimal("discount_value", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  discountAmount: decimal("discount_amount", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  taxRate: decimal("tax_rate", { precision: 7, scale: 4 }).notNull().default("0.0000"),
+  taxInclusive: boolean("tax_inclusive").notNull().default(false),
+  totalPrice: decimal("total_price", { precision: 14, scale: 2 }).notNull(),
+}, table => [
+  uniqueIndex("purchase_invoice_match_line_unique").on(table.invoiceId, table.purchaseOrderItemId),
+  check("purchase_invoice_match_line_amount_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalPrice} >= 0`),
+  index("purchase_invoice_match_line_po_item_idx").on(table.purchaseOrderItemId),
 ]);
 
 export const purchaseInvoicePayments = pgTable("purchase_invoice_payments", {
@@ -909,6 +963,20 @@ export const purchaseReturnItems = pgTable("purchase_return_items", {
   check("purchase_return_items_quantity_check", sql`${table.quantity} > 0 AND ${table.unitPrice} >= 0 AND ${table.totalCredit} >= 0`),
   check("purchase_return_items_target_check", sql`(${table.consumableId} IS NOT NULL AND ${table.assetId} IS NULL) OR (${table.consumableId} IS NULL AND ${table.assetId} IS NOT NULL)`),
   index("purchase_return_items_return_idx").on(table.returnId),
+]);
+
+export const financeTaxSettings = pgTable("finance_tax_settings", {
+  id: serial("id").primaryKey(),
+  regionCode: text("region_code").notNull().default("SA").unique(),
+  defaultTaxRate: decimal("default_tax_rate", { precision: 7, scale: 4 }).notNull().default("15.0000"),
+  defaultTaxMode: text("default_tax_mode").notNull().default("exclusive"),
+  currencyCode: text("currency_code").notNull().default("SAR"),
+  updatedBy: varchar("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  check("finance_tax_settings_rate_check", sql`${table.defaultTaxRate} >= 0 AND ${table.defaultTaxRate} <= 100`),
+  check("finance_tax_settings_mode_check", sql`${table.defaultTaxMode} IN ('exclusive','inclusive')`),
+  check("finance_tax_settings_currency_check", sql`${table.currencyCode} ~ '^[A-Z]{3}$'`),
 ]);
 
 export const budgets = pgTable("budgets", {
@@ -1954,12 +2022,19 @@ export type AssetHandover = typeof assetHandovers.$inferSelect;
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertVendorQuotationSchema = createInsertSchema(vendorQuotations).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   currency: z.string().regex(/^[A-Z]{3}$/),
+  taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
+  documentDiscountType: z.enum(["percentage", "fixed"]).default("fixed"),
+  documentDiscountValue: z.coerce.number().min(0).default(0),
   status: z.enum(["draft", "submitted", "accepted", "converted", "rejected", "expired"]).default("draft"),
   items: z.array(z.object({
     description: z.string().trim().min(1).max(500),
     itemType: z.enum(["asset", "consumable"]).default("asset"),
     quantity: z.coerce.number().int().min(1).max(100000),
     unitPrice: z.coerce.number().min(0),
+    discountType: z.enum(["percentage", "fixed"]).default("fixed"),
+    discountValue: z.coerce.number().min(0).default(0),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
+    taxInclusive: z.boolean().default(false),
     assetType: z.string().trim().max(100).nullable().optional(),
     consumableCategory: z.string().trim().max(100).nullable().optional(),
     modelPartNumber: z.string().trim().max(160).nullable().optional(),
@@ -1975,14 +2050,21 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
 }).omit({ id: true });
 export const insertPurchaseInvoiceSchema = createInsertSchema(purchaseInvoices).omit({ id: true, createdAt: true, updatedAt: true, receivedAt: true, approvedAt: true }).extend({
   currency: z.string().regex(/^[A-Z]{3}$/),
+  taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
+  documentDiscountType: z.enum(["percentage", "fixed"]).default("fixed"),
+  documentDiscountValue: z.coerce.number().min(0).default(0),
   paymentMethod: z.enum(["cash", "bank_transfer", "credit_terms"]),
   paymentStatus: z.enum(["pending", "paid", "partially_paid"]).default("pending"),
   status: z.enum(["pending", "approved", "received", "void"]).default("pending"),
   items: z.array(z.object({
     purchaseOrderItemId: z.string().uuid(),
-    receiptId: z.string().uuid(),
+    receiptId: z.string().uuid().optional(),
     quantity: z.coerce.number().int().min(1),
-    unitPrice: z.coerce.number().min(0),
+    unitPrice: z.coerce.number().min(0).optional(),
+    discountType: z.enum(["percentage", "fixed"]).default("fixed"),
+    discountValue: z.coerce.number().min(0).default(0),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
+    taxInclusive: z.boolean().default(false),
   })).min(1).max(500),
 }).superRefine((value, context) => {
   if (value.dueDate < value.issueDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ["dueDate"], message: "Due date cannot precede invoice issue date" });
@@ -2007,6 +2089,13 @@ export const insertPurchaseReturnSchema = createInsertSchema(purchaseReturns).om
       message: "Each return line must identify exactly one asset or consumable stock row",
     });
   });
+});
+
+export const financeTaxSettingsInputSchema = z.object({
+  regionCode: z.string().trim().min(2).max(12).regex(/^[A-Z0-9_-]+$/),
+  defaultTaxRate: z.coerce.number().min(0).max(100),
+  defaultTaxMode: z.enum(["exclusive", "inclusive"]),
+  currencyCode: z.string().trim().regex(/^[A-Z]{3}$/),
 });
 export const insertPurchaseInvoicePaymentSchema = createInsertSchema(purchaseInvoicePayments).omit({ id: true, invoiceId: true, createdAt: true, recordedBy: true }).extend({
   amount: z.coerce.number().positive().multipleOf(0.01).max(9999999999.99),
@@ -2054,8 +2143,10 @@ export type VendorQuotation = typeof vendorQuotations.$inferSelect;
 export type VendorQuotationItem = typeof vendorQuotationItems.$inferSelect;
 export type PurchaseInvoice = typeof purchaseInvoices.$inferSelect;
 export type PurchaseInvoiceItem = typeof purchaseInvoiceItems.$inferSelect;
+export type PurchaseInvoiceMatchLine = typeof purchaseInvoiceMatchLines.$inferSelect;
 export type PurchaseInvoicePayment = typeof purchaseInvoicePayments.$inferSelect;
 export type PurchaseReturn = typeof purchaseReturns.$inferSelect;
+export type FinanceTaxSettings = typeof financeTaxSettings.$inferSelect;
 export type PurchaseReturnItem = typeof purchaseReturnItems.$inferSelect;
 export type InsertVendorQuotation = z.infer<typeof insertVendorQuotationSchema>;
 export type InsertPurchaseInvoice = z.infer<typeof insertPurchaseInvoiceSchema>;
@@ -2257,8 +2348,14 @@ export const purchaseInvoicesRelations = relations(purchaseInvoices, ({ one, man
   vendor: one(vendors, { fields: [purchaseInvoices.vendorId], references: [vendors.id] }),
   purchaseOrder: one(purchaseOrders, { fields: [purchaseInvoices.purchaseOrderId], references: [purchaseOrders.id] }),
   items: many(purchaseInvoiceItems),
+  matchLines: many(purchaseInvoiceMatchLines),
   payments: many(purchaseInvoicePayments),
   returns: many(purchaseReturns),
+}));
+
+export const purchaseInvoiceMatchLinesRelations = relations(purchaseInvoiceMatchLines, ({ one }) => ({
+  invoice: one(purchaseInvoices, { fields: [purchaseInvoiceMatchLines.invoiceId], references: [purchaseInvoices.id] }),
+  purchaseOrderItem: one(purchaseOrderItems, { fields: [purchaseInvoiceMatchLines.purchaseOrderItemId], references: [purchaseOrderItems.id] }),
 }));
 
 export const purchaseInvoiceItemsRelations = relations(purchaseInvoiceItems, ({ one }) => ({

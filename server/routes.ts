@@ -24,8 +24,9 @@ import {
   incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
-  vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoicePayments,
+  vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoiceMatchLines, purchaseInvoicePayments,
   purchaseReturns, purchaseReturnItems,
+  financeTaxSettings, financeTaxSettingsInputSchema,
   insertVendorQuotationSchema, insertPurchaseInvoiceSchema, insertPurchaseInvoicePaymentSchema, insertPurchaseReturnSchema,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
   cmdbApplications, servers, applicationServerLinks, changeCiLinks, changeAssetLinks, assetRelationships,
@@ -35,6 +36,7 @@ import {
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
+import { calculateDocumentTotals } from "@shared/procurement-pricing";
 import { db } from "./db";
 import { eq, and, inArray, isNull, isNotNull, sql, or, ilike, desc, asc, gte, lt, lte } from "drizzle-orm";
 import {
@@ -5852,6 +5854,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serialNumber: null,
         quantity: shortage,
         unitPrice: item.unitCost,
+        discountType: "fixed",
+        discountValue: "0.00",
+        discountAmount: "0.00",
+        taxRate: "0.0000",
+        taxInclusive: false,
         totalPrice: (Number(item.unitCost) * shortage).toFixed(2),
         assetId: null,
       });
@@ -5885,6 +5892,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serialNumber: z.string().nullable().optional(),
         quantity: z.coerce.number().int().min(1).max(100000),
         unitPrice: z.coerce.number().min(0),
+        discountType: z.enum(["fixed", "percentage"]).default("fixed"),
+        discountValue: z.coerce.number().min(0).default(0),
+        taxRate: z.coerce.number().min(0).max(100).optional(),
+        taxInclusive: z.boolean().optional(),
         assetId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
       });
       const itemInputs = z.array(lineSchema).parse(items ?? []);
@@ -5897,13 +5908,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(inArray(warehouseLocations.id, requestedWarehouseIds), eq(warehouseLocations.isActive, true)));
         if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
-      const validatedData = insertPurchaseOrderSchema.parse(purchaseOrderData);
-      const purchaseOrder = await storage.createPurchaseOrder(validatedData);
+      const validatedData = insertPurchaseOrderSchema.extend({
+        currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
+        taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
+        taxRate: z.coerce.number().min(0).max(100).default(0),
+        documentDiscountType: z.enum(["fixed", "percentage"]).default("fixed"),
+        documentDiscountValue: z.coerce.number().min(0).default(0),
+      }).parse(purchaseOrderData);
+      if (validatedData.status && validatedData.status !== "pending") {
+        return res.status(409).json({ message: "New purchase orders must start in Pending review" });
+      }
+      const totals = calculateDocumentTotals(itemInputs.map(item => ({
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        discountType: item.discountType,
+        discountValue: item.discountValue,
+        taxRate: item.taxRate ?? validatedData.taxRate,
+        taxInclusive: item.taxInclusive ?? validatedData.taxMode === "inclusive",
+      })), validatedData.documentDiscountType, validatedData.documentDiscountValue);
+      if (Math.abs(totals.grandTotal - Number(validatedData.totalAmount)) > 0.01) {
+        return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
+      }
+      const purchaseOrder = await storage.createPurchaseOrder({
+        ...validatedData,
+        status: "pending",
+        subtotal: totals.subtotal.toFixed(2),
+        taxRate: Number(validatedData.taxRate).toFixed(4),
+        documentDiscountValue: Number(validatedData.documentDiscountValue).toFixed(2),
+        documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
+        taxAmount: totals.taxAmount.toFixed(2),
+        totalAmount: totals.grandTotal.toFixed(2),
+      });
       
       // Create purchase order items if provided
       if (itemInputs.length) {
-        for (const item of itemInputs) {
-          const totalPrice = item.quantity * item.unitPrice;
+        for (const [index, item] of itemInputs.entries()) {
+          const totalPrice = totals.lines[index].totalAmount;
           const line = insertPurchaseOrderItemSchema.parse({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
@@ -5916,7 +5956,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
-            totalPrice: totalPrice.toString(),
+            discountType: item.discountType,
+            discountValue: item.discountValue.toFixed(2),
+            discountAmount: totals.lines[index].discountAmount.toFixed(2),
+            taxRate: Number(item.taxRate ?? validatedData.taxRate).toFixed(4),
+            taxInclusive: item.taxInclusive ?? validatedData.taxMode === "inclusive",
+            totalPrice: totalPrice.toFixed(2),
             assetId: item.assetId || undefined
           });
           await storage.createPurchaseOrderItem(line);
@@ -5964,6 +6009,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serialNumber: z.string().nullable().optional(),
         quantity: z.coerce.number().int().min(1).max(100000),
         unitPrice: z.coerce.number().min(0),
+        discountType: z.enum(["fixed", "percentage"]).default("fixed"),
+        discountValue: z.coerce.number().min(0).default(0),
+        taxRate: z.coerce.number().min(0).max(100).optional(),
+        taxInclusive: z.boolean().optional(),
         assetId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
       })).parse(items);
       if (itemInputs?.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
@@ -5975,11 +6024,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(inArray(warehouseLocations.id, requestedWarehouseIds), eq(warehouseLocations.isActive, true)));
         if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
-      const validatedData = insertPurchaseOrderSchema.partial().parse(purchaseOrderData);
+      let validatedData = insertPurchaseOrderSchema.partial().extend({
+        currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+        taxMode: z.enum(["exclusive", "inclusive"]).optional(),
+        taxRate: z.coerce.number().min(0).max(100).optional(),
+        documentDiscountType: z.enum(["fixed", "percentage"]).optional(),
+        documentDiscountValue: z.coerce.number().min(0).optional(),
+      }).parse(purchaseOrderData);
       
       const oldPO = await storage.getPurchaseOrder(req.params.id);
+      if (!oldPO) return res.status(404).json({ message: "Purchase order not found" });
+      const requestedStatus = validatedData.status;
+      if (requestedStatus && requestedStatus !== oldPO.status) {
+        const allowedNext: Record<string, string[]> = {
+          pending: ["approved", "cancelled"],
+          approved: ["ordered", "cancelled"],
+          ordered: ["cancelled"],
+          received: [],
+          cancelled: [],
+        };
+        if (requestedStatus === "received") {
+          return res.status(409).json({ message: "Received status is set automatically when a matched purchase invoice is processed" });
+        }
+        if (!allowedNext[oldPO.status]?.includes(requestedStatus)) {
+          return res.status(409).json({ message: `Purchase order cannot transition from ${oldPO.status} to ${requestedStatus}` });
+        }
+      }
       if (oldPO?.assetsCreated && itemInputs !== undefined) {
         return res.status(409).json({ message: "Received PO items cannot be changed after inventory processing" });
+      }
+      if (itemInputs !== undefined && oldPO.status !== "pending") {
+        return res.status(409).json({ message: "PO lines and pricing can only be edited while the purchase order is Pending" });
+      }
+      let updatedTotals: ReturnType<typeof calculateDocumentTotals> | undefined;
+      if (itemInputs) {
+        updatedTotals = calculateDocumentTotals(itemInputs.map(item => ({
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountType: item.discountType,
+          discountValue: item.discountValue,
+          taxRate: item.taxRate ?? Number(validatedData.taxRate ?? oldPO.taxRate),
+          taxInclusive: item.taxInclusive ?? (validatedData.taxMode ?? oldPO.taxMode) === "inclusive",
+        })), validatedData.documentDiscountType ?? oldPO.documentDiscountType, Number(validatedData.documentDiscountValue ?? oldPO.documentDiscountValue));
+        if (validatedData.totalAmount !== undefined && Math.abs(updatedTotals.grandTotal - Number(validatedData.totalAmount)) > 0.01) {
+          return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
+        }
+        validatedData = {
+          ...validatedData,
+          subtotal: updatedTotals.subtotal.toFixed(2),
+          taxAmount: updatedTotals.taxAmount.toFixed(2),
+          totalAmount: updatedTotals.grandTotal.toFixed(2),
+          documentDiscountAmount: updatedTotals.documentDiscountAmount.toFixed(2),
+          taxRate: Number(validatedData.taxRate ?? oldPO.taxRate),
+          documentDiscountValue: Number(validatedData.documentDiscountValue ?? oldPO.documentDiscountValue),
+        } as typeof validatedData;
       }
       
       const purchaseOrder = await storage.updatePurchaseOrder(req.params.id, validatedData);
@@ -5996,8 +6094,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Create new items
-        for (const item of itemInputs) {
-          const totalPrice = item.quantity * item.unitPrice;
+        for (const [index, item] of itemInputs.entries()) {
+          const lineTotals = updatedTotals!.lines[index];
           const line = insertPurchaseOrderItemSchema.parse({
             purchaseOrderId: purchaseOrder.id,
             description: item.description,
@@ -6010,7 +6108,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             serialNumber: item.serialNumber || undefined,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
-            totalPrice: totalPrice.toString(),
+            discountType: item.discountType,
+            discountValue: item.discountValue.toFixed(2),
+            discountAmount: lineTotals.discountAmount.toFixed(2),
+            taxRate: Number(item.taxRate ?? validatedData.taxRate ?? oldPO.taxRate).toFixed(4),
+            taxInclusive: item.taxInclusive ?? (validatedData.taxMode ?? oldPO.taxMode) === "inclusive",
+            totalPrice: lineTotals.totalAmount.toFixed(2),
             assetId: item.assetId || undefined
           });
           await storage.createPurchaseOrderItem(line);
@@ -6237,6 +6340,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Procure-to-Pay: quotations -> purchase orders -> matched invoices/payments -> returns/debit notes.
+  app.get("/api/finance/tax-settings", requireAuth, requireModule("asset_management"), requireAnyPermission("finance_view", "system_admin"), async (_req, res) => {
+    try {
+      const [settings] = await db.select().from(financeTaxSettings).where(eq(financeTaxSettings.regionCode, "SA"));
+      if (settings) return res.json(settings);
+      const [created] = await db.insert(financeTaxSettings).values({ regionCode: "SA", defaultTaxRate: "15.0000", defaultTaxMode: "exclusive", currencyCode: "SAR" }).returning();
+      return res.json(created);
+    } catch (error) {
+      console.error("Finance tax settings read failed:", error);
+      return res.status(500).json({ message: "Failed to load financial tax settings" });
+    }
+  });
+
+  app.put("/api/finance/tax-settings", requireAuth, requireModule("asset_management"), requirePermission("system_admin"), async (req, res) => {
+    try {
+      const input = financeTaxSettingsInputSchema.parse(req.body);
+      const [settings] = await db.insert(financeTaxSettings).values({
+        ...input,
+        defaultTaxRate: input.defaultTaxRate.toFixed(4),
+        updatedBy: req.user!.id,
+        updatedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: financeTaxSettings.regionCode,
+        set: {
+          defaultTaxRate: input.defaultTaxRate.toFixed(4),
+          defaultTaxMode: input.defaultTaxMode,
+          currencyCode: input.currencyCode,
+          updatedBy: req.user!.id,
+          updatedAt: new Date(),
+        },
+      }).returning();
+      await logAudit(req.user?.id, "UPDATE", "finance_tax_settings", String(settings.id), `Tax settings ${settings.regionCode}`, null, settings, req);
+      return res.json(settings);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid financial tax settings", errors: error.issues });
+      console.error("Finance tax settings update failed:", error);
+      return res.status(500).json({ message: "Failed to update financial tax settings" });
+    }
+  });
+
   app.get("/api/vendor-quotations", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (_req, res) => {
     try {
       const rows = await db.select().from(vendorQuotations).orderBy(desc(vendorQuotations.createdAt));
@@ -6256,11 +6398,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertVendorQuotationSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid quotation", errors: parsed.error.issues });
       const { items, ...quotationInput } = parsed.data;
-      const subtotal = items.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0);
-      const taxAmount = Number(quotationInput.taxAmount ?? 0);
-      const expectedTotal = subtotal + taxAmount;
-      if (Math.abs(expectedTotal - Number(quotationInput.totalAmount)) > 0.01) {
-        return res.status(400).json({ message: "Quotation total must equal line subtotal plus tax" });
+      const totals = calculateDocumentTotals(items.map(line => ({
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discountType: line.discountType,
+        discountValue: line.discountValue,
+        taxRate: line.taxRate ?? Number(quotationInput.taxRate ?? 0),
+        taxInclusive: line.taxInclusive ?? quotationInput.taxMode === "inclusive",
+      })), quotationInput.documentDiscountType, quotationInput.documentDiscountValue);
+      const normalizedItems = items.map((line, index) => ({
+        ...line,
+        taxRate: line.taxRate ?? Number(quotationInput.taxRate ?? 0),
+        taxInclusive: line.taxInclusive ?? quotationInput.taxMode === "inclusive",
+        discountAmount: totals.lines[index].discountAmount,
+        totalPrice: totals.lines[index].totalAmount,
+      }));
+      if (Math.abs(totals.grandTotal - Number(quotationInput.totalAmount)) > 0.01 ||
+          Math.abs(totals.taxAmount - Number(quotationInput.taxAmount ?? 0)) > 0.01 ||
+          Math.abs(totals.subtotal - Number(quotationInput.subtotal)) > 0.01) {
+        return res.status(400).json({ message: "Quotation totals must match line discounts and inclusive/exclusive tax calculations" });
       }
       if (items.some(line => line.itemType === "consumable" && !line.warehouseLocationId)) {
         return res.status(400).json({ message: "Consumable quotation lines require a warehouse location" });
@@ -6269,18 +6425,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [quotation] = await tx.insert(vendorQuotations).values({
           ...quotationInput,
           status: "submitted",
-          subtotal: subtotal.toFixed(2),
-          taxAmount: taxAmount.toFixed(2),
-          totalAmount: expectedTotal.toFixed(2),
+          documentDiscountValue: Number(quotationInput.documentDiscountValue ?? 0).toFixed(2),
+          subtotal: totals.subtotal.toFixed(2),
+          taxAmount: totals.taxAmount.toFixed(2),
+          totalAmount: totals.grandTotal.toFixed(2),
+          documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
           createdBy: req.user!.id,
         }).returning();
-        await tx.insert(vendorQuotationItems).values(items.map(line => ({
+        await tx.insert(vendorQuotationItems).values(normalizedItems.map(line => ({
           quotationId: quotation.id,
           description: line.description,
           itemType: line.itemType,
           quantity: line.quantity,
           unitPrice: line.unitPrice.toFixed(2),
-          totalPrice: (line.quantity * line.unitPrice).toFixed(2),
+          discountType: line.discountType,
+          discountValue: Number(line.discountValue).toFixed(2),
+          discountAmount: line.discountAmount.toFixed(2),
+          taxRate: Number(line.taxRate).toFixed(4),
+          taxInclusive: line.taxInclusive,
+          totalPrice: Number(line.totalPrice).toFixed(2),
           assetType: line.assetType ?? null,
           consumableCategory: line.consumableCategory ?? null,
           modelPartNumber: line.modelPartNumber ?? null,
@@ -6289,7 +6452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return quotation;
       });
       await logAudit(req.user?.id, "CREATE", "vendor_quotations", saved.id, `Quotation ${saved.quoteNumber}`, null, saved, req);
-      res.status(201).json({ ...saved, items });
+      res.status(201).json({ ...saved, items: normalizedItems });
     } catch (error) {
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "Quotation number already exists" });
@@ -6332,6 +6495,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expectedDelivery: req.body?.expectedDelivery ?? null,
           actualDelivery: null,
           totalAmount: quotation.totalAmount,
+          currency: quotation.currency,
+          subtotal: quotation.subtotal,
+          taxRate: quotation.taxRate,
+          taxMode: quotation.taxMode,
+          documentDiscountType: quotation.documentDiscountType,
+          documentDiscountValue: quotation.documentDiscountValue,
+          documentDiscountAmount: quotation.documentDiscountAmount,
+          taxAmount: quotation.taxAmount,
           status: "pending",
           departmentId: req.body?.departmentId || null,
           notes: quotation.notes,
@@ -6349,6 +6520,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           serialNumber: null,
           quantity: line.quantity,
           unitPrice: line.unitPrice,
+          discountType: line.discountType,
+          discountValue: line.discountValue,
+          discountAmount: line.discountAmount,
+          taxRate: line.taxRate,
+          taxInclusive: line.taxInclusive,
           totalPrice: line.totalPrice,
           assetId: null,
         })));
@@ -6369,14 +6545,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await db.select().from(purchaseInvoices).orderBy(desc(purchaseInvoices.issueDate));
       res.json(await Promise.all(rows.map(async invoice => {
-        const [items, payments, credits] = await Promise.all([
+        const [items, matchLines, payments, credits] = await Promise.all([
           db.select().from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id)),
+          db.select().from(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id)),
           db.select().from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id)).orderBy(desc(purchaseInvoicePayments.paymentDate)),
           db.select({ totalCredit: purchaseReturns.totalCredit }).from(purchaseReturns).where(and(eq(purchaseReturns.purchaseInvoiceId, invoice.id), eq(purchaseReturns.status, "approved"))),
         ]);
         const creditedAmount = credits.reduce((total, credit) => total + Number(credit.totalCredit), 0);
         const paidAmount = payments.reduce((total, payment) => total + Number(payment.amount), 0);
-        return { ...invoice, items, payments, creditedAmount, outstandingAmount: Math.max(0, Math.round((Number(invoice.grandTotal) - creditedAmount - paidAmount) * 100) / 100) };
+        return { ...invoice, items: items.length ? items : matchLines, payments, creditedAmount, outstandingAmount: Math.max(0, Math.round((Number(invoice.grandTotal) - creditedAmount - paidAmount) * 100) / 100) };
       })));
     } catch (error) {
       console.error("Purchase invoice list failed:", error);
@@ -6401,6 +6578,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rows);
     } catch {
       res.status(500).json({ message: "Failed to fetch received PO lines" });
+    }
+  });
+
+  app.get("/api/purchase-orders/:id/match-lines", requireAuth, requireAnyPermission("finance_view", "purchase_order_create", "purchase_order_update", "system_admin"), async (req, res) => {
+    try {
+      const [order] = await db.select({ id: purchaseOrders.id, status: purchaseOrders.status }).from(purchaseOrders).where(eq(purchaseOrders.id, req.params.id));
+      if (!order) return res.status(404).json({ message: "Purchase order not found" });
+      if (order.status !== "ordered" && order.status !== "received") return res.status(409).json({ message: "Supplier invoices can only be matched to an ordered or received purchase order" });
+      const rows = await db.select({
+        purchaseOrderItemId: purchaseOrderItems.id,
+        description: purchaseOrderItems.description,
+        itemType: purchaseOrderItems.itemType,
+        quantity: purchaseOrderItems.quantity,
+        unitPrice: purchaseOrderItems.unitPrice,
+        discountType: purchaseOrderItems.discountType,
+        discountValue: purchaseOrderItems.discountValue,
+        discountAmount: purchaseOrderItems.discountAmount,
+        taxRate: purchaseOrderItems.taxRate,
+        taxInclusive: purchaseOrderItems.taxInclusive,
+        totalPrice: purchaseOrderItems.totalPrice,
+      }).from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, order.id));
+      res.json(rows);
+    } catch {
+      res.status(500).json({ message: "Failed to fetch ordered purchase-order lines" });
     }
   });
 
@@ -6437,50 +6638,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { items, ...invoiceInput } = parsed.data;
       const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoiceInput.purchaseOrderId));
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      if (po.status !== "ordered" && po.status !== "received") return res.status(409).json({ message: "Supplier invoices can only be matched to an ordered or received purchase order" });
       if (po.vendorId !== invoiceInput.vendorId) return res.status(400).json({ message: "Invoice vendor must match the purchase order vendor" });
       if (po.quotationId) {
         const [linkedQuote] = await db.select({ currency: vendorQuotations.currency }).from(vendorQuotations).where(eq(vendorQuotations.id, po.quotationId));
         if (linkedQuote && linkedQuote.currency !== invoiceInput.currency) return res.status(400).json({ message: "Invoice currency must match its accepted quotation" });
       }
-      const lines: Array<Omit<typeof purchaseInvoiceItems.$inferInsert, "invoiceId">> = [];
+      const matchedLines: Array<Omit<typeof purchaseInvoiceMatchLines.$inferInsert, "id" | "invoiceId">> = [];
+      const pricingLines: Array<{ quantity: number; unitPrice: number; discountType: "percentage" | "fixed"; discountValue: number; taxRate: number; taxInclusive: boolean }> = [];
       const requestedInvoiceQuantities = new Map<string, number>();
       for (const line of items) {
         const [poItem] = await db.select().from(purchaseOrderItems).where(and(eq(purchaseOrderItems.id, line.purchaseOrderItemId), eq(purchaseOrderItems.purchaseOrderId, po.id)));
-        const [receipt] = await db.select().from(purchaseOrderItemReceipts).where(and(eq(purchaseOrderItemReceipts.id, line.receiptId), eq(purchaseOrderItemReceipts.purchaseOrderId, po.id), eq(purchaseOrderItemReceipts.purchaseOrderItemId, line.purchaseOrderItemId)));
-        if (!poItem || !receipt) return res.status(400).json({ message: "Invoice lines must match a received PO line and its inventory receipt" });
-        if (Math.abs(Number(poItem.unitPrice) - line.unitPrice) > 0.01) return res.status(400).json({ message: `Invoice unit price does not match PO line "${poItem.description}"` });
-        const previous = await db.select({ quantity: purchaseInvoiceItems.quantity, status: purchaseInvoices.status })
+        if (!poItem) return res.status(400).json({ message: "Invoice lines must match a line on the selected purchase order" });
+        const invoiceUnitPrice = line.unitPrice ?? Number(poItem.unitPrice);
+        if (Math.abs(Number(poItem.unitPrice) - invoiceUnitPrice) > 0.01) return res.status(400).json({ message: `Invoice unit price does not match PO line "${poItem.description}"` });
+        const previousReceived = await db.select({ quantity: purchaseInvoiceItems.quantity, status: purchaseInvoices.status })
           .from(purchaseInvoiceItems).innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
           .where(eq(purchaseInvoiceItems.purchaseOrderItemId, poItem.id));
-        const invoiced = previous.filter(row => row.status !== "void").reduce((sum, row) => sum + row.quantity, 0);
+        const previousStaged = await db.select({ quantity: purchaseInvoiceMatchLines.quantity, status: purchaseInvoices.status })
+          .from(purchaseInvoiceMatchLines).innerJoin(purchaseInvoices, eq(purchaseInvoiceMatchLines.invoiceId, purchaseInvoices.id))
+          .where(eq(purchaseInvoiceMatchLines.purchaseOrderItemId, poItem.id));
+        const invoiced = [...previousReceived, ...previousStaged].filter(row => row.status !== "void").reduce((sum, row) => sum + row.quantity, 0);
         const requestedQuantity = (requestedInvoiceQuantities.get(poItem.id) ?? 0) + line.quantity;
-        if (invoiced + requestedQuantity > poItem.quantity) return res.status(400).json({ message: `Invoice quantity exceeds received quantity for "${poItem.description}"` });
+        if (invoiced + requestedQuantity > poItem.quantity) return res.status(400).json({ message: `Invoice quantity exceeds the ordered quantity for "${poItem.description}"` });
         requestedInvoiceQuantities.set(poItem.id, requestedQuantity);
-        lines.push({
+        const discountType = line.discountType ?? poItem.discountType as "percentage" | "fixed";
+        const discountValue = line.discountValue ?? Number(poItem.discountValue);
+        const taxRate = line.taxRate ?? Number(poItem.taxRate || invoiceInput.taxRate || 0);
+        const taxInclusive = line.taxInclusive ?? Boolean(poItem.taxInclusive || invoiceInput.taxMode === "inclusive");
+        pricingLines.push({ quantity: line.quantity, unitPrice: invoiceUnitPrice, discountType, discountValue, taxRate, taxInclusive });
+        matchedLines.push({
           purchaseOrderItemId: poItem.id,
-          receiptId: receipt.id,
           description: poItem.description,
           quantity: line.quantity,
-          unitPrice: line.unitPrice.toFixed(2),
-          totalPrice: (line.quantity * line.unitPrice).toFixed(2),
+          unitPrice: invoiceUnitPrice.toFixed(2),
+          discountType,
+          discountValue: discountValue.toFixed(2),
+          discountAmount: "0.00",
+          taxRate: taxRate.toFixed(4),
+          taxInclusive,
+          totalPrice: "0.00",
         });
       }
-      const lineSubtotal = lines.reduce((sum, line) => sum + Number(line.totalPrice), 0);
-      const total = lineSubtotal + Number(invoiceInput.taxAmount ?? 0);
-      if (Math.abs(lineSubtotal - Number(invoiceInput.subtotal)) > 0.01 || Math.abs(total - Number(invoiceInput.grandTotal)) > 0.01) {
-        return res.status(400).json({ message: "Invoice totals must match the validated lines plus tax" });
+      const totals = calculateDocumentTotals(pricingLines, invoiceInput.documentDiscountType, invoiceInput.documentDiscountValue);
+      if (Math.abs(totals.subtotal - Number(invoiceInput.subtotal)) > 0.01 ||
+          Math.abs(totals.taxAmount - Number(invoiceInput.taxAmount ?? 0)) > 0.01 ||
+          Math.abs(totals.grandTotal - Number(invoiceInput.grandTotal)) > 0.01) {
+        return res.status(400).json({ message: "Invoice totals must match the ordered line discounts and configured tax calculation" });
       }
+      const normalizedLines = matchedLines.map((line, index) => ({
+        ...line,
+        discountAmount: totals.lines[index].discountAmount.toFixed(2),
+        totalPrice: totals.lines[index].totalAmount.toFixed(2),
+      }));
       const saved = await db.transaction(async tx => {
         // Serialize invoice allocations on the PO, then re-check quantities under
         // the lock. Preflight validation alone would allow concurrent overbilling.
         const [lockedOrder] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
-        if (!lockedOrder || lockedOrder.status !== "received") throw Object.assign(new Error("Only received purchase orders can be invoiced"), { status: 409 });
+        if (!lockedOrder || !["ordered", "received"].includes(lockedOrder.status)) throw Object.assign(new Error("Only ordered or received purchase orders can be invoiced"), { status: 409 });
         for (const [itemId, requested] of Array.from(requestedInvoiceQuantities.entries())) {
           const [item] = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.id, itemId));
-          const prior = await tx.select({ quantity: purchaseInvoiceItems.quantity }).from(purchaseInvoiceItems)
+          const priorReceived = await tx.select({ quantity: purchaseInvoiceItems.quantity }).from(purchaseInvoiceItems)
             .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
             .where(and(eq(purchaseInvoiceItems.purchaseOrderItemId, itemId), sql`${purchaseInvoices.status} <> 'void'`));
-          if (!item || prior.reduce((sum, row) => sum + row.quantity, 0) + requested > item.quantity) {
+          const priorStaged = await tx.select({ quantity: purchaseInvoiceMatchLines.quantity }).from(purchaseInvoiceMatchLines)
+            .innerJoin(purchaseInvoices, eq(purchaseInvoiceMatchLines.invoiceId, purchaseInvoices.id))
+            .where(and(eq(purchaseInvoiceMatchLines.purchaseOrderItemId, itemId), sql`${purchaseInvoices.status} <> 'void'`));
+          if (!item || [...priorReceived, ...priorStaged].reduce((sum, row) => sum + row.quantity, 0) + requested > item.quantity) {
             throw Object.assign(new Error("Invoice quantity exceeds received quantity"), { status: 409 });
           }
         }
@@ -6488,16 +6712,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...invoiceInput,
           status: "pending",
           paymentStatus: "pending",
-          subtotal: lineSubtotal.toFixed(2),
-          taxAmount: Number(invoiceInput.taxAmount ?? 0).toFixed(2),
-          grandTotal: total.toFixed(2),
+          documentDiscountValue: Number(invoiceInput.documentDiscountValue ?? 0).toFixed(2),
+          subtotal: totals.subtotal.toFixed(2),
+          taxAmount: totals.taxAmount.toFixed(2),
+          grandTotal: totals.grandTotal.toFixed(2),
+          documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
           createdBy: req.user!.id,
         }).returning();
-        await tx.insert(purchaseInvoiceItems).values(lines.map(line => ({ ...line, invoiceId: invoice.id })));
+        await tx.insert(purchaseInvoiceMatchLines).values(normalizedLines.map(line => ({ ...line, invoiceId: invoice.id })));
         return invoice;
       });
       await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.id, `Invoice ${saved.invoiceNumber}`, null, saved, req);
-      res.status(201).json({ ...saved, items: lines, payments: [] });
+      res.status(201).json({ ...saved, items: normalizedLines, payments: [] });
     } catch (error) {
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
@@ -6511,7 +6737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/purchase-invoices/:id/status", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
     try {
       const status = z.enum(["pending", "approved", "received", "void"]).parse(req.body?.status);
-      const { invoice, updated } = await db.transaction(async tx => {
+      const { invoice, updated, shouldReceiveInventory } = await db.transaction(async tx => {
         const [invoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id)).for("update");
         if (!invoice) throw Object.assign(new Error("Purchase invoice not found"), { status: 404 });
         const conflict = (message: string) => { throw Object.assign(new Error(message), { status: 409 }); };
@@ -6524,15 +6750,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const [credit] = await tx.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.purchaseInvoiceId, invoice.id));
           if (payment || credit) conflict("Invoices with payments or supplier credits cannot be voided");
         }
-        if (status === "received") await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id);
+        let shouldReceiveInventory = false;
+        if (status === "received") {
+          if (invoice.status !== "approved" && invoice.status !== "received") conflict("Approve the invoice before receiving it into inventory");
+          const [order] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoice.purchaseOrderId)).for("update");
+          if (!order || (order.status !== "ordered" && order.status !== "received")) conflict("Only an ordered purchase order can be received through its matched invoice");
+          if (order.status === "ordered") {
+            await tx.update(purchaseOrders).set({ status: "received", actualDelivery: toDateInputValue(new Date()) }).where(eq(purchaseOrders.id, order.id));
+          }
+          shouldReceiveInventory = !order.assetsCreated;
+        }
         const [updated] = await tx.update(purchaseInvoices).set({
           status,
           approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
           receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
           updatedAt: new Date(),
         }).where(eq(purchaseInvoices.id, invoice.id)).returning();
-        return { invoice, updated };
+        return { invoice, updated, shouldReceiveInventory };
       });
+      if (status === "received") {
+        if (shouldReceiveInventory) await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id);
+        const staged = await db.select().from(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
+        if (staged.length) {
+          await db.transaction(async tx => {
+            const existingItems = await tx.select({ purchaseOrderItemId: purchaseInvoiceItems.purchaseOrderItemId })
+              .from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id));
+            const existingItemIds = new Set(existingItems.map(row => row.purchaseOrderItemId));
+            const toInsert = staged.filter(line => !existingItemIds.has(line.purchaseOrderItemId));
+            for (const line of toInsert) {
+              const [receipt] = await tx.select({ id: purchaseOrderItemReceipts.id }).from(purchaseOrderItemReceipts)
+                .where(and(eq(purchaseOrderItemReceipts.purchaseOrderId, invoice.purchaseOrderId), eq(purchaseOrderItemReceipts.purchaseOrderItemId, line.purchaseOrderItemId)));
+              if (!receipt) throw Object.assign(new Error(`Inventory receipt was not created for "${line.description}"`), { status: 409 });
+              await tx.insert(purchaseInvoiceItems).values({
+                invoiceId: invoice.id,
+                purchaseOrderItemId: line.purchaseOrderItemId,
+                receiptId: receipt.id,
+                description: line.description,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice,
+                discountType: line.discountType,
+                discountValue: line.discountValue,
+                discountAmount: line.discountAmount,
+                taxRate: line.taxRate,
+                taxInclusive: line.taxInclusive,
+                totalPrice: line.totalPrice,
+              });
+            }
+            await tx.delete(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
+          });
+        }
+      }
       await logAudit(req.user?.id, "UPDATE", "purchase_invoices", invoice.id, `Invoice ${invoice.invoiceNumber}`, invoice, updated, req);
       res.json(updated);
     } catch (error) {

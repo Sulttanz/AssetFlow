@@ -1395,6 +1395,14 @@ export class MemStorage implements IStorage {
       ...insertPO, 
       id,
       status: insertPO.status || "pending",
+      currency: insertPO.currency ?? "USD",
+      subtotal: insertPO.subtotal ?? "0.00",
+      taxRate: insertPO.taxRate ?? "0.0000",
+      taxMode: insertPO.taxMode ?? "exclusive",
+      documentDiscountType: insertPO.documentDiscountType ?? "fixed",
+      documentDiscountValue: insertPO.documentDiscountValue ?? "0.00",
+      documentDiscountAmount: insertPO.documentDiscountAmount ?? "0.00",
+      taxAmount: insertPO.taxAmount ?? "0.00",
       vendor: insertPO.vendor ?? null,
       vendorId: insertPO.vendorId ?? null,
       quotationId: insertPO.quotationId ?? null,
@@ -1440,7 +1448,12 @@ export class MemStorage implements IStorage {
       modelPartNumber: item.modelPartNumber ?? null,
       warehouseLocationId: item.warehouseLocationId ?? null,
       serialNumber: item.serialNumber ?? null,
-      quantity: item.quantity ?? 1
+      quantity: item.quantity ?? 1,
+      discountType: item.discountType ?? "fixed",
+      discountValue: item.discountValue ?? "0.00",
+      discountAmount: item.discountAmount ?? "0.00",
+      taxRate: item.taxRate ?? "0.0000",
+      taxInclusive: item.taxInclusive ?? false,
     };
     this.purchaseOrderItems.set(id, purchaseOrderItem);
     return purchaseOrderItem;
