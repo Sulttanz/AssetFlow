@@ -257,19 +257,31 @@ describe("user deactivation session revocation", () => {
   it("keeps the account active and its session valid when stored sessions cannot be revoked", async () => {
     const targetSession = await signIn("target");
     const adminSession = await signIn("admin");
-    authTestState.sessionDeleteError = new Error("Session store unavailable");
+    authTestState.sessionDeleteError = new Error("Session store unavailable: private-session-content");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const deactivation = await setAccountActive(adminSession, false);
+    try {
+      const deactivation = await setAccountActive(adminSession, false);
 
-    expect(deactivation.status).toBe(500);
-    expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
-    expect(authTestState.query).toHaveBeenCalledWith(
-      `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
-      ["target"],
-    );
-    expect(authTestState.users.get("target")?.isActive).toBe(true);
-    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(true);
-    expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: targetSession } })).status).toBe(200);
+      expect(deactivation.status).toBe(500);
+      expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
+      expect(authTestState.query).toHaveBeenCalledWith(
+        `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
+        ["target"],
+      );
+      expect(authTestState.users.get("target")?.isActive).toBe(true);
+      expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(true);
+      expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: targetSession } })).status).toBe(200);
+      expect(errorLog).toHaveBeenCalledWith("Account deactivation session revocation failed", {
+        operation: "deactivate_account",
+        actorUserId: "admin",
+        targetUserId: "target",
+        errorType: "Error",
+      });
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain("private-session-content");
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it("releases the account lock and database client when session saving fails", async () => {

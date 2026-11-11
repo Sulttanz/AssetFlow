@@ -821,7 +821,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const user = oldUser?.isActive && validatedData.isActive === false
         ? await withUserSessionLock(req.params.id, async () => {
-            await invalidateUserSessions(req.params.id);
+            try {
+              await invalidateUserSessions(req.params.id);
+            } catch (error) {
+              const errorType = error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name)
+                ? error.name
+                : "UnknownError";
+              const errorCode = typeof error === "object"
+                && error !== null
+                && "code" in error
+                && typeof error.code === "string"
+                && /^[A-Z0-9]{5}$/.test(error.code)
+                ? error.code
+                : undefined;
+              console.error("Account deactivation session revocation failed", {
+                operation: "deactivate_account",
+                actorUserId: req.user?.id,
+                targetUserId: req.params.id,
+                errorType,
+                ...(errorCode ? { errorCode } : {}),
+              });
+              throw error;
+            }
             return storage.updateUser(req.params.id, updateData);
           })
         : await storage.updateUser(req.params.id, updateData);
