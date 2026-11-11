@@ -8,6 +8,7 @@ const authTestState = vi.hoisted(() => ({
   users: new Map<string, any>(),
   sessions: new Map<string, any>(),
   sessionDeleteError: null as Error | null,
+  userUpdateError: null as Error | null,
   sessionSaveError: null as Error | null,
   lookupGate: null as null | { username: string; entered: () => void; wait: Promise<void> },
   sessionSaveGate: null as null | { entered: () => void; wait: Promise<void>; saved: () => void },
@@ -71,6 +72,7 @@ vi.mock("./storage", () => ({
     getRolesWithDetails: vi.fn(async () => []),
     createAuditLog: vi.fn(async () => undefined),
     updateUser: vi.fn(async (id: string, update: Record<string, unknown>) => {
+      if (authTestState.userUpdateError) throw authTestState.userUpdateError;
       const user = authTestState.users.get(id);
       if (!user) return undefined;
       const updatedUser = { ...user, ...update };
@@ -175,6 +177,7 @@ describe("user deactivation session revocation", () => {
     authTestState.sessions.clear();
     authTestState.users.clear();
     authTestState.sessionDeleteError = null;
+    authTestState.userUpdateError = null;
     authTestState.sessionSaveError = null;
     authTestState.advisoryLocks.clear();
     authTestState.lookupGate = null;
@@ -282,6 +285,24 @@ describe("user deactivation session revocation", () => {
     } finally {
       errorLog.mockRestore();
     }
+  });
+
+  it("keeps the account active but invalidates old sessions when the user update fails", async () => {
+    const targetSession = await signIn("target");
+    const adminSession = await signIn("admin");
+    authTestState.userUpdateError = new Error("User storage unavailable");
+
+    const deactivation = await setAccountActive(adminSession, false);
+
+    expect(deactivation.status).toBe(500);
+    expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
+    expect(authTestState.query).toHaveBeenCalledWith(
+      `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
+      ["target"],
+    );
+    expect(authTestState.users.get("target")?.isActive).toBe(true);
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+    expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: targetSession } })).status).toBe(401);
   });
 
   it("releases the account lock and database client when session saving fails", async () => {
