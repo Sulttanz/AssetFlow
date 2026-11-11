@@ -70,7 +70,7 @@ export default function FinanceTaxSettingsPage() {
             <div className="space-y-2"><Label htmlFor="tax-rate">Default tax rate (%)</Label><Input id="tax-rate" type="number" min="0" max="100" step="0.01" value={form.defaultTaxRate} onChange={event => setForm(current => ({ ...current, defaultTaxRate: event.target.value }))} disabled={!canManage} /></div>
             <div className="space-y-2"><Label htmlFor="tax-mode">Default tax treatment</Label><Select value={form.defaultTaxMode} onValueChange={defaultTaxMode => setForm(current => ({ ...current, defaultTaxMode: defaultTaxMode as TaxSettings["defaultTaxMode"] }))} disabled={!canManage}><SelectTrigger id="tax-mode"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Tax added to line price</SelectItem><SelectItem value="inclusive">Tax included in line price</SelectItem></SelectContent></Select></div>
           </div>
-          {canManage ? <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending || settingsQuery.isLoading}><Save className="mr-2 h-4 w-4" />Save tax settings</Button> : <p className="text-sm text-muted-foreground">Only administrators can change the global tax profile.</p>}
+          {canManage ? <Button onClick={() => saveSettings.mutate()} disabled={saveSettings.isPending || settingsQuery.isLoading || settingsQuery.isError}><Save className="mr-2 h-4 w-4" />Save tax settings</Button> : <p className="text-sm text-muted-foreground">Only administrators can change the global tax profile.</p>}
         </CardContent>
       </Card>
     </main>

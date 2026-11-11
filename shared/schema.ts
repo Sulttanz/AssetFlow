@@ -2034,7 +2034,7 @@ export const insertVendorQuotationSchema = createInsertSchema(vendorQuotations).
     discountType: z.enum(["percentage", "fixed"]).default("fixed"),
     discountValue: z.coerce.number().min(0).default(0),
     taxRate: z.coerce.number().min(0).max(100).optional(),
-    taxInclusive: z.boolean().default(false),
+    taxInclusive: z.boolean().optional(),
     assetType: z.string().trim().max(100).nullable().optional(),
     consumableCategory: z.string().trim().max(100).nullable().optional(),
     modelPartNumber: z.string().trim().max(160).nullable().optional(),
@@ -2061,13 +2061,18 @@ export const insertPurchaseInvoiceSchema = createInsertSchema(purchaseInvoices).
     receiptId: z.string().uuid().optional(),
     quantity: z.coerce.number().int().min(1),
     unitPrice: z.coerce.number().min(0).optional(),
-    discountType: z.enum(["percentage", "fixed"]).default("fixed"),
-    discountValue: z.coerce.number().min(0).default(0),
+    discountType: z.enum(["percentage", "fixed"]).optional(),
+    discountValue: z.coerce.number().min(0).optional(),
     taxRate: z.coerce.number().min(0).max(100).optional(),
-    taxInclusive: z.boolean().default(false),
+    taxInclusive: z.boolean().optional(),
   })).min(1).max(500),
 }).superRefine((value, context) => {
   if (value.dueDate < value.issueDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ["dueDate"], message: "Due date cannot precede invoice issue date" });
+  const itemIds = new Set<string>();
+  value.items.forEach((item, index) => {
+    if (itemIds.has(item.purchaseOrderItemId)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["items", index], message: "Combine duplicate purchase-order lines before submitting the invoice" });
+    itemIds.add(item.purchaseOrderItemId);
+  });
 });
 export const insertPurchaseReturnSchema = createInsertSchema(purchaseReturns).omit({ id: true, returnNumber: true, debitNoteNumber: true, createdAt: true, processedAt: true, totalCredit: true }).extend({
   currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),

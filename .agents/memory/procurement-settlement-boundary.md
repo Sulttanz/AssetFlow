@@ -3,11 +3,17 @@ name: Procurement settlement boundaries
 description: Distinguish physical receipts, invoice confirmation, supplier credits, and cash settlement.
 ---
 
-Physical inventory receiving and invoice receipt confirmation are separate events. Invoice matching requires a recorded physical receipt; confirming an invoice must reuse that receipt rather than adding inventory again.
+Processing an approved, matched supplier invoice triggers PO receiving and inventory creation. Match ordered lines before physical receipts exist, and reuse the PO's existing receiving idempotency boundary rather than adding stock a second time.
 
-**Why:** A three-way match proves that goods arrived, but invoice approval is not a second delivery.
+**Why:** The user requested the decoupled quotation → PO → invoice → inventory workflow, replacing the earlier requirement to receive stock before creating an invoice.
 
-**How to apply:** Keep the existing per-line receiving idempotency boundary when extending invoice workflows.
+**How to apply:** Commit invoice receipt confirmation, PO status, stock movements, and physical receipt links atomically. Keep internal approval separate from the explicit receiving action, and preserve existing receipts on retries.
+
+Receipt confirmation currently means full-order delivery. Require every ordered quantity to be matched to approved invoices before creating the PO's inventory; partial invoices may remain approved.
+
+**Why:** A partial supplier bill must not silently add stock for the entire order.
+
+**How to apply:** Treat partial-delivery receiving as a separate capability requiring quantity-aware receipts, rather than weakening the full-order safeguard.
 
 Approved supplier returns create debit-note credits, not cash payments or automatic refunds. Linked credits reduce the invoice's outstanding payable; payment-method reporting follows actual payment entries, not the invoice's intended settlement method.
 

@@ -19,7 +19,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
   const actorId = randomUUID(), roleId = randomUUID(), vendorId = randomUUID(), warehouseId = randomUUID();
   const suffix = randomUUID().slice(0, 8);
   let server: Server | undefined, base = "", cookie = "";
-  let quoteId = "", orderId = "", invoiceId = "";
+  let quoteId = "", orderId = "", invoiceId = "", partialInvoiceId = "";
 
   async function request(method: string, path: string, input?: unknown, expected = 200) {
     const response = await fetch(`${base}${path}`, {
@@ -62,10 +62,11 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
         const returns = await db.select().from(s.purchaseReturns).where(eq(s.purchaseReturns.purchaseOrderId, orderId));
         for (const row of returns) await db.delete(s.purchaseReturnItems).where(eq(s.purchaseReturnItems.returnId, row.id));
         await db.delete(s.purchaseReturns).where(eq(s.purchaseReturns.purchaseOrderId, orderId));
-        if (invoiceId) {
-          await db.delete(s.purchaseInvoicePayments).where(eq(s.purchaseInvoicePayments.invoiceId, invoiceId));
-          await db.delete(s.purchaseInvoiceItems).where(eq(s.purchaseInvoiceItems.invoiceId, invoiceId));
-          await db.delete(s.purchaseInvoices).where(eq(s.purchaseInvoices.id, invoiceId));
+        for (const id of [invoiceId, partialInvoiceId].filter(Boolean)) {
+          await db.delete(s.purchaseInvoicePayments).where(eq(s.purchaseInvoicePayments.invoiceId, id));
+          await db.delete(s.purchaseInvoiceMatchLines).where(eq(s.purchaseInvoiceMatchLines.invoiceId, id));
+          await db.delete(s.purchaseInvoiceItems).where(eq(s.purchaseInvoiceItems.invoiceId, id));
+          await db.delete(s.purchaseInvoices).where(eq(s.purchaseInvoices.id, id));
         }
         await db.delete(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId));
         await db.delete(s.purchaseOrderItems).where(eq(s.purchaseOrderItems.purchaseOrderId, orderId));
@@ -90,7 +91,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
 
   it("matches receipts, prevents duplicate stock and overpayment, and applies debit notes to payable balances", async () => {
     const quote = await request("POST", "/api/vendor-quotations", {
-      vendorId, quoteNumber: `Q-${suffix}`, issueDate: "2026-01-01", currency: "SAR", subtotal: "60.00", taxAmount: "0.00", totalAmount: "60.00",
+      vendorId, quoteNumber: `Q-${suffix}`, issueDate: "2026-01-01", currency: "SAR", taxRate: "0", subtotal: "60.00", taxAmount: "0.00", totalAmount: "60.00",
       status: "converted",
       items: [
         { description: `P2P toner ${suffix}`, itemType: "consumable", quantity: 4, unitPrice: 10, warehouseLocationId: warehouseId },
@@ -100,30 +101,60 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     quoteId = quote.id;
     expect(quote.status).toBe("submitted");
     await request("PUT", `/api/vendor-quotations/${quoteId}/status`, { status: "accepted" });
-    const converted = await request("POST", `/api/vendor-quotations/${quoteId}/convert-to-po`, { poNumber: `PO-P2P-${suffix}` }, 201);
-    orderId = converted.purchaseOrder.id;
+    const order = await request("POST", "/api/purchase-orders", {
+      poNumber: `PO-P2P-${suffix}`, quotationId: quoteId, vendorId, orderDate: "2026-01-01",
+      currency: "SAR", taxRate: "0", totalAmount: "60.00", items: quote.items,
+    }, 201);
+    orderId = order.id;
+    expect(order.status).toBe("pending");
     await request("POST", `/api/vendor-quotations/${quoteId}/convert-to-po`, {}, 409);
-    await request("PUT", `/api/purchase-orders/${orderId}`, { status: "received" });
-    const received = await request("POST", `/api/purchase-orders/${orderId}/create-assets`, {}, 200);
-    expect(received.consumableUnitsReceived).toBe(4);
-    expect(received.created).toBe(1);
-    await request("POST", `/api/purchase-orders/${orderId}/create-assets`, {}, 409);
-    const lines = await db.select().from(s.purchaseOrderItems).where(eq(s.purchaseOrderItems.purchaseOrderId, orderId));
-    const receipts = await request("GET", `/api/purchase-orders/${orderId}/receipts`);
+    await request("PUT", `/api/purchase-orders/${orderId}`, { status: "received" }, 409);
+    await request("PUT", `/api/purchase-orders/${orderId}`, { status: "ordered" }, 409);
+    await request("PUT", `/api/purchase-orders/${orderId}`, { status: "approved" });
+    await request("PUT", `/api/purchase-orders/${orderId}`, { status: "ordered" });
+    await request("POST", `/api/purchase-orders/${orderId}/create-assets`, {}, 400);
+    const matchLines = await request("GET", `/api/purchase-orders/${orderId}/match-lines`);
     const invoiceInput = {
       vendorId, purchaseOrderId: orderId, invoiceNumber: `INV-${suffix}`, issueDate: "2026-01-01", dueDate: "2026-02-01",
       currency: "SAR", subtotal: "60.00", taxAmount: "0.00", grandTotal: "60.00", paymentMethod: "credit_terms",
       status: "received", paymentStatus: "paid",
-      items: receipts.map((line: any) => ({ purchaseOrderItemId: line.purchaseOrderItemId, receiptId: line.receiptId, quantity: line.quantity, unitPrice: Number(line.unitPrice) })),
+      items: matchLines.map((line: any) => ({ purchaseOrderItemId: line.purchaseOrderItemId, quantity: line.quantity, unitPrice: Number(line.unitPrice) })),
     };
+    const partial = await request("POST", "/api/purchase-invoices", {
+      ...invoiceInput, invoiceNumber: `PARTIAL-${suffix}`, subtotal: "10.00", grandTotal: "10.00",
+      items: [{ purchaseOrderItemId: matchLines.find((line: any) => line.itemType === "consumable").purchaseOrderItemId, quantity: 1, unitPrice: 10 }],
+    }, 201);
+    partialInvoiceId = partial.id;
+    await request("PUT", `/api/purchase-invoices/${partialInvoiceId}/status`, { status: "approved" });
+    await request("PUT", `/api/purchase-invoices/${partialInvoiceId}/status`, { status: "received" }, 409);
+    expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(0);
+    await request("PUT", `/api/purchase-invoices/${partialInvoiceId}/status`, { status: "void" });
     const invoice = await request("POST", "/api/purchase-invoices", invoiceInput, 201);
     invoiceId = invoice.id;
     expect(invoice).toMatchObject({ status: "pending", paymentStatus: "pending" });
+    expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(0);
     await request("POST", "/api/purchase-invoices", { ...invoiceInput, invoiceNumber: `OVER-${suffix}` }, 400);
     await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" }, 409);
     await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "approved" });
+    await db.update(s.warehouseLocations).set({ isActive: false }).where(eq(s.warehouseLocations.id, warehouseId));
+    await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" }, 400);
+    const [unreceivedOrder] = await db.select().from(s.purchaseOrders).where(eq(s.purchaseOrders.id, orderId));
+    const [unreceivedInvoice] = await db.select().from(s.purchaseInvoices).where(eq(s.purchaseInvoices.id, invoiceId));
+    expect(unreceivedOrder).toMatchObject({ status: "ordered", assetsCreated: false });
+    expect(unreceivedInvoice.status).toBe("approved");
+    expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(0);
+    await db.update(s.warehouseLocations).set({ isActive: true }).where(eq(s.warehouseLocations.id, warehouseId));
     await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" });
+    await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" });
+    const [receivedOrder] = await db.select().from(s.purchaseOrders).where(eq(s.purchaseOrders.id, orderId));
+    expect(receivedOrder).toMatchObject({ status: "received", assetsCreated: true });
+    expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(2);
+    expect(await db.select().from(s.purchaseInvoiceItems).where(eq(s.purchaseInvoiceItems.invoiceId, invoiceId))).toHaveLength(2);
+    expect(await db.select().from(s.purchaseInvoiceMatchLines).where(eq(s.purchaseInvoiceMatchLines.invoiceId, invoiceId))).toHaveLength(0);
+    expect(await db.select().from(s.assets).where(eq(s.assets.primaryVendorId, vendorId))).toHaveLength(1);
+    await request("POST", `/api/purchase-orders/${orderId}/create-assets`, {}, 409);
     await request("POST", `/api/purchase-invoices/${invoiceId}/payments`, { paymentDate: "2026-01-02", amount: 20, paymentMethod: "cash" }, 201);
+    const lines = await db.select().from(s.purchaseOrderItems).where(eq(s.purchaseOrderItems.purchaseOrderId, orderId));
     const stockLine = lines.find(line => line.itemType === "consumable")!;
     expect(stockLine.consumableId).toBeTruthy();
     const supplierReturn = await request("POST", "/api/purchase-returns", {

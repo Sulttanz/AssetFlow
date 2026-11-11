@@ -3,19 +3,22 @@ import { assets, consumableStockMovements, consumables, purchaseOrderItemReceipt
 import { db } from "./db";
 import { storage } from "./storage";
 
-export async function receivePurchaseOrderInventory(purchaseOrderId: string, actorId: string) {
-  const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, purchaseOrderId));
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function receivePurchaseOrderInventory(purchaseOrderId: string, actorId: string, transaction?: Transaction) {
+  const executor = transaction ?? db;
+  const [po] = await executor.select().from(purchaseOrders).where(eq(purchaseOrders.id, purchaseOrderId));
   if (!po) throw Object.assign(new Error("Purchase order not found"), { status: 404 });
   if (po.status !== "received") throw Object.assign(new Error("Purchase order must be received before inventory can be processed"), { status: 400 });
   if (po.assetsCreated) return { createdAssets: [], stockUnits: 0, alreadyProcessed: true };
 
-  const items = await db.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, po.id));
+  const items = await executor.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, po.id));
   if (!items.length) throw Object.assign(new Error("No items found in purchase order"), { status: 400 });
   if (items.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
     throw Object.assign(new Error("Every consumable PO line must have a warehouse location"), { status: 400 });
   }
-  const [vendor] = po.vendorId ? await db.select({ name: vendors.name }).from(vendors).where(eq(vendors.id, po.vendorId)) : [];
-  const existing = await db.select({ purchaseOrderItemId: purchaseOrderItemReceipts.purchaseOrderItemId })
+  const [vendor] = po.vendorId ? await executor.select({ name: vendors.name }).from(vendors).where(eq(vendors.id, po.vendorId)) : [];
+  const existing = await executor.select({ purchaseOrderItemId: purchaseOrderItemReceipts.purchaseOrderItemId })
     .from(purchaseOrderItemReceipts).where(eq(purchaseOrderItemReceipts.purchaseOrderId, po.id));
   const receiptItemIds = new Set(existing.map(row => row.purchaseOrderItemId));
   const tags = new Map<string, string[]>();
@@ -27,7 +30,7 @@ export async function receivePurchaseOrderInventory(purchaseOrderId: string, act
     tags.set(item.id, allocated);
   }
 
-  return db.transaction(async tx => {
+  const processInventory = async (tx: Transaction) => {
     const [lockedPo] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
     if (!lockedPo) throw Object.assign(new Error("Purchase order not found"), { status: 404 });
     if (lockedPo.status !== "received") throw Object.assign(new Error("Purchase order must be received before inventory can be processed"), { status: 400 });
@@ -111,5 +114,6 @@ export async function receivePurchaseOrderInventory(purchaseOrderId: string, act
     }
     await tx.update(purchaseOrders).set({ assetsCreated: true }).where(eq(purchaseOrders.id, lockedPo.id));
     return { createdAssets, stockUnits, alreadyProcessed: false };
-  });
+  };
+  return transaction ? processInventory(transaction) : db.transaction(processInventory);
 }

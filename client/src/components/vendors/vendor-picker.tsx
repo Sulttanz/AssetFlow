@@ -1,7 +1,9 @@
 import { SearchablePicker, type PickerOption } from "@/components/access-governance/searchable-picker";
 import type { Vendor } from "@shared/schema";
+import { forwardRef, type ButtonHTMLAttributes } from "react";
 
-export function vendorPickerOptions(vendors: Array<Pick<Vendor, "id" | "name" | "code" | "taxId">>): PickerOption[] {
+type VendorOption = Pick<Vendor, "id" | "name"> & Partial<Pick<Vendor, "code" | "taxId">>;
+export function vendorPickerOptions(vendors: VendorOption[]): PickerOption[] {
   return vendors.map(vendor => ({
     value: vendor.id,
     label: vendor.name,
@@ -13,25 +15,28 @@ export function vendorPickerOptions(vendors: Array<Pick<Vendor, "id" | "name" | 
   }));
 }
 
-export function VendorPicker({
+type VendorPickerProps = {
+  vendors: VendorOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "value" | "onChange">;
+
+export const VendorPicker = forwardRef<HTMLButtonElement, VendorPickerProps>(({
   vendors,
   value,
   onChange,
   placeholder = "Select vendor",
   disabled,
   id,
-}: {
-  vendors: Array<Pick<Vendor, "id" | "name" | "code" | "taxId">>;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  id?: string;
-}) {
+  ...triggerProps
+}, ref) => {
   return (
     <SearchablePicker
       id={id}
-      ariaLabel="Select vendor"
+      ariaLabel={triggerProps["aria-label"] ?? "Select vendor"}
+      triggerRef={ref}
+      triggerProps={triggerProps}
       value={value}
       onChange={onChange}
       options={vendorPickerOptions(vendors)}
@@ -41,4 +46,5 @@ export function VendorPicker({
       disabled={disabled}
     />
   );
-}
+});
+VendorPicker.displayName = "VendorPicker";

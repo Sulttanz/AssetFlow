@@ -74,6 +74,6 @@ CREATE TABLE IF NOT EXISTS finance_tax_settings (
   CONSTRAINT finance_tax_settings_currency_check CHECK (currency_code ~ '^[A-Z]{3}$')
 );
 
-INSERT INTO finance_tax_settings (region_code, default_tax_rate, default_tax_mode, currency_code)
-VALUES ('SA', 15.0000, 'exclusive', 'SAR')
-ON CONFLICT (region_code) DO NOTHING;
+INSERT INTO finance_tax_settings (id, region_code, default_tax_rate, default_tax_mode, currency_code)
+VALUES (1, 'SA', 15.0000, 'exclusive', 'SAR')
+ON CONFLICT (id) DO NOTHING;

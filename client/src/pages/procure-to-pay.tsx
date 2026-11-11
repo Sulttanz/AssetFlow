@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FileText, Plus, RotateCcw, WalletCards, ArrowRightLeft, Search } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -14,16 +14,21 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { VendorPicker } from "@/components/vendors/vendor-picker";
-import { calculateDocumentTotals } from "@shared/procurement-pricing";
+import { previewDocumentTotals } from "@shared/procurement-pricing";
+import { DocumentPricingControls, LinePricingControls, type DocumentPricingFields, type LinePricingFields } from "@/components/finance/procurement-pricing-controls";
 
 type Vendor = { id: string; name: string; code?: string | null; taxId?: string | null };
 type OrderLine = { id: string; description: string; itemType: string; quantity: number; unitPrice: string; consumableId: string | null; warehouseLocationId: string | null };
-type PurchaseOrder = { id: string; poNumber: string; vendorId: string | null; quotationId?: string | null; status: string; items?: OrderLine[]; totalAmount?: string | number };
-type ReceiptLine = { receiptId?: string; purchaseOrderItemId: string; description: string; quantity: number; unitPrice: string };
+type PurchaseOrder = { id: string; poNumber: string; vendorId: string | null; quotationId?: string | null; status: string; items?: OrderLine[]; totalAmount?: string | number; currency?: string; taxRate?: string; taxMode?: "exclusive" | "inclusive"; documentDiscountType?: "fixed" | "percentage"; documentDiscountValue?: string };
+type ReceiptLine = { receiptId?: string; purchaseOrderItemId: string; description: string; quantity: number; unitPrice: string; discountType?: "fixed" | "percentage"; discountValue?: string; taxRate?: string; taxInclusive?: boolean };
 type Quotation = { id: string; quoteNumber: string; vendorId: string; status: string; totalAmount: string; currency: string; issueDate: string; paymentTerms?: string | null; items: any[] };
 type Invoice = { id: string; invoiceNumber: string; vendorId: string; purchaseOrderId: string; status: string; paymentStatus: string; paymentMethod: string; grandTotal: string; creditedAmount: string | number; outstandingAmount: string | number; currency: string; dueDate: string; payments: any[] };
 type Consumable = { id: string; name: string; quantityInStock: number; warehouseLocationId: string; unitCost: string };
 type Asset = { id: string; name: string; assetTag: string | null; status: string; purchaseOrderNumber: string | null };
+type QuoteLine = LinePricingFields & { description: string; itemType: string; quantity: string; unitPrice: string; assetType: string; consumableCategory: string; modelPartNumber: string; warehouseLocationId: string };
+type InvoiceLine = LinePricingFields & { purchaseOrderItemId: string; description: string; quantity: string; unitPrice: string };
+const initialPricing: DocumentPricingFields = { currency: "SAR", taxRate: "15", taxMode: "exclusive", documentDiscountType: "fixed", documentDiscountValue: "0" };
+const newQuoteLine = (taxRate = "15", taxInclusive = false): QuoteLine => ({ description: "", itemType: "asset", quantity: "1", unitPrice: "0", assetType: "other", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", discountType: "fixed", discountValue: "0", taxRate, taxInclusive });
 
 const today = () => new Date().toISOString().slice(0, 10);
 const currency = (value: string | number, code = "USD") => {
@@ -47,14 +52,24 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
-  const [quoteItems, setQuoteItems] = useState([{ description: "", itemType: "asset", quantity: "1", unitPrice: "0", assetType: "other", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "" }]);
-  const [quoteForm, setQuoteForm] = useState({ quoteNumber: "", vendorId: "", issueDate: today(), validUntil: "", currency: "USD", taxAmount: "0", notes: "" });
-  const [invoiceForm, setInvoiceForm] = useState({ vendorId: "", purchaseOrderId: "", invoiceNumber: "", issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", taxAmount: "0", currency: "USD", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
-  const [invoiceLines, setInvoiceLines] = useState<{ purchaseOrderItemId: string; description: string; quantity: string; unitPrice: string }[]>([]);
+  const [quoteItems, setQuoteItems] = useState<QuoteLine[]>([newQuoteLine()]);
+  const [quoteForm, setQuoteForm] = useState({ ...initialPricing, quoteNumber: "", vendorId: "", issueDate: today(), validUntil: "", notes: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ ...initialPricing, vendorId: "", purchaseOrderId: "", invoiceNumber: "", issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
+  const [invoiceLines, setInvoiceLines] = useState<InvoiceLine[]>([]);
   const [returnForm, setReturnForm] = useState({ purchaseOrderId: "", purchaseInvoiceId: "", reasonCode: "defective", returnDate: today(), purchaseOrderItemId: "", assetId: "", consumableId: "", warehouseLocationId: "", quantity: "1", notes: "" });
   const [paymentForm, setPaymentForm] = useState({ paymentDate: today(), amount: "", paymentMethod: "bank_transfer", referenceNumber: "", notes: "" });
 
   const vendorsQuery = useQuery<Vendor[]>({ queryKey: ["/api/vendors"] });
+  const { data: taxSettings } = useQuery<{ defaultTaxRate: string; defaultTaxMode: "exclusive" | "inclusive"; currencyCode: string }>({ queryKey: ["/api/finance/tax-settings"] });
+  useEffect(() => {
+    if (!taxSettings) return;
+    const defaults = { currency: taxSettings.currencyCode, taxRate: taxSettings.defaultTaxRate, taxMode: taxSettings.defaultTaxMode };
+    if (!quoteOpen) {
+      setQuoteForm(current => ({ ...current, ...defaults }));
+      setQuoteItems(current => current.map(line => ({ ...line, taxRate: defaults.taxRate, taxInclusive: defaults.taxMode === "inclusive" })));
+    }
+    if (!invoiceOpen) setInvoiceForm(current => ({ ...current, ...defaults }));
+  }, [taxSettings]);
   const ordersQuery = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"], enabled: section === "invoices" || section === "returns" });
   const quotesQuery = useQuery<Quotation[]>({ queryKey: ["/api/vendor-quotations"], enabled: section === "quotations" || section === "invoices" || section === "returns" });
   const invoicesQuery = useQuery<Invoice[]>({ queryKey: ["/api/purchase-invoices"], enabled: section === "invoices" || section === "returns" });
@@ -77,7 +92,9 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   const returnLine = returnOrder?.items?.find(line => line.id === returnForm.purchaseOrderItemId);
   const availableAssets = useMemo(() => returnableAssetsQuery.data ?? [], [returnableAssetsQuery.data]);
   const selectedLineSubtotal = selectedReceipt ? Number(selectedReceipt.unitPrice) * Number(invoiceForm.quantity) : 0;
-  const lineSubtotal = invoiceLines.reduce((sum, line) => sum + Number(line.unitPrice) * Number(line.quantity), 0);
+  const quoteTotals = previewDocumentTotals(quoteItems.map(line => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), discountValue: Number(line.discountValue), taxRate: Number(line.taxRate) })), quoteForm.documentDiscountType, Number(quoteForm.documentDiscountValue));
+  const invoiceTotals = previewDocumentTotals(invoiceLines.map(line => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), discountValue: Number(line.discountValue), taxRate: Number(line.taxRate) })), invoiceForm.documentDiscountType, Number(invoiceForm.documentDiscountValue));
+  const lineSubtotal = invoiceTotals.subtotal;
   const returnInvoices = (invoicesQuery.data ?? []).filter(invoice => invoice.purchaseOrderId === returnForm.purchaseOrderId && invoice.status !== "void");
   const selectedReturnInvoice = returnInvoices.find(invoice => invoice.id === returnForm.purchaseInvoiceId);
   const acceptedReturnQuote = returnOrder?.quotationId ? (quotesQuery.data ?? []).find(quote => quote.id === returnOrder.quotationId && isAcceptedQuotation(quote.status)) : undefined;
@@ -90,7 +107,7 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     },
     invoices: {
       title: "Purchase Invoices",
-      subtitle: "Match supplier bills to received purchase-order lines, approve invoices, and track each settlement.",
+      subtitle: "Match supplier bills to ordered lines, process inventory receiving, and track each settlement.",
     },
     returns: {
       title: "Purchase Returns & Debit Notes",
@@ -106,12 +123,12 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   const refresh = async (...keys: string[][]) => Promise.all(keys.map(queryKey => queryClient.invalidateQueries({ queryKey })));
   const resetQuotationForm = () => {
     setQuoteOpen(false);
-    setQuoteForm({ quoteNumber: "", vendorId: "", issueDate: today(), validUntil: "", currency: "USD", taxAmount: "0", notes: "" });
-    setQuoteItems([{ description: "", itemType: "asset", quantity: "1", unitPrice: "0", assetType: "other", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "" }]);
+    setQuoteForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", quoteNumber: "", vendorId: "", issueDate: today(), validUntil: "", notes: "" });
+    setQuoteItems([newQuoteLine(taxSettings?.defaultTaxRate, taxSettings?.defaultTaxMode === "inclusive")]);
   };
   const resetInvoiceForm = () => {
     setInvoiceOpen(false);
-    setInvoiceForm({ vendorId: "", purchaseOrderId: "", invoiceNumber: "", issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", taxAmount: "0", currency: "USD", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
+    setInvoiceForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", vendorId: "", purchaseOrderId: "", invoiceNumber: "", issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
     setInvoiceLines([]);
   };
   const resetReturnForm = () => {
@@ -147,27 +164,27 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   });
   const invoiceStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => apiRequest("PUT", `/api/purchase-invoices/${id}/status`, { status }),
-    onSuccess: async () => { toast({ title: "Invoice updated" }); await refresh(["/api/purchase-invoices"], ["/api/purchase-orders"], ["/api/consumables"]); },
+    onSuccess: async () => { toast({ title: "Invoice updated" }); await refresh(["/api/purchase-invoices"], ["/api/purchase-orders"], ["/api/consumables"], ["/api/assets"]); },
     onError: (error: Error) => toast({ title: "Invoice update failed", description: error.message, variant: "destructive" }),
   });
 
   const submitQuotation = (event: React.FormEvent) => {
     event.preventDefault();
-    const subtotal = quoteItems.reduce((sum, line) => sum + Number(line.quantity) * Number(line.unitPrice), 0);
+    if (quoteTotals.validationError || !quoteForm.vendorId) return;
     saveQuote.mutate({
       ...quoteForm,
+      documentDiscountValue: Number(quoteForm.documentDiscountValue),
       validUntil: quoteForm.validUntil || null,
       status: "submitted",
-      subtotal: subtotal.toFixed(2),
-      taxAmount: Number(quoteForm.taxAmount).toFixed(2),
-      totalAmount: (subtotal + Number(quoteForm.taxAmount)).toFixed(2),
-      items: quoteItems.map(line => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), warehouseLocationId: line.warehouseLocationId || null })),
+      subtotal: quoteTotals.subtotal.toFixed(2),
+      taxAmount: quoteTotals.taxAmount.toFixed(2),
+      totalAmount: quoteTotals.grandTotal.toFixed(2),
+      items: quoteItems.map(line => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), discountValue: Number(line.discountValue), taxRate: Number(line.taxRate), warehouseLocationId: line.warehouseLocationId || null })),
     });
   };
   const submitInvoice = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedOrder || !invoiceLines.length) return;
-    const grandTotal = lineSubtotal + Number(invoiceForm.taxAmount);
+    if (!selectedOrder || !invoiceLines.length || invoiceTotals.validationError) return;
     saveInvoice.mutate({
       invoiceNumber: invoiceForm.invoiceNumber,
       vendorId: selectedOrder.vendorId,
@@ -175,14 +192,18 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
       issueDate: invoiceForm.issueDate,
       dueDate: invoiceForm.dueDate,
       currency: invoiceForm.currency,
-      subtotal: lineSubtotal.toFixed(2),
-      taxAmount: Number(invoiceForm.taxAmount).toFixed(2),
-      grandTotal: grandTotal.toFixed(2),
+      taxRate: invoiceForm.taxRate,
+      taxMode: invoiceForm.taxMode,
+      documentDiscountType: invoiceForm.documentDiscountType,
+      documentDiscountValue: Number(invoiceForm.documentDiscountValue),
+      subtotal: invoiceTotals.subtotal.toFixed(2),
+      taxAmount: invoiceTotals.taxAmount.toFixed(2),
+      grandTotal: invoiceTotals.grandTotal.toFixed(2),
       paymentMethod: invoiceForm.paymentMethod,
       paymentTerms: invoiceForm.paymentTerms || null,
       paymentStatus: "pending",
       status: "pending",
-      items: invoiceLines.map(line => ({ purchaseOrderItemId: line.purchaseOrderItemId, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice) })),
+      items: invoiceLines.map(line => ({ ...line, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), discountValue: Number(line.discountValue), taxRate: Number(line.taxRate) })),
     });
   };
   const addInvoiceLine = () => {
@@ -194,6 +215,10 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
       description: selectedReceipt.description,
       quantity: String(quantity),
       unitPrice: selectedReceipt.unitPrice,
+      discountType: selectedReceipt.discountType ?? "fixed",
+      discountValue: selectedReceipt.discountValue ?? "0",
+      taxRate: selectedReceipt.taxRate ?? invoiceForm.taxRate,
+      taxInclusive: selectedReceipt.taxInclusive ?? invoiceForm.taxMode === "inclusive",
     }]);
     setInvoiceForm(form => ({ ...form, receiptId: "", purchaseOrderItemId: "", quantity: "1" }));
   };
@@ -267,20 +292,48 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
 
       <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>New vendor quotation</DialogTitle><DialogDescription>Capture the supplier quote and line items before converting an accepted quotation to a PO.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitQuotation}>
         <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="quote-number">Quote number</Label><Input id="quote-number" required value={quoteForm.quoteNumber} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} /></div><div className="space-y-2"><Label htmlFor="quote-vendor">Vendor</Label><VendorPicker id="quote-vendor" vendors={vendorsQuery.data ?? []} value={quoteForm.vendorId} onChange={vendorId => setQuoteForm({ ...quoteForm, vendorId })} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendors"} /></div><div><Label htmlFor="quote-issue-date">Issue date</Label><CalendarDateField id="quote-issue-date" required value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div><div><Label htmlFor="quote-valid-until">Valid until</Label><CalendarDateField id="quote-valid-until" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div></div>
-        <div className="space-y-3">{quoteItems.map((line, index) => <div key={index} className="rounded-lg border p-3 space-y-3"><div className="flex items-center justify-between"><p className="text-sm font-medium">Line {index + 1}</p>{quoteItems.length > 1 && <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteItems(rows => rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button>}</div><div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor={`quote-desc-${index}`}>Description</Label><Input id={`quote-desc-${index}`} required value={line.description} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, description: e.target.value } : row))} /></div><div><Label htmlFor={`quote-type-${index}`}>Type</Label><Select value={line.itemType} onValueChange={itemType => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, itemType } : row))}><SelectTrigger id={`quote-type-${index}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="asset">Hardware asset</SelectItem><SelectItem value="consumable">Consumable stock</SelectItem></SelectContent></Select></div><div><Label htmlFor={`quote-quantity-${index}`}>Quantity</Label><Input id={`quote-quantity-${index}`} type="number" min="1" required value={line.quantity} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, quantity: e.target.value } : row))} /></div><div><Label htmlFor={`quote-price-${index}`}>Unit price</Label><Input id={`quote-price-${index}`} type="number" min="0" step="0.01" required value={line.unitPrice} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, unitPrice: e.target.value } : row))} /></div>{line.itemType === "consumable" && <div className="sm:col-span-2"><Label htmlFor={`quote-warehouse-${index}`}>Receiving warehouse</Label><Select value={line.warehouseLocationId} onValueChange={warehouseLocationId => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, warehouseLocationId } : row))}><SelectTrigger id={`quote-warehouse-${index}`}><SelectValue placeholder={warehousesQuery.isError ? "Warehouses failed to load" : "Select active warehouse"} /></SelectTrigger><SelectContent>{warehousesQuery.data?.filter(warehouse => warehouse.isActive).map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.code}</SelectItem>)}</SelectContent></Select></div>}</div></div>)}<Button type="button" variant="outline" onClick={() => setQuoteItems(rows => [...rows, { description: "", itemType: "asset", quantity: "1", unitPrice: "0", assetType: "other", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "" }])}><Plus className="mr-2 h-4 w-4" />Add line</Button></div>
-        <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="quote-tax">Tax amount</Label><Input id="quote-tax" type="number" min="0" step="0.01" value={quoteForm.taxAmount} onChange={e => setQuoteForm({ ...quoteForm, taxAmount: e.target.value })} /></div><div><Label htmlFor="quote-currency">Currency code</Label><Input id="quote-currency" maxLength={3} value={quoteForm.currency} onChange={e => setQuoteForm({ ...quoteForm, currency: e.target.value.toUpperCase() })} /></div></div><Label htmlFor="quote-notes">Notes</Label><Textarea id="quote-notes" placeholder="Add quotation notes" value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /><Button disabled={saveQuote.isPending || !quoteForm.vendorId} type="submit" className="w-full sm:w-auto">Save quotation</Button>
+        <div className="space-y-3">{quoteItems.map((line, index) => <div key={index} className="rounded-lg border p-3 space-y-3">
+          <div className="flex items-center justify-between"><p className="text-sm font-medium">Line {index + 1}</p>{quoteItems.length > 1 && <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteItems(rows => rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button>}</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><Label htmlFor={`quote-desc-${index}`}>Description</Label><Input id={`quote-desc-${index}`} required value={line.description} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, description: e.target.value } : row))} /></div>
+            <div><Label htmlFor={`quote-type-${index}`}>Type</Label><Select value={line.itemType} onValueChange={itemType => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, itemType } : row))}><SelectTrigger id={`quote-type-${index}`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="asset">Hardware asset</SelectItem><SelectItem value="consumable">Consumable stock</SelectItem></SelectContent></Select></div>
+            <div><Label htmlFor={`quote-quantity-${index}`}>Quantity</Label><Input id={`quote-quantity-${index}`} type="number" min="1" required value={line.quantity} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, quantity: e.target.value } : row))} /></div>
+            <div><Label htmlFor={`quote-price-${index}`}>Unit price</Label><Input id={`quote-price-${index}`} type="number" min="0" step="0.01" required value={line.unitPrice} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, unitPrice: e.target.value } : row))} /></div>
+            {line.itemType === "consumable" && <div className="sm:col-span-2"><Label htmlFor={`quote-warehouse-${index}`}>Receiving warehouse</Label><Select value={line.warehouseLocationId} onValueChange={warehouseLocationId => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, warehouseLocationId } : row))}><SelectTrigger id={`quote-warehouse-${index}`}><SelectValue placeholder={warehousesQuery.isError ? "Warehouses failed to load" : "Select active warehouse"} /></SelectTrigger><SelectContent>{warehousesQuery.data?.filter(warehouse => warehouse.isActive).map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.code}</SelectItem>)}</SelectContent></Select></div>}
+          </div>
+          <LinePricingControls id={`quote-line-${index}`} value={line} onChange={change => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, ...change } : row))} />
+        </div>)}
+          <Button type="button" variant="outline" onClick={() => setQuoteItems(rows => [...rows, newQuoteLine(quoteForm.taxRate, quoteForm.taxMode === "inclusive")])}><Plus className="mr-2 h-4 w-4" />Add line</Button>
+        </div>
+        <DocumentPricingControls id="quote-pricing" value={quoteForm} totals={quoteTotals} onChange={change => {
+          setQuoteForm(current => ({ ...current, ...change }));
+          if (change.taxRate !== undefined || change.taxMode !== undefined) setQuoteItems(rows => rows.map(row => ({ ...row, taxRate: change.taxRate ?? row.taxRate, taxInclusive: change.taxMode !== undefined ? change.taxMode === "inclusive" : row.taxInclusive })));
+        }} />
+        <Label htmlFor="quote-notes">Notes</Label><Textarea id="quote-notes" placeholder="Add quotation notes" value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /><Button disabled={saveQuote.isPending || !quoteForm.vendorId || Boolean(quoteTotals.validationError)} type="submit" className="w-full sm:w-auto">Save quotation</Button>
       </form></DialogContent></Dialog>
 
-      <Dialog open={invoiceOpen} onOpenChange={setInvoiceOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Record supplier invoice</DialogTitle><DialogDescription>Invoice lines must match a received PO line and its recorded inventory receipt. Inventory receiving stays in the purchase-order workflow.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitInvoice}><div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2 space-y-2"><Label htmlFor="invoice-vendor">Supplier</Label><VendorPicker id="invoice-vendor" vendors={vendorsQuery.data ?? []} value={invoiceForm.vendorId} onChange={vendorId => setInvoiceForm(current => ({ ...current, vendorId, purchaseOrderId: "", receiptId: "", purchaseOrderItemId: "" }))} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendor"} /></div>
-        <div className="sm:col-span-2"><Label htmlFor="invoice-po">Ordered purchase order</Label><Select value={invoiceForm.purchaseOrderId} onValueChange={purchaseOrderId => { const po = ordersQuery.data?.find(row => row.id === purchaseOrderId); const quote = po?.quotationId ? quotesQuery.data?.find(row => row.id === po.quotationId && isAcceptedQuotation(row.status)) : undefined; setInvoiceForm({ ...invoiceForm, purchaseOrderId, vendorId: po?.vendorId ?? invoiceForm.vendorId, receiptId: "", purchaseOrderItemId: "", quantity: "1", currency: quote?.currency ?? "USD", paymentTerms: quote?.paymentTerms ?? "" }); setInvoiceLines([]); }}><SelectTrigger id="invoice-po" disabled={!invoiceForm.vendorId}><SelectValue placeholder={ordersQuery.isError ? "Purchase orders failed to load" : "Select an ordered PO"} /></SelectTrigger><SelectContent>{ordersQuery.data?.filter(po => po.status === "ordered" && po.vendorId === invoiceForm.vendorId).map(po => <SelectItem key={po.id} value={po.id}>{po.poNumber} · {vendorsQuery.data?.find(v => v.id === po.vendorId)?.name}</SelectItem>)}</SelectContent></Select></div>
+      <Dialog open={invoiceOpen} onOpenChange={setInvoiceOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Record supplier invoice</DialogTitle><DialogDescription>Match the supplier bill to ordered lines. Processing the approved invoice receives the PO and creates inventory receipts once.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitInvoice}><div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2 space-y-2"><Label htmlFor="invoice-vendor">Supplier</Label><VendorPicker id="invoice-vendor" vendors={vendorsQuery.data ?? []} value={invoiceForm.vendorId} onChange={vendorId => { setInvoiceForm(current => ({ ...current, vendorId, purchaseOrderId: "", receiptId: "", purchaseOrderItemId: "" })); setInvoiceLines([]); }} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendor"} /></div>
+        <div className="sm:col-span-2"><Label htmlFor="invoice-po">Purchase order</Label><Select value={invoiceForm.purchaseOrderId} onValueChange={purchaseOrderId => { const po = ordersQuery.data?.find(row => row.id === purchaseOrderId); const quote = po?.quotationId ? quotesQuery.data?.find(row => row.id === po.quotationId && isAcceptedQuotation(row.status)) : undefined; setInvoiceForm({ ...invoiceForm, purchaseOrderId, vendorId: po?.vendorId ?? invoiceForm.vendorId, receiptId: "", purchaseOrderItemId: "", quantity: "1", currency: po?.currency ?? quote?.currency ?? taxSettings?.currencyCode ?? "SAR", taxRate: po?.taxRate ?? taxSettings?.defaultTaxRate ?? "15", taxMode: po?.taxMode ?? "exclusive", documentDiscountType: po?.documentDiscountType ?? "fixed", documentDiscountValue: po?.documentDiscountValue ?? "0", paymentTerms: quote?.paymentTerms ?? "" }); setInvoiceLines([]); }}><SelectTrigger id="invoice-po" disabled={!invoiceForm.vendorId}><SelectValue placeholder={ordersQuery.isError ? "Purchase orders failed to load" : "Select an ordered or received PO"} /></SelectTrigger><SelectContent>{ordersQuery.data?.filter(po => ["ordered", "received"].includes(po.status) && po.vendorId === invoiceForm.vendorId).map(po => <SelectItem key={po.id} value={po.id}>{po.poNumber} · {po.status}</SelectItem>)}</SelectContent></Select></div>
         <div><Label htmlFor="invoice-number">Invoice number</Label><Input id="invoice-number" required value={invoiceForm.invoiceNumber} onChange={e => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })} /></div>
         <div><Label htmlFor="invoice-receipt">Ordered PO line</Label><Select value={invoiceForm.purchaseOrderItemId} onValueChange={purchaseOrderItemId => setInvoiceForm(current => ({ ...current, purchaseOrderItemId, quantity: "1" }))}><SelectTrigger id="invoice-receipt" disabled={!invoiceForm.purchaseOrderId}><SelectValue placeholder={receiptQuery.isError ? "Could not load PO lines" : receiptQuery.isLoading ? "Loading lines…" : "Select ordered line"} /></SelectTrigger><SelectContent>{receiptQuery.data?.filter(line => !invoiceLines.some(added => added.purchaseOrderItemId === line.purchaseOrderItemId)).map(line => <SelectItem key={line.purchaseOrderItemId} value={line.purchaseOrderItemId}>{line.description} · qty {line.quantity}</SelectItem>)}</SelectContent></Select>{receiptQuery.isError && <p className="mt-1 text-xs text-destructive">PO lines could not be loaded. Try changing the PO or reopen this form.</p>}</div>
         <div><Label htmlFor="invoice-issue-date">Issue date</Label><CalendarDateField id="invoice-issue-date" required value={invoiceForm.issueDate} onChange={e => setInvoiceForm({ ...invoiceForm, issueDate: e.target.value })} /></div><div><Label htmlFor="invoice-due-date">Due date</Label><CalendarDateField id="invoice-due-date" required value={invoiceForm.dueDate} onChange={e => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })} /></div>
         <div><Label htmlFor="invoice-quantity">Quantity invoiced</Label><Input id="invoice-quantity" type="number" min="1" max={selectedReceipt?.quantity ?? 1} value={invoiceForm.quantity} onChange={e => setInvoiceForm({ ...invoiceForm, quantity: e.target.value })} /></div><div><Label htmlFor="invoice-unit-price">Unit price (from PO)</Label><Input id="invoice-unit-price" disabled value={selectedReceipt?.unitPrice ?? ""} /></div>
-        <div><Label htmlFor="invoice-tax">Tax amount</Label><Input id="invoice-tax" type="number" min="0" step="0.01" value={invoiceForm.taxAmount} onChange={e => setInvoiceForm({ ...invoiceForm, taxAmount: e.target.value })} /></div><div><Label htmlFor="invoice-currency">Invoice currency</Label><Input id="invoice-currency" required minLength={3} maxLength={3} value={invoiceForm.currency} onChange={e => setInvoiceForm({ ...invoiceForm, currency: e.target.value.toUpperCase() })} /></div>
         <div><Label htmlFor="invoice-payment-method">Payment method</Label><Select value={invoiceForm.paymentMethod} onValueChange={paymentMethod => setInvoiceForm({ ...invoiceForm, paymentMethod })}><SelectTrigger id="invoice-payment-method"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="bank_transfer">Bank Transfer</SelectItem><SelectItem value="credit_terms">Credit / Terms</SelectItem></SelectContent></Select></div><div><Label htmlFor="invoice-terms">Payment terms</Label><Input id="invoice-terms" placeholder="e.g. Net 30" value={invoiceForm.paymentTerms} onChange={e => setInvoiceForm({ ...invoiceForm, paymentTerms: e.target.value })} /></div>
-        </div><div className="space-y-2 rounded-md border p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm font-medium">Invoice lines</p><Button type="button" size="sm" variant="outline" onClick={addInvoiceLine} disabled={!selectedReceipt || invoiceLines.some(line => line.purchaseOrderItemId === selectedReceipt.purchaseOrderItemId) || Number(invoiceForm.quantity) <= 0 || Number(invoiceForm.quantity) > Number(selectedReceipt?.quantity ?? 0)}>Add selected line</Button></div>{invoiceLines.length ? <ul className="divide-y">{invoiceLines.map(line => <li key={line.purchaseOrderItemId} className="flex items-center justify-between gap-3 py-2 text-sm"><span>{line.description} · qty {line.quantity} × {currency(line.unitPrice, invoiceForm.currency)}</span><div className="flex items-center gap-3"><span className="font-medium">{currency(Number(line.unitPrice) * Number(line.quantity), invoiceForm.currency)}</span><Button type="button" size="sm" variant="ghost" onClick={() => setInvoiceLines(lines => lines.filter(item => item.purchaseOrderItemId !== line.purchaseOrderItemId))}>Remove</Button></div></li>)}</ul> : <p className="text-sm text-muted-foreground">Select an ordered PO line and add it to this invoice.</p>}<div className="border-t pt-2 text-sm">Selected line preview: {currency(selectedLineSubtotal, invoiceForm.currency)}<br />Invoice subtotal: <strong>{currency(lineSubtotal, invoiceForm.currency)}</strong></div></div><Button type="submit" className="w-full sm:w-auto" disabled={saveInvoice.isPending || invoiceLines.length === 0 || !selectedOrder || receiptQuery.isError}>Save invoice</Button></form></DialogContent></Dialog>
+        </div><div className="space-y-2 rounded-md border p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-medium">Invoice lines</p><Button type="button" size="sm" variant="outline" onClick={addInvoiceLine} disabled={!selectedReceipt || invoiceLines.some(line => line.purchaseOrderItemId === selectedReceipt.purchaseOrderItemId) || Number(invoiceForm.quantity) <= 0 || Number(invoiceForm.quantity) > Number(selectedReceipt?.quantity ?? 0)}>Add selected line</Button></div>
+          {invoiceLines.length ? <ul className="divide-y">{invoiceLines.map((line, index) => <li key={line.purchaseOrderItemId} className="space-y-3 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3"><span>{line.description} · qty {line.quantity} × {currency(line.unitPrice, invoiceForm.currency)}</span><Button type="button" size="sm" variant="ghost" onClick={() => setInvoiceLines(lines => lines.filter(item => item.purchaseOrderItemId !== line.purchaseOrderItemId))}>Remove</Button></div>
+            <LinePricingControls id={`invoice-line-${index}`} value={line} onChange={change => setInvoiceLines(lines => lines.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row))} />
+          </li>)}</ul> : <p className="text-sm text-muted-foreground">Select a PO line and add it to this invoice.</p>}
+          <div className="border-t pt-2 text-sm">Selected line preview: {currency(selectedLineSubtotal, invoiceForm.currency)}<br />Invoice subtotal: <strong>{currency(lineSubtotal, invoiceForm.currency)}</strong></div>
+        </div>
+        <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">Receiving confirms delivery of the full purchase order. All ordered quantities must be matched to approved invoices before inventory is created; partial invoices can remain approved until then.</p>
+        <DocumentPricingControls id="invoice-pricing" value={invoiceForm} totals={invoiceTotals} onChange={change => {
+          setInvoiceForm(current => ({ ...current, ...change }));
+          if (change.taxRate !== undefined || change.taxMode !== undefined) setInvoiceLines(lines => lines.map(line => ({ ...line, taxRate: change.taxRate ?? line.taxRate, taxInclusive: change.taxMode !== undefined ? change.taxMode === "inclusive" : line.taxInclusive })));
+        }} />
+        <Button type="submit" className="w-full sm:w-auto" disabled={saveInvoice.isPending || invoiceLines.length === 0 || !selectedOrder || receiptQuery.isError || Boolean(invoiceTotals.validationError)}>Save invoice</Button></form></DialogContent></Dialog>
 
       <Dialog open={returnOpen} onOpenChange={setReturnOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Purchase return / debit note</DialogTitle><DialogDescription>Link a return to its supplier invoice to apply the correct currency; eligible invoices are limited to this PO and exclude void records.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitReturn}><div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2"><Label htmlFor="return-po">Purchase order</Label><Select value={returnForm.purchaseOrderId} onValueChange={purchaseOrderId => setReturnForm({ ...returnForm, purchaseOrderId, purchaseInvoiceId: "", purchaseOrderItemId: "", assetId: "", consumableId: "", warehouseLocationId: "", quantity: "1" })}><SelectTrigger id="return-po"><SelectValue placeholder={ordersQuery.isError ? "Purchase orders failed to load" : "Select a received PO"} /></SelectTrigger><SelectContent>{ordersQuery.data?.filter(po => po.status === "received" && po.vendorId).map(po => <SelectItem key={po.id} value={po.id}>{po.poNumber}</SelectItem>)}</SelectContent></Select></div>

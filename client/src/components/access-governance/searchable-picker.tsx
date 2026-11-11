@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ButtonHTMLAttributes, type Ref } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -22,6 +22,8 @@ export function SearchablePicker({
   className,
   id,
   ariaLabel,
+  triggerRef,
+  triggerProps,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -33,6 +35,8 @@ export function SearchablePicker({
   className?: string;
   id?: string;
   ariaLabel?: string;
+  triggerRef?: Ref<HTMLButtonElement>;
+  triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }) {
   const [open, setOpen] = useState(false);
   const selected = useMemo(() => options.find(option => option.value === value), [options, value]);
@@ -41,6 +45,8 @@ export function SearchablePicker({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          {...triggerProps}
+          ref={triggerRef}
           type="button"
           variant="outline"
           role="combobox"

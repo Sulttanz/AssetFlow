@@ -239,6 +239,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       paymentMethod: "bank_transfer", paymentStatus: "partially_paid", status: "received",
     });
     await seed(s.purchaseInvoiceItems, { invoiceId: invoice, purchaseOrderItemId: item, receiptId: receipt, description: "Fixture", quantity: 1, unitPrice: "10.00", totalPrice: "10.00" });
+    await seed(s.purchaseInvoiceMatchLines, { invoiceId: invoice, purchaseOrderItemId: item, description: "Staged fixture", quantity: 1, unitPrice: "10.00", totalPrice: "10.00" });
     await seed(s.purchaseInvoicePayments, { invoiceId: invoice, paymentDate: "2026-10-23", amount: "4.00", paymentMethod: "bank_transfer" });
     await seed(s.budgets, { name: "Fixture budget", fiscalYear: 2026, budgetAmount: "100.00", category: "hardware" });
     const asset = await seed(s.assets, { name: "Fixture", type: "laptop", locationId: ids.locations, departmentId: ids.departments, purchaseOrderNumber: "RESET-PO", purchasePrice: "10.00" });

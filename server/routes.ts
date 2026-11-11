@@ -36,7 +36,8 @@ import {
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
-import { calculateDocumentTotals } from "@shared/procurement-pricing";
+import { calculateDocumentTotals, ProcurementPricingError } from "@shared/procurement-pricing";
+import { canTransitionPurchaseOrder } from "@shared/purchase-order-lifecycle";
 import { db } from "./db";
 import { eq, and, inArray, isNull, isNotNull, sql, or, ilike, desc, asc, gte, lt, lte } from "drizzle-orm";
 import {
@@ -5898,7 +5899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         taxInclusive: z.boolean().optional(),
         assetId: z.union([z.string().uuid(), z.literal("")]).nullable().optional(),
       });
-      const itemInputs = z.array(lineSchema).parse(items ?? []);
+      const itemInputs = z.array(lineSchema).min(1).max(500).parse(items ?? []);
       if (itemInputs.some(item => item.itemType === "consumable" && !item.warehouseLocationId)) {
         return res.status(400).json({ message: "Consumable PO lines require a warehouse location" });
       }
@@ -5908,13 +5909,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(and(inArray(warehouseLocations.id, requestedWarehouseIds), eq(warehouseLocations.isActive, true)));
         if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
+      const financeDefaults = await getDefaultFinancialProfile();
       const validatedData = insertPurchaseOrderSchema.extend({
         currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
         taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
         taxRate: z.coerce.number().min(0).max(100).default(0),
         documentDiscountType: z.enum(["fixed", "percentage"]).default("fixed"),
         documentDiscountValue: z.coerce.number().min(0).default(0),
-      }).parse(purchaseOrderData);
+      }).parse({
+        currency: financeDefaults.currencyCode,
+        taxRate: financeDefaults.defaultTaxRate,
+        taxMode: financeDefaults.defaultTaxMode,
+        ...purchaseOrderData,
+      });
       if (validatedData.status && validatedData.status !== "pending") {
         return res.status(409).json({ message: "New purchase orders must start in Pending review" });
       }
@@ -5929,23 +5936,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (Math.abs(totals.grandTotal - Number(validatedData.totalAmount)) > 0.01) {
         return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
       }
-      const purchaseOrder = await storage.createPurchaseOrder({
-        ...validatedData,
-        status: "pending",
-        subtotal: totals.subtotal.toFixed(2),
-        taxRate: Number(validatedData.taxRate).toFixed(4),
-        documentDiscountValue: Number(validatedData.documentDiscountValue).toFixed(2),
-        documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
-        taxAmount: totals.taxAmount.toFixed(2),
-        totalAmount: totals.grandTotal.toFixed(2),
-      });
-      
-      // Create purchase order items if provided
-      if (itemInputs.length) {
-        for (const [index, item] of itemInputs.entries()) {
-          const totalPrice = totals.lines[index].totalAmount;
-          const line = insertPurchaseOrderItemSchema.parse({
-            purchaseOrderId: purchaseOrder.id,
+      const purchaseOrder = await db.transaction(async tx => {
+        if (validatedData.quotationId) {
+          const [quotation] = await tx.select().from(vendorQuotations).where(eq(vendorQuotations.id, validatedData.quotationId)).for("update");
+          if (!quotation || quotation.status !== "accepted") throw Object.assign(new Error("Only an accepted, unconverted quotation can be imported"), { status: 409 });
+          if (quotation.vendorId !== validatedData.vendorId || quotation.currency !== validatedData.currency) throw Object.assign(new Error("The PO supplier and currency must match the imported quotation"), { status: 400 });
+          const [existingOrder] = await tx.select({ id: purchaseOrders.id }).from(purchaseOrders).where(eq(purchaseOrders.quotationId, quotation.id));
+          if (existingOrder) throw Object.assign(new Error("This quotation has already been converted to a purchase order"), { status: 409 });
+        }
+        const [order] = await tx.insert(purchaseOrders).values({
+          ...validatedData,
+          status: "pending",
+          expectedDelivery: validatedData.expectedDelivery || null,
+          actualDelivery: null,
+          departmentId: validatedData.departmentId || null,
+          subtotal: totals.subtotal.toFixed(2),
+          taxRate: Number(validatedData.taxRate).toFixed(4),
+          documentDiscountValue: Number(validatedData.documentDiscountValue).toFixed(2),
+          documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
+          taxAmount: totals.taxAmount.toFixed(2),
+          totalAmount: totals.grandTotal.toFixed(2),
+          assetsCreated: false,
+        }).returning();
+        await tx.insert(purchaseOrderItems).values(itemInputs.map((item, index) => ({
+            purchaseOrderId: order.id,
             description: item.description,
             assetType: item.assetType || "other",
             itemType: item.itemType,
@@ -5953,7 +5967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             consumableCategory: item.consumableCategory || null,
             modelPartNumber: item.modelPartNumber || null,
             warehouseLocationId: item.warehouseLocationId || null,
-            serialNumber: item.serialNumber || undefined,
+            serialNumber: item.serialNumber || null,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             discountType: item.discountType,
@@ -5961,12 +5975,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             discountAmount: totals.lines[index].discountAmount.toFixed(2),
             taxRate: Number(item.taxRate ?? validatedData.taxRate).toFixed(4),
             taxInclusive: item.taxInclusive ?? validatedData.taxMode === "inclusive",
-            totalPrice: totalPrice.toFixed(2),
-            assetId: item.assetId || undefined
-          });
-          await storage.createPurchaseOrderItem(line);
+            totalPrice: totals.lines[index].totalAmount.toFixed(2),
+            assetId: item.assetId || null,
+          })));
+        if (validatedData.quotationId) {
+          await tx.update(vendorQuotations).set({ status: "converted", updatedAt: new Date() }).where(eq(vendorQuotations.id, validatedData.quotationId));
         }
-      }
+        return order;
+      });
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'purchase_orders', purchaseOrder.id, `PO #${purchaseOrder.poNumber}`, null, { poNumber: purchaseOrder.poNumber, totalAmount: purchaseOrder.totalAmount, status: purchaseOrder.status }, req);
@@ -5987,6 +6003,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json(purchaseOrder);
     } catch (error) {
+      if (error instanceof ProcurementPricingError) return res.status(400).json({ message: error.message });
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       console.error("Purchase order creation error:", error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
@@ -6034,19 +6052,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const oldPO = await storage.getPurchaseOrder(req.params.id);
       if (!oldPO) return res.status(404).json({ message: "Purchase order not found" });
+      if (oldPO.status !== "pending" && Object.keys(purchaseOrderData).some(key => key !== "status")) {
+        return res.status(409).json({ message: "Approved, ordered, received, and cancelled purchase-order details are locked; only permitted lifecycle actions are allowed" });
+      }
+      if (validatedData.quotationId !== undefined && validatedData.quotationId !== oldPO.quotationId) {
+        return res.status(409).json({ message: "Import quotations when creating the purchase order; the source quotation cannot be replaced afterward" });
+      }
+      if (itemInputs === undefined && ["totalAmount", "taxRate", "taxMode", "documentDiscountType", "documentDiscountValue", "taxAmount", "subtotal"].some(key => key in purchaseOrderData)) {
+        return res.status(400).json({ message: "Include PO lines when editing pricing so totals can be recalculated safely" });
+      }
       const requestedStatus = validatedData.status;
       if (requestedStatus && requestedStatus !== oldPO.status) {
-        const allowedNext: Record<string, string[]> = {
-          pending: ["approved", "cancelled"],
-          approved: ["ordered", "cancelled"],
-          ordered: ["cancelled"],
-          received: [],
-          cancelled: [],
-        };
         if (requestedStatus === "received") {
           return res.status(409).json({ message: "Received status is set automatically when a matched purchase invoice is processed" });
         }
-        if (!allowedNext[oldPO.status]?.includes(requestedStatus)) {
+        if (!canTransitionPurchaseOrder(oldPO.status, requestedStatus)) {
           return res.status(409).json({ message: `Purchase order cannot transition from ${oldPO.status} to ${requestedStatus}` });
         }
       }
@@ -6065,7 +6085,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           discountValue: item.discountValue,
           taxRate: item.taxRate ?? Number(validatedData.taxRate ?? oldPO.taxRate),
           taxInclusive: item.taxInclusive ?? (validatedData.taxMode ?? oldPO.taxMode) === "inclusive",
-        })), validatedData.documentDiscountType ?? oldPO.documentDiscountType, Number(validatedData.documentDiscountValue ?? oldPO.documentDiscountValue));
+        })), validatedData.documentDiscountType ?? (oldPO.documentDiscountType === "percentage" ? "percentage" : "fixed"), Number(validatedData.documentDiscountValue ?? oldPO.documentDiscountValue));
         if (validatedData.totalAmount !== undefined && Math.abs(updatedTotals.grandTotal - Number(validatedData.totalAmount)) > 0.01) {
           return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
         }
@@ -6080,24 +6100,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } as typeof validatedData;
       }
       
-      const purchaseOrder = await storage.updatePurchaseOrder(req.params.id, validatedData);
-      if (!purchaseOrder) {
-        return res.status(404).json({ message: "Purchase order not found" });
-      }
-      
-      // Update items if provided
-      if (itemInputs) {
-        // Delete existing items
-        const existingItems = await storage.getPurchaseOrderItems(req.params.id);
-        for (const item of existingItems) {
-          await storage.deletePurchaseOrderItem(item.id);
+      const { taxRate: updatedTaxRate, documentDiscountValue: updatedDiscountValue, ...otherUpdates } = validatedData;
+      const updatePayload = {
+        ...otherUpdates,
+        ...(updatedTaxRate !== undefined ? { taxRate: updatedTaxRate.toFixed(4) } : {}),
+        ...(updatedDiscountValue !== undefined ? { documentDiscountValue: updatedDiscountValue.toFixed(2) } : {}),
+        ...(otherUpdates.expectedDelivery === "" ? { expectedDelivery: null } : {}),
+      };
+      const purchaseOrder = await db.transaction(async tx => {
+        const [lockedOrder] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, req.params.id)).for("update");
+        if (!lockedOrder || lockedOrder.status !== oldPO.status) throw Object.assign(new Error("The purchase order changed during editing; refresh and retry"), { status: 409 });
+        if (requestedStatus === "cancelled") {
+          const [invoice] = await tx.select({ id: purchaseInvoices.id }).from(purchaseInvoices).where(and(eq(purchaseInvoices.purchaseOrderId, lockedOrder.id), sql`${purchaseInvoices.status} <> 'void'`));
+          if (invoice) throw Object.assign(new Error("Void any open supplier invoices before cancelling this purchase order"), { status: 409 });
         }
-        
-        // Create new items
-        for (const [index, item] of itemInputs.entries()) {
-          const lineTotals = updatedTotals!.lines[index];
-          const line = insertPurchaseOrderItemSchema.parse({
-            purchaseOrderId: purchaseOrder.id,
+        const [updated] = await tx.update(purchaseOrders).set(updatePayload).where(eq(purchaseOrders.id, req.params.id)).returning();
+        if (itemInputs) {
+          await tx.delete(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, updated.id));
+          await tx.insert(purchaseOrderItems).values(itemInputs.map((item, index) => ({
+            purchaseOrderId: updated.id,
             description: item.description,
             assetType: item.assetType || "other",
             itemType: item.itemType,
@@ -6105,20 +6126,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             consumableCategory: item.consumableCategory || null,
             modelPartNumber: item.modelPartNumber || null,
             warehouseLocationId: item.warehouseLocationId || null,
-            serialNumber: item.serialNumber || undefined,
+            serialNumber: item.serialNumber || null,
             quantity: item.quantity,
             unitPrice: item.unitPrice.toString(),
             discountType: item.discountType,
             discountValue: item.discountValue.toFixed(2),
-            discountAmount: lineTotals.discountAmount.toFixed(2),
+            discountAmount: updatedTotals!.lines[index].discountAmount.toFixed(2),
             taxRate: Number(item.taxRate ?? validatedData.taxRate ?? oldPO.taxRate).toFixed(4),
             taxInclusive: item.taxInclusive ?? (validatedData.taxMode ?? oldPO.taxMode) === "inclusive",
-            totalPrice: lineTotals.totalAmount.toFixed(2),
-            assetId: item.assetId || undefined
-          });
-          await storage.createPurchaseOrderItem(line);
+            totalPrice: updatedTotals!.lines[index].totalAmount.toFixed(2),
+            assetId: item.assetId || null,
+          })));
         }
-      }
+        return updated;
+      });
       
       // Log audit
       if (oldPO) {
@@ -6143,6 +6164,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(purchaseOrder);
     } catch (error) {
+      if (error instanceof ProcurementPricingError) return res.status(400).json({ message: error.message });
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
       }
@@ -6340,12 +6363,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Procure-to-Pay: quotations -> purchase orders -> matched invoices/payments -> returns/debit notes.
+  async function getDefaultFinancialProfile() {
+    const [profile] = await db.select().from(financeTaxSettings).where(eq(financeTaxSettings.id, 1));
+    if (!profile) throw Object.assign(new Error("Apply the financial tax-settings migration before creating procurement documents"), { status: 503 });
+    return profile;
+  }
+
   app.get("/api/finance/tax-settings", requireAuth, requireModule("asset_management"), requireAnyPermission("finance_view", "system_admin"), async (_req, res) => {
     try {
-      const [settings] = await db.select().from(financeTaxSettings).where(eq(financeTaxSettings.regionCode, "SA"));
+      const [settings] = await db.select().from(financeTaxSettings).where(eq(financeTaxSettings.id, 1));
       if (settings) return res.json(settings);
-      const [created] = await db.insert(financeTaxSettings).values({ regionCode: "SA", defaultTaxRate: "15.0000", defaultTaxMode: "exclusive", currencyCode: "SAR" }).returning();
-      return res.json(created);
+      return res.status(503).json({ message: "Financial settings have not been initialized; apply the startup migrations" });
     } catch (error) {
       console.error("Finance tax settings read failed:", error);
       return res.status(500).json({ message: "Failed to load financial tax settings" });
@@ -6357,12 +6385,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const input = financeTaxSettingsInputSchema.parse(req.body);
       const [settings] = await db.insert(financeTaxSettings).values({
         ...input,
+        id: 1,
         defaultTaxRate: input.defaultTaxRate.toFixed(4),
         updatedBy: req.user!.id,
         updatedAt: new Date(),
       }).onConflictDoUpdate({
-        target: financeTaxSettings.regionCode,
+        target: financeTaxSettings.id,
         set: {
+          regionCode: input.regionCode,
           defaultTaxRate: input.defaultTaxRate.toFixed(4),
           defaultTaxMode: input.defaultTaxMode,
           currencyCode: input.currencyCode,
@@ -6395,7 +6425,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/vendor-quotations", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
     try {
-      const parsed = insertVendorQuotationSchema.safeParse(req.body);
+      const financeDefaults = await getDefaultFinancialProfile();
+      const parsed = insertVendorQuotationSchema.safeParse({
+        currency: financeDefaults.currencyCode,
+        taxRate: financeDefaults.defaultTaxRate,
+        taxMode: financeDefaults.defaultTaxMode,
+        ...req.body,
+      });
       if (!parsed.success) return res.status(400).json({ message: "Invalid quotation", errors: parsed.error.issues });
       const { items, ...quotationInput } = parsed.data;
       const totals = calculateDocumentTotals(items.map(line => ({
@@ -6454,6 +6490,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "vendor_quotations", saved.id, `Quotation ${saved.quoteNumber}`, null, saved, req);
       res.status(201).json({ ...saved, items: normalizedItems });
     } catch (error) {
+      if (error instanceof ProcurementPricingError) return res.status(400).json({ message: error.message });
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "Quotation number already exists" });
       if (code === "23503") return res.status(400).json({ message: "Vendor or warehouse reference is invalid" });
@@ -6633,11 +6671,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/purchase-invoices", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
     try {
-      const parsed = insertPurchaseInvoiceSchema.safeParse(req.body);
+      const orderId = z.string().uuid().safeParse(req.body?.purchaseOrderId);
+      if (!orderId.success) return res.status(400).json({ message: "Select a valid purchase order" });
+      const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, orderId.data));
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      const parsed = insertPurchaseInvoiceSchema.safeParse({
+        currency: po.currency,
+        taxRate: po.taxRate,
+        taxMode: po.taxMode,
+        documentDiscountType: po.documentDiscountType,
+        documentDiscountValue: po.documentDiscountValue,
+        ...req.body,
+      });
       if (!parsed.success) return res.status(400).json({ message: "Invalid purchase invoice", errors: parsed.error.issues });
       const { items, ...invoiceInput } = parsed.data;
-      const [po] = await db.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoiceInput.purchaseOrderId));
-      if (!po) return res.status(404).json({ message: "Purchase order not found" });
       if (po.status !== "ordered" && po.status !== "received") return res.status(409).json({ message: "Supplier invoices can only be matched to an ordered or received purchase order" });
       if (po.vendorId !== invoiceInput.vendorId) return res.status(400).json({ message: "Invoice vendor must match the purchase order vendor" });
       if (po.quotationId) {
@@ -6662,10 +6709,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const requestedQuantity = (requestedInvoiceQuantities.get(poItem.id) ?? 0) + line.quantity;
         if (invoiced + requestedQuantity > poItem.quantity) return res.status(400).json({ message: `Invoice quantity exceeds the ordered quantity for "${poItem.description}"` });
         requestedInvoiceQuantities.set(poItem.id, requestedQuantity);
-        const discountType = line.discountType ?? poItem.discountType as "percentage" | "fixed";
+        const discountType = line.discountType ?? (poItem.discountType === "percentage" ? "percentage" : "fixed");
         const discountValue = line.discountValue ?? Number(poItem.discountValue);
-        const taxRate = line.taxRate ?? Number(poItem.taxRate || invoiceInput.taxRate || 0);
-        const taxInclusive = line.taxInclusive ?? Boolean(poItem.taxInclusive || invoiceInput.taxMode === "inclusive");
+        const taxRate = line.taxRate ?? Number(req.body.taxRate !== undefined ? invoiceInput.taxRate : poItem.taxRate);
+        const taxInclusive = line.taxInclusive ?? (req.body.taxMode !== undefined ? invoiceInput.taxMode === "inclusive" : poItem.taxInclusive);
         pricingLines.push({ quantity: line.quantity, unitPrice: invoiceUnitPrice, discountType, discountValue, taxRate, taxInclusive });
         matchedLines.push({
           purchaseOrderItemId: poItem.id,
@@ -6725,6 +6772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.id, `Invoice ${saved.invoiceNumber}`, null, saved, req);
       res.status(201).json({ ...saved, items: normalizedLines, payments: [] });
     } catch (error) {
+      if (error instanceof ProcurementPricingError) return res.status(400).json({ message: error.message });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "This invoice number already exists for the vendor" });
@@ -6737,7 +6785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/purchase-invoices/:id/status", requireAuth, requirePermission("purchase_order_update"), async (req, res) => {
     try {
       const status = z.enum(["pending", "approved", "received", "void"]).parse(req.body?.status);
-      const { invoice, updated, shouldReceiveInventory } = await db.transaction(async tx => {
+      const { invoice, updated } = await db.transaction(async tx => {
         const [invoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id)).for("update");
         if (!invoice) throw Object.assign(new Error("Purchase invoice not found"), { status: 404 });
         const conflict = (message: string) => { throw Object.assign(new Error(message), { status: 409 }); };
@@ -6750,29 +6798,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const [credit] = await tx.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.purchaseInvoiceId, invoice.id));
           if (payment || credit) conflict("Invoices with payments or supplier credits cannot be voided");
         }
-        let shouldReceiveInventory = false;
         if (status === "received") {
           if (invoice.status !== "approved" && invoice.status !== "received") conflict("Approve the invoice before receiving it into inventory");
           const [order] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoice.purchaseOrderId)).for("update");
           if (!order || (order.status !== "ordered" && order.status !== "received")) conflict("Only an ordered purchase order can be received through its matched invoice");
           if (order.status === "ordered") {
+            // Receiving is a full-PO event. A partial bill must not silently
+            // create stock for quantities that have not been matched/approved.
+            const orderedLines = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, order.id));
+            const approvedStage = await tx.select({ itemId: purchaseInvoiceMatchLines.purchaseOrderItemId, quantity: purchaseInvoiceMatchLines.quantity })
+              .from(purchaseInvoiceMatchLines).innerJoin(purchaseInvoices, eq(purchaseInvoiceMatchLines.invoiceId, purchaseInvoices.id))
+              .where(and(eq(purchaseInvoices.purchaseOrderId, order.id), inArray(purchaseInvoices.status, ["approved", "received"])));
+            const approvedPhysical = await tx.select({ itemId: purchaseInvoiceItems.purchaseOrderItemId, quantity: purchaseInvoiceItems.quantity })
+              .from(purchaseInvoiceItems).innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+              .where(and(eq(purchaseInvoices.purchaseOrderId, order.id), inArray(purchaseInvoices.status, ["approved", "received"])));
+            const quantities = new Map<string, number>();
+            for (const line of [...approvedStage, ...approvedPhysical]) quantities.set(line.itemId, (quantities.get(line.itemId) ?? 0) + line.quantity);
+            if (!orderedLines.length || orderedLines.some(line => quantities.get(line.id) !== line.quantity)) {
+              conflict("Match and approve invoice quantities for every PO line before confirming full-order delivery. Partial invoices may remain approved until the order is fully matched.");
+            }
             await tx.update(purchaseOrders).set({ status: "received", actualDelivery: toDateInputValue(new Date()) }).where(eq(purchaseOrders.id, order.id));
+            await tx.insert(auditLogs).values({
+              userId: req.user!.id, action: "UPDATE", tableName: "purchase_orders", recordId: order.id,
+              recordName: `PO ${order.poNumber}`, oldValues: JSON.stringify({ status: "ordered" }),
+              newValues: JSON.stringify({ status: "received", invoiceId: invoice.id, reason: "Matched supplier invoice processed" }),
+              ipAddress: req.ip, userAgent: req.get("user-agent")?.slice(0, 512),
+            });
           }
-          shouldReceiveInventory = !order.assetsCreated;
-        }
-        const [updated] = await tx.update(purchaseInvoices).set({
-          status,
-          approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
-          receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
-          updatedAt: new Date(),
-        }).where(eq(purchaseInvoices.id, invoice.id)).returning();
-        return { invoice, updated, shouldReceiveInventory };
-      });
-      if (status === "received") {
-        if (shouldReceiveInventory) await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id);
-        const staged = await db.select().from(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
-        if (staged.length) {
-          await db.transaction(async tx => {
+          await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id, tx);
+          const staged = await tx.select().from(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
+          if (staged.length) {
             const existingItems = await tx.select({ purchaseOrderItemId: purchaseInvoiceItems.purchaseOrderItemId })
               .from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id));
             const existingItemIds = new Set(existingItems.map(row => row.purchaseOrderItemId));
@@ -6797,9 +6852,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
             await tx.delete(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
-          });
+          }
         }
-      }
+        const [updated] = await tx.update(purchaseInvoices).set({
+          status,
+          approvedAt: status === "approved" || status === "received" ? invoice.approvedAt ?? new Date() : invoice.approvedAt,
+          receivedAt: status === "received" ? invoice.receivedAt ?? new Date() : invoice.receivedAt,
+          updatedAt: new Date(),
+        }).where(eq(purchaseInvoices.id, invoice.id)).returning();
+        return { invoice, updated };
+      });
       await logAudit(req.user?.id, "UPDATE", "purchase_invoices", invoice.id, `Invoice ${invoice.invoiceNumber}`, invoice, updated, req);
       res.json(updated);
     } catch (error) {

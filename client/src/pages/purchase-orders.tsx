@@ -18,7 +18,8 @@ import { zodResolver } from "@/lib/zod-resolver";
 import { useToast } from "@/hooks/use-toast";
 import { useHasPermission } from "@/hooks/use-auth";
 import { insertPurchaseOrderSchema, type PurchaseOrderWithDetails, type Department, type Vendor } from "@shared/schema";
-import { calculateDocumentTotals } from "@shared/procurement-pricing";
+import { previewDocumentTotals } from "@shared/procurement-pricing";
+import { PURCHASE_ORDER_NEXT_STATUS } from "@shared/purchase-order-lifecycle";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VendorPicker } from "@/components/vendors/vendor-picker";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
@@ -105,7 +106,7 @@ function PurchaseOrderForm({
     control: form.control,
     name: "items",
   });
-  const orderPricing = calculateDocumentTotals(
+  const orderPricing = previewDocumentTotals(
     form.watch("items") ?? [],
     form.watch("documentDiscountType"),
     Number(form.watch("documentDiscountValue") ?? 0),
@@ -135,7 +136,7 @@ function PurchaseOrderForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Status</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select onValueChange={field.onChange} value={field.value} disabled={submitText === "Create Order"}>
                   <FormControl>
                     <SelectTrigger data-testid="select-status">
                       <SelectValue placeholder="Select status" />
@@ -244,10 +245,17 @@ function PurchaseOrderForm({
             <FormItem><FormLabel>Currency</FormLabel><FormControl><Input {...field} maxLength={3} onChange={event => field.onChange(event.target.value.toUpperCase())} /></FormControl><FormMessage /></FormItem>
           )} />
           <FormField control={form.control} name="taxRate" render={({ field }) => (
-            <FormItem><FormLabel>Default tax rate (%)</FormLabel><FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Default tax rate (%)</FormLabel><FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => {
+              const rate = Number(event.target.value) || 0;
+              field.onChange(rate);
+              (form.getValues("items") ?? []).forEach((_: unknown, index: number) => form.setValue(`items.${index}.taxRate`, rate));
+            }} /></FormControl><FormMessage /></FormItem>
           )} />
           <FormField control={form.control} name="taxMode" render={({ field }) => (
-            <FormItem><FormLabel>Tax mode</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem></SelectContent></Select><FormMessage /></FormItem>
+            <FormItem><FormLabel>Tax mode</FormLabel><Select value={field.value} onValueChange={mode => {
+              field.onChange(mode);
+              (form.getValues("items") ?? []).forEach((_: unknown, index: number) => form.setValue(`items.${index}.taxInclusive`, mode === "inclusive"));
+            }}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem></SelectContent></Select><FormMessage /></FormItem>
           )} />
           <FormField control={form.control} name="documentDiscountType" render={({ field }) => (
             <FormItem><FormLabel>Document discount type</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="fixed">Fixed amount</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select><FormMessage /></FormItem>
@@ -258,6 +266,7 @@ function PurchaseOrderForm({
           <div className="flex items-end text-sm text-muted-foreground">
             Subtotal {orderPricing.subtotal.toFixed(2)} · Tax {orderPricing.taxAmount.toFixed(2)} · Total <strong className="ml-1 text-foreground">{form.watch("currency")} {orderPricing.grandTotal.toFixed(2)}</strong>
           </div>
+          {orderPricing.validationError && <p role="alert" className="text-sm text-destructive sm:col-span-2">{orderPricing.validationError}</p>}
         </div>
 
         <FormField
@@ -453,7 +462,7 @@ function PurchaseOrderForm({
                     name={`items.${index}.unitPrice`}
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Unit Price ($)</FormLabel>
+                        <FormLabel>Unit price ({form.watch("currency")})</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -504,7 +513,7 @@ function PurchaseOrderForm({
         </div>
 
         <div className="flex justify-end pt-2">
-          <Button type="submit" data-testid="button-submit">
+          <Button type="submit" disabled={Boolean(orderPricing.validationError)} data-testid="button-submit">
             {submitText}
           </Button>
         </div>
@@ -514,13 +523,7 @@ function PurchaseOrderForm({
 }
 
 // ─── Quick status update buttons ───
-const WORKFLOW: Record<string, string | null> = {
-  pending: "approved",
-  approved: "ordered",
-  ordered: null,
-  received: null,
-  cancelled: null,
-};
+const WORKFLOW = PURCHASE_ORDER_NEXT_STATUS;
 
 const WORKFLOW_LABEL: Record<string, string> = {
   approved: "Mark Approved",
@@ -613,6 +616,7 @@ export default function PurchaseOrders() {
     mutationFn: (data: PurchaseOrderFormData) => apiRequest("POST", "/api/purchase-orders", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/vendor-quotations"] });
       setIsCreateDialogOpen(false);
       setSelectedQuotationId("");
       createForm.reset({ ...defaultFormValues, poNumber: generatePONumber() });
@@ -724,7 +728,7 @@ export default function PurchaseOrders() {
   useEffect(() => {
     if (isCreateDialogOpen) {
       createForm.setValue("poNumber", generatePONumber());
-      if (financeTaxSettings) {
+      if (financeTaxSettings && !createForm.getValues("quotationId") && !createForm.getValues("vendorId")) {
         createForm.setValue("currency", financeTaxSettings.currencyCode);
         createForm.setValue("taxRate", Number(financeTaxSettings.defaultTaxRate));
         createForm.setValue("taxMode", financeTaxSettings.defaultTaxMode);
@@ -735,7 +739,8 @@ export default function PurchaseOrders() {
   }, [isCreateDialogOpen, financeTaxSettings]);
 
   const handleCreate = (data: PurchaseOrderFormData) => {
-    const totals = calculateDocumentTotals(data.items, data.documentDiscountType, data.documentDiscountValue);
+    const totals = previewDocumentTotals(data.items, data.documentDiscountType, data.documentDiscountValue);
+    if (totals.validationError) return toast({ title: "Invalid pricing", description: totals.validationError, variant: "destructive" });
     const cleanData = {
       ...data,
       subtotal: totals.subtotal.toFixed(2),
@@ -759,6 +764,7 @@ export default function PurchaseOrders() {
       quotationId: quote.id,
       vendorId: quote.vendorId,
       reference: `Quotation ${quote.quoteNumber}`,
+      notes: [quote.notes, quote.paymentTerms ? `Payment terms: ${quote.paymentTerms}` : ""].filter(Boolean).join("\n"),
       orderDate: appInputDate(new Date()),
       currency: quote.currency ?? financeTaxSettings?.currencyCode ?? "SAR",
       taxRate: Number(quote.taxRate ?? financeTaxSettings?.defaultTaxRate ?? 0),
@@ -780,7 +786,7 @@ export default function PurchaseOrders() {
         serialNumber: "",
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
-        discountType: item.discountType ?? "fixed",
+        discountType: item.discountType === "percentage" ? "percentage" : "fixed",
         discountValue: Number(item.discountValue ?? 0),
         taxRate: Number(item.taxRate ?? quote.taxRate ?? 0),
         taxInclusive: Boolean(item.taxInclusive ?? quote.taxMode === "inclusive"),
@@ -819,7 +825,7 @@ export default function PurchaseOrders() {
         serialNumber: item.serialNumber || "",
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
-        discountType: item.discountType ?? "fixed",
+        discountType: item.discountType === "percentage" ? "percentage" : "fixed",
         discountValue: Number(item.discountValue ?? 0),
         taxRate: Number(item.taxRate ?? 0),
         taxInclusive: Boolean(item.taxInclusive),
@@ -857,7 +863,7 @@ export default function PurchaseOrders() {
         serialNumber: "",
         quantity: item.quantity,
         unitPrice: parseFloat(item.unitPrice),
-        discountType: item.discountType ?? "fixed",
+        discountType: item.discountType === "percentage" ? "percentage" : "fixed",
         discountValue: Number(item.discountValue ?? 0),
         taxRate: Number(item.taxRate ?? 0),
         taxInclusive: Boolean(item.taxInclusive),
@@ -870,7 +876,8 @@ export default function PurchaseOrders() {
 
   const handleUpdate = (data: PurchaseOrderFormData) => {
     if (!editingOrder) return;
-    const totals = calculateDocumentTotals(data.items, data.documentDiscountType, data.documentDiscountValue);
+    const totals = previewDocumentTotals(data.items, data.documentDiscountType, data.documentDiscountValue);
+    if (totals.validationError) return toast({ title: "Invalid pricing", description: totals.validationError, variant: "destructive" });
     const cleanData = {
       ...data,
       subtotal: totals.subtotal.toFixed(2),
@@ -990,7 +997,7 @@ export default function PurchaseOrders() {
                   id="import-quotation"
                   value={selectedQuotationId}
                   onChange={importQuotationIntoForm}
-                  options={quotations.filter(row => ["accepted", "approved"].includes(String(row.status).toLowerCase())).map(row => ({
+                  options={quotations.filter(row => String(row.status).toLowerCase() === "accepted").map(row => ({
                     value: row.id,
                     label: `${row.quoteNumber} · ${row.currency} ${row.totalAmount}`,
                     description: `${vendors.find(vendor => vendor.id === row.vendorId)?.name ?? "Vendor"} · ${row.items?.length ?? 0} lines`,
@@ -1134,6 +1141,9 @@ export default function PurchaseOrders() {
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0"
+                        disabled={order.status !== "pending"}
+                        aria-label={`Edit ${order.poNumber}`}
+                        title={order.status === "pending" ? "Edit purchase order" : "Only Pending orders can be edited"}
                         onClick={() => handleEdit(order)}
                         data-testid={`button-edit-${order.id}`}
                       >
@@ -1208,7 +1218,7 @@ export default function PurchaseOrders() {
                       <Package className="w-3 h-3" /> {itemCount} item{itemCount !== 1 ? "s" : ""}
                     </span>
                     <span className="flex items-center gap-1 text-xs font-medium">
-                      <DollarSign className="w-3 h-3" /> {totalAmount.toLocaleString()}
+                      <DollarSign className="w-3 h-3" /> {order.currency ?? "USD"} {totalAmount.toLocaleString()}
                     </span>
                   </div>
 
@@ -1230,7 +1240,7 @@ export default function PurchaseOrders() {
                               <span className="ml-1 text-[10px] opacity-70">SN: {item.serialNumber}</span>
                             )}
                           </span>
-                          <span className="shrink-0">{item.quantity}× ${item.unitPrice}</span>
+                          <span className="shrink-0">{item.quantity}× {order.currency ?? "USD"} {item.unitPrice}</span>
                         </div>
                       ))}
                       {order.items.length > 2 && (
@@ -1240,7 +1250,7 @@ export default function PurchaseOrders() {
                   )}
 
                   {/* Workflow advance button */}
-                  {(nextStatus || order.status === "received") && (
+                  {(nextStatus || ["ordered", "received"].includes(order.status)) && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {nextStatus && (
                         <Button
@@ -1254,6 +1264,10 @@ export default function PurchaseOrders() {
                           {WORKFLOW_LABEL[nextStatus] ?? `Mark ${nextStatus}`}
                         </Button>
                       )}
+                      {["pending", "approved", "ordered"].includes(order.status) && <Button size="sm" variant="outline" className="text-xs" disabled={updateMutation.isPending} onClick={() => {
+                        if (window.confirm(`Cancel ${order.poNumber}? This closes the order without receiving inventory.`)) updateMutation.mutate({ id: order.id, data: { status: "cancelled" } });
+                      }}>Cancel order</Button>}
+                      {order.status === "ordered" && <Button size="sm" variant="outline" asChild><a href="/finance/invoices">Receive through supplier invoice</a></Button>}
                       {isEligibleForAssets && (
                         <Button
                           size="sm"
