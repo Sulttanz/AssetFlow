@@ -12,10 +12,12 @@ import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatDateDisplay } from "@/lib/date-utils";
+import { formatDateDisplay, toDateInputValue } from "@/lib/date-utils";
 import { VendorPicker } from "@/components/vendors/vendor-picker";
 import { previewDocumentTotals } from "@shared/procurement-pricing";
 import { DocumentPricingControls, LinePricingControls, type DocumentPricingFields, type LinePricingFields } from "@/components/finance/procurement-pricing-controls";
+import { formatDocumentNumberPreview } from "@shared/finance-document-numbering";
+import type { FinanceDocumentSequence, FinanceTaxRate } from "@shared/schema";
 
 type Vendor = { id: string; name: string; code?: string | null; taxId?: string | null };
 type OrderLine = { id: string; description: string; itemType: string; quantity: number; unitPrice: string; consumableId: string | null; warehouseLocationId: string | null };
@@ -30,7 +32,7 @@ type InvoiceLine = LinePricingFields & { purchaseOrderItemId: string; descriptio
 const initialPricing: DocumentPricingFields = { currency: "SAR", taxRate: "15", taxMode: "exclusive", documentDiscountType: "fixed", documentDiscountValue: "0" };
 const newQuoteLine = (taxRate = "15", taxInclusive = false): QuoteLine => ({ description: "", itemType: "asset", quantity: "1", unitPrice: "0", assetType: "other", consumableCategory: "", modelPartNumber: "", warehouseLocationId: "", discountType: "fixed", discountValue: "0", taxRate, taxInclusive });
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => toDateInputValue(new Date());
 const currency = (value: string | number, code = "USD") => {
   const amount = Number(value || 0);
   try { return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(amount); }
@@ -48,6 +50,10 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   const { toast } = useToast();
   const [quoteSearch, setQuoteSearch] = useState("");
   const [quoteStatusFilter, setQuoteStatusFilter] = useState("__all__");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("__all__");
+  const [returnSearch, setReturnSearch] = useState("");
+  const [returnStatusFilter, setReturnStatusFilter] = useState("__all__");
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
@@ -61,6 +67,13 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
 
   const vendorsQuery = useQuery<Vendor[]>({ queryKey: ["/api/vendors"] });
   const { data: taxSettings } = useQuery<{ defaultTaxRate: string; defaultTaxMode: "exclusive" | "inclusive"; currencyCode: string }>({ queryKey: ["/api/finance/tax-settings"] });
+  const { data: taxRates = [], isError: taxRatesError } = useQuery<FinanceTaxRate[]>({ queryKey: ["/api/finance/tax-rates"] });
+  const { data: documentSequences = [], isError: sequencesError, isLoading: sequencesLoading } = useQuery<FinanceDocumentSequence[]>({ queryKey: ["/api/finance/document-sequences"] });
+  const getSequence = (type: FinanceDocumentSequence["documentType"]) => documentSequences.find(sequence => sequence.documentType === type);
+  const sequenceNumber = (type: FinanceDocumentSequence["documentType"]) => {
+    const sequence = getSequence(type);
+    return sequence?.numberingMode === "auto" ? formatDocumentNumberPreview(sequence) : "";
+  };
   useEffect(() => {
     if (!taxSettings) return;
     const defaults = { currency: taxSettings.currencyCode, taxRate: taxSettings.defaultTaxRate, taxMode: taxSettings.defaultTaxMode };
@@ -70,6 +83,11 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     }
     if (!invoiceOpen) setInvoiceForm(current => ({ ...current, ...defaults }));
   }, [taxSettings]);
+  useEffect(() => {
+    if (!documentSequences.length) return;
+    if (!quoteOpen) setQuoteForm(current => ({ ...current, quoteNumber: sequenceNumber("quotation") }));
+    if (!invoiceOpen) setInvoiceForm(current => ({ ...current, invoiceNumber: sequenceNumber("invoice") }));
+  }, [documentSequences, quoteOpen, invoiceOpen]);
   const ordersQuery = useQuery<PurchaseOrder[]>({ queryKey: ["/api/purchase-orders"], enabled: section === "invoices" || section === "returns" });
   const quotesQuery = useQuery<Quotation[]>({ queryKey: ["/api/vendor-quotations"], enabled: section === "quotations" || section === "invoices" || section === "returns" });
   const invoicesQuery = useQuery<Invoice[]>({ queryKey: ["/api/purchase-invoices"], enabled: section === "invoices" || section === "returns" });
@@ -100,6 +118,8 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
   const acceptedReturnQuote = returnOrder?.quotationId ? (quotesQuery.data ?? []).find(quote => quote.id === returnOrder.quotationId && isAcceptedQuotation(quote.status)) : undefined;
   const returnCurrency = selectedReturnInvoice?.currency || acceptedReturnQuote?.currency || "USD";
   const selectedInvoiceOutstanding = paymentInvoice ? Math.max(Number(paymentInvoice.outstandingAmount ?? 0), 0) : 0;
+  const quoteManualNumber = getSequence("quotation")?.numberingMode === "manual";
+  const invoiceManualNumber = getSequence("invoice")?.numberingMode === "manual";
   const sectionCopy = {
     quotations: {
       title: "Supplier Quotations & RFQs",
@@ -119,16 +139,31 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     const matchesSearch = !quoteSearch.trim() || `${quote.quoteNumber} ${vendorName} ${quote.status}`.toLowerCase().includes(quoteSearch.trim().toLowerCase());
     return matchesSearch && (quoteStatusFilter === "__all__" || quote.status === quoteStatusFilter);
   });
+  const filteredInvoices = (invoicesQuery.data ?? []).filter(invoice => {
+    const vendorName = vendorsQuery.data?.find(vendor => vendor.id === invoice.vendorId)?.name ?? "";
+    const poNumber = ordersQuery.data?.find(po => po.id === invoice.purchaseOrderId)?.poNumber ?? "";
+    const query = invoiceSearch.trim().toLowerCase();
+    const matchesSearch = !query || `${invoice.invoiceNumber} ${vendorName} ${poNumber} ${invoice.status} ${invoice.paymentStatus}`.toLowerCase().includes(query);
+    const matchesStatus = invoiceStatusFilter === "__all__" || invoice.status === invoiceStatusFilter || invoice.paymentStatus === invoiceStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
+  const filteredReturns = (returnsQuery.data ?? []).filter(row => {
+    const vendorName = vendorsQuery.data?.find(vendor => vendor.id === row.vendorId)?.name ?? "";
+    const poNumber = ordersQuery.data?.find(po => po.id === row.purchaseOrderId)?.poNumber ?? "";
+    const query = returnSearch.trim().toLowerCase();
+    return (!query || `${row.returnNumber} ${row.debitNoteNumber} ${vendorName} ${poNumber} ${row.reasonCode} ${row.status}`.toLowerCase().includes(query))
+      && (returnStatusFilter === "__all__" || row.status === returnStatusFilter);
+  });
 
   const refresh = async (...keys: string[][]) => Promise.all(keys.map(queryKey => queryClient.invalidateQueries({ queryKey })));
   const resetQuotationForm = () => {
     setQuoteOpen(false);
-    setQuoteForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", quoteNumber: "", vendorId: "", issueDate: today(), validUntil: "", notes: "" });
+    setQuoteForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", quoteNumber: sequenceNumber("quotation"), vendorId: "", issueDate: today(), validUntil: "", notes: "" });
     setQuoteItems([newQuoteLine(taxSettings?.defaultTaxRate, taxSettings?.defaultTaxMode === "inclusive")]);
   };
   const resetInvoiceForm = () => {
     setInvoiceOpen(false);
-    setInvoiceForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", vendorId: "", purchaseOrderId: "", invoiceNumber: "", issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
+    setInvoiceForm({ ...initialPricing, currency: taxSettings?.currencyCode ?? "SAR", taxRate: taxSettings?.defaultTaxRate ?? "15", taxMode: taxSettings?.defaultTaxMode ?? "exclusive", vendorId: "", purchaseOrderId: "", invoiceNumber: sequenceNumber("invoice"), issueDate: today(), dueDate: today(), paymentMethod: "bank_transfer", paymentTerms: "", receiptId: "", purchaseOrderItemId: "", quantity: "1" });
     setInvoiceLines([]);
   };
   const resetReturnForm = () => {
@@ -140,7 +175,7 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     onSuccess: async () => {
       reset();
       toast({ title: "Saved", description: "Procurement record was saved." });
-      await refresh(["/api/vendor-quotations"], ["/api/purchase-orders"], ["/api/purchase-invoices"], ["/api/purchase-returns"], ["/api/consumables"], ["/api/purchase-orders", returnForm.purchaseOrderId, "returnable-assets"]);
+      await refresh(["/api/vendor-quotations"], ["/api/purchase-orders"], ["/api/purchase-invoices"], ["/api/purchase-returns"], ["/api/consumables"], ["/api/purchase-orders", returnForm.purchaseOrderId, "returnable-assets"], ["/api/finance/document-sequences"]);
     },
     onError: (error: Error) => toast({ title: "Could not save", description: error.message, variant: "destructive" }),
   });
@@ -158,8 +193,8 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     onError: (error: Error) => toast({ title: "Quotation not updated", description: error.message, variant: "destructive" }),
   });
   const convertQuote = useMutation({
-    mutationFn: async (id: string) => apiRequest("POST", `/api/vendor-quotations/${id}/convert-to-po`, {}),
-    onSuccess: async () => { toast({ title: "Quotation converted", description: "A draft purchase order was created." }); await refresh(["/api/vendor-quotations"], ["/api/purchase-orders"]); },
+    mutationFn: async ({ id, poNumber }: { id: string; poNumber?: string }) => apiRequest("POST", `/api/vendor-quotations/${id}/convert-to-po`, { poNumber }),
+    onSuccess: async () => { toast({ title: "Quotation converted", description: "A draft purchase order was created." }); await refresh(["/api/vendor-quotations"], ["/api/purchase-orders"], ["/api/finance/document-sequences"]); },
     onError: (error: Error) => toast({ title: "Conversion failed", description: error.message, variant: "destructive" }),
   });
   const invoiceStatus = useMutation({
@@ -173,6 +208,7 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     if (quoteTotals.validationError || !quoteForm.vendorId) return;
     saveQuote.mutate({
       ...quoteForm,
+      quoteNumber: getSequence("quotation")?.numberingMode === "manual" ? quoteForm.quoteNumber.trim() : undefined,
       documentDiscountValue: Number(quoteForm.documentDiscountValue),
       validUntil: quoteForm.validUntil || null,
       status: "submitted",
@@ -186,7 +222,7 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     event.preventDefault();
     if (!selectedOrder || !invoiceLines.length || invoiceTotals.validationError) return;
     saveInvoice.mutate({
-      invoiceNumber: invoiceForm.invoiceNumber,
+      invoiceNumber: getSequence("invoice")?.numberingMode === "manual" ? invoiceForm.invoiceNumber.trim() : undefined,
       vendorId: selectedOrder.vendorId,
       purchaseOrderId: selectedOrder.id,
       issueDate: invoiceForm.issueDate,
@@ -248,8 +284,8 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
     <main className="min-w-0 space-y-6 p-4 sm:p-6" data-testid="procure-to-pay-page">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div><p className="text-sm font-medium text-blue-700">Finance workspace</p><h1 className="text-2xl font-semibold tracking-tight">{sectionCopy.title}</h1><p className="mt-1 text-sm text-muted-foreground">{sectionCopy.subtitle}</p></div>
-        {section === "quotations" && <Button onClick={() => setQuoteOpen(true)} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" />New quotation</Button>}
-        {section === "invoices" && <Button onClick={() => setInvoiceOpen(true)} className="w-full sm:w-auto"><FileText className="mr-2 h-4 w-4" />Record invoice</Button>}
+        {section === "quotations" && <Button disabled={sequencesLoading || sequencesError} onClick={() => { setQuoteForm(current => ({ ...current, quoteNumber: sequenceNumber("quotation") })); setQuoteOpen(true); }} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" />New quotation</Button>}
+        {section === "invoices" && <Button disabled={sequencesLoading || sequencesError} onClick={() => { setInvoiceForm(current => ({ ...current, invoiceNumber: sequenceNumber("invoice") })); setInvoiceOpen(true); }} className="w-full sm:w-auto"><FileText className="mr-2 h-4 w-4" />Record invoice</Button>}
         {section === "returns" && <Button onClick={() => setReturnOpen(true)} className="w-full sm:w-auto"><RotateCcw className="mr-2 h-4 w-4" />Purchase return</Button>}
       </header>
       {section === "quotations" && !quotesQuery.isError && <div className="grid gap-3 sm:grid-cols-3">
@@ -262,6 +298,8 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
          (section === "invoices" && (invoicesQuery.isError || ordersQuery.isError || vendorsQuery.isError)) ||
          (section === "returns" && (returnsQuery.isError || ordersQuery.isError || vendorsQuery.isError || invoicesQuery.isError))) &&
          <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">One or more records for this page could not be loaded. Failed sections are identified below; they are not empty records.</div>}
+       {(section === "quotations" || section === "invoices") && sequencesError && <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Document numbering could not be loaded. New documents are disabled until the numbering policy is available.</div>}
+       {(section === "quotations" || section === "invoices") && taxRatesError && <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">The tax-rate catalog could not be loaded. Existing saved rates remain intact, but custom rates must be entered explicitly.</div>}
        <div>
         {section === "quotations" && <>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row">
@@ -270,28 +308,41 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
           </div>
           <Card><CardHeader><CardTitle>Vendor quotations</CardTitle></CardHeader><CardContent className="overflow-x-auto">
             {quotesQuery.isLoading ? <p>Loading quotations…</p> : <table className="w-full min-w-[720px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Quote</th><th className="p-2">Vendor</th><th className="p-2">Issue date</th><th className="p-2">Lines</th><th className="p-2">Total</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
-              {filteredQuotes.map(quote => <tr key={quote.id}><td className="p-2 font-medium">{quote.quoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === quote.vendorId)?.name ?? "Vendor"}</td><td className="p-2">{formatDateDisplay(quote.issueDate)}</td><td className="p-2">{quote.items?.length ?? 0}</td><td className="p-2">{currency(quote.totalAmount, quote.currency)}</td><td className="p-2"><Badge variant={quote.status === "converted" ? "default" : "secondary"}>{quote.status}</Badge></td><td className="p-2"><div className="flex flex-wrap gap-1">{quote.status === "submitted" && <Button size="sm" variant="outline" onClick={() => quoteStatus.mutate({ id: quote.id, status: "accepted" })}>Accept</Button>}{quote.status === "accepted" && <Button size="sm" onClick={() => convertQuote.mutate(quote.id)}><ArrowRightLeft className="mr-1 h-3 w-3" />Convert to PO</Button>}</div></td></tr>)}
+              {filteredQuotes.map(quote => <tr key={quote.id}><td className="p-2 font-medium">{quote.quoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === quote.vendorId)?.name ?? "Vendor"}</td><td className="p-2">{formatDateDisplay(quote.issueDate)}</td><td className="p-2">{quote.items?.length ?? 0}</td><td className="p-2">{currency(quote.totalAmount, quote.currency)}</td><td className="p-2"><Badge variant={quote.status === "converted" ? "default" : quote.status === "rejected" || quote.status === "expired" ? "destructive" : "secondary"}>{quote.status}</Badge></td><td className="p-2"><div className="flex flex-wrap gap-1">{quote.status === "submitted" && <Button size="sm" variant="outline" onClick={() => quoteStatus.mutate({ id: quote.id, status: "accepted" })}>Accept</Button>}{quote.status === "accepted" && <Button size="sm" disabled={sequencesLoading || sequencesError || !getSequence("purchase_order")} onClick={() => {
+                const sequence = getSequence("purchase_order");
+                const poNumber = sequence?.numberingMode === "manual" ? window.prompt("Enter a unique purchase-order number")?.trim() : undefined;
+                if (sequence?.numberingMode === "manual" && !poNumber) return;
+                convertQuote.mutate({ id: quote.id, poNumber });
+              }}><ArrowRightLeft className="mr-1 h-3 w-3" />Convert to PO</Button>}</div></td></tr>)}
              {quotesQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load quotations.</td></tr>}
              {!quotesQuery.isError && !quotesQuery.isLoading && !filteredQuotes.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No quotations match these filters.</td></tr>}
             </tbody></table>}
           </CardContent></Card>
         </>}
-        {section === "invoices" && <Card><CardHeader><CardTitle>Purchase invoices & payment history</CardTitle><p className="text-sm text-muted-foreground">Receive inventory in the purchase-order workflow before creating a matched invoice. <a className="font-medium text-primary underline-offset-4 hover:underline" href="/finance/purchase-orders">Go to purchase orders to receive inventory</a>.</p></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Invoice</th><th className="p-2">Vendor / PO</th><th className="p-2">Due date</th><th className="p-2">Total</th><th className="p-2">Payment status</th><th className="p-2">Workflow</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
-          {(invoicesQuery.data ?? []).map(invoice => {
+        {section === "invoices" && <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+          <div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search purchase invoices" className="pl-9" placeholder="Search invoice, vendor, or PO" value={invoiceSearch} onChange={event => setInvoiceSearch(event.target.value)} /></div>
+          <Select value={invoiceStatusFilter} onValueChange={setInvoiceStatusFilter}><SelectTrigger aria-label="Filter invoices by status" className="w-full sm:w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all__">All statuses</SelectItem>{["pending", "approved", "received", "void", "paid", "partially_paid"].map(status => <SelectItem key={status} value={status}>{status.replace("_", " ")}</SelectItem>)}</SelectContent></Select>
+        </div>}
+        {section === "invoices" && <Card><CardHeader><CardTitle>Purchase invoices & payment history</CardTitle><p className="text-sm text-muted-foreground">Match supplier invoices to an ordered PO; confirm invoice receipt only after the full order quantity is covered by approved invoices. <a className="font-medium text-primary underline-offset-4 hover:underline" href="/finance/purchase-orders">View purchase orders</a>.</p></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Invoice</th><th className="p-2">Vendor / PO</th><th className="p-2">Due date</th><th className="p-2">Total</th><th className="p-2">Payment status</th><th className="p-2">Workflow</th><th className="p-2">Actions</th></tr></thead><tbody className="divide-y">
+          {filteredInvoices.map(invoice => {
             const vendor = vendorsQuery.data?.find(row => row.id === invoice.vendorId)?.name ?? "Vendor";
             const po = ordersQuery.data?.find(row => row.id === invoice.purchaseOrderId);
              const outstanding = Math.max(Number(invoice.outstandingAmount ?? 0), 0);
              const paid = (invoice.payments ?? []).reduce((sum, row) => sum + Number(row.amount), 0);
-              return <tr key={invoice.id}><td className="p-2 font-medium">{invoice.invoiceNumber}</td><td className="p-2">{vendor} · {po?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(invoice.dueDate)}</td><td className="p-2">{currency(invoice.grandTotal, invoice.currency)}</td><td className="p-2"><Badge variant={invoice.paymentStatus === "paid" ? "default" : "secondary"}>{invoice.paymentStatus.replace("_", " ")}</Badge><div className="mt-1 text-xs text-muted-foreground">Paid {currency(paid, invoice.currency)} · Open {currency(outstanding, invoice.currency)}</div></td><td className="p-2">{invoice.status}</td><td className="p-2"><div className="flex flex-wrap gap-1">{invoice.status === "pending" && <Button size="sm" variant="outline" onClick={() => invoiceStatus.mutate({ id: invoice.id, status: "approved" })}>Approve</Button>}{invoice.status === "approved" && <Button size="sm" variant="outline" onClick={() => invoiceStatus.mutate({ id: invoice.id, status: "received" })}>Confirm receipt</Button>}{invoice.status !== "pending" && invoice.status !== "void" && outstanding > 0 && <Button size="sm" variant="outline" onClick={() => { setPaymentInvoice(invoice); setPaymentForm(form => ({ ...form, amount: String(outstanding), paymentMethod: invoice.paymentMethod })); }}>Record payment</Button>}</div></td></tr>;
+              return <tr key={invoice.id}><td className="p-2 font-medium">{invoice.invoiceNumber}</td><td className="p-2">{vendor} · {po?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(invoice.dueDate)}</td><td className="p-2">{currency(invoice.grandTotal, invoice.currency)}</td><td className="p-2"><Badge variant={invoice.paymentStatus === "paid" ? "default" : invoice.paymentStatus === "partially_paid" ? "outline" : "secondary"}>{invoice.paymentStatus.replace("_", " ")}</Badge><div className="mt-1 text-xs text-muted-foreground">Paid {currency(paid, invoice.currency)} · Open {currency(outstanding, invoice.currency)}</div></td><td className="p-2"><Badge variant={invoice.status === "received" ? "default" : invoice.status === "void" ? "destructive" : "secondary"}>{invoice.status}</Badge></td><td className="p-2"><div className="flex flex-wrap gap-1">{invoice.status === "pending" && <Button size="sm" variant="outline" onClick={() => invoiceStatus.mutate({ id: invoice.id, status: "approved" })}>Approve</Button>}{invoice.status === "approved" && <Button size="sm" variant="outline" onClick={() => invoiceStatus.mutate({ id: invoice.id, status: "received" })}>Confirm receipt</Button>}{invoice.status !== "pending" && invoice.status !== "void" && outstanding > 0 && <Button size="sm" variant="outline" onClick={() => { setPaymentInvoice(invoice); setPaymentForm(form => ({ ...form, amount: String(outstanding), paymentMethod: invoice.paymentMethod })); }}>Record payment</Button>}</div></td></tr>;
           })}
            {invoicesQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load invoices.</td></tr>}
-           {!invoicesQuery.isError && !invoicesQuery.isLoading && !invoicesQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No invoices recorded.</td></tr>}
+           {!invoicesQuery.isError && !invoicesQuery.isLoading && !filteredInvoices.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">{invoicesQuery.data?.length ? "No invoices match these filters." : "No invoices recorded."}</td></tr>}
         </tbody></table></CardContent></Card>}
-        {section === "returns" && <Card><CardHeader><CardTitle>Purchase returns & debit notes</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Return</th><th className="p-2">Debit note</th><th className="p-2">Vendor / PO</th><th className="p-2">Date</th><th className="p-2">Reason</th><th className="p-2">Credit</th><th className="p-2">Status</th></tr></thead><tbody className="divide-y">{(returnsQuery.data ?? []).map(row => <tr key={row.id}><td className="p-2 font-medium">{row.returnNumber}</td><td className="p-2">{row.debitNoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === row.vendorId)?.name ?? "Vendor"} · {ordersQuery.data?.find(po => po.id === row.purchaseOrderId)?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(row.returnDate)}</td><td className="p-2 capitalize">{row.reasonCode.replace("_", " ")}</td><td className="p-2">{currency(row.totalCredit, row.currency)}</td><td className="p-2"><Badge variant="secondary">{row.status}</Badge></td></tr>)}{returnsQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load purchase returns.</td></tr>}{!returnsQuery.isError && !returnsQuery.isLoading && !returnsQuery.data?.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No supplier returns or debit notes.</td></tr>}</tbody></table></CardContent></Card>}
+        {section === "returns" && <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+          <div className="relative w-full sm:max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input aria-label="Search purchase returns" className="pl-9" placeholder="Search return, debit note, vendor, or PO" value={returnSearch} onChange={event => setReturnSearch(event.target.value)} /></div>
+          <Select value={returnStatusFilter} onValueChange={setReturnStatusFilter}><SelectTrigger aria-label="Filter purchase returns by status" className="w-full sm:w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__all__">All statuses</SelectItem>{["draft", "approved", "rejected"].map(status => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select>
+        </div>}
+        {section === "returns" && <Card><CardHeader><CardTitle>Purchase returns & debit notes</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="p-2">Return</th><th className="p-2">Debit note</th><th className="p-2">Vendor / PO</th><th className="p-2">Date</th><th className="p-2">Reason</th><th className="p-2">Credit</th><th className="p-2">Status</th></tr></thead><tbody className="divide-y">{filteredReturns.map(row => <tr key={row.id}><td className="p-2 font-medium">{row.returnNumber}</td><td className="p-2">{row.debitNoteNumber}</td><td className="p-2">{vendorsQuery.data?.find(vendor => vendor.id === row.vendorId)?.name ?? "Vendor"} · {ordersQuery.data?.find(po => po.id === row.purchaseOrderId)?.poNumber ?? "PO"}</td><td className="p-2">{formatDateDisplay(row.returnDate)}</td><td className="p-2 capitalize">{row.reasonCode.replace("_", " ")}</td><td className="p-2">{currency(row.totalCredit, row.currency)}</td><td className="p-2"><Badge variant={row.status === "approved" ? "default" : row.status === "rejected" ? "destructive" : "secondary"}>{row.status}</Badge></td></tr>)}{returnsQuery.isError && <tr><td colSpan={7} className="p-8 text-center text-destructive">Could not load purchase returns.</td></tr>}{!returnsQuery.isError && !returnsQuery.isLoading && !filteredReturns.length && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">{returnsQuery.data?.length ? "No returns match these filters." : "No supplier returns or debit notes."}</td></tr>}</tbody></table></CardContent></Card>}
        </div>
 
       <Dialog open={quoteOpen} onOpenChange={setQuoteOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>New vendor quotation</DialogTitle><DialogDescription>Capture the supplier quote and line items before converting an accepted quotation to a PO.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitQuotation}>
-        <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="quote-number">Quote number</Label><Input id="quote-number" required value={quoteForm.quoteNumber} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} /></div><div className="space-y-2"><Label htmlFor="quote-vendor">Vendor</Label><VendorPicker id="quote-vendor" vendors={vendorsQuery.data ?? []} value={quoteForm.vendorId} onChange={vendorId => setQuoteForm({ ...quoteForm, vendorId })} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendors"} /></div><div><Label htmlFor="quote-issue-date">Issue date</Label><CalendarDateField id="quote-issue-date" required value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div><div><Label htmlFor="quote-valid-until">Valid until</Label><CalendarDateField id="quote-valid-until" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div></div>
+        <div className="grid gap-3 sm:grid-cols-2"><div><Label htmlFor="quote-number">Quote number {quoteManualNumber ? "" : "(assigned on save)"}</Label><Input id="quote-number" required={quoteManualNumber} readOnly={!quoteManualNumber} value={quoteManualNumber ? quoteForm.quoteNumber : sequenceNumber("quotation")} placeholder={quoteManualNumber ? "Enter supplier quotation number" : "Generated automatically"} onChange={e => setQuoteForm({ ...quoteForm, quoteNumber: e.target.value })} />{!quoteManualNumber && <p className="mt-1 text-xs text-muted-foreground">Preview only; the server reserves the next number when saved.</p>}</div><div className="space-y-2"><Label htmlFor="quote-vendor">Vendor</Label><VendorPicker id="quote-vendor" vendors={vendorsQuery.data ?? []} value={quoteForm.vendorId} onChange={vendorId => setQuoteForm({ ...quoteForm, vendorId })} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendors"} /></div><div><Label htmlFor="quote-issue-date">Issue date</Label><CalendarDateField id="quote-issue-date" required value={quoteForm.issueDate} onChange={e => setQuoteForm({ ...quoteForm, issueDate: e.target.value })} /></div><div><Label htmlFor="quote-valid-until">Valid until</Label><CalendarDateField id="quote-valid-until" value={quoteForm.validUntil} onChange={e => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} /></div></div>
         <div className="space-y-3">{quoteItems.map((line, index) => <div key={index} className="rounded-lg border p-3 space-y-3">
           <div className="flex items-center justify-between"><p className="text-sm font-medium">Line {index + 1}</p>{quoteItems.length > 1 && <Button type="button" size="sm" variant="ghost" onClick={() => setQuoteItems(rows => rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button>}</div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -301,21 +352,21 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
             <div><Label htmlFor={`quote-price-${index}`}>Unit price</Label><Input id={`quote-price-${index}`} type="number" min="0" step="0.01" required value={line.unitPrice} onChange={e => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, unitPrice: e.target.value } : row))} /></div>
             {line.itemType === "consumable" && <div className="sm:col-span-2"><Label htmlFor={`quote-warehouse-${index}`}>Receiving warehouse</Label><Select value={line.warehouseLocationId} onValueChange={warehouseLocationId => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, warehouseLocationId } : row))}><SelectTrigger id={`quote-warehouse-${index}`}><SelectValue placeholder={warehousesQuery.isError ? "Warehouses failed to load" : "Select active warehouse"} /></SelectTrigger><SelectContent>{warehousesQuery.data?.filter(warehouse => warehouse.isActive).map(warehouse => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.code}</SelectItem>)}</SelectContent></Select></div>}
           </div>
-          <LinePricingControls id={`quote-line-${index}`} value={line} onChange={change => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, ...change } : row))} />
+          <LinePricingControls id={`quote-line-${index}`} value={line} taxRates={taxRates} onChange={change => setQuoteItems(rows => rows.map((row, i) => i === index ? { ...row, ...change } : row))} />
         </div>)}
           <Button type="button" variant="outline" onClick={() => setQuoteItems(rows => [...rows, newQuoteLine(quoteForm.taxRate, quoteForm.taxMode === "inclusive")])}><Plus className="mr-2 h-4 w-4" />Add line</Button>
         </div>
-        <DocumentPricingControls id="quote-pricing" value={quoteForm} totals={quoteTotals} onChange={change => {
+        <DocumentPricingControls id="quote-pricing" value={quoteForm} taxRates={taxRates} totals={quoteTotals} onChange={change => {
           setQuoteForm(current => ({ ...current, ...change }));
           if (change.taxRate !== undefined || change.taxMode !== undefined) setQuoteItems(rows => rows.map(row => ({ ...row, taxRate: change.taxRate ?? row.taxRate, taxInclusive: change.taxMode !== undefined ? change.taxMode === "inclusive" : row.taxInclusive })));
         }} />
-        <Label htmlFor="quote-notes">Notes</Label><Textarea id="quote-notes" placeholder="Add quotation notes" value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /><Button disabled={saveQuote.isPending || !quoteForm.vendorId || Boolean(quoteTotals.validationError)} type="submit" className="w-full sm:w-auto">Save quotation</Button>
+        <Label htmlFor="quote-notes">Notes</Label><Textarea id="quote-notes" placeholder="Add quotation notes" value={quoteForm.notes} onChange={e => setQuoteForm({ ...quoteForm, notes: e.target.value })} /><Button disabled={saveQuote.isPending || !quoteForm.vendorId || (quoteManualNumber && !quoteForm.quoteNumber.trim()) || Boolean(quoteTotals.validationError)} type="submit" className="w-full sm:w-auto">Save quotation</Button>
       </form></DialogContent></Dialog>
 
       <Dialog open={invoiceOpen} onOpenChange={setInvoiceOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Record supplier invoice</DialogTitle><DialogDescription>Match the supplier bill to ordered lines. Processing the approved invoice receives the PO and creates inventory receipts once.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitInvoice}><div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2 space-y-2"><Label htmlFor="invoice-vendor">Supplier</Label><VendorPicker id="invoice-vendor" vendors={vendorsQuery.data ?? []} value={invoiceForm.vendorId} onChange={vendorId => { setInvoiceForm(current => ({ ...current, vendorId, purchaseOrderId: "", receiptId: "", purchaseOrderItemId: "" })); setInvoiceLines([]); }} placeholder={vendorsQuery.isError ? "Vendors failed to load" : "Search vendor"} /></div>
         <div className="sm:col-span-2"><Label htmlFor="invoice-po">Purchase order</Label><Select value={invoiceForm.purchaseOrderId} onValueChange={purchaseOrderId => { const po = ordersQuery.data?.find(row => row.id === purchaseOrderId); const quote = po?.quotationId ? quotesQuery.data?.find(row => row.id === po.quotationId && isAcceptedQuotation(row.status)) : undefined; setInvoiceForm({ ...invoiceForm, purchaseOrderId, vendorId: po?.vendorId ?? invoiceForm.vendorId, receiptId: "", purchaseOrderItemId: "", quantity: "1", currency: po?.currency ?? quote?.currency ?? taxSettings?.currencyCode ?? "SAR", taxRate: po?.taxRate ?? taxSettings?.defaultTaxRate ?? "15", taxMode: po?.taxMode ?? "exclusive", documentDiscountType: po?.documentDiscountType ?? "fixed", documentDiscountValue: po?.documentDiscountValue ?? "0", paymentTerms: quote?.paymentTerms ?? "" }); setInvoiceLines([]); }}><SelectTrigger id="invoice-po" disabled={!invoiceForm.vendorId}><SelectValue placeholder={ordersQuery.isError ? "Purchase orders failed to load" : "Select an ordered or received PO"} /></SelectTrigger><SelectContent>{ordersQuery.data?.filter(po => ["ordered", "received"].includes(po.status) && po.vendorId === invoiceForm.vendorId).map(po => <SelectItem key={po.id} value={po.id}>{po.poNumber} · {po.status}</SelectItem>)}</SelectContent></Select></div>
-        <div><Label htmlFor="invoice-number">Invoice number</Label><Input id="invoice-number" required value={invoiceForm.invoiceNumber} onChange={e => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })} /></div>
+        <div><Label htmlFor="invoice-number">Invoice number {invoiceManualNumber ? "" : "(assigned on save)"}</Label><Input id="invoice-number" required={invoiceManualNumber} readOnly={!invoiceManualNumber} value={invoiceManualNumber ? invoiceForm.invoiceNumber : sequenceNumber("invoice")} placeholder={invoiceManualNumber ? "Enter supplier invoice number" : "Generated automatically"} onChange={e => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })} />{!invoiceManualNumber && <p className="mt-1 text-xs text-muted-foreground">Preview only; the server reserves the next number when saved.</p>}</div>
         <div><Label htmlFor="invoice-receipt">Ordered PO line</Label><Select value={invoiceForm.purchaseOrderItemId} onValueChange={purchaseOrderItemId => setInvoiceForm(current => ({ ...current, purchaseOrderItemId, quantity: "1" }))}><SelectTrigger id="invoice-receipt" disabled={!invoiceForm.purchaseOrderId}><SelectValue placeholder={receiptQuery.isError ? "Could not load PO lines" : receiptQuery.isLoading ? "Loading lines…" : "Select ordered line"} /></SelectTrigger><SelectContent>{receiptQuery.data?.filter(line => !invoiceLines.some(added => added.purchaseOrderItemId === line.purchaseOrderItemId)).map(line => <SelectItem key={line.purchaseOrderItemId} value={line.purchaseOrderItemId}>{line.description} · qty {line.quantity}</SelectItem>)}</SelectContent></Select>{receiptQuery.isError && <p className="mt-1 text-xs text-destructive">PO lines could not be loaded. Try changing the PO or reopen this form.</p>}</div>
         <div><Label htmlFor="invoice-issue-date">Issue date</Label><CalendarDateField id="invoice-issue-date" required value={invoiceForm.issueDate} onChange={e => setInvoiceForm({ ...invoiceForm, issueDate: e.target.value })} /></div><div><Label htmlFor="invoice-due-date">Due date</Label><CalendarDateField id="invoice-due-date" required value={invoiceForm.dueDate} onChange={e => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })} /></div>
         <div><Label htmlFor="invoice-quantity">Quantity invoiced</Label><Input id="invoice-quantity" type="number" min="1" max={selectedReceipt?.quantity ?? 1} value={invoiceForm.quantity} onChange={e => setInvoiceForm({ ...invoiceForm, quantity: e.target.value })} /></div><div><Label htmlFor="invoice-unit-price">Unit price (from PO)</Label><Input id="invoice-unit-price" disabled value={selectedReceipt?.unitPrice ?? ""} /></div>
@@ -324,16 +375,16 @@ export default function ProcureToPay({ section = "quotations" }: { section?: Pro
           <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm font-medium">Invoice lines</p><Button type="button" size="sm" variant="outline" onClick={addInvoiceLine} disabled={!selectedReceipt || invoiceLines.some(line => line.purchaseOrderItemId === selectedReceipt.purchaseOrderItemId) || Number(invoiceForm.quantity) <= 0 || Number(invoiceForm.quantity) > Number(selectedReceipt?.quantity ?? 0)}>Add selected line</Button></div>
           {invoiceLines.length ? <ul className="divide-y">{invoiceLines.map((line, index) => <li key={line.purchaseOrderItemId} className="space-y-3 py-3 text-sm">
             <div className="flex items-center justify-between gap-3"><span>{line.description} · qty {line.quantity} × {currency(line.unitPrice, invoiceForm.currency)}</span><Button type="button" size="sm" variant="ghost" onClick={() => setInvoiceLines(lines => lines.filter(item => item.purchaseOrderItemId !== line.purchaseOrderItemId))}>Remove</Button></div>
-            <LinePricingControls id={`invoice-line-${index}`} value={line} onChange={change => setInvoiceLines(lines => lines.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row))} />
+            <LinePricingControls id={`invoice-line-${index}`} value={line} taxRates={taxRates} onChange={change => setInvoiceLines(lines => lines.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row))} />
           </li>)}</ul> : <p className="text-sm text-muted-foreground">Select a PO line and add it to this invoice.</p>}
           <div className="border-t pt-2 text-sm">Selected line preview: {currency(selectedLineSubtotal, invoiceForm.currency)}<br />Invoice subtotal: <strong>{currency(lineSubtotal, invoiceForm.currency)}</strong></div>
         </div>
         <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">Receiving confirms delivery of the full purchase order. All ordered quantities must be matched to approved invoices before inventory is created; partial invoices can remain approved until then.</p>
-        <DocumentPricingControls id="invoice-pricing" value={invoiceForm} totals={invoiceTotals} onChange={change => {
+        <DocumentPricingControls id="invoice-pricing" value={invoiceForm} taxRates={taxRates} totals={invoiceTotals} onChange={change => {
           setInvoiceForm(current => ({ ...current, ...change }));
           if (change.taxRate !== undefined || change.taxMode !== undefined) setInvoiceLines(lines => lines.map(line => ({ ...line, taxRate: change.taxRate ?? line.taxRate, taxInclusive: change.taxMode !== undefined ? change.taxMode === "inclusive" : line.taxInclusive })));
         }} />
-        <Button type="submit" className="w-full sm:w-auto" disabled={saveInvoice.isPending || invoiceLines.length === 0 || !selectedOrder || receiptQuery.isError || Boolean(invoiceTotals.validationError)}>Save invoice</Button></form></DialogContent></Dialog>
+        <Button type="submit" className="w-full sm:w-auto" disabled={saveInvoice.isPending || invoiceLines.length === 0 || !selectedOrder || (invoiceManualNumber && !invoiceForm.invoiceNumber.trim()) || receiptQuery.isError || Boolean(invoiceTotals.validationError)}>Save invoice</Button></form></DialogContent></Dialog>
 
       <Dialog open={returnOpen} onOpenChange={setReturnOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Purchase return / debit note</DialogTitle><DialogDescription>Link a return to its supplier invoice to apply the correct currency; eligible invoices are limited to this PO and exclude void records.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={submitReturn}><div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2"><Label htmlFor="return-po">Purchase order</Label><Select value={returnForm.purchaseOrderId} onValueChange={purchaseOrderId => setReturnForm({ ...returnForm, purchaseOrderId, purchaseInvoiceId: "", purchaseOrderItemId: "", assetId: "", consumableId: "", warehouseLocationId: "", quantity: "1" })}><SelectTrigger id="return-po"><SelectValue placeholder={ordersQuery.isError ? "Purchase orders failed to load" : "Select a received PO"} /></SelectTrigger><SelectContent>{ordersQuery.data?.filter(po => po.status === "received" && po.vendorId).map(po => <SelectItem key={po.id} value={po.id}>{po.poNumber}</SelectItem>)}</SelectContent></Select></div>

@@ -979,6 +979,46 @@ export const financeTaxSettings = pgTable("finance_tax_settings", {
   check("finance_tax_settings_currency_check", sql`${table.currencyCode} ~ '^[A-Z]{3}$'`),
 ]);
 
+export const financeTaxRates = pgTable("finance_tax_rates", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  classification: text("classification").notNull().default("standard"),
+  rate: decimal("rate", { precision: 7, scale: 4 }).notNull(),
+  taxMode: text("tax_mode").notNull().default("exclusive"),
+  isActive: boolean("is_active").notNull().default(true),
+  isDefault: boolean("is_default").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  check("finance_tax_rates_classification_check", sql`${table.classification} IN ('standard','reduced','zero_rated','exempt','custom')`),
+  check("finance_tax_rates_rate_check", sql`${table.rate} >= 0 AND ${table.rate} <= 100`),
+  check("finance_tax_rates_mode_check", sql`${table.taxMode} IN ('exclusive','inclusive')`),
+  check("finance_tax_rates_default_active_check", sql`NOT ${table.isDefault} OR ${table.isActive}`),
+  uniqueIndex("finance_tax_rates_single_default_idx").on(table.isDefault).where(sql`${table.isDefault} = true`),
+  index("finance_tax_rates_active_sort_idx").on(table.isActive, table.sortOrder, table.name),
+]);
+
+export const financeDocumentSequences = pgTable("finance_document_sequences", {
+  id: serial("id").primaryKey(),
+  documentType: text("document_type").notNull().unique(),
+  numberingMode: text("numbering_mode").notNull().default("auto"),
+  prefix: text("prefix").notNull(),
+  nextNumber: integer("next_number").notNull().default(1),
+  padding: integer("padding").notNull().default(4),
+  resetYearly: boolean("reset_yearly").notNull().default(true),
+  sequenceYear: integer("sequence_year").notNull().default(sql`EXTRACT(YEAR FROM CURRENT_DATE)::integer`),
+  updatedBy: varchar("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  check("finance_document_sequences_type_check", sql`${table.documentType} IN ('quotation','purchase_order','invoice')`),
+  check("finance_document_sequences_mode_check", sql`${table.numberingMode} IN ('auto','manual')`),
+  check("finance_document_sequences_next_check", sql`${table.nextNumber} >= 1`),
+  check("finance_document_sequences_padding_check", sql`${table.padding} BETWEEN 1 AND 12`),
+  index("finance_document_sequences_type_idx").on(table.documentType),
+]);
+
 export const budgets = pgTable("budgets", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -2021,6 +2061,7 @@ export type InsertAssetHandover = z.infer<typeof insertAssetHandoverSchema>;
 export type AssetHandover = typeof assetHandovers.$inferSelect;
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true });
 export const insertVendorQuotationSchema = createInsertSchema(vendorQuotations).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  quoteNumber: z.string().trim().min(1).max(100).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/),
   taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
   documentDiscountType: z.enum(["percentage", "fixed"]).default("fixed"),
@@ -2049,6 +2090,7 @@ export const insertPurchaseOrderItemSchema = createInsertSchema(purchaseOrderIte
   quantity: z.number().int().min(1).max(100000),
 }).omit({ id: true });
 export const insertPurchaseInvoiceSchema = createInsertSchema(purchaseInvoices).omit({ id: true, createdAt: true, updatedAt: true, receivedAt: true, approvedAt: true }).extend({
+  invoiceNumber: z.string().trim().min(1).max(100).optional(),
   currency: z.string().regex(/^[A-Z]{3}$/),
   taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
   documentDiscountType: z.enum(["percentage", "fixed"]).default("fixed"),
@@ -2102,6 +2144,23 @@ export const financeTaxSettingsInputSchema = z.object({
   defaultTaxMode: z.enum(["exclusive", "inclusive"]),
   currencyCode: z.string().trim().regex(/^[A-Z]{3}$/),
 });
+export const financeTaxRateInputSchema = z.object({
+  code: z.string().trim().min(2).max(32).regex(/^[A-Z0-9_-]+$/),
+  name: z.string().trim().min(2).max(80),
+  classification: z.enum(["standard", "reduced", "zero_rated", "exempt", "custom"]),
+  rate: z.coerce.number().min(0).max(100),
+  taxMode: z.enum(["exclusive", "inclusive"]),
+  isActive: z.boolean().default(true),
+  isDefault: z.boolean().default(false),
+  sortOrder: z.coerce.number().int().min(0).max(10000).default(0),
+});
+export const financeDocumentSequenceInputSchema = z.object({
+  numberingMode: z.enum(["auto", "manual"]),
+  prefix: z.string().trim().min(1).max(40),
+  nextNumber: z.coerce.number().int().min(1).max(2147483646),
+  padding: z.coerce.number().int().min(1).max(12),
+  resetYearly: z.boolean(),
+});
 export const insertPurchaseInvoicePaymentSchema = createInsertSchema(purchaseInvoicePayments).omit({ id: true, invoiceId: true, createdAt: true, recordedBy: true }).extend({
   amount: z.coerce.number().positive().multipleOf(0.01).max(9999999999.99),
   paymentMethod: z.enum(["cash", "bank_transfer", "credit_terms"]),
@@ -2152,6 +2211,8 @@ export type PurchaseInvoiceMatchLine = typeof purchaseInvoiceMatchLines.$inferSe
 export type PurchaseInvoicePayment = typeof purchaseInvoicePayments.$inferSelect;
 export type PurchaseReturn = typeof purchaseReturns.$inferSelect;
 export type FinanceTaxSettings = typeof financeTaxSettings.$inferSelect;
+export type FinanceTaxRate = typeof financeTaxRates.$inferSelect;
+export type FinanceDocumentSequence = typeof financeDocumentSequences.$inferSelect;
 export type PurchaseReturnItem = typeof purchaseReturnItems.$inferSelect;
 export type InsertVendorQuotation = z.infer<typeof insertVendorQuotationSchema>;
 export type InsertPurchaseInvoice = z.infer<typeof insertPurchaseInvoiceSchema>;

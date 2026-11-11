@@ -26,7 +26,8 @@ import {
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoiceMatchLines, purchaseInvoicePayments,
   purchaseReturns, purchaseReturnItems,
-  financeTaxSettings, financeTaxSettingsInputSchema,
+  financeTaxSettings, financeTaxSettingsInputSchema, financeTaxRates, financeTaxRateInputSchema,
+  financeDocumentSequences, financeDocumentSequenceInputSchema,
   insertVendorQuotationSchema, insertPurchaseInvoiceSchema, insertPurchaseInvoicePaymentSchema, insertPurchaseReturnSchema,
   insertWarehouseLocationSchema, insertConsumableSchema, insertCatalogItemSchema, purchaseOrderItems,
   cmdbApplications, servers, applicationServerLinks, changeCiLinks, changeAssetLinks, assetRelationships,
@@ -69,6 +70,7 @@ import { registerPersonnelReportRoute } from "./personnel-report";
 import { resolveIncidentContractContext } from "./incident-contract-resolution";
 import { registerEnterpriseReportingRoutes } from "./enterprise-reporting";
 import { receivePurchaseOrderInventory } from "./procurement-inventory";
+import { reserveFinancialDocumentNumber } from "./finance-document-numbering";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -5829,42 +5831,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!location) return res.status(400).json({ message: "Select an active warehouse before creating a draft purchase order" });
       const vendorName = item.vendorId ? (await storage.getVendor(item.vendorId))?.name ?? null : null;
       const shortage = Math.max(item.minReorderLevel * 2 - item.quantityInStock, 1);
-      const po = await storage.createPurchaseOrder({
-        poNumber: `PO-RESTOCK-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-        vendorId: item.vendorId,
-        vendor: vendorName,
-        reference: `Low stock reorder: ${item.name}`,
-        orderDate: new Date().toISOString().slice(0, 10),
-        expectedDelivery: null,
-        actualDelivery: null,
-        totalAmount: (Number(item.unitCost) * shortage).toFixed(2),
-        status: "pending",
-        departmentId: null,
-        notes: `Draft reorder for ${location?.name ?? "warehouse"}; current stock ${item.quantityInStock}, minimum ${item.minReorderLevel}.`,
-        assetsCreated: false,
-      });
-      await storage.createPurchaseOrderItem({
-        purchaseOrderId: po.id,
-        description: item.name,
-        assetType: "other",
-        itemType: "consumable",
-        consumableId: item.id,
-        consumableCategory: item.category,
-        modelPartNumber: item.modelPartNumber,
-        warehouseLocationId: item.warehouseLocationId,
-        serialNumber: null,
-        quantity: shortage,
-        unitPrice: item.unitCost,
-        discountType: "fixed",
-        discountValue: "0.00",
-        discountAmount: "0.00",
-        taxRate: "0.0000",
-        taxInclusive: false,
-        totalPrice: (Number(item.unitCost) * shortage).toFixed(2),
-        assetId: null,
+      const po = await db.transaction(async tx => {
+        const poNumber = await reserveFinancialDocumentNumber(tx, "purchase_order", req.body?.poNumber);
+        const [order] = await tx.insert(purchaseOrders).values({
+          poNumber,
+          vendorId: item.vendorId,
+          vendor: vendorName,
+          reference: `Low stock reorder: ${item.name}`,
+          orderDate: new Date().toISOString().slice(0, 10),
+          expectedDelivery: null,
+          actualDelivery: null,
+          totalAmount: (Number(item.unitCost) * shortage).toFixed(2),
+          status: "pending",
+          departmentId: null,
+          notes: `Draft reorder for ${location.name}; current stock ${item.quantityInStock}, minimum ${item.minReorderLevel}.`,
+          assetsCreated: false,
+        }).returning();
+        await tx.insert(purchaseOrderItems).values({
+          purchaseOrderId: order.id,
+          description: item.name,
+          assetType: "other",
+          itemType: "consumable",
+          consumableId: item.id,
+          consumableCategory: item.category,
+          modelPartNumber: item.modelPartNumber,
+          warehouseLocationId: item.warehouseLocationId,
+          serialNumber: null,
+          quantity: shortage,
+          unitPrice: item.unitCost,
+          discountType: "fixed",
+          discountValue: "0.00",
+          discountAmount: "0.00",
+          taxRate: "0.0000",
+          taxInclusive: false,
+          totalPrice: (Number(item.unitCost) * shortage).toFixed(2),
+          assetId: null,
+        });
+        return order;
       });
       res.status(201).json(po);
-    } catch {
+    } catch (error) {
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      const code = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (code === "23505") return res.status(409).json({ message: "Purchase-order number already exists" });
+      console.error("Reorder draft creation failed:", error);
       res.status(500).json({ message: "Failed to create draft purchase order" });
     }
   });
@@ -5910,13 +5921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
       const financeDefaults = await getDefaultFinancialProfile();
-      const validatedData = insertPurchaseOrderSchema.extend({
-        currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
-        taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
-        taxRate: z.coerce.number().min(0).max(100).default(0),
-        documentDiscountType: z.enum(["fixed", "percentage"]).default("fixed"),
-        documentDiscountValue: z.coerce.number().min(0).default(0),
-      }).parse({
+      const validatedData = insertPurchaseOrderSchema.parse({
         currency: financeDefaults.currencyCode,
         taxRate: financeDefaults.defaultTaxRate,
         taxMode: financeDefaults.defaultTaxMode,
@@ -5937,6 +5942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
       }
       const purchaseOrder = await db.transaction(async tx => {
+        const poNumber = await reserveFinancialDocumentNumber(tx, "purchase_order", validatedData.poNumber);
         if (validatedData.quotationId) {
           const [quotation] = await tx.select().from(vendorQuotations).where(eq(vendorQuotations.id, validatedData.quotationId)).for("update");
           if (!quotation || quotation.status !== "accepted") throw Object.assign(new Error("Only an accepted, unconverted quotation can be imported"), { status: 409 });
@@ -5946,6 +5952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const [order] = await tx.insert(purchaseOrders).values({
           ...validatedData,
+          poNumber,
           status: "pending",
           expectedDelivery: validatedData.expectedDelivery || null,
           actualDelivery: null,
@@ -6383,29 +6390,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/finance/tax-settings", requireAuth, requireModule("asset_management"), requirePermission("system_admin"), async (req, res) => {
     try {
       const input = financeTaxSettingsInputSchema.parse(req.body);
-      const [settings] = await db.insert(financeTaxSettings).values({
-        ...input,
-        id: 1,
-        defaultTaxRate: input.defaultTaxRate.toFixed(4),
-        updatedBy: req.user!.id,
-        updatedAt: new Date(),
-      }).onConflictDoUpdate({
-        target: financeTaxSettings.id,
-        set: {
-          regionCode: input.regionCode,
+      const settings = await db.transaction(async tx => {
+        const [saved] = await tx.insert(financeTaxSettings).values({
+          ...input,
+          id: 1,
           defaultTaxRate: input.defaultTaxRate.toFixed(4),
-          defaultTaxMode: input.defaultTaxMode,
-          currencyCode: input.currencyCode,
           updatedBy: req.user!.id,
           updatedAt: new Date(),
-        },
-      }).returning();
+        }).onConflictDoUpdate({
+          target: financeTaxSettings.id,
+          set: {
+            regionCode: input.regionCode,
+            defaultTaxRate: input.defaultTaxRate.toFixed(4),
+            defaultTaxMode: input.defaultTaxMode,
+            currencyCode: input.currencyCode,
+            updatedBy: req.user!.id,
+            updatedAt: new Date(),
+          },
+        }).returning();
+        const [primaryRate] = await tx.select().from(financeTaxRates).where(eq(financeTaxRates.isDefault, true)).for("update");
+        if (primaryRate) {
+          await tx.update(financeTaxRates).set({
+            rate: input.defaultTaxRate.toFixed(4),
+            taxMode: input.defaultTaxMode,
+            name: `${input.defaultTaxRate}% default tax`,
+            classification: "custom",
+            updatedAt: new Date(),
+          }).where(eq(financeTaxRates.id, primaryRate.id));
+        } else {
+          await tx.insert(financeTaxRates).values({
+            code: "DEFAULT_TAX",
+            name: `${input.defaultTaxRate}% default tax`,
+            classification: "custom",
+            rate: input.defaultTaxRate.toFixed(4),
+            taxMode: input.defaultTaxMode,
+            isActive: true,
+            isDefault: true,
+            sortOrder: 0,
+          }).onConflictDoUpdate({
+            target: financeTaxRates.code,
+            set: { name: `${input.defaultTaxRate}% default tax`, rate: input.defaultTaxRate.toFixed(4), taxMode: input.defaultTaxMode, isActive: true, isDefault: true, updatedAt: new Date() },
+          });
+        }
+        return saved;
+      });
       await logAudit(req.user?.id, "UPDATE", "finance_tax_settings", String(settings.id), `Tax settings ${settings.regionCode}`, null, settings, req);
       return res.json(settings);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid financial tax settings", errors: error.issues });
       console.error("Finance tax settings update failed:", error);
       return res.status(500).json({ message: "Failed to update financial tax settings" });
+    }
+  });
+
+  app.get("/api/finance/tax-rates", requireAuth, requireModule("asset_management"), requireAnyPermission("finance_view", "system_admin"), async (_req, res) => {
+    try {
+      const rates = await db.select().from(financeTaxRates).orderBy(asc(financeTaxRates.sortOrder), asc(financeTaxRates.name));
+      return res.json(rates);
+    } catch (error) {
+      console.error("Finance tax rates read failed:", error);
+      return res.status(500).json({ message: "Failed to load tax rates" });
+    }
+  });
+
+  app.post("/api/finance/tax-rates", requireAuth, requireModule("asset_management"), requirePermission("system_admin"), async (req, res) => {
+    try {
+      const input = financeTaxRateInputSchema.parse(req.body);
+      if (input.isDefault && !input.isActive) return res.status(400).json({ message: "The primary tax rate must be active" });
+      const rate = await db.transaction(async tx => {
+        if (input.isDefault) await tx.update(financeTaxRates).set({ isDefault: false, updatedAt: new Date() }).where(eq(financeTaxRates.isDefault, true));
+        const [saved] = await tx.insert(financeTaxRates).values({ ...input, rate: input.rate.toFixed(4), updatedAt: new Date() }).returning();
+        if (input.isDefault) {
+          await tx.update(financeTaxSettings).set({
+            defaultTaxRate: input.rate.toFixed(4), defaultTaxMode: input.taxMode, updatedBy: req.user!.id, updatedAt: new Date(),
+          }).where(eq(financeTaxSettings.id, 1));
+        }
+        return saved;
+      });
+      await logAudit(req.user?.id, "CREATE", "finance_tax_rates", String(rate.id), `Tax rate ${rate.code}`, null, rate, req);
+      return res.status(201).json(rate);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid tax rate", errors: error.issues });
+      const code = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (code === "23505") return res.status(409).json({ message: "A tax rate with this code already exists" });
+      console.error("Finance tax rate create failed:", error);
+      return res.status(500).json({ message: "Failed to create tax rate" });
+    }
+  });
+
+  app.put("/api/finance/tax-rates/:id", requireAuth, requireModule("asset_management"), requirePermission("system_admin"), async (req, res) => {
+    try {
+      const id = z.coerce.number().int().positive().parse(req.params.id);
+      const input = financeTaxRateInputSchema.parse(req.body);
+      if (input.isDefault && !input.isActive) return res.status(400).json({ message: "The primary tax rate must be active" });
+      const rate = await db.transaction(async tx => {
+        const [current] = await tx.select().from(financeTaxRates).where(eq(financeTaxRates.id, id)).for("update");
+        if (!current) throw Object.assign(new Error("Tax rate not found"), { status: 404 });
+        if (!input.isDefault && current.isDefault) throw Object.assign(new Error("Choose another primary tax rate before removing the current default"), { status: 409 });
+        if (input.isDefault) await tx.update(financeTaxRates).set({ isDefault: false, updatedAt: new Date() }).where(and(eq(financeTaxRates.isDefault, true), sql`${financeTaxRates.id} <> ${id}`));
+        const [saved] = await tx.update(financeTaxRates).set({ ...input, rate: input.rate.toFixed(4), updatedAt: new Date() })
+          .where(eq(financeTaxRates.id, id)).returning();
+        if (input.isDefault) {
+          await tx.update(financeTaxSettings).set({
+            defaultTaxRate: input.rate.toFixed(4), defaultTaxMode: input.taxMode, updatedBy: req.user!.id, updatedAt: new Date(),
+          }).where(eq(financeTaxSettings.id, 1));
+        }
+        return saved;
+      });
+      await logAudit(req.user?.id, "UPDATE", "finance_tax_rates", String(rate.id), `Tax rate ${rate.code}`, null, rate, req);
+      return res.json(rate);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid tax rate", errors: error.issues });
+      const status = (error as any)?.status;
+      if (status) return res.status(status).json({ message: (error as Error).message });
+      const code = (error as any)?.code ?? (error as any)?.cause?.code;
+      if (code === "23505") return res.status(409).json({ message: "A tax rate with this code already exists" });
+      console.error("Finance tax rate update failed:", error);
+      return res.status(500).json({ message: "Failed to update tax rate" });
+    }
+  });
+
+  app.get("/api/finance/document-sequences", requireAuth, requireModule("asset_management"), requireAnyPermission("finance_view", "system_admin"), async (_req, res) => {
+    try {
+      const sequences = await db.select().from(financeDocumentSequences).orderBy(asc(financeDocumentSequences.documentType));
+      return res.json(sequences);
+    } catch (error) {
+      console.error("Financial document sequences read failed:", error);
+      return res.status(500).json({ message: "Failed to load document numbering settings" });
+    }
+  });
+
+  app.put("/api/finance/document-sequences/:documentType", requireAuth, requireModule("asset_management"), requirePermission("system_admin"), async (req, res) => {
+    try {
+      const documentType = z.enum(["quotation", "purchase_order", "invoice"]).parse(req.params.documentType);
+      const input = financeDocumentSequenceInputSchema.parse(req.body);
+      const [sequence] = await db.update(financeDocumentSequences).set({
+        ...input,
+        prefix: input.prefix.trim(),
+        updatedBy: req.user!.id,
+        updatedAt: new Date(),
+      }).where(eq(financeDocumentSequences.documentType, documentType)).returning();
+      if (!sequence) return res.status(503).json({ message: "Document numbering has not been initialized; apply the finance sequence migration" });
+      await logAudit(req.user?.id, "UPDATE", "finance_document_sequences", String(sequence.id), `Numbering for ${documentType}`, null, sequence, req);
+      return res.json(sequence);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document numbering settings", errors: error.issues });
+      console.error("Financial document sequence update failed:", error);
+      return res.status(500).json({ message: "Failed to update document numbering settings" });
     }
   });
 
@@ -6458,8 +6589,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Consumable quotation lines require a warehouse location" });
       }
       const saved = await db.transaction(async tx => {
+        const quoteNumber = await reserveFinancialDocumentNumber(tx, "quotation", quotationInput.quoteNumber);
         const [quotation] = await tx.insert(vendorQuotations).values({
           ...quotationInput,
+          quoteNumber,
           status: "submitted",
           documentDiscountValue: Number(quotationInput.documentDiscountValue ?? 0).toFixed(2),
           subtotal: totals.subtotal.toFixed(2),
@@ -6523,8 +6656,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!quotation) throw Object.assign(new Error("Quotation not found"), { status: 404 });
         if (quotation.status !== "accepted") throw Object.assign(new Error("Only accepted quotations can be converted to a purchase order"), { status: 409 });
         const quotationItems = await tx.select().from(vendorQuotationItems).where(eq(vendorQuotationItems.quotationId, quotation.id));
+        const poNumber = await reserveFinancialDocumentNumber(tx, "purchase_order", req.body?.poNumber);
         const [po] = await tx.insert(purchaseOrders).values({
-          poNumber: z.string().trim().min(1).max(100).parse(req.body?.poNumber ?? `PO-${Date.now()}`),
+          poNumber,
           vendorId: quotation.vendorId,
           vendor: (await tx.select({ name: vendors.name }).from(vendors).where(eq(vendors.id, quotation.vendorId)))[0]?.name ?? null,
           quotationId: quotation.id,
@@ -6739,6 +6873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalPrice: totals.lines[index].totalAmount.toFixed(2),
       }));
       const saved = await db.transaction(async tx => {
+        const invoiceNumber = await reserveFinancialDocumentNumber(tx, "invoice", invoiceInput.invoiceNumber, new Date(), invoiceInput.vendorId);
         // Serialize invoice allocations on the PO, then re-check quantities under
         // the lock. Preflight validation alone would allow concurrent overbilling.
         const [lockedOrder] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, po.id)).for("update");
@@ -6757,6 +6892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         const [invoice] = await tx.insert(purchaseInvoices).values({
           ...invoiceInput,
+          invoiceNumber,
           status: "pending",
           paymentStatus: "pending",
           documentDiscountValue: Number(invoiceInput.documentDiscountValue ?? 0).toFixed(2),

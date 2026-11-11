@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { calculateDocumentTotals, previewDocumentTotals, ProcurementPricingError } from "@shared/procurement-pricing";
 import { canTransitionPurchaseOrder } from "@shared/purchase-order-lifecycle";
+import { formatDocumentNumberPreview } from "@shared/finance-document-numbering";
+import { financeDocumentSequenceInputSchema, financeTaxRateInputSchema } from "@shared/schema";
 import { assertAdditiveMigration } from "./startup-migrations";
 
 describe("procurement pricing and lifecycle controls", () => {
@@ -55,11 +57,46 @@ describe("procurement pricing and lifecycle controls", () => {
     expect(canTransitionPurchaseOrder("cancelled", "pending")).toBe(false);
   });
 
+  it("formats year-aware sequence previews and validates numbering/tax settings", () => {
+    const date = new Date(2026, 4, 10);
+    expect(formatDocumentNumberPreview({
+      prefix: "QT-{YYYY}-", nextNumber: 9, padding: 4, resetYearly: true, sequenceYear: 2026,
+    }, date)).toBe("QT-2026-0009");
+    expect(formatDocumentNumberPreview({
+      prefix: "PO-{YYYY}-", nextNumber: 83, padding: 4, resetYearly: true, sequenceYear: 2025,
+    }, date)).toBe("PO-2026-0001");
+    expect(financeDocumentSequenceInputSchema.safeParse({
+      numberingMode: "auto", prefix: "INV-{YYYY}-", nextNumber: 1, padding: 4, resetYearly: true,
+    }).success).toBe(true);
+    expect(financeDocumentSequenceInputSchema.safeParse({
+      numberingMode: "manual", prefix: "", nextNumber: 0, padding: 14, resetYearly: false,
+    }).success).toBe(false);
+    expect(financeTaxRateInputSchema.safeParse({
+      code: "VAT-5", name: "Reduced VAT", classification: "reduced", rate: 5,
+      taxMode: "exclusive", isActive: true, isDefault: false, sortOrder: 20,
+    }).success).toBe(true);
+    expect(financeTaxRateInputSchema.safeParse({
+      code: "BAD RATE", name: "Invalid", classification: "standard", rate: 101,
+      taxMode: "exclusive", isActive: true, isDefault: false, sortOrder: 0,
+    }).success).toBe(false);
+  });
+
   it("keeps the tax, discount, and staged-match migration additive", async () => {
     const migration = await readFile("migrations/onprem/20261202_financial_tax_and_discounts.sql", "utf8");
     expect(() => assertAdditiveMigration(migration, "20261202_financial_tax_and_discounts.sql")).not.toThrow();
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS finance_tax_settings");
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS purchase_invoice_match_lines");
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS document_discount_value");
+  });
+
+  it("keeps multi-rate VAT and document-sequence schema migration additive", async () => {
+    const migration = await readFile("migrations/onprem/20261203_finance_tax_rates_and_document_sequences.sql", "utf8");
+    expect(() => assertAdditiveMigration(migration, "20261203_finance_tax_rates_and_document_sequences.sql")).not.toThrow();
+    for (const table of ["finance_tax_rates", "finance_document_sequences"]) {
+      expect(migration).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
+    }
+    expect(migration).toContain("'REDUCED_VAT'");
+    expect(migration).toContain("'ZERO_RATED'");
+    expect(migration).toContain("finance_tax_rates_single_default_idx");
   });
 });

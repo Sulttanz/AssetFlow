@@ -31,7 +31,7 @@ export const RESET_PROTECTED_TABLES = [
   "users", "roles", "permissions", "user_roles", "role_permissions",
   "sessions", "cab_stream_leases", "system_settings", "settings", "module_settings",
   "dropdown_options", "locations", "departments", "warehouse_locations", "sla_policies",
-   "change_blackouts", "finance_tax_settings",
+    "change_blackouts", "finance_tax_settings", "finance_tax_rates", "finance_document_sequences",
 ] as const;
 
 export interface SystemDataResetActor {

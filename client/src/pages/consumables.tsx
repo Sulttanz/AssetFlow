@@ -64,6 +64,8 @@ export default function ConsumablesPage() {
   const optionsQuery = useQuery<Options>({ queryKey: ["/api/consumables/options"], queryFn: getQueryFn({ on401: "throw" }) });
   const locationsQuery = useQuery<WarehouseLocation[]>({ queryKey: ["/api/warehouse-locations"], queryFn: getQueryFn({ on401: "throw" }) });
   const categoriesQuery = useQuery<DropdownCategory[]>({ queryKey: ["/api/dropdowns/options/consumable_category"], queryFn: getQueryFn({ on401: "throw" }) });
+  const sequencesQuery = useQuery<{ documentType: string; numberingMode: "auto" | "manual" }[]>({ queryKey: ["/api/finance/document-sequences"], queryFn: getQueryFn({ on401: "throw" }) });
+  const poSequence = sequencesQuery.data?.find(sequence => sequence.documentType === "purchase_order");
   const items = itemsQuery.data ?? [];
   const options = optionsQuery.data ?? { locations: [], vendors: [], users: [] };
   const warehouses = locationsQuery.data ?? [];
@@ -153,7 +155,7 @@ export default function ConsumablesPage() {
   });
 
   const createDraftPO = useMutation({
-    mutationFn: async (id: string) => (await apiRequest("POST", `/api/consumables/${id}/draft-purchase-order`, {})).json(),
+    mutationFn: async ({ id, poNumber }: { id: string; poNumber?: string }) => (await apiRequest("POST", `/api/consumables/${id}/draft-purchase-order`, { poNumber })).json(),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       toast({ title: "Draft purchase order created", description: "Review it in Purchase Orders before submitting." });
@@ -234,7 +236,11 @@ export default function ConsumablesPage() {
               <TableCell>{formatDateDisplay(item.createdAt)}</TableCell>
               <TableCell><div className="flex justify-end gap-1">
                 <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("issue"); }} disabled={!item.warehouseIsActive} title={!item.warehouseIsActive ? "Reactivate the warehouse to move stock" : undefined}><Truck className="mr-1 h-3.5 w-3.5" />Issue / Transfer</Button>
-                {low && <Button size="icon" variant="outline" title={item.warehouseIsActive ? "Create draft purchase order" : "Reactivate the warehouse to create a replenishment order"} aria-label={`Create draft purchase order for ${item.name}`} onClick={() => createDraftPO.mutate(item.id)} disabled={createDraftPO.isPending || !item.warehouseIsActive}><PackagePlus className="h-4 w-4" /></Button>}
+                {low && <Button size="icon" variant="outline" title={item.warehouseIsActive ? "Create draft purchase order" : "Reactivate the warehouse to create a replenishment order"} aria-label={`Create draft purchase order for ${item.name}`} onClick={() => {
+                  const poNumber = poSequence?.numberingMode === "manual" ? window.prompt("Enter a unique purchase-order number")?.trim() : undefined;
+                  if (poSequence?.numberingMode === "manual" && !poNumber) return;
+                  createDraftPO.mutate({ id: item.id, poNumber });
+                }} disabled={createDraftPO.isPending || !item.warehouseIsActive || sequencesQuery.isError || !poSequence}><PackagePlus className="h-4 w-4" /></Button>}
                 <Button size="icon" variant="ghost" title="Edit item" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><Pencil className="h-4 w-4" /></Button>
               </div></TableCell>
             </TableRow>;

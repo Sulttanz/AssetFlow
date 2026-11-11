@@ -23,6 +23,8 @@ import { PURCHASE_ORDER_NEXT_STATUS } from "@shared/purchase-order-lifecycle";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { VendorPicker } from "@/components/vendors/vendor-picker";
 import { SearchablePicker } from "@/components/access-governance/searchable-picker";
+import type { FinanceDocumentSequence, FinanceTaxRate } from "@shared/schema";
+import { formatDocumentNumberPreview } from "@shared/finance-document-numbering";
 import { z } from "zod";
 import {
   Pagination,
@@ -36,6 +38,7 @@ import {
 const ITEMS_PER_PAGE = 10;
 
 const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
+  poNumber: z.string().trim().optional(),
   quotationId: z.string().optional(),
   vendorId: z.string().optional(),
   departmentId: z.string().optional(),
@@ -92,6 +95,9 @@ function PurchaseOrderForm({
   warehouses,
   consumables,
   consumableCategories,
+  taxRates,
+  manualNumbering,
+  autoNumberPreview,
 }: {
   form: any;
   onSubmit: (data: PurchaseOrderFormData) => void;
@@ -101,6 +107,9 @@ function PurchaseOrderForm({
   warehouses: { id: string; name: string; code: string }[];
   consumables: { id: string; name: string; category: string; modelPartNumber: string | null; unitCost: string; warehouseLocationId: string }[];
   consumableCategories: { id: string; value: string; label: string }[];
+  taxRates: FinanceTaxRate[];
+  manualNumbering: boolean;
+  autoNumberPreview: string;
 }) {
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -111,6 +120,8 @@ function PurchaseOrderForm({
     form.watch("documentDiscountType"),
     Number(form.watch("documentDiscountValue") ?? 0),
   );
+  const activeTaxRates = taxRates.filter(rate => rate.isActive);
+  const headerRateId = activeTaxRates.find(rate => Number(rate.rate) === Number(form.watch("taxRate")) && rate.taxMode === form.watch("taxMode"))?.id;
 
   return (
     <Form {...form}>
@@ -123,8 +134,9 @@ function PurchaseOrderForm({
               <FormItem>
                 <FormLabel>PO Number</FormLabel>
                 <FormControl>
-                  <Input {...field} placeholder="e.g., PO-2024-001" data-testid="input-po-number" />
+                  <Input {...field} value={submitText !== "Create Order" ? field.value ?? "" : manualNumbering ? field.value ?? "" : autoNumberPreview} readOnly={submitText !== "Create Order" || !manualNumbering} required={manualNumbering && submitText === "Create Order"} placeholder={manualNumbering ? "Enter unique purchase-order number" : "Generated automatically on save"} data-testid="input-po-number" />
                 </FormControl>
+                {submitText === "Create Order" && !manualNumbering && <p className="text-xs text-muted-foreground">Preview only; the server reserves the number when the order is saved.</p>}
                 <FormMessage />
               </FormItem>
             )}
@@ -245,11 +257,25 @@ function PurchaseOrderForm({
             <FormItem><FormLabel>Currency</FormLabel><FormControl><Input {...field} maxLength={3} onChange={event => field.onChange(event.target.value.toUpperCase())} /></FormControl><FormMessage /></FormItem>
           )} />
           <FormField control={form.control} name="taxRate" render={({ field }) => (
-            <FormItem><FormLabel>Default tax rate (%)</FormLabel><FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => {
-              const rate = Number(event.target.value) || 0;
-              field.onChange(rate);
-              (form.getValues("items") ?? []).forEach((_: unknown, index: number) => form.setValue(`items.${index}.taxRate`, rate));
-            }} /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Default tax rate</FormLabel>
+              {activeTaxRates.length > 0 && <Select value={headerRateId ? String(headerRateId) : "__custom__"} onValueChange={value => {
+                const rate = activeTaxRates.find(option => String(option.id) === value);
+                if (rate) {
+                  field.onChange(Number(rate.rate));
+                  form.setValue("taxMode", rate.taxMode as "inclusive" | "exclusive");
+                  (form.getValues("items") ?? []).forEach((_: unknown, index: number) => {
+                    form.setValue(`items.${index}.taxRate`, Number(rate.rate));
+                    form.setValue(`items.${index}.taxInclusive`, rate.taxMode === "inclusive");
+                  });
+                }
+              }}><FormControl><SelectTrigger><SelectValue placeholder="Choose tax rate" /></SelectTrigger></FormControl><SelectContent>{activeTaxRates.map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
+              <FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => {
+                const rate = Number(event.target.value) || 0;
+                field.onChange(rate);
+                (form.getValues("items") ?? []).forEach((_: unknown, index: number) => form.setValue(`items.${index}.taxRate`, rate));
+              }} /></FormControl>
+              <FormMessage />
+            </FormItem>
           )} />
           <FormField control={form.control} name="taxMode" render={({ field }) => (
             <FormItem><FormLabel>Tax mode</FormLabel><Select value={field.value} onValueChange={mode => {
@@ -487,7 +513,17 @@ function PurchaseOrderForm({
                     <FormItem><FormLabel>Discount value</FormLabel><FormControl><Input type="number" min="0" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name={`items.${index}.taxRate`} render={({ field }) => (
-                    <FormItem><FormLabel>Line tax rate (%)</FormLabel><FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Line tax rate</FormLabel>
+                      {activeTaxRates.length > 0 && <Select value={String(activeTaxRates.find(rate => Number(rate.rate) === Number(field.value) && rate.taxMode === (form.watch(`items.${index}.taxInclusive`) ? "inclusive" : "exclusive"))?.id ?? "__custom__")} onValueChange={value => {
+                        const rate = activeTaxRates.find(option => String(option.id) === value);
+                        if (rate) {
+                          field.onChange(Number(rate.rate));
+                          form.setValue(`items.${index}.taxInclusive`, rate.taxMode === "inclusive");
+                        }
+                      }}><FormControl><SelectTrigger><SelectValue placeholder="Choose tax rate" /></SelectTrigger></FormControl><SelectContent>{activeTaxRates.map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
+                      <FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )} />
                 </div>
                 <FormField control={form.control} name={`items.${index}.taxInclusive`} render={({ field }) => (
@@ -530,18 +566,6 @@ const WORKFLOW_LABEL: Record<string, string> = {
   ordered: "Mark Ordered",
 };
 
-function generatePONumber() {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-  const random = Math.random().toString(36).substring(2, 5).toUpperCase();
-  return `PO-${year}${month}${day}-${hours}${minutes}${seconds}-${random}`;
-}
-
 export default function PurchaseOrders() {
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -554,7 +578,7 @@ export default function PurchaseOrders() {
   const [selectedQuotationId, setSelectedQuotationId] = useState("");
   const isSystemAdmin = useHasPermission("system_admin");
 
-  const { data: orders = [], isLoading } = useQuery<PurchaseOrderWithDetails[]>({
+  const { data: orders = [], isLoading, isError: ordersError } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
   });
 
@@ -563,6 +587,11 @@ export default function PurchaseOrders() {
   });
   const { data: quotations = [] } = useQuery<Array<any>>({ queryKey: ["/api/vendor-quotations"] });
   const { data: financeTaxSettings } = useQuery<{ defaultTaxRate: string; defaultTaxMode: "exclusive" | "inclusive"; currencyCode: string }>({ queryKey: ["/api/finance/tax-settings"] });
+  const { data: financeTaxRates = [] } = useQuery<FinanceTaxRate[]>({ queryKey: ["/api/finance/tax-rates"] });
+  const { data: documentSequences = [], isError: documentSequencesError, isLoading: documentSequencesLoading } = useQuery<FinanceDocumentSequence[]>({ queryKey: ["/api/finance/document-sequences"] });
+  const purchaseOrderSequence = documentSequences.find(sequence => sequence.documentType === "purchase_order");
+  const manualPONumber = purchaseOrderSequence?.numberingMode === "manual";
+  const poNumberPreview = purchaseOrderSequence ? formatDocumentNumberPreview(purchaseOrderSequence) : "";
 
   const { data: departments = [] } = useQuery<Department[]>({
     queryKey: ["/api/departments"],
@@ -582,6 +611,8 @@ export default function PurchaseOrders() {
     if (query) {
       result = result.filter((o) => {
         if (o.poNumber.toLowerCase().includes(query)) return true;
+        const vendorName = vendors.find(row => row.id === o.vendorId)?.name ?? (typeof o.vendor === "string" ? o.vendor : "");
+        if (vendorName.toLowerCase().includes(query) || (o.reference ?? "").toLowerCase().includes(query)) return true;
         return (o.items ?? []).some((item) =>
           item.description.toLowerCase().includes(query) ||
           (item.assetType ?? "").toLowerCase().includes(query) ||
@@ -590,7 +621,7 @@ export default function PurchaseOrders() {
       });
     }
     return result;
-  }, [orders, statusFilter, itemSearch]);
+  }, [orders, vendors, statusFilter, itemSearch]);
 
   const eligibleForAssets = useMemo(
     () => orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0 && !o.assetsCreated),
@@ -606,7 +637,7 @@ export default function PurchaseOrders() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter]);
+  }, [statusFilter, itemSearch]);
 
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) setCurrentPage(totalPages);
@@ -619,11 +650,11 @@ export default function PurchaseOrders() {
       queryClient.invalidateQueries({ queryKey: ["/api/vendor-quotations"] });
       setIsCreateDialogOpen(false);
       setSelectedQuotationId("");
-      createForm.reset({ ...defaultFormValues, poNumber: generatePONumber() });
+      createForm.reset({ ...defaultFormValues, poNumber: manualPONumber ? "" : poNumberPreview });
       toast({ title: "Success", description: "Purchase order created successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create purchase order", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to create purchase order", variant: "destructive" });
     },
   });
 
@@ -635,8 +666,8 @@ export default function PurchaseOrders() {
       setEditingOrder(null);
       toast({ title: "Success", description: "Purchase order updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update purchase order", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to update purchase order", variant: "destructive" });
     },
   });
 
@@ -696,7 +727,7 @@ export default function PurchaseOrders() {
   });
 
   const defaultFormValues: PurchaseOrderFormData = {
-    poNumber: generatePONumber(),
+    poNumber: "",
     quotationId: "",
     vendorId: "",
     reference: "",
@@ -727,7 +758,7 @@ export default function PurchaseOrders() {
 
   useEffect(() => {
     if (isCreateDialogOpen) {
-      createForm.setValue("poNumber", generatePONumber());
+      createForm.setValue("poNumber", manualPONumber ? "" : poNumberPreview);
       if (financeTaxSettings && !createForm.getValues("quotationId") && !createForm.getValues("vendorId")) {
         createForm.setValue("currency", financeTaxSettings.currencyCode);
         createForm.setValue("taxRate", Number(financeTaxSettings.defaultTaxRate));
@@ -736,13 +767,14 @@ export default function PurchaseOrders() {
         createForm.setValue("items.0.taxInclusive", financeTaxSettings.defaultTaxMode === "inclusive");
       }
     }
-  }, [isCreateDialogOpen, financeTaxSettings]);
+  }, [isCreateDialogOpen, financeTaxSettings, manualPONumber, poNumberPreview]);
 
   const handleCreate = (data: PurchaseOrderFormData) => {
     const totals = previewDocumentTotals(data.items, data.documentDiscountType, data.documentDiscountValue);
     if (totals.validationError) return toast({ title: "Invalid pricing", description: totals.validationError, variant: "destructive" });
     const cleanData = {
       ...data,
+      poNumber: manualPONumber ? data.poNumber?.trim() : undefined,
       subtotal: totals.subtotal.toFixed(2),
       taxAmount: totals.taxAmount.toFixed(2),
       documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
@@ -760,7 +792,7 @@ export default function PurchaseOrders() {
     if (!quote) return;
     createForm.reset({
       ...defaultFormValues,
-      poNumber: generatePONumber(),
+      poNumber: manualPONumber ? "" : poNumberPreview,
       quotationId: quote.id,
       vendorId: quote.vendorId,
       reference: `Quotation ${quote.quoteNumber}`,
@@ -836,7 +868,7 @@ export default function PurchaseOrders() {
 
   const handleDuplicate = (order: PurchaseOrderWithDetails) => {
     createForm.reset({
-      poNumber: generatePONumber(),
+      poNumber: manualPONumber ? "" : poNumberPreview,
       quotationId: "",
       vendorId: order.vendorId || "",
       reference: order.reference || "",
@@ -880,6 +912,7 @@ export default function PurchaseOrders() {
     if (totals.validationError) return toast({ title: "Invalid pricing", description: totals.validationError, variant: "destructive" });
     const cleanData = {
       ...data,
+      poNumber: undefined,
       subtotal: totals.subtotal.toFixed(2),
       taxAmount: totals.taxAmount.toFixed(2),
       documentDiscountAmount: totals.documentDiscountAmount.toFixed(2),
@@ -979,9 +1012,9 @@ export default function PurchaseOrders() {
             <h1 className="text-2xl font-bold text-foreground">Purchase Orders</h1>
             <p className="text-sm text-muted-foreground">Manage procurement requests</p>
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+          <Dialog open={isCreateDialogOpen} onOpenChange={open => { if (documentSequencesError) return; setIsCreateDialogOpen(open); }}>
             <DialogTrigger asChild>
-              <Button size="sm" data-testid="button-add-purchase-order">
+              <Button size="sm" disabled={documentSequencesError || documentSequencesLoading} data-testid="button-add-purchase-order">
                 <Plus className="w-4 h-4 mr-1" />
                 New Order
               </Button>
@@ -1016,6 +1049,9 @@ export default function PurchaseOrders() {
                 warehouses={warehouses}
                 consumables={consumables}
                 consumableCategories={consumableCategories}
+                taxRates={financeTaxRates}
+                manualNumbering={manualPONumber}
+                autoNumberPreview={poNumberPreview}
               />
             </DialogContent>
           </Dialog>
@@ -1374,6 +1410,9 @@ export default function PurchaseOrders() {
             warehouses={warehouses}
             consumables={consumables}
             consumableCategories={consumableCategories}
+            taxRates={financeTaxRates}
+            manualNumbering
+            autoNumberPreview={editingOrder?.poNumber ?? ""}
           />
         </DialogContent>
       </Dialog>

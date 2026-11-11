@@ -19,7 +19,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
   const actorId = randomUUID(), roleId = randomUUID(), vendorId = randomUUID(), warehouseId = randomUUID();
   const suffix = randomUUID().slice(0, 8);
   let server: Server | undefined, base = "", cookie = "";
-  let quoteId = "", orderId = "", invoiceId = "", partialInvoiceId = "";
+  let quoteId = "", orderId = "", invoiceId = "", partialInvoiceId = "", manualQuoteId = "";
 
   async function request(method: string, path: string, input?: unknown, expected = 200) {
     const response = await fetch(`${base}${path}`, {
@@ -51,6 +51,16 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     await db.insert(s.userRoles).values({ userId: actorId, roleId });
     await db.insert(s.vendors).values({ id: vendorId, name: `P2P vendor ${suffix}` });
     await db.insert(s.warehouseLocations).values({ id: warehouseId, name: `P2P warehouse ${suffix}`, code: `P2P-${suffix}`, isActive: true });
+    const year = new Date().getFullYear();
+    for (const [documentType, prefix] of [
+      ["quotation", `QA-${suffix}-QT-{YYYY}-`],
+      ["purchase_order", `QA-${suffix}-PO-{YYYY}-`],
+      ["invoice", `QA-${suffix}-INV-{YYYY}-`],
+    ] as const) {
+      await db.update(s.financeDocumentSequences).set({
+        numberingMode: "auto", prefix, nextNumber: 1, padding: 4, resetYearly: true, sequenceYear: year,
+      }).where(eq(s.financeDocumentSequences.documentType, documentType));
+    }
     const login = await fetch(`${base}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) });
     expect(login.status).toBe(200);
     cookie = login.headers.get("set-cookie")!.split(";")[0];
@@ -74,6 +84,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
         await db.delete(s.purchaseOrders).where(eq(s.purchaseOrders.id, orderId));
       }
       if (quoteId) await db.delete(s.vendorQuotations).where(eq(s.vendorQuotations.id, quoteId));
+      if (manualQuoteId) await db.delete(s.vendorQuotations).where(eq(s.vendorQuotations.id, manualQuoteId));
       await db.delete(s.assets).where(eq(s.assets.primaryVendorId, vendorId));
       await db.delete(s.consumables).where(eq(s.consumables.warehouseLocationId, warehouseId));
       await db.delete(s.warehouseLocations).where(eq(s.warehouseLocations.id, warehouseId));
@@ -90,6 +101,38 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
   });
 
   it("matches receipts, prevents duplicate stock and overpayment, and applies debit notes to payable balances", async () => {
+    const defaultRates = await request("GET", "/api/finance/tax-rates");
+    expect(defaultRates.map((rate: any) => rate.code)).toEqual(expect.arrayContaining(["STANDARD_VAT", "REDUCED_VAT", "ZERO_RATED", "EXEMPT"]));
+    const taxRate = await request("POST", "/api/finance/tax-rates", {
+      code: `QA_${suffix.toUpperCase()}`, name: `QA reduced ${suffix}`, classification: "reduced", rate: 7.5,
+      taxMode: "exclusive", isActive: true, isDefault: false, sortOrder: 99,
+    }, 201);
+    const activatedDefault = await request("PUT", `/api/finance/tax-rates/${taxRate.id}`, {
+      code: taxRate.code, name: taxRate.name, classification: taxRate.classification, rate: 7.5,
+      taxMode: "exclusive", isActive: true, isDefault: true, sortOrder: 99,
+    });
+    expect(activatedDefault.isDefault).toBe(true);
+    expect(Number((await request("GET", "/api/finance/tax-settings")).defaultTaxRate)).toBe(7.5);
+    await request("PUT", `/api/finance/tax-rates/${taxRate.id}`, {
+      code: taxRate.code, name: taxRate.name, classification: taxRate.classification, rate: 7.5,
+      taxMode: "exclusive", isActive: false, isDefault: false, sortOrder: 99,
+    }, 409);
+
+    await db.update(s.financeDocumentSequences).set({ numberingMode: "manual" })
+      .where(eq(s.financeDocumentSequences.documentType, "quotation"));
+    const manualQuotation = {
+      vendorId, quoteNumber: `MANUAL-${suffix}`, issueDate: "2026-01-01", currency: "SAR",
+      taxRate: "0", subtotal: "1.00", taxAmount: "0.00", totalAmount: "1.00",
+      items: [{ description: `Manual quote ${suffix}`, quantity: 1, unitPrice: 1, taxRate: 0 }],
+    };
+    await request("POST", "/api/vendor-quotations", { ...manualQuotation, quoteNumber: "" }, 400);
+    const manualQuote = await request("POST", "/api/vendor-quotations", manualQuotation, 201);
+    manualQuoteId = manualQuote.id;
+    expect(manualQuote.quoteNumber).toBe(`MANUAL-${suffix}`);
+    await request("POST", "/api/vendor-quotations", { ...manualQuotation, quoteNumber: `manual-${suffix}` }, 409);
+    await db.update(s.financeDocumentSequences).set({ numberingMode: "auto" })
+      .where(eq(s.financeDocumentSequences.documentType, "quotation"));
+
     const quote = await request("POST", "/api/vendor-quotations", {
       vendorId, quoteNumber: `Q-${suffix}`, issueDate: "2026-01-01", currency: "SAR", taxRate: "0", subtotal: "60.00", taxAmount: "0.00", totalAmount: "60.00",
       status: "converted",
@@ -100,6 +143,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     }, 201);
     quoteId = quote.id;
     expect(quote.status).toBe("submitted");
+    expect(quote.quoteNumber).toMatch(new RegExp(`^QA-${suffix}-QT-\\d{4}-0001$`));
     await request("PUT", `/api/vendor-quotations/${quoteId}/status`, { status: "accepted" });
     const order = await request("POST", "/api/purchase-orders", {
       poNumber: `PO-P2P-${suffix}`, quotationId: quoteId, vendorId, orderDate: "2026-01-01",
@@ -107,6 +151,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     }, 201);
     orderId = order.id;
     expect(order.status).toBe("pending");
+    expect(order.poNumber).toMatch(new RegExp(`^QA-${suffix}-PO-\\d{4}-0001$`));
     await request("POST", `/api/vendor-quotations/${quoteId}/convert-to-po`, {}, 409);
     await request("PUT", `/api/purchase-orders/${orderId}`, { status: "received" }, 409);
     await request("PUT", `/api/purchase-orders/${orderId}`, { status: "ordered" }, 409);
@@ -132,6 +177,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     const invoice = await request("POST", "/api/purchase-invoices", invoiceInput, 201);
     invoiceId = invoice.id;
     expect(invoice).toMatchObject({ status: "pending", paymentStatus: "pending" });
+    expect(invoice.invoiceNumber).toMatch(new RegExp(`^QA-${suffix}-INV-\\d{4}-0001$`));
     expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(0);
     await request("POST", "/api/purchase-invoices", { ...invoiceInput, invoiceNumber: `OVER-${suffix}` }, 400);
     await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" }, 409);
