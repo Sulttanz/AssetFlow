@@ -8,9 +8,11 @@ const authTestState = vi.hoisted(() => ({
   users: new Map<string, any>(),
   sessions: new Map<string, any>(),
   sessionDeleteError: null as Error | null,
+  sessionSaveError: null as Error | null,
   lookupGate: null as null | { username: string; entered: () => void; wait: Promise<void> },
   sessionSaveGate: null as null | { entered: () => void; wait: Promise<void>; saved: () => void },
   lockWaitEntered: null as null | (() => void),
+  clients: [] as Array<{ query: any; release: any }>,
   advisoryLocks: new Map<string, { locked: boolean; waiters: Array<() => void> }>(),
   query: vi.fn(async (sql: string, values: unknown[] = []) => {
     if (!sql.includes('DELETE FROM "sessions"')) throw new Error("Unexpected database query");
@@ -83,8 +85,8 @@ vi.mock("./db", () => ({
     query: authTestState.query,
     connect: vi.fn(async () => {
       const heldLocks = new Set<string>();
-      return {
-        query: async (sql: string, values: unknown[] = []) => {
+      const client = {
+        query: vi.fn(async (sql: string, values: unknown[] = []) => {
           const key = String(values[0]);
           if (sql.includes("pg_advisory_lock(")) {
             await authTestState.acquireAdvisoryLock(key);
@@ -97,9 +99,11 @@ vi.mock("./db", () => ({
             return { rows: [{ pg_advisory_unlock: true }] };
           }
           throw new Error(`Unexpected client query: ${sql}`);
-        },
+        }),
         release: vi.fn(),
       };
+      authTestState.clients.push(client);
+      return client;
     }),
   },
   db: {},
@@ -113,6 +117,10 @@ vi.mock("connect-pg-simple", () => ({
       }
 
       set(id: string, savedSession: any, callback?: (error?: Error | null) => void) {
+        if (authTestState.sessionSaveError) {
+          callback?.(authTestState.sessionSaveError);
+          return;
+        }
         const gate = authTestState.sessionSaveGate;
         if (gate) {
           gate.entered();
@@ -147,6 +155,7 @@ describe("user deactivation session revocation", () => {
   let server: Server;
   let baseUrl: string;
   let passwordHash: string;
+  let loginAddressCounter = 1;
 
   beforeAll(async () => {
     process.env.SESSION_SECRET ||= "deactivation-test-session-secret";
@@ -162,13 +171,16 @@ describe("user deactivation session revocation", () => {
   });
 
   beforeEach(() => {
+    loginAddressCounter = 1;
     authTestState.sessions.clear();
     authTestState.users.clear();
     authTestState.sessionDeleteError = null;
+    authTestState.sessionSaveError = null;
     authTestState.advisoryLocks.clear();
     authTestState.lookupGate = null;
     authTestState.sessionSaveGate = null;
     authTestState.lockWaitEntered = null;
+    authTestState.clients.length = 0;
     authTestState.query.mockClear();
     for (const [id, username] of [["admin", "admin"], ["target", "target"]]) {
       authTestState.users.set(id, {
@@ -194,7 +206,10 @@ describe("user deactivation session revocation", () => {
   async function signIn(username: string): Promise<string> {
     const response = await fetch(`${baseUrl}/api/login`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `198.51.100.${loginAddressCounter++}`,
+      },
       body: JSON.stringify({ username, password: "correct horse battery staple" }),
     });
     const body = await response.text();
@@ -255,6 +270,42 @@ describe("user deactivation session revocation", () => {
     expect(authTestState.users.get("target")?.isActive).toBe(true);
     expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(true);
     expect((await fetch(`${baseUrl}/api/user`, { headers: { cookie: targetSession } })).status).toBe(200);
+  });
+
+  it("releases the account lock and database client when session saving fails", async () => {
+    const adminSession = await signIn("admin");
+    const error = new Error("Session store unavailable");
+    authTestState.sessionSaveError = error;
+
+    const login = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `198.51.100.${loginAddressCounter++}`,
+      },
+      body: JSON.stringify({ username: "target", password: "correct horse battery staple" }),
+    });
+
+    expect(login.status).toBe(500);
+    expect(await login.json()).toEqual({ error: "Login failed during session creation" });
+    expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
+
+    const loginClient = authTestState.clients.at(-1)!;
+    expect(loginClient.query).toHaveBeenCalledWith(
+      "SELECT pg_advisory_lock(hashtextextended($1, 0))",
+      ["user-session:target"],
+    );
+    expect(loginClient.query).toHaveBeenCalledWith(
+      "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+      ["user-session:target"],
+    );
+    expect(loginClient.release).toHaveBeenCalledTimes(1);
+    expect(authTestState.advisoryLocks.has("user-session:target")).toBe(false);
+
+    authTestState.sessionSaveError = null;
+    const deactivation = await setAccountActive(adminSession, false);
+    expect(deactivation.status).toBe(200);
+    expect(authTestState.users.get("target")?.isActive).toBe(false);
   });
 
   it("does not persist a sign-in that looked up the account before deactivation", async () => {
