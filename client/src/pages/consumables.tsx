@@ -159,6 +159,7 @@ export default function ConsumablesPage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       toast({ title: "Draft purchase order created", description: "Review it in Purchase Orders before submitting." });
+      await queryClient.invalidateQueries({ queryKey: ["/api/finance/document-sequences"] });
     },
     onError: (error: Error) => toast({ title: "Could not create draft PO", description: error.message, variant: "destructive" }),
   });

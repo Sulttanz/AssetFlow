@@ -5921,7 +5921,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (activeWarehouses.length !== requestedWarehouseIds.length) return res.status(400).json({ message: "Consumable PO lines must use active warehouses" });
       }
       const financeDefaults = await getDefaultFinancialProfile();
-      const validatedData = insertPurchaseOrderSchema.parse({
+      const validatedData = insertPurchaseOrderSchema.extend({
+        poNumber: z.string().trim().min(1).max(100).optional(),
+        currency: z.string().regex(/^[A-Z]{3}$/).default("USD"),
+        taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
+        taxRate: z.coerce.number().min(0).max(100).default(0),
+        documentDiscountType: z.enum(["fixed", "percentage"]).default("fixed"),
+        documentDiscountValue: z.coerce.number().min(0).default(0),
+      }).parse({
         currency: financeDefaults.currencyCode,
         taxRate: financeDefaults.defaultTaxRate,
         taxMode: financeDefaults.defaultTaxMode,

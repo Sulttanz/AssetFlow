@@ -648,6 +648,7 @@ export default function PurchaseOrders() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: ["/api/vendor-quotations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/document-sequences"] });
       setIsCreateDialogOpen(false);
       setSelectedQuotationId("");
       createForm.reset({ ...defaultFormValues, poNumber: manualPONumber ? "" : poNumberPreview });

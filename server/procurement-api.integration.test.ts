@@ -177,7 +177,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     const invoice = await request("POST", "/api/purchase-invoices", invoiceInput, 201);
     invoiceId = invoice.id;
     expect(invoice).toMatchObject({ status: "pending", paymentStatus: "pending" });
-    expect(invoice.invoiceNumber).toMatch(new RegExp(`^QA-${suffix}-INV-\\d{4}-0001$`));
+    expect(invoice.invoiceNumber).toMatch(new RegExp(`^QA-${suffix}-INV-\\d{4}-0002$`));
     expect(await db.select().from(s.purchaseOrderItemReceipts).where(eq(s.purchaseOrderItemReceipts.purchaseOrderId, orderId))).toHaveLength(0);
     await request("POST", "/api/purchase-invoices", { ...invoiceInput, invoiceNumber: `OVER-${suffix}` }, 400);
     await request("PUT", `/api/purchase-invoices/${invoiceId}/status`, { status: "received" }, 409);
