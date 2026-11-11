@@ -12,6 +12,7 @@ import AuthPage from "@/pages/auth-page";
 import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
 import { getPersonaHomePath } from "@shared/personas";
+import { createRecoverableRoute } from "@/lib/recoverable-route";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Projects = lazy(() => import("@/pages/projects"));
@@ -29,7 +30,7 @@ const AssetHandovers = lazy(() => import("@/pages/asset-handovers"));
 const Locations = lazy(() => import("@/pages/locations"));
 const Departments = lazy(() => import("@/pages/departments"));
 const Vendors = lazy(() => import("@/pages/vendors"));
-const PurchaseOrders = lazy(() => import("@/pages/purchase-orders"));
+const PurchaseOrders = createRecoverableRoute("Purchase Orders", () => import("@/pages/purchase-orders"));
 const Quotations = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.QuotationsPage })));
 const PurchaseInvoices = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseInvoicesPage })));
 const PurchaseReturns = lazy(() => import("@/pages/procure-to-pay").then(module => ({ default: module.PurchaseReturnsPage })));
