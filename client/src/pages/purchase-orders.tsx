@@ -636,6 +636,9 @@ export default function PurchaseOrders() {
 
   const { data: orders = [], isLoading, isError: ordersError } = useQuery<PurchaseOrderWithDetails[]>({
     queryKey: ["/api/purchase-orders"],
+    // The server may have removed an order from another session (or an
+    // earlier request). Always reconcile the register when this page mounts.
+    refetchOnMount: "always",
   });
 
   const { data: vendors = [] } = useQuery<Vendor[]>({
@@ -730,8 +733,9 @@ export default function PurchaseOrders() {
       await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       toast({ title: "Success", description: "Purchase order deleted successfully" });
     },
-    onError: (error: any, variables) => {
+    onError: async (error: any, variables) => {
       const raw = typeof error?.message === "string" ? error.message.replace(/^\d+:\s*/, "") : "";
+      const status = Number(/^\s*(\d{3}):/.exec(error?.message ?? "")?.[1]);
       let parsed: any = null;
       try {
         parsed = JSON.parse(raw);
@@ -750,6 +754,18 @@ export default function PurchaseOrders() {
         return;
       }
 
+      // A stale card can be left in cache when another session already
+      // removed the PO. Remove it immediately and refresh the source list.
+      if (status === 404) {
+        queryClient.setQueryData<PurchaseOrderWithDetails[]>(["/api/purchase-orders"], current =>
+          current?.filter(order => order.id !== variables.id),
+        );
+        await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
+        toast({ title: "Purchase order already removed", description: "The list has been refreshed." });
+        return;
+      }
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
       toast({
         title: "Error",
         description: parsed?.message || raw || "Failed to delete purchase order",
