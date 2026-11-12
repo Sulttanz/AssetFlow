@@ -257,7 +257,8 @@ function RegisterTable({ loading, empty, emptyText, children }: { loading: boole
   return <div className="mt-4 overflow-hidden rounded-lg border bg-card">{loading ? <div className="flex h-40 items-center justify-center text-muted-foreground"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Loading records…</div> : empty ? <div className="p-10 text-center text-sm text-muted-foreground">{emptyText}</div> : <div className="overflow-x-auto">{children}</div>}</div>;
 }
 function Field({ label, name, value, onChange, type = "text", required = false, placeholder }: { label: string; name: string; value: string; onChange: (name: string, value: string) => void; type?: string; required?: boolean; placeholder?: string }) {
-  return <div className="space-y-1.5"><Label htmlFor={`backup-${name}`}>{label}</Label><Input id={`backup-${name}`} type={type} value={value} onChange={event => onChange(name, event.target.value)} required={required} placeholder={placeholder} /></div>;
+  const isNumeric = type === "number";
+  return <div className="space-y-1.5"><Label htmlFor={`backup-${name}`}>{label}</Label><Input id={`backup-${name}`} type={isNumeric ? "text" : type} inputMode={isNumeric ? name === "dataSizeMb" ? "decimal" : "numeric" : undefined} value={value} onChange={event => onChange(name, event.target.value)} required={required} placeholder={placeholder} /></div>;
 }
 function TextField({ label, name, value, onChange, required }: { label: string; name: string; value: string; onChange: (name: string, value: string) => void; required?: boolean }) {
   return <div className="space-y-1.5"><Label htmlFor={`backup-${name}`}>{label}</Label><Textarea id={`backup-${name}`} value={value} onChange={event => onChange(name, event.target.value)} required={required} rows={3} /></div>;

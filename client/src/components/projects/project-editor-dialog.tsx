@@ -80,6 +80,7 @@ export function ProjectEditorDialog({
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState<ProjectMutation>(() => emptyProject(currentUserId));
+  const [financialDraft, setFinancialDraft] = useState({ budget: "0", actualSpend: "0" });
   const peopleOptions = useMemo(() => options.users.map(user => ({
     value: user.id,
     label: user.name,
@@ -93,7 +94,9 @@ export function ProjectEditorDialog({
 
   useEffect(() => {
     if (!open) return;
-    setForm(project ? fromProject(project) : emptyProject(currentUserId));
+    const next = project ? fromProject(project) : emptyProject(currentUserId);
+    setForm(next);
+    setFinancialDraft({ budget: String(next.budget), actualSpend: String(next.actualSpend) });
   }, [open, project, currentUserId]);
 
   const update = <K extends keyof ProjectMutation>(key: K, value: ProjectMutation[K]) => {
@@ -102,8 +105,15 @@ export function ProjectEditorDialog({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const moneyPattern = /^\d+(?:\.\d{0,2})?$/;
+    if (!moneyPattern.test(financialDraft.budget) || !moneyPattern.test(financialDraft.actualSpend)) {
+      toast({ title: "Review project financials", description: "Enter valid non-negative amounts with up to two decimal places.", variant: "destructive" });
+      return;
+    }
     const parsed = projectMutationSchema.safeParse({
       ...form,
+      budget: Number(financialDraft.budget),
+      actualSpend: Number(financialDraft.actualSpend),
       assets: options.assetsAvailable === false ? [] : form.assets,
     });
     if (!parsed.success) {
@@ -184,13 +194,13 @@ export function ProjectEditorDialog({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="project-budget">Baseline budget</Label>
-                <Input id="project-budget" type="number" min="0" step="0.01" className="min-h-11" value={form.budget}
-                  onChange={event => update("budget", Number(event.target.value))} />
+                <Input id="project-budget" type="text" inputMode="decimal" className="min-h-11" value={financialDraft.budget}
+                  onChange={event => setFinancialDraft(current => ({ ...current, budget: event.target.value }))} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="project-actual-spend">Actual spend</Label>
-                <Input id="project-actual-spend" type="number" min="0" step="0.01" className="min-h-11" value={form.actualSpend}
-                  onChange={event => update("actualSpend", Number(event.target.value))} />
+                <Input id="project-actual-spend" type="text" inputMode="decimal" className="min-h-11" value={financialDraft.actualSpend}
+                  onChange={event => setFinancialDraft(current => ({ ...current, actualSpend: event.target.value }))} />
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="project-description">Description</Label>

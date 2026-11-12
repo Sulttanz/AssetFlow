@@ -16,6 +16,28 @@ type StockOption = { id: string; name: string; modelPartNumber?: string | null; 
 const fieldTypes: CatalogField["type"][] = ["text", "textarea", "select", "date", "number", "checkbox"];
 const blankField = (): CatalogField => ({ key: "", label: "", type: "text", required: false });
 
+function OptionalNumericInput({ label, value, onCommit }: { label: string; value: number | undefined; onCommit: (value: number | undefined) => void }) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(value == null ? "" : String(value));
+  }, [value, focused]);
+  return <Input
+    aria-label={label}
+    type="text"
+    inputMode="decimal"
+    value={draft}
+    onFocus={() => setFocused(true)}
+    onChange={event => setDraft(event.target.value)}
+    onBlur={() => {
+      setFocused(false);
+      if (draft.trim() === "") onCommit(undefined);
+      else if (/^\d+(?:\.\d*)?$/.test(draft) && Number.isFinite(Number(draft))) onCommit(Number(draft));
+      else setDraft(value == null ? "" : String(value));
+    }}
+  />;
+}
+
 export function CatalogItemEditor({ open, item, options, onClose, onSave, saving }: {
   open: boolean; item: CatalogItem | null; options: CatalogOptions; onClose: () => void;
   onSave: (payload: ItemPayload) => void; saving: boolean;
@@ -90,7 +112,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
           <label className="grid gap-1.5 text-sm font-medium">Icon name <span className="text-xs font-normal text-muted-foreground">Optional display hint</span><Input value={icon} onChange={event => setIcon(event.target.value)} placeholder="laptop" /></label>
           <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Description<Textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} /></label>
           <label className="grid gap-1.5 text-sm font-medium">Fulfillment team<Input value={fulfillmentTeam} onChange={event => setFulfillmentTeam(event.target.value)} placeholder="e.g. Endpoint Services" /></label>
-          <label className="grid gap-1.5 text-sm font-medium">Service target (hours)<Input type="number" min="1" value={slaHours} onChange={event => setSlaHours(event.target.value)} placeholder="No target" /></label>
+          <label className="grid gap-1.5 text-sm font-medium">Service target (hours)<Input type="text" inputMode="decimal" value={slaHours} onChange={event => setSlaHours(event.target.value)} placeholder="No target" /></label>
           <label className="grid gap-1.5 text-sm font-medium">Availability<Select value={status} onValueChange={value => setStatus(value as "Active" | "Inactive")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Active">Active</SelectItem><SelectItem value="Inactive">Inactive</SelectItem></SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Linked stock item
             <Select value={consumableId || "__none__"} onValueChange={value => setConsumableId(value === "__none__" ? "" : value)} disabled={stockQuery.isLoading}>
@@ -121,7 +143,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
               <label className="grid gap-1 text-xs font-medium">Answer type<Select value={field.type} onValueChange={value => updateField(index, { type: value as CatalogField["type"], options: value === "select" ? field.options ?? [""] : undefined })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{fieldTypes.map(type => <SelectItem key={type} value={type}>{type[0].toUpperCase() + type.slice(1)}</SelectItem>)}</SelectContent></Select></label>
               <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={field.required} onChange={event => updateField(index, { required: event.target.checked })} className="h-4 w-4 accent-primary" />Required</label>
               {field.type === "select" && <label className="grid gap-1 text-xs font-medium sm:col-span-2">Options <span className="font-normal text-muted-foreground">One choice per line</span><Textarea value={(field.options ?? []).join("\n")} onChange={event => updateField(index, { options: event.target.value.split("\n") })} rows={3} /></label>}
-              {field.type === "number" && <div className="grid grid-cols-2 gap-3 sm:col-span-2"><label className="grid gap-1 text-xs font-medium">Minimum<Input type="number" value={field.min ?? ""} onChange={event => updateField(index, { min: event.target.value === "" ? undefined : Number(event.target.value) })} /></label><label className="grid gap-1 text-xs font-medium">Maximum<Input type="number" value={field.max ?? ""} onChange={event => updateField(index, { max: event.target.value === "" ? undefined : Number(event.target.value) })} /></label></div>}
+              {field.type === "number" && <div className="grid grid-cols-2 gap-3 sm:col-span-2"><label className="grid gap-1 text-xs font-medium">Minimum<OptionalNumericInput label={`Minimum for ${field.label || "question " + (index + 1)}`} value={field.min} onCommit={min => updateField(index, { min })} /></label><label className="grid gap-1 text-xs font-medium">Maximum<OptionalNumericInput label={`Maximum for ${field.label || "question " + (index + 1)}`} value={field.max} onCommit={max => updateField(index, { max })} /></label></div>}
             </div>
           </div>)}
         </section>

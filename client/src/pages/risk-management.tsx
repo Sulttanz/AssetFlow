@@ -45,7 +45,7 @@ function RiskScore({ likelihood, impact, residual = false }: { likelihood?: numb
 }
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <Field label={label}><Input type="number" min={1} max={5} required value={value} onChange={(event) => onChange(event.target.value)} className="font-mono" /></Field>;
+  return <Field label={label}><Input type="text" inputMode="numeric" pattern="[1-5]" required value={value} onChange={(event) => onChange(event.target.value)} className="font-mono" /></Field>;
 }
 
 export default function RiskManagement() {

@@ -97,12 +97,24 @@ export default function ConsumablesPage() {
   const pageItems = filtered.slice((page - 1) * pageSize, page * pageSize);
   const lowStockCount = items.filter(item => item.quantityInStock <= item.minReorderLevel).length;
   const totalUnits = items.reduce((total, item) => total + item.quantityInStock, 0);
+  const isNonNegativeInteger = (value: string) => /^\d+$/.test(value) && Number.isSafeInteger(Number(value));
+  const isNonNegativeMoney = (value: string) => /^\d+(?:\.\d{0,2})?$/.test(value) && Number.isFinite(Number(value));
+  const movementQuantityValid = /^\d+$/.test(movementQuantity)
+    && Number.isSafeInteger(Number(movementQuantity))
+    && Number(movementQuantity) > 0
+    && (movementType === "adjustment" && adjustmentDirection === "increase" || !movementItem || Number(movementQuantity) <= movementItem.quantityInStock);
+  const itemQuantitiesValid = isNonNegativeInteger(draft.quantityInStock)
+    && isNonNegativeInteger(draft.minReorderLevel)
+    && isNonNegativeMoney(draft.unitCost);
 
   useEffect(() => setPage(1), [search, categoryFilter, lowOnly, pageSize]);
   useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
 
   const saveItem = useMutation({
     mutationFn: async (payload: ConsumableDraft) => {
+      if (!isNonNegativeInteger(payload.quantityInStock) || !isNonNegativeInteger(payload.minReorderLevel) || !isNonNegativeMoney(payload.unitCost)) {
+        throw new Error("Enter whole-number stock quantities and a valid non-negative unit cost.");
+      }
       const body = {
         ...payload,
         quantityInStock: Number(payload.quantityInStock),
@@ -142,14 +154,17 @@ export default function ConsumablesPage() {
   });
 
   const moveStock = useMutation({
-    mutationFn: async () => apiRequest("POST", `/api/consumables/${movementItem!.id}/stock-movement`, {
-      movementType,
-      quantity: Number(movementQuantity),
-      ...(movementType === "issue" ? { recipientUserId: movementRecipient } : movementType === "transfer"
-        ? { toWarehouseLocationId: destination }
-        : { direction: adjustmentDirection, reasonCode: adjustmentReason }),
-      notes: movementNotes.trim() || undefined,
-    }),
+    mutationFn: async () => {
+      if (!movementItem || !movementQuantityValid) throw new Error("Enter a valid whole-number quantity within the available stock.");
+      return apiRequest("POST", `/api/consumables/${movementItem.id}/stock-movement`, {
+        movementType,
+        quantity: Number(movementQuantity),
+        ...(movementType === "issue" ? { recipientUserId: movementRecipient } : movementType === "transfer"
+          ? { toWarehouseLocationId: destination }
+          : { direction: adjustmentDirection, reasonCode: adjustmentReason }),
+        notes: movementNotes.trim() || undefined,
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
       toast({ title: movementType === "issue" ? "Stock issued" : movementType === "transfer" ? "Stock transferred" : "Stock adjusted" });
@@ -195,6 +210,15 @@ export default function ConsumablesPage() {
       storageRoom: location.storageRoom ?? "", description: location.description ?? "", isActive: location.isActive,
     });
     setLocationDialog(true);
+  }
+  function closeMovementDialog() {
+    setMovementItem(null);
+    setMovementRecipient("");
+    setDestination("");
+    setMovementNotes("");
+    setMovementQuantity("1");
+    setAdjustmentDirection("increase");
+    setAdjustmentReason("cycle_count");
   }
 
   if (itemsQuery.isLoading || optionsQuery.isLoading || locationsQuery.isLoading || categoriesQuery.isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading consumables inventory…</div>;
@@ -273,31 +297,31 @@ export default function ConsumablesPage() {
           <label className="grid gap-1.5 text-sm">Warehouse location<Select value={draft.warehouseLocationId} onValueChange={warehouseLocationId => setDraft({ ...draft, warehouseLocationId })}><SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger><SelectContent>{activeWarehouses.map(location => <SelectItem key={location.id} value={location.id}>{location.name} ({location.code})</SelectItem>)}{editing && !editing.warehouseIsActive && <SelectItem value={editing.warehouseLocationId}>{editing.warehouseName ?? "Current location"} (Disabled · existing stock)</SelectItem>}</SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Storage room / shelf<Input value={draft.storageRoom} onChange={event => setDraft({ ...draft, storageRoom: event.target.value })} /></label>
           <label className="grid gap-1.5 text-sm">Vendor<Select value={draft.vendorId || "__none__"} onValueChange={vendorId => setDraft({ ...draft, vendorId: vendorId === "__none__" ? "" : vendorId })}><SelectTrigger><SelectValue placeholder="Optional vendor" /></SelectTrigger><SelectContent><SelectItem value="__none__">No vendor</SelectItem>{options.vendors.map(vendor => <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>)}</SelectContent></Select></label>
-          <label className="grid gap-1.5 text-sm">Quantity in stock<Input type="number" min="0" step="1" required value={draft.quantityInStock} onChange={event => setDraft({ ...draft, quantityInStock: event.target.value })} disabled={Boolean(editing)} /></label>
-          <label className="grid gap-1.5 text-sm">Minimum reorder level<Input type="number" min="0" step="1" required value={draft.minReorderLevel} onChange={event => setDraft({ ...draft, minReorderLevel: event.target.value })} /></label>
-          <label className="grid gap-1.5 text-sm sm:col-span-2">Unit cost<Input type="number" min="0" step="0.01" required value={draft.unitCost} onChange={event => setDraft({ ...draft, unitCost: event.target.value })} /></label>
+          <label className="grid gap-1.5 text-sm">Quantity in stock<Input type="text" inputMode="numeric" pattern="[0-9]+" required value={draft.quantityInStock} onChange={event => setDraft(current => ({ ...current, quantityInStock: event.target.value }))} disabled={Boolean(editing)} /></label>
+          <label className="grid gap-1.5 text-sm">Minimum reorder level<Input type="text" inputMode="numeric" pattern="[0-9]+" required value={draft.minReorderLevel} onChange={event => setDraft(current => ({ ...current, minReorderLevel: event.target.value }))} aria-invalid={!isNonNegativeInteger(draft.minReorderLevel)} /></label>
+          <label className="grid gap-1.5 text-sm sm:col-span-2">Unit cost<Input type="text" inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?" required value={draft.unitCost} onChange={event => setDraft(current => ({ ...current, unitCost: event.target.value }))} aria-invalid={!isNonNegativeMoney(draft.unitCost)} /></label>
         </div>
         {editing && <p className="text-xs text-muted-foreground">Use Issue / Transfer for stock changes so every quantity movement is recorded.</p>}
         {!warehouses.length && <p className="text-sm text-destructive">Add a warehouse location before creating inventory.</p>}
-         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setItemDialog(false)}>Cancel</Button><Button type="submit" disabled={!draft.category || !draft.warehouseLocationId || saveItem.isPending}>{saveItem.isPending ? "Saving…" : editing ? "Save changes" : "Add to inventory"}</Button></div>
+         <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setItemDialog(false)}>Cancel</Button><Button type="submit" disabled={!draft.category || !draft.warehouseLocationId || !itemQuantitiesValid || saveItem.isPending}>{saveItem.isPending ? "Saving…" : editing ? "Save changes" : "Add to inventory"}</Button></div>
       </form>
     </InventoryDialog>
 
-    <InventoryDialog open={Boolean(movementItem)} onOpenChange={open => { if (!open) setMovementItem(null); }} title={movementType === "adjustment" ? "Adjust stock count" : "Manual issue / transfer"} description={`Current quantity: ${movementItem?.quantityInStock ?? 0} · ${movementItem?.warehouseName ?? ""}`}>
+    <InventoryDialog open={Boolean(movementItem)} onOpenChange={open => { if (!open) closeMovementDialog(); }} title={movementType === "adjustment" ? "Adjust stock count" : "Manual issue / transfer"} description={`Current quantity: ${movementItem?.quantityInStock ?? 0} · ${movementItem?.warehouseName ?? ""}`}>
       {movementItem && <form className="grid gap-4" onSubmit={event => { event.preventDefault(); moveStock.mutate(); }}>
         <label className="grid gap-1.5 text-sm">Movement type<Select value={movementType} onValueChange={value => setMovementType(value as "issue" | "transfer" | "adjustment")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="issue">Issue to employee</SelectItem><SelectItem value="transfer">Transfer to another location</SelectItem><SelectItem value="adjustment">Manual stock adjustment</SelectItem></SelectContent></Select></label>
         {movementType === "adjustment" && <>
           <label className="grid gap-1.5 text-sm">Adjustment direction<Select value={adjustmentDirection} onValueChange={value => setAdjustmentDirection(value as "increase" | "decrease")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="increase">Increase stock</SelectItem><SelectItem value="decrease">Decrease stock</SelectItem></SelectContent></Select></label>
           <label className="grid gap-1.5 text-sm">Audit reason code<Select value={adjustmentReason} onValueChange={setAdjustmentReason}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cycle_count">Cycle count correction</SelectItem><SelectItem value="damage">Damaged stock</SelectItem><SelectItem value="correction">Inventory correction</SelectItem><SelectItem value="found_stock">Found stock</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></label>
         </>}
-        <label className="grid gap-1.5 text-sm">{movementType === "adjustment" ? "Quantity to add / remove" : "Quantity"}<Input type="number" min="1" max={movementType === "adjustment" && adjustmentDirection === "increase" ? undefined : movementItem.quantityInStock} step="1" value={movementQuantity} onChange={event => setMovementQuantity(event.target.value)} required /></label>
+        <label className="grid gap-1.5 text-sm">{movementType === "adjustment" ? "Quantity to add / remove" : "Quantity"}<Input type="text" inputMode="numeric" pattern="[0-9]+" value={movementQuantity} onChange={event => setMovementQuantity(event.target.value)} required aria-invalid={!movementQuantityValid} aria-describedby="movement-quantity-help" /><span id="movement-quantity-help" className="text-xs text-muted-foreground">{movementType === "adjustment" && adjustmentDirection === "increase" ? "Enter a whole number greater than zero." : `Enter a whole number from 1 to ${movementItem.quantityInStock}.`}</span></label>
         {movementType === "issue"
           ? <label className="grid gap-1.5 text-sm">Employee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={movementRecipient} onChange={event => setMovementRecipient(event.target.value)} required><option value="">Select employee</option>{options.users.map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}</select></label>
           : movementType === "transfer"
             ? <label className="grid gap-1.5 text-sm">Destination warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={destination} onChange={event => setDestination(event.target.value)} required><option value="">Select destination</option>{activeWarehouses.filter(location => location.id !== movementItem.warehouseLocationId).map(location => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select></label>
             : null}
         <label className="grid gap-1.5 text-sm">Audit notes{movementType === "adjustment" && adjustmentReason === "other" ? " (required)" : ""}<Textarea maxLength={2000} value={movementNotes} onChange={event => setMovementNotes(event.target.value)} required={movementType === "adjustment" && adjustmentReason === "other"} /></label>
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setMovementItem(null)}>Cancel</Button><Button type="submit" disabled={moveStock.isPending || (movementType !== "adjustment" || adjustmentDirection === "decrease") && Number(movementQuantity) > movementItem.quantityInStock || movementType === "adjustment" && adjustmentReason === "other" && !movementNotes.trim()}>{moveStock.isPending ? "Saving…" : movementType === "issue" ? "Issue stock" : movementType === "transfer" ? "Transfer stock" : "Save adjustment"}<ArrowLeftRight className="ml-2 h-4 w-4" /></Button></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={closeMovementDialog}>Cancel</Button><Button type="submit" disabled={moveStock.isPending || !movementQuantityValid || movementType === "adjustment" && adjustmentReason === "other" && !movementNotes.trim()}>{moveStock.isPending ? "Saving…" : movementType === "issue" ? "Issue stock" : movementType === "transfer" ? "Transfer stock" : "Save adjustment"}<ArrowLeftRight className="ml-2 h-4 w-4" /></Button></div>
       </form>}
     </InventoryDialog>
 

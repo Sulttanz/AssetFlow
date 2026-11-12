@@ -21,9 +21,10 @@ export function DynamicField({ field, value, onChange, error }: {
         <input type="checkbox" checked={Boolean(value)} onChange={event => onChange(event.target.checked)} aria-invalid={!!error} aria-describedby={describedBy} className="h-4 w-4 accent-primary" />
         <span className="text-muted-foreground">Yes</span>
       </span>
-      : <Input type={field.type === "date" ? "date" : field.type} value={String(value ?? "")}
-        onChange={event => onChange(field.type === "number" ? (event.target.value === "" ? "" : Number(event.target.value)) : event.target.value)}
-        min={field.type === "number" ? field.min : undefined} max={field.type === "number" ? field.max : undefined}
+      : <Input type={field.type === "date" ? "date" : field.type === "number" ? "text" : field.type}
+        inputMode={field.type === "number" ? "decimal" : undefined}
+        value={String(value ?? "")}
+        onChange={event => onChange(event.target.value)}
         aria-invalid={!!error} aria-describedby={describedBy} />}
     {error && <span id={describedBy} className="text-xs font-normal text-destructive">{error}</span>}
     {field.type === "date" && <span className="text-xs font-normal text-muted-foreground">Enter a date as DD-MM-YYYY.</span>}

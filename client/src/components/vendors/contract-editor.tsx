@@ -53,7 +53,7 @@ export function ContractEditor({ contract, vendors, options, saving, onSave, onC
       </label>)}</div> : <p className="text-xs text-muted-foreground">No records available to link.</p>}
     </fieldset>
   );
-  const field = (label: string, key: keyof typeof form, type = "text") => <label className="space-y-1.5 text-sm font-medium"><span>{label}</span><Input required type={type} value={form[key] as string} onChange={event => set(key, event.target.value)} /></label>;
+  const field = (label: string, key: keyof typeof form, type = "text") => <label className="space-y-1.5 text-sm font-medium"><span>{label}</span><Input required type={type === "number" ? "text" : type} inputMode={type === "number" ? "decimal" : undefined} value={form[key] as string} onChange={event => set(key, event.target.value)} /></label>;
 
   return <form onSubmit={submit} className="space-y-5">
     <div className="grid gap-4 sm:grid-cols-2">

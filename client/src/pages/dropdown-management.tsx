@@ -77,6 +77,7 @@ export default function DropdownManagement() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [search, setSearch] = useState("");
+  const [displayOrderDraft, setDisplayOrderDraft] = useState("0");
 
   // Fetch ALL options (including inactive) for admin view
   const { data: options = [] } = useQuery<DropdownOption[]>({
@@ -224,8 +225,13 @@ export default function DropdownManagement() {
   };
 
   const onSubmit = (data: FormData) => {
-    if (editingId) updateMutation.mutate(data);
-    else createMutation.mutate(data);
+    if (!/^\d+$/.test(displayOrderDraft)) {
+      form.setError("displayOrder", { message: "Enter a non-negative whole number." });
+      return;
+    }
+    const payload = { ...data, displayOrder: Number(displayOrderDraft) };
+    if (editingId) updateMutation.mutate(payload);
+    else createMutation.mutate(payload);
   };
 
   const handleEdit = (option: DropdownOption) => {
@@ -234,15 +240,17 @@ export default function DropdownManagement() {
       category: option.category,
       value: option.value,
       label: option.label,
-      displayOrder: option.displayOrder,
+      displayOrder: option.displayOrder ?? 0,
       isActive: option.isActive,
     });
+    setDisplayOrderDraft(String(option.displayOrder ?? 0));
     setIsDialogOpen(true);
   };
 
   const handleNewOption = () => {
     setEditingId(null);
     form.reset({ category: selectedCategory, value: "", label: "", displayOrder: 0, isActive: true });
+    setDisplayOrderDraft("0");
     setIsDialogOpen(true);
   };
 
@@ -447,7 +455,7 @@ export default function DropdownManagement() {
                   <FormItem>
                     <FormLabel>Display Order</FormLabel>
                     <FormControl>
-                      <Input type="number" {...field} value={field.value ?? ""} onChange={(e) => field.onChange(e.target.value === "" ? undefined : parseInt(e.target.value, 10))} data-testid="input-order" />
+                      <Input type="text" inputMode="numeric" {...field} value={displayOrderDraft} onChange={(e) => setDisplayOrderDraft(e.target.value)} data-testid="input-order" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

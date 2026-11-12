@@ -20,7 +20,7 @@ type TaxSettings = {
   defaultTaxMode: "inclusive" | "exclusive";
   currencyCode: string;
 };
-type RateForm = Omit<FinanceTaxRate, "id" | "createdAt" | "updatedAt">;
+type RateForm = Omit<FinanceTaxRate, "id" | "createdAt" | "updatedAt" | "sortOrder"> & { sortOrder: string };
 const blankRate: RateForm = {
   code: "",
   name: "",
@@ -29,9 +29,12 @@ const blankRate: RateForm = {
   taxMode: "exclusive",
   isActive: true,
   isDefault: false,
-  sortOrder: 10,
+  sortOrder: "10",
 };
-type SequenceDraft = Pick<FinanceDocumentSequence, "documentType" | "numberingMode" | "prefix" | "nextNumber" | "padding" | "resetYearly">;
+type SequenceDraft = Omit<Pick<FinanceDocumentSequence, "documentType" | "numberingMode" | "prefix" | "nextNumber" | "padding" | "resetYearly">, "nextNumber" | "padding"> & {
+  nextNumber: string;
+  padding: string;
+};
 const sequenceLabel: Record<string, string> = {
   quotation: "Quotations",
   purchase_order: "Purchase orders",
@@ -64,8 +67,8 @@ export default function FinanceTaxSettingsPage() {
       documentType: row.documentType,
       numberingMode: row.numberingMode as "auto" | "manual",
       prefix: row.prefix,
-      nextNumber: row.nextNumber,
-      padding: row.padding,
+      nextNumber: String(row.nextNumber),
+      padding: String(row.padding),
       resetYearly: row.resetYearly,
     }])));
   }, [sequencesQuery.data]);
@@ -89,7 +92,7 @@ export default function FinanceTaxSettingsPage() {
   });
   const saveRate = useMutation({
     mutationFn: async () => {
-      const body = { ...rateForm, code: rateForm.code.trim().toUpperCase(), rate: Number(rateForm.rate) };
+      const body = { ...rateForm, code: rateForm.code.trim().toUpperCase(), rate: Number(rateForm.rate), sortOrder: Number(rateForm.sortOrder) };
       const path = editingRate ? `/api/finance/tax-rates/${editingRate.id}` : "/api/finance/tax-rates";
       return apiRequest(editingRate ? "PUT" : "POST", path, body);
     },
@@ -117,7 +120,11 @@ export default function FinanceTaxSettingsPage() {
     onError: (error: Error) => toast({ title: "Tax rate was not changed", description: error.message, variant: "destructive" }),
   });
   const saveSequence = useMutation({
-    mutationFn: async (draft: SequenceDraft) => apiRequest("PUT", `/api/finance/document-sequences/${draft.documentType}`, draft),
+    mutationFn: async (draft: SequenceDraft) => apiRequest("PUT", `/api/finance/document-sequences/${draft.documentType}`, {
+      ...draft,
+      nextNumber: Number(draft.nextNumber),
+      padding: Number(draft.padding),
+    }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/finance/document-sequences"] });
       toast({ title: "Numbering settings saved" });
@@ -135,7 +142,7 @@ export default function FinanceTaxSettingsPage() {
     setRateForm({
       code: rate.code, name: rate.name, classification: rate.classification as RateForm["classification"],
       rate: String(rate.rate), taxMode: rate.taxMode as RateForm["taxMode"], isActive: rate.isActive,
-      isDefault: rate.isDefault, sortOrder: rate.sortOrder,
+      isDefault: rate.isDefault, sortOrder: String(rate.sortOrder),
     });
     setRateDialogOpen(true);
   };
@@ -208,11 +215,11 @@ export default function FinanceTaxSettingsPage() {
                 <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-mode`}>Numbering mode</Label><Select value={draft.numberingMode} onValueChange={numberingMode => patchSequence(sequence.documentType, { numberingMode: numberingMode as "auto" | "manual" })} disabled={!canManage}><SelectTrigger id={`${sequence.documentType}-mode`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="auto">Auto-generated</SelectItem><SelectItem value="manual">Manual entry</SelectItem></SelectContent></Select></div>
                 <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-prefix`}>Prefix</Label><Input id={`${sequence.documentType}-prefix`} value={draft.prefix} onChange={event => patchSequence(sequence.documentType, { prefix: event.target.value })} disabled={!canManage || draft.numberingMode !== "auto"} placeholder="e.g. PO-{YYYY}-" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-next`}>Next number</Label><Input id={`${sequence.documentType}-next`} type="number" min={1} value={draft.nextNumber} onChange={event => patchSequence(sequence.documentType, { nextNumber: Number(event.target.value) })} disabled={!canManage || draft.numberingMode !== "auto"} /></div>
-                  <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-padding`}>Zero padding</Label><Input id={`${sequence.documentType}-padding`} type="number" min={1} max={12} value={draft.padding} onChange={event => patchSequence(sequence.documentType, { padding: Number(event.target.value) })} disabled={!canManage || draft.numberingMode !== "auto"} /></div>
+                   <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-next`}>Next number</Label><Input id={`${sequence.documentType}-next`} type="text" inputMode="numeric" value={draft.nextNumber} onChange={event => patchSequence(sequence.documentType, { nextNumber: event.target.value })} disabled={!canManage || draft.numberingMode !== "auto"} /></div>
+                   <div className="space-y-2"><Label htmlFor={`${sequence.documentType}-padding`}>Zero padding</Label><Input id={`${sequence.documentType}-padding`} type="text" inputMode="numeric" value={draft.padding} onChange={event => patchSequence(sequence.documentType, { padding: event.target.value })} disabled={!canManage || draft.numberingMode !== "auto"} /></div>
                 </div>
                 <label className="flex items-center gap-2 text-sm"><Checkbox checked={draft.resetYearly} onCheckedChange={checked => patchSequence(sequence.documentType, { resetYearly: checked === true })} disabled={!canManage || draft.numberingMode !== "auto"} />Reset counter each year</label>
-                {canManage && <Button className="w-full" disabled={saveSequence.isPending} onClick={() => saveSequence.mutate(draft)}><Save className="mr-2 h-4 w-4" />Save {sequenceLabel[sequence.documentType]?.toLowerCase()} numbering</Button>}
+                 {canManage && <Button className="w-full" disabled={saveSequence.isPending || !/^[1-9]\d*$/.test(draft.nextNumber) || !/^(?:[1-9]|1[0-2])$/.test(draft.padding)} onClick={() => saveSequence.mutate(draft)}><Save className="mr-2 h-4 w-4" />Save {sequenceLabel[sequence.documentType]?.toLowerCase()} numbering</Button>}
               </CardContent>
             </Card>;
           })}
@@ -230,11 +237,11 @@ export default function FinanceTaxSettingsPage() {
               <div className="space-y-2"><Label htmlFor="rate-classification">Classification</Label><Select value={rateForm.classification} onValueChange={classification => setRateForm(current => ({ ...current, classification: classification as RateForm["classification"] }))}><SelectTrigger id="rate-classification"><SelectValue /></SelectTrigger><SelectContent>{["standard", "reduced", "zero_rated", "exempt", "custom"].map(value => <SelectItem key={value} value={value}>{value.replace("_", " ")}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label htmlFor="rate-value">Rate (%)</Label><Input id="rate-value" type="text" inputMode="decimal" required value={rateForm.rate} onChange={event => setRateForm(current => ({ ...current, rate: event.target.value }))} /></div>
               <div className="space-y-2"><Label htmlFor="rate-treatment">Tax treatment</Label><Select value={rateForm.taxMode} onValueChange={taxMode => setRateForm(current => ({ ...current, taxMode: taxMode as RateForm["taxMode"] }))}><SelectTrigger id="rate-treatment"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Exclusive</SelectItem><SelectItem value="inclusive">Inclusive</SelectItem></SelectContent></Select></div>
-              <div className="space-y-2"><Label htmlFor="rate-order">Display order</Label><Input id="rate-order" type="number" min={0} value={rateForm.sortOrder} onChange={event => setRateForm(current => ({ ...current, sortOrder: Number(event.target.value) }))} /></div>
+              <div className="space-y-2"><Label htmlFor="rate-order">Display order</Label><Input id="rate-order" type="text" inputMode="numeric" value={rateForm.sortOrder} onChange={event => setRateForm(current => ({ ...current, sortOrder: event.target.value }))} /></div>
             </div>
             <label className="flex items-center gap-2 text-sm"><Checkbox checked={rateForm.isActive} onCheckedChange={checked => setRateForm(current => ({ ...current, isActive: checked === true, isDefault: checked === true ? current.isDefault : false }))} />Active for new documents</label>
             <label className="flex items-center gap-2 text-sm"><Checkbox checked={rateForm.isDefault} disabled={!rateForm.isActive} onCheckedChange={checked => setRateForm(current => ({ ...current, isDefault: checked === true }))} />Set as primary default</label>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setRateDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveRate.isPending || !canManage}>{editingRate ? "Save rate" : "Create rate"}</Button></div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setRateDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveRate.isPending || !canManage || !/^\d+(?:\.\d{1,2})?$/.test(rateForm.rate) || !/^\d+$/.test(rateForm.sortOrder)}>{editingRate ? "Save rate" : "Create rate"}</Button></div>
           </form>
         </DialogContent>
       </Dialog>

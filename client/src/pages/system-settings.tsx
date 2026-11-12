@@ -76,11 +76,13 @@ export default function SystemSettings() {
       dateFormat: "DD-MM-YYYY" as const
     },
   });
+  const [startingNumberDraft, setStartingNumberDraft] = useState("1000");
 
   // Reset form when settings data loads
   useEffect(() => {
     if (settings) {
       form.reset(settings);
+      setStartingNumberDraft(String(settings.assetIdStartingNumber));
     }
   }, [settings, form]);
 
@@ -133,7 +135,11 @@ export default function SystemSettings() {
 
 
   const onSubmit = (data: SystemSettingsFormData) => {
-    updateMutation.mutate(data);
+    if (!/^[1-9]\d*$/.test(startingNumberDraft)) {
+      form.setError("assetIdStartingNumber", { message: "Enter a positive whole number." });
+      return;
+    }
+    updateMutation.mutate({ ...data, assetIdStartingNumber: Number(startingNumberDraft) });
   };
 
   const resetToDefaults = () => {
@@ -142,6 +148,7 @@ export default function SystemSettings() {
       assetIdStartingNumber: 1000,
       dateFormat: "DD-MM-YYYY"
     });
+    setStartingNumberDraft("1000");
   };
 
   const handleClearData = () => {
@@ -222,11 +229,16 @@ export default function SystemSettings() {
                     <FormLabel>Starting Number</FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         placeholder="1000"
                         data-testid="input-starting-number"
-                        {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        value={startingNumberDraft}
+                        onChange={(e) => setStartingNumberDraft(e.target.value)}
+                        onBlur={() => {
+                          field.onBlur();
+                          if (/^[1-9]\d*$/.test(startingNumberDraft)) field.onChange(Number(startingNumberDraft));
+                        }}
                       />
                     </FormControl>
                     <FormDescription>

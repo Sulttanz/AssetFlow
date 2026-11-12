@@ -782,7 +782,7 @@ export default function Maintenance() {
                           <FormItem>
                             <FormLabel>Estimated Cost</FormLabel>
                             <FormControl>
-                              <Input {...field} value={field.value || ""} type="number" step="0.01" placeholder="0.00" data-testid="input-estimated-cost" />
+                              <Input {...field} value={field.value || ""} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-estimated-cost" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1132,9 +1132,8 @@ export default function Maintenance() {
                               {...field}
                               required
                               readOnly={Boolean(selectedCreateSchedule?.estimatedCost)}
-                              type="number"
-                              min="0"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="0.00"
                               data-testid="input-estimated-cost-record"
                             />
@@ -1155,7 +1154,7 @@ export default function Maintenance() {
                           <FormItem>
                             <FormLabel>Actual Cost</FormLabel>
                             <FormControl>
-                              <Input {...field} required min="0" type="number" step="0.01" placeholder="0.00" data-testid="input-record-cost" />
+                              <Input {...field} required type="text" inputMode="decimal" placeholder="0.00" data-testid="input-record-cost" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1566,7 +1565,7 @@ export default function Maintenance() {
                     <FormItem>
                       <FormLabel>Estimated Cost</FormLabel>
                       <FormControl>
-                        <Input {...field} value={field.value || ""} type="number" step="0.01" placeholder="0.00" data-testid="input-edit-estimated-cost" />
+                        <Input {...field} value={field.value || ""} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-edit-estimated-cost" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1666,10 +1665,10 @@ export default function Maintenance() {
                   <FormItem><FormLabel>Assigned Technician / Vendor</FormLabel><FormControl><Input {...field} required /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={recordEditForm.control} name="estimatedCost" render={({ field }) => (
-                  <FormItem><FormLabel>Estimated Cost</FormLabel><FormControl><Input {...field} required min="0" type="number" step="0.01" /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Estimated Cost</FormLabel><FormControl><Input {...field} required type="text" inputMode="decimal" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={recordEditForm.control} name="cost" render={({ field }) => (
-                  <FormItem><FormLabel>Actual Cost</FormLabel><FormControl><Input {...field} required min="0" type="number" step="0.01" /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Actual Cost</FormLabel><FormControl><Input {...field} required type="text" inputMode="decimal" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={recordEditForm.control} name="nextMaintenanceDate" render={({ field }) => (
                   <FormItem><FormLabel>Next Maintenance Date (Optional)</FormLabel><FormControl><Input {...field} value={field.value ?? ""} type="date" /></FormControl><FormMessage /></FormItem>

@@ -488,7 +488,7 @@ export default function AssetDisposalPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Proceeds Amount ($)</FormLabel>
-                          <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                          <FormControl><Input type="text" inputMode="decimal" {...field} /></FormControl>
                           <FormMessage />
                         </FormItem>
                       )}

@@ -20,7 +20,12 @@ function fieldValuesValid(fields: CatalogField[], values: Record<string, string 
   return fields.reduce<Record<string, string>>((errors, field) => {
     const value = values[field.key];
     if (field.required && (value === undefined || value === "" || value === false)) errors[field.key] = "This field is required.";
-    else if (field.type === "number" && typeof value === "number" && ((field.min != null && value < field.min) || (field.max != null && value > field.max))) errors[field.key] = `Enter a number${field.min != null ? ` of at least ${field.min}` : ""}${field.max != null ? ` and no more than ${field.max}` : ""}.`;
+    else if (field.type === "number" && value !== undefined && value !== "") {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || (field.min != null && parsed < field.min) || (field.max != null && parsed > field.max)) {
+        errors[field.key] = `Enter a number${field.min != null ? ` of at least ${field.min}` : ""}${field.max != null ? ` and no more than ${field.max}` : ""}.`;
+      }
+    }
     return errors;
   }, {});
 }
@@ -47,7 +52,7 @@ export function ServiceRequestDialog({ item, onClose }: { item: CatalogItem | nu
       if (Object.keys(fieldErrors).length) throw new Error("Complete the required fields before submitting.");
       const fieldValues = Object.fromEntries(fields
         .filter(field => values[field.key] !== undefined && values[field.key] !== "")
-        .map(field => [field.key, values[field.key]]));
+        .map(field => [field.key, field.type === "number" ? Number(values[field.key]) : values[field.key]]));
       return checkedResponse<RequestResult>(await apiRequest("POST", `/api/service-catalog/items/${item.id}/request`, { description: description.trim() || undefined, fieldValues }));
     },
     onSuccess: async response => {

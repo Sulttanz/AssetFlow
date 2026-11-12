@@ -114,7 +114,7 @@ function AddContractDialog({ open, onOpenChange, projects, policies }: {
             </div>
             <div className="space-y-1.5"><Label htmlFor="sc-start">Coverage starts</Label><Input id="sc-start" type="date" required value={draft.startDate} onChange={event => setField("startDate", event.target.value)} /></div>
             <div className="space-y-1.5"><Label htmlFor="sc-end">Coverage ends</Label><Input id="sc-end" type="date" min={draft.startDate || undefined} required value={draft.endDate} onChange={event => setField("endDate", event.target.value)} /></div>
-            <div className="space-y-1.5"><Label htmlFor="sc-notice">Renewal notice (days)</Label><Input id="sc-notice" type="number" min="0" max="3650" required value={draft.renewalNoticeDays} onChange={event => setField("renewalNoticeDays", event.target.value)} /></div>
+            <div className="space-y-1.5"><Label htmlFor="sc-notice">Renewal notice (days)</Label><Input id="sc-notice" type="text" inputMode="numeric" value={draft.renewalNoticeDays} onChange={event => setField("renewalNoticeDays", event.target.value)} /></div>
             <div className="space-y-1.5"><Label htmlFor="sc-client">Client ID <span className="font-normal text-muted-foreground">· optional</span></Label><Input id="sc-client" value={draft.clientId} onChange={event => setField("clientId", event.target.value)} /></div>
             <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="sc-notes">Notes <span className="font-normal text-muted-foreground">· optional</span></Label><Textarea id="sc-notes" rows={3} value={draft.notes} onChange={event => setField("notes", event.target.value)} placeholder="Coverage scope or renewal context" /></div>
           </div>

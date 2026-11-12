@@ -248,7 +248,7 @@ export default function NewServiceRequestPage() {
                     : <p className="text-sm text-muted-foreground">No additional questions are required for this service.</p>}
             </section>}
             {selectedItem?.consumableId && <Field label="Quantity requested" hint="The fulfillment team will reserve and deduct this quantity from warehouse stock.">
-              <Input type="number" min="1" max="10000" step="1" required value={requestedQuantity} onChange={event => setRequestedQuantity(event.target.value)} className={inputClass} />
+              <Input type="text" inputMode="numeric" pattern="[0-9]+" required value={requestedQuantity} onChange={event => setRequestedQuantity(event.target.value)} className={inputClass} />
             </Field>}
             <section aria-labelledby="attachments-heading" className="rounded-2xl border border-dashed border-[#cdded8] bg-[#f8faf8] p-4 sm:p-5">
               <div className="flex items-start gap-3">
@@ -281,7 +281,7 @@ export default function NewServiceRequestPage() {
                 <Input type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} className={inputClass} />
               </Field>
               <Field label="Estimated cost" hint="Enter 0 if the cost is not known yet.">
-                <Input type="number" required min="0" step="0.01" inputMode="decimal" value={cost} onChange={event => setCost(event.target.value)} className={inputClass} />
+                <Input type="text" required inputMode="decimal" value={cost} onChange={event => setCost(event.target.value)} className={inputClass} />
               </Field>
               <div className="rounded-xl border border-[#d8e5df] bg-white/70 p-3.5 text-xs leading-5 text-[#718681]">
                 Your request may be reviewed for approval before fulfillment begins. The service desk will follow up if more information is needed.

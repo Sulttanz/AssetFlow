@@ -375,7 +375,7 @@ export default function Budgets() {
                       <FormItem>
                         <FormLabel>Fiscal Year</FormLabel>
                         <FormControl>
-                          <Input {...field} type="number" min="2020" max="2030" data-testid="input-fiscal-year" />
+                          <Input {...field} type="text" inputMode="numeric" data-testid="input-fiscal-year" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -391,7 +391,7 @@ export default function Budgets() {
                       <FormItem>
                         <FormLabel>Budget Amount</FormLabel>
                         <FormControl>
-                          <Input {...field} type="number" step="0.01" placeholder="0.00" data-testid="input-budget-amount" />
+                          <Input {...field} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-budget-amount" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -404,7 +404,7 @@ export default function Budgets() {
                       <FormItem>
                         <FormLabel>Spent Amount</FormLabel>
                         <FormControl>
-                          <Input {...field} value={field.value || ""} type="number" step="0.01" placeholder="0.00" data-testid="input-spent-amount" />
+                          <Input {...field} value={field.value || ""} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-spent-amount" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -728,7 +728,7 @@ export default function Budgets() {
                     <FormItem>
                       <FormLabel>Fiscal Year</FormLabel>
                       <FormControl>
-                        <Input {...field} type="number" min="2020" max="2030" data-testid="input-edit-fiscal-year" />
+                        <Input {...field} type="text" inputMode="numeric" data-testid="input-edit-fiscal-year" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -744,7 +744,7 @@ export default function Budgets() {
                     <FormItem>
                       <FormLabel>Budget Amount</FormLabel>
                       <FormControl>
-                        <Input {...field} type="number" step="0.01" placeholder="0.00" data-testid="input-edit-budget-amount" />
+                        <Input {...field} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-edit-budget-amount" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -757,7 +757,7 @@ export default function Budgets() {
                     <FormItem>
                       <FormLabel>Spent Amount</FormLabel>
                       <FormControl>
-                        <Input {...field} value={field.value || ""} type="number" step="0.01" placeholder="0.00" data-testid="input-edit-spent-amount" />
+                        <Input {...field} value={field.value || ""} type="text" inputMode="decimal" placeholder="0.00" data-testid="input-edit-spent-amount" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

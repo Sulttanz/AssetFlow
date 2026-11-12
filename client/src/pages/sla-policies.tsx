@@ -421,7 +421,7 @@ export default function SlaPolicies() {
                 <FormField control={form.control} name="responseHours" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Response target (hours)</FormLabel>
-                    <FormControl><Input type="number" step="0.5" min="0.1" {...field} /></FormControl>
+                    <FormControl><Input type="text" inputMode="decimal" {...field} /></FormControl>
                     <FormDescription>e.g. 0.5 = 30 min</FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -430,7 +430,7 @@ export default function SlaPolicies() {
                 <FormField control={form.control} name="resolutionHours" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Resolution target (hours)</FormLabel>
-                    <FormControl><Input type="number" step="0.5" min="0.1" {...field} /></FormControl>
+                    <FormControl><Input type="text" inputMode="decimal" {...field} /></FormControl>
                     <FormDescription>e.g. 24 = 1 day</FormDescription>
                     <FormMessage />
                   </FormItem>

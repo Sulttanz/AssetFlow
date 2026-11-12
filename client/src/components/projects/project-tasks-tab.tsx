@@ -75,6 +75,7 @@ export function ProjectTasksTab({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<ProjectTaskRecord | undefined>();
   const [form, setForm] = useState<ProjectTaskInput>(emptyTask);
+  const [formHours, setFormHours] = useState({ estimated: "0", logged: "0" });
   const [hourValues, setHourValues] = useState<Record<string, string>>({});
   const tasksQuery = useQuery<ProjectTaskRecord[]>({
     queryKey: ["/api/projects", project.id, "tasks"],
@@ -117,18 +118,31 @@ export function ProjectTasksTab({
   const openNew = () => {
     setEditingTask(undefined);
     setForm(emptyTask());
+    setFormHours({ estimated: "0", logged: "0" });
     setDialogOpen(true);
   };
   const openEdit = (task: ProjectTaskRecord) => {
     setEditingTask(task);
-    setForm(taskInput(task));
+    const next = taskInput(task);
+    setForm(next);
+    setFormHours({ estimated: String(next.estimatedHours), logged: String(next.loggedHours) });
     setDialogOpen(true);
   };
   const update = <K extends keyof ProjectTaskInput>(field: K, value: ProjectTaskInput[K]) =>
     setForm(current => ({ ...current, [field]: value }));
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    const result = projectTaskInputSchema.safeParse({ ...form, dueDate: form.dueDate || null });
+    const hoursPattern = /^\d+(?:\.\d{0,2})?$/;
+    if (!hoursPattern.test(formHours.estimated) || !hoursPattern.test(formHours.logged)) {
+      toast({ title: "Review task hours", description: "Enter valid non-negative hours with up to two decimal places.", variant: "destructive" });
+      return;
+    }
+    const result = projectTaskInputSchema.safeParse({
+      ...form,
+      estimatedHours: Number(formHours.estimated),
+      loggedHours: Number(formHours.logged),
+      dueDate: form.dueDate || null,
+    });
     if (!result.success) {
       toast({ title: "Review task details", description: result.error.issues[0]?.message, variant: "destructive" });
       return;
@@ -192,11 +206,11 @@ export function ProjectTasksTab({
                         <div className="flex items-end gap-2">
                           <div className="min-w-0 flex-1">
                             <Label htmlFor={`task-hours-${task.id}`} className="text-xs">Logged / estimate (hours)</Label>
-                            <Input id={`task-hours-${task.id}`} type="number" min="0" max="9999.99" step="0.25" className="mt-1 min-h-11"
+                            <Input id={`task-hours-${task.id}`} type="text" inputMode="decimal" className="mt-1 min-h-11"
                               value={hours} disabled={!canUpdate}
                               onChange={event => setHourValues(current => ({ ...current, [task.id]: event.target.value }))} />
                           </div>
-                          {canUpdate && <Button variant="outline" className="min-h-11" disabled={patchMutation.isPending || !Number.isFinite(Number(hours)) || Number(hours) < 0}
+                          {canUpdate && <Button variant="outline" className="min-h-11" disabled={patchMutation.isPending || !/^\d+(?:\.\d{0,2})?$/.test(hours) || Number(hours) > 9999.99}
                             onClick={() => patchMutation.mutate({ taskId: task.id, values: { loggedHours: Number(hours) } })}>Save</Button>}
                         </div>
                         <p className="text-xs text-muted-foreground">Estimate: {Number(task.estimatedHours).toFixed(2)}h{task.dueDate ? ` · Due ${formatDateDisplay(task.dueDate)}` : ""}</p>
@@ -226,8 +240,8 @@ export function ProjectTasksTab({
                   options={options.users.map(person => ({ value: person.id, label: person.name, description: person.username }))}
                   placeholder="Unassigned" searchPlaceholder="Search active users…" ariaLabel="Task assignee" />
               </div>
-              <div className="space-y-1.5"><Label htmlFor="task-estimated-hours">Estimated hours</Label><Input id="task-estimated-hours" type="number" min="0" max="9999.99" step="0.25" className="min-h-11" value={form.estimatedHours} onChange={event => update("estimatedHours", Number(event.target.value))} /></div>
-              <div className="space-y-1.5"><Label htmlFor="task-logged-hours">Logged hours</Label><Input id="task-logged-hours" type="number" min="0" max="9999.99" step="0.25" className="min-h-11" value={form.loggedHours} onChange={event => update("loggedHours", Number(event.target.value))} /></div>
+              <div className="space-y-1.5"><Label htmlFor="task-estimated-hours">Estimated hours</Label><Input id="task-estimated-hours" type="text" inputMode="decimal" className="min-h-11" value={formHours.estimated} onChange={event => setFormHours(current => ({ ...current, estimated: event.target.value }))} /></div>
+              <div className="space-y-1.5"><Label htmlFor="task-logged-hours">Logged hours</Label><Input id="task-logged-hours" type="text" inputMode="decimal" className="min-h-11" value={formHours.logged} onChange={event => setFormHours(current => ({ ...current, logged: event.target.value }))} /></div>
               <div className="space-y-1.5 sm:col-span-2"><Label>Due date</Label><CalendarDateField value={form.dueDate ?? ""} onChange={event => update("dueDate", event.target.value || null)} className="min-h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>
             </div>
             <DialogFooter><Button type="button" variant="outline" className="min-h-11" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" className="min-h-11" disabled={saveMutation.isPending}>{saveMutation.isPending ? "Saving…" : "Save task"}</Button></DialogFooter>

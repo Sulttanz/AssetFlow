@@ -307,7 +307,7 @@ export default function ContractsPage() {
         render={({ field }) => (
           <FormItem>
             <FormLabel>Contract Value ($)</FormLabel>
-            <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+            <FormControl><Input type="text" inputMode="decimal" {...field} /></FormControl>
             <FormMessage />
           </FormItem>
         )}

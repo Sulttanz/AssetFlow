@@ -1359,8 +1359,8 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         <FormLabel>Purchase Price</FormLabel>
                         <FormControl>
                           <Input 
-                            type="number" 
-                            step="0.01" 
+                            type="text"
+                            inputMode="decimal"
                             placeholder="Enter purchase price" 
                             {...field} 
                             data-testid="input-price"
@@ -1409,8 +1409,8 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         <FormLabel>Maintenance Costs</FormLabel>
                         <FormControl>
                           <Input 
-                            type="number" 
-                            step="0.01" 
+                            type="text"
+                            inputMode="decimal"
                             placeholder="Enter maintenance costs" 
                             {...field} 
                             data-testid="input-maintenance-cost"
@@ -1460,7 +1460,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Useful Life (Years)</FormLabel>
                         <FormControl>
-                          <Input type="number" min="1" placeholder="e.g. 5" {...field} />
+                          <Input type="text" inputMode="decimal" placeholder="e.g. 5" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1473,7 +1473,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                       <FormItem>
                         <FormLabel>Residual Value ($)</FormLabel>
                         <FormControl>
-                          <Input type="number" step="0.01" placeholder="e.g. 100.00" {...field} />
+                          <Input type="text" inputMode="decimal" placeholder="e.g. 100.00" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1555,7 +1555,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         <FormItem>
                           <FormLabel>Total Seats</FormLabel>
                           <FormControl>
-                            <Input type="number" min="1" placeholder="Total licenses" {...field} value={field.value ?? ""} />
+                            <Input type="text" inputMode="numeric" placeholder="Total licenses" {...field} value={field.value ?? ""} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -1568,7 +1568,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                         <FormItem>
                           <FormLabel>Used Seats</FormLabel>
                           <FormControl>
-                            <Input type="number" min="0" placeholder="Seats in use" {...field} />
+                            <Input type="text" inputMode="numeric" placeholder="Seats in use" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -1612,7 +1612,7 @@ export default function AssetForm({ asset, onSuccess, onCancel }: AssetFormProps
                   </Select><FormMessage /></FormItem>
                 )} />
                 <FormField control={form.control} name="recurringCost" render={({ field }) => (
-                  <FormItem><FormLabel>Recurring Cost (per billing cycle)</FormLabel><FormControl><Input type="number" min="0" step="0.01" {...field} /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Recurring Cost (per billing cycle)</FormLabel><FormControl><Input type="text" inputMode="decimal" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
               <FormField control={form.control} name="autoRenewal" render={({ field }) => (
