@@ -131,6 +131,9 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     manualQuoteId = manualQuote.id;
     expect(manualQuote.quoteNumber).toBe(`MANUAL-${suffix}`);
     await request("POST", "/api/vendor-quotations", { ...manualQuotation, quoteNumber: `manual-${suffix}` }, 409);
+    await request("DELETE", `/api/quotations/${manualQuote.id}`, undefined, 204);
+    manualQuoteId = "";
+    expect(await db.select().from(s.vendorQuotationItems).where(eq(s.vendorQuotationItems.quotationId, manualQuote.id))).toHaveLength(0);
     await db.update(s.financeDocumentSequences).set({ numberingMode: "auto" })
       .where(eq(s.financeDocumentSequences.documentType, "quotation"));
 
@@ -164,6 +167,7 @@ describe.runIf(Boolean(enabled))("Procure-to-Pay HTTP and inventory integrity", 
     orderId = order.id;
     expect(order.status).toBe("pending");
     expect(order.poNumber).toMatch(new RegExp(`^QA-${suffix}-PO-\\d{4}-0001$`));
+    await request("DELETE", `/api/quotations/${quoteId}`, undefined, 409);
     await request("POST", `/api/vendor-quotations/${quoteId}/convert-to-po`, {}, 409);
     await request("PUT", `/api/purchase-orders/${orderId}`, { status: "received" }, 409);
     await request("PUT", `/api/purchase-orders/${orderId}`, { status: "ordered" }, 409);

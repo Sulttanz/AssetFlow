@@ -54,13 +54,13 @@ export function SearchablePicker({
           aria-label={ariaLabel}
           aria-expanded={open}
           className={cn("w-full justify-between font-normal", className)}
-          disabled={disabled}
+          disabled={disabled ?? triggerProps?.disabled}
         >
           <span className="truncate text-left">{selected?.label ?? placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-64 p-0">
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] min-w-0 max-w-[calc(100vw-2rem)] p-0">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>

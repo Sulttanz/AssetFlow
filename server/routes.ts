@@ -154,6 +154,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
     "/locations",
     "/vendors",
     "/purchase-orders",
+    "/quotations",
     "/vendor-quotations",
     "/purchase-invoices",
     "/purchase-returns",
@@ -6637,6 +6638,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch vendor quotations" });
     }
   });
+
+  const deleteVendorQuotation = async (req: any, res: any) => {
+    try {
+      const result = await db.transaction(async tx => {
+        const [quotation] = await tx.select().from(vendorQuotations)
+          .where(eq(vendorQuotations.id, req.params.id))
+          .for("update");
+        if (!quotation) throw Object.assign(new Error("Vendor quotation not found"), { status: 404 });
+
+        const [activeOrder] = await tx.select({
+          id: purchaseOrders.id,
+          poNumber: purchaseOrders.poNumber,
+          status: purchaseOrders.status,
+        }).from(purchaseOrders).where(and(
+          eq(purchaseOrders.quotationId, quotation.id),
+          inArray(purchaseOrders.status, ["pending", "approved", "ordered", "received"]),
+        )).for("update");
+        if (activeOrder) {
+          throw Object.assign(new Error(`Quotation is linked to active purchase order ${activeOrder.poNumber}`), { status: 409 });
+        }
+
+        await tx.delete(vendorQuotations).where(eq(vendorQuotations.id, quotation.id));
+        return quotation;
+      });
+      await logAudit(req.user?.id, "DELETE", "vendor_quotations", result.id, `Quotation ${result.quoteNumber}`, result, null, req);
+      return res.status(204).send();
+    } catch (error) {
+      if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
+      console.error("Vendor quotation delete failed:", error);
+      return res.status(500).json({ message: "Failed to delete vendor quotation" });
+    }
+  };
+  app.delete("/api/vendor-quotations/:id", requireAuth, requirePermission("purchase_order_update"), deleteVendorQuotation);
+  app.delete("/api/quotations/:id", requireAuth, requirePermission("purchase_order_update"), deleteVendorQuotation);
 
   app.post("/api/vendor-quotations", requireAuth, requirePermission("purchase_order_create"), async (req, res) => {
     try {

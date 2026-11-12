@@ -1,5 +1,5 @@
 import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
-import { useState, useEffect, useMemo } from "react";
+import { forwardRef, useState, useEffect, useMemo, useRef, type ComponentPropsWithoutRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,57 @@ const purchaseOrderFormSchema = insertPurchaseOrderSchema.extend({
 });
 
 type PurchaseOrderFormData = z.infer<typeof purchaseOrderFormSchema>;
+
+type NumericFormInputProps = Omit<ComponentPropsWithoutRef<typeof Input>, "type" | "value" | "onChange" | "inputMode"> & {
+  value: number | undefined;
+  onValueChange: (value: number) => void;
+  integer?: boolean;
+};
+
+const NumericFormInput = forwardRef<HTMLInputElement, NumericFormInputProps>(
+  ({ value, onValueChange, integer = false, onBlur, onFocus, ...props }, ref) => {
+    const [draft, setDraft] = useState(value == null ? "" : String(value));
+    const isEditing = useRef(false);
+
+    useEffect(() => {
+      if (!isEditing.current) setDraft(value == null ? "" : String(value));
+    }, [value]);
+
+    return (
+      <Input
+        {...props}
+        ref={ref}
+        type="text"
+        inputMode={integer ? "numeric" : "decimal"}
+        value={draft}
+        onFocus={event => {
+          isEditing.current = true;
+          onFocus?.(event);
+        }}
+        onChange={event => {
+          const nextDraft = event.target.value;
+          setDraft(nextDraft);
+          if (!nextDraft.trim()) return;
+          const parsed = Number(nextDraft.replace(",", "."));
+          if (Number.isFinite(parsed) && (!integer || Number.isInteger(parsed))) onValueChange(parsed);
+        }}
+        onBlur={event => {
+          isEditing.current = false;
+          const nextDraft = draft.trim();
+          const parsed = Number(nextDraft.replace(",", "."));
+          if (nextDraft && Number.isFinite(parsed) && (!integer || Number.isInteger(parsed))) {
+            onValueChange(parsed);
+            setDraft(String(parsed));
+          } else {
+            setDraft(value == null ? "" : String(value));
+          }
+          onBlur?.(event);
+        }}
+      />
+    );
+  },
+);
+NumericFormInput.displayName = "NumericFormInput";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
@@ -270,11 +321,10 @@ function PurchaseOrderForm({
                   });
                 }
               }}><FormControl><SelectTrigger><SelectValue placeholder="Choose tax rate" /></SelectTrigger></FormControl><SelectContent>{activeTaxRates.map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
-              <FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => {
-                const rate = Number(event.target.value) || 0;
+              <FormControl><NumericFormInput name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={rate => {
                 field.onChange(rate);
                 (form.getValues("items") ?? []).forEach((_: unknown, index: number) => form.setValue(`items.${index}.taxRate`, rate));
-              }} /></FormControl>
+              }} min="0" max="100" step="0.01" /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
@@ -288,7 +338,7 @@ function PurchaseOrderForm({
             <FormItem><FormLabel>Document discount type</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="fixed">Fixed amount</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select><FormMessage /></FormItem>
           )} />
           <FormField control={form.control} name="documentDiscountValue" render={({ field }) => (
-            <FormItem><FormLabel>Document discount</FormLabel><FormControl><Input type="number" min="0" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Document discount</FormLabel><FormControl><NumericFormInput name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={field.onChange} min="0" step="0.01" /></FormControl><FormMessage /></FormItem>
           )} />
           <div className="flex items-end text-sm text-muted-foreground">
             Subtotal {orderPricing.subtotal.toFixed(2)} · Tax {orderPricing.taxAmount.toFixed(2)} · Total <strong className="ml-1 text-foreground">{form.watch("currency")} {orderPricing.grandTotal.toFixed(2)}</strong>
@@ -471,11 +521,14 @@ function PurchaseOrderForm({
                       <FormItem>
                         <FormLabel>Qty</FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
-                            type="number"
+                          <NumericFormInput
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            integer
                             min="1"
-                            onChange={e => field.onChange(parseInt(e.target.value) || 1)}
                             data-testid={`input-item-quantity-${index}`}
                           />
                         </FormControl>
@@ -491,12 +544,14 @@ function PurchaseOrderForm({
                       <FormItem>
                         <FormLabel>Unit price ({form.watch("currency")})</FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
-                            type="number"
+                          <NumericFormInput
+                            name={field.name}
+                            ref={field.ref}
+                            onBlur={field.onBlur}
+                            value={field.value}
+                            onValueChange={field.onChange}
                             min="0"
                             step="0.01"
-                            onChange={e => field.onChange(parseFloat(e.target.value) || 0)}
                             data-testid={`input-item-price-${index}`}
                           />
                         </FormControl>
@@ -511,7 +566,7 @@ function PurchaseOrderForm({
                     <FormItem><FormLabel>Discount type</FormLabel><Select value={field.value} onValueChange={field.onChange}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="fixed">Fixed amount</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name={`items.${index}.discountValue`} render={({ field }) => (
-                    <FormItem><FormLabel>Discount value</FormLabel><FormControl><Input type="number" min="0" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Discount value</FormLabel><FormControl><NumericFormInput name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={field.onChange} min="0" step="0.01" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name={`items.${index}.taxRate`} render={({ field }) => (
                     <FormItem><FormLabel>Line tax rate</FormLabel>
@@ -522,7 +577,7 @@ function PurchaseOrderForm({
                           form.setValue(`items.${index}.taxInclusive`, rate.taxMode === "inclusive");
                         }
                       }}><FormControl><SelectTrigger><SelectValue placeholder="Choose tax rate" /></SelectTrigger></FormControl><SelectContent>{activeTaxRates.map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
-                      <FormControl><Input type="number" min="0" max="100" step="0.01" value={field.value} onChange={event => field.onChange(Number(event.target.value) || 0)} /></FormControl>
+                      <FormControl><NumericFormInput name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={field.onChange} min="0" max="100" step="0.01" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />

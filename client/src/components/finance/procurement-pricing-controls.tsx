@@ -35,11 +35,11 @@ export function DocumentPricingControls({ id, value, onChange, totals, taxRates 
           const rate = taxRates.find(option => String(option.id) === rateId);
           if (rate) onChange({ taxRate: String(rate.rate), taxMode: rate.taxMode as DocumentPricingFields["taxMode"] });
         }}><SelectTrigger id={`${id}-rate-preset`}><SelectValue placeholder="Choose a saved rate" /></SelectTrigger><SelectContent>{taxRates.filter(rate => rate.isActive).map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
-        <Input id={`${id}-rate`} type="number" min="0" max="100" step="0.01" required value={value.taxRate} onChange={event => onChange({ taxRate: event.target.value })} aria-label="Default tax rate percentage" />
+        <Input id={`${id}-rate`} type="text" inputMode="decimal" required value={value.taxRate} onChange={event => onChange({ taxRate: event.target.value })} aria-label="Default tax rate percentage" />
       </div>
       <div><Label htmlFor={`${id}-mode`}>Tax treatment</Label><Select value={value.taxMode} onValueChange={taxMode => onChange({ taxMode: taxMode as DocumentPricingFields["taxMode"] })}><SelectTrigger id={`${id}-mode`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem></SelectContent></Select></div>
       <div><Label htmlFor={`${id}-discount-type`}>Document discount type</Label><Select value={value.documentDiscountType} onValueChange={documentDiscountType => onChange({ documentDiscountType: documentDiscountType as DiscountType })}><SelectTrigger id={`${id}-discount-type`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Fixed amount</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select></div>
-      <div><Label htmlFor={`${id}-discount`}>Document discount</Label><Input id={`${id}-discount`} type="number" min="0" max={value.documentDiscountType === "percentage" ? 100 : undefined} step="0.01" value={value.documentDiscountValue} onChange={event => onChange({ documentDiscountValue: event.target.value })} /></div>
+      <div><Label htmlFor={`${id}-discount`}>Document discount</Label><Input id={`${id}-discount`} type="text" inputMode="decimal" value={value.documentDiscountValue} onChange={event => onChange({ documentDiscountValue: event.target.value })} /></div>
     </div>
     {totals.validationError
       ? <p role="alert" className="text-sm text-destructive">{totals.validationError}</p>
@@ -57,13 +57,13 @@ export function LinePricingControls({ id, value, onChange, taxRates = [] }: {
   const selectedRate = taxChoiceValue(value.taxRate, value.taxInclusive ? "inclusive" : "exclusive", taxRates.filter(rate => rate.isActive));
   return <div className="grid gap-3 sm:grid-cols-2">
     <div><Label htmlFor={`${id}-discount-type`}>Line discount type</Label><Select value={value.discountType} onValueChange={discountType => onChange({ discountType: discountType as DiscountType })}><SelectTrigger id={`${id}-discount-type`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fixed">Fixed amount</SelectItem><SelectItem value="percentage">Percentage</SelectItem></SelectContent></Select></div>
-    <div><Label htmlFor={`${id}-discount`}>Line discount</Label><Input id={`${id}-discount`} type="number" min="0" max={value.discountType === "percentage" ? 100 : undefined} step="0.01" value={value.discountValue} onChange={event => onChange({ discountValue: event.target.value })} /></div>
+    <div><Label htmlFor={`${id}-discount`}>Line discount</Label><Input id={`${id}-discount`} type="text" inputMode="decimal" value={value.discountValue} onChange={event => onChange({ discountValue: event.target.value })} /></div>
     <div className="space-y-2"><Label htmlFor={`${id}-rate-preset`}>Line tax rate</Label>
       {taxRates.some(rate => rate.isActive) && <Select value={selectedRate} onValueChange={rateId => {
         const rate = taxRates.find(option => String(option.id) === rateId);
         if (rate) onChange({ taxRate: String(rate.rate), taxInclusive: rate.taxMode === "inclusive" });
       }}><SelectTrigger id={`${id}-rate-preset`}><SelectValue placeholder="Choose a saved rate" /></SelectTrigger><SelectContent>{taxRates.filter(rate => rate.isActive).map(rate => <SelectItem key={rate.id} value={String(rate.id)}>{rate.name} ({Number(rate.rate)}% · {rate.taxMode})</SelectItem>)}<SelectItem value="__custom__">Custom / unlisted rate</SelectItem></SelectContent></Select>}
-      <Input id={`${id}-rate`} type="number" min="0" max="100" step="0.01" value={value.taxRate} onChange={event => onChange({ taxRate: event.target.value })} aria-label="Line tax rate percentage" />
+      <Input id={`${id}-rate`} type="text" inputMode="decimal" value={value.taxRate} onChange={event => onChange({ taxRate: event.target.value })} aria-label="Line tax rate percentage" />
     </div>
     <div><Label htmlFor={`${id}-mode`}>Line tax treatment</Label><Select value={value.taxInclusive ? "inclusive" : "exclusive"} onValueChange={mode => onChange({ taxInclusive: mode === "inclusive" })}><SelectTrigger id={`${id}-mode`}><SelectValue /></SelectTrigger><SelectContent><SelectItem value="exclusive">Tax exclusive</SelectItem><SelectItem value="inclusive">Tax inclusive</SelectItem></SelectContent></Select></div>
   </div>;

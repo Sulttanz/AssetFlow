@@ -69,6 +69,17 @@ describe("New Order dismissal", () => {
     expect(state.mutate).not.toHaveBeenCalled();
   });
 
+  it("preserves decimal typing in controlled unit-price fields", async () => {
+    render(<PurchaseOrders />);
+    const user = await openNewOrder();
+    const price = screen.getByTestId("input-item-price-0") as HTMLInputElement;
+    await user.clear(price);
+    await user.type(price, "12.50");
+    expect(price.value).toBe("12.50");
+    await user.tab();
+    expect(price.value).toBe("12.5");
+  });
+
   it("still closes and unlocks the page if numbering settings fail while open", async () => {
     const view = render(<PurchaseOrders />);
     const user = await openNewOrder();

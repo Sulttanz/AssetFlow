@@ -60,4 +60,17 @@ describe("SearchablePicker", () => {
     expect(onChange).toHaveBeenCalledWith("employee-2");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
+
+  it("honors a disabled state passed through trigger props", () => {
+    render(
+      <SearchablePicker
+        value=""
+        onChange={vi.fn()}
+        placeholder="Choose an option"
+        options={[]}
+        triggerProps={{ disabled: true }}
+      />,
+    );
+    expect((screen.getByRole("combobox") as HTMLButtonElement).disabled).toBe(true);
+  });
 });
