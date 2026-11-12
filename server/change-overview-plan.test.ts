@@ -35,6 +35,8 @@ const queries: {
 
 const databaseIntegrationEnabled =
   process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
+const scaledHistorySize = 1_200_000;
+const countIndexStorageBudgetBytes = 8 * 1024 * 1024;
 
 describe("CAB overview pending count plan", () => {
   const schema = `cab_overview_plan_${randomUUID().replaceAll("-", "")}`;
@@ -355,7 +357,56 @@ describe("CAB overview pending count plan", () => {
     }
     expect(writeCosts.find(cost => cost.operation === "insert")!.withIndex.walBytes)
       .toBeGreaterThan(writeCosts.find(cost => cost.operation === "insert")!.withoutIndex.walBytes);
-  });
+
+    const scaledIndexWorkloads = [];
+    for (const pendingPercent of [1, 10, 50, 90]) {
+      await plannerPool.query("TRUNCATE change_approvals");
+      await plannerPool.query(`
+        INSERT INTO change_approvals (
+          id, change_id, approver_id, original_approver_id, approver_label, decision
+        )
+        SELECT
+          'scale-' || lpad(approval_no::text, 7, '0'),
+          'scale-change-' || (((approval_no - 1) / 4) + 1),
+          'scale-reviewer-' || (approval_no % 256),
+          'scale-reviewer-' || (approval_no % 256),
+          'Scale reviewer ' || (approval_no % 256),
+          'approved'
+        FROM generate_series(1, $1::int) AS approval_rows(approval_no)
+      `, [scaledHistorySize]);
+      await plannerPool.query(`
+        UPDATE change_approvals
+        SET decision = CASE
+          WHEN substring(id FROM 7)::int % 100 < $1 THEN 'pending'
+          ELSE 'approved'
+        END
+      `, [pendingPercent]);
+      await plannerPool.query("VACUUM (ANALYZE) change_approvals");
+
+      const pendingCount = await readCount();
+      const scaledPlan = await explain();
+      const scaledSizeResult = await plannerPool.query(
+        "SELECT pg_relation_size($1::regclass)::bigint AS index_bytes",
+        ["change_approvals_active_pending_count_idx"],
+      );
+      const scaledIndexBytes = Number(scaledSizeResult.rows[0]?.index_bytes);
+      const expectedPendingCount = scaledHistorySize * pendingPercent / 100;
+      scaledIndexWorkloads.push({ pendingPercent, pendingCount, scaledIndexBytes });
+
+      expect(pendingCount).toBe(expectedPendingCount);
+      expect(scaledPlan.some(node =>
+        node["Index Name"] === "change_approvals_active_pending_count_idx" &&
+        node["Node Type"] === "Index Only Scan",
+      )).toBe(true);
+      expect(scaledIndexBytes).toBeGreaterThan(0);
+      expect(scaledIndexBytes).toBeLessThanOrEqual(countIndexStorageBudgetBytes);
+    }
+    console.info("CAB count index large-history workloads", JSON.stringify({
+      historySize: scaledHistorySize,
+      storageBudgetBytes: countIndexStorageBudgetBytes,
+      workloads: scaledIndexWorkloads,
+    }));
+  }, 120_000);
 
   it("declares the same strict predicate in the Drizzle schema", () => {
     const index = getTableConfig(changeApprovals).indexes.find(
