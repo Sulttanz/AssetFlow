@@ -1,7 +1,7 @@
 import { toDateInputValue as appInputDate, formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, Layers, Copy } from "lucide-react";
+import { Plus, ShoppingCart, Edit2, Trash2, DollarSign, Package, Building2, User, FileText, Boxes, Filter, CheckCheck, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
@@ -577,7 +576,6 @@ export default function PurchaseOrders() {
   const [statusFilter, setStatusFilter] = useState("__all__");
   const [itemSearch, setItemSearch] = useState("");
   const [isBulkLoading, setIsBulkLoading] = useState(false);
-  const [selectedForAssets, setSelectedForAssets] = useState<Set<string>>(new Set());
   const [selectedQuotationId, setSelectedQuotationId] = useState("");
   const isSystemAdmin = useHasPermission("system_admin");
 
@@ -625,11 +623,6 @@ export default function PurchaseOrders() {
     }
     return result;
   }, [orders, vendors, statusFilter, itemSearch]);
-
-  const eligibleForAssets = useMemo(
-    () => orders.filter((o) => o.status === "received" && (o.items?.length ?? 0) > 0 && !o.assetsCreated),
-    [orders]
-  );
 
   const totalPages = useMemo(() => Math.ceil(filteredOrders.length / ITEMS_PER_PAGE), [filteredOrders]);
 
@@ -705,25 +698,6 @@ export default function PurchaseOrders() {
       toast({
         title: "Error",
         description: parsed?.message || raw || "Failed to delete purchase order",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const createAssetsMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/purchase-orders/${id}/create-assets`),
-    onSuccess: async (data: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
-      toast({ title: "Inventory received", description: `${data?.created ?? 0} assets and ${data?.consumableUnitsReceived ?? 0} consumable units were processed.` });
-    },
-    onError: async (error: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-      const message = typeof error?.message === "string" ? error.message.replace(/^\d+:\s*/, "") : "";
-      toast({
-        title: "Error",
-        description: message || "Failed to process purchase order inventory",
         variant: "destructive",
       });
     },
@@ -826,7 +800,7 @@ export default function PurchaseOrders() {
         description: item.description,
         assetType: item.assetType ?? "other",
         itemType: item.itemType === "consumable" ? "consumable" : "asset",
-        consumableId: "",
+        consumableId: item.consumableId ?? "",
         consumableCategory: item.consumableCategory ?? "",
         modelPartNumber: item.modelPartNumber ?? "",
         warehouseLocationId: item.warehouseLocationId ?? "",
@@ -961,56 +935,6 @@ export default function PurchaseOrders() {
     }
   };
 
-  const toggleSelectForAssets = (id: string) => {
-    setSelectedForAssets((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleSelectAllForAssets = () => {
-    setSelectedForAssets((prev) =>
-      prev.size === eligibleForAssets.length ? new Set() : new Set(eligibleForAssets.map((o) => o.id))
-    );
-  };
-
-  const handleBulkCreateAssets = async () => {
-    const targets = selectedForAssets.size > 0
-      ? eligibleForAssets.filter((o) => selectedForAssets.has(o.id))
-      : eligibleForAssets;
-
-    if (!targets.length) {
-      return toast({ title: "Nothing to process", description: "No unprocessed received purchase orders with items were found." });
-    }
-    setIsBulkLoading(true);
-    let totalCreated = 0;
-    let totalConsumableUnits = 0;
-    let failed = 0;
-    for (const o of targets) {
-      try {
-        const result: any = await apiRequest("POST", `/api/purchase-orders/${o.id}/create-assets`);
-        totalCreated += result?.created ?? 0;
-        totalConsumableUnits += result?.consumableUnitsReceived ?? 0;
-      } catch {
-        failed++;
-      }
-    }
-    await queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/purchase-orders"] });
-    await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
-    setIsBulkLoading(false);
-    setSelectedForAssets(new Set());
-    if (failed > 0 && totalCreated > 0) {
-      toast({ title: "Partially done", description: `${totalCreated} asset(s) created. ${failed} order(s) failed.`, variant: "destructive" });
-    } else if (failed > 0) {
-      toast({ title: "Error", description: `Failed to create assets for ${failed} order(s).`, variant: "destructive" });
-    } else {
-      toast({ title: "Inventory processed", description: `${totalCreated} tagged asset(s) and ${totalConsumableUnits} consumable units received from ${targets.length} purchase order(s).` });
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="flex-1 p-8 flex items-center justify-center h-64">
@@ -1102,7 +1026,7 @@ export default function PurchaseOrders() {
             </span>
           </div>
 
-          {/* Bulk actions row */}
+          {/* Bulk approval is a finance workflow; receiving is automatic from matched invoices. */}
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -1115,38 +1039,7 @@ export default function PurchaseOrders() {
               <CheckCheck className="w-3 h-3" />
               Approve All Pending
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs h-8 gap-1"
-              disabled={isBulkLoading || eligibleForAssets.length === 0}
-              onClick={handleBulkCreateAssets}
-              data-testid="button-bulk-create-assets"
-            >
-              <Layers className="w-3 h-3" />
-              {isBulkLoading
-                ? "Processing…"
-                : selectedForAssets.size > 0
-                ? `Process ${selectedForAssets.size} Selected`
-                : "Process Inventory for All Eligible"}
-            </Button>
           </div>
-
-          {/* Selection helper for asset creation */}
-          {eligibleForAssets.length > 0 && (
-            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-              <Checkbox
-                id="select-all-eligible"
-                checked={selectedForAssets.size > 0 && selectedForAssets.size === eligibleForAssets.length}
-                onCheckedChange={toggleSelectAllForAssets}
-                data-testid="checkbox-select-all-eligible"
-              />
-              <label htmlFor="select-all-eligible" className="text-xs text-muted-foreground cursor-pointer select-none">
-                Select all {eligibleForAssets.length} received order{eligibleForAssets.length !== 1 ? "s" : ""} for inventory processing
-                {selectedForAssets.size > 0 ? ` (${selectedForAssets.size} selected)` : ""}
-              </label>
-            </div>
-          )}
         </div>
 
         {/* Orders list */}
@@ -1155,22 +1048,12 @@ export default function PurchaseOrders() {
             const totalAmount = parseFloat(order.totalAmount || "0");
             const itemCount = order.items?.length || 0;
             const nextStatus = WORKFLOW[order.status];
-            const isEligibleForAssets = order.status === "received" && itemCount > 0 && !order.assetsCreated;
-
             return (
               <Card key={order.id} className="overflow-hidden" data-testid={`po-card-${order.id}`}>
                 <CardContent className="p-4">
                   {/* Top row: PO number + badges + actions */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1 flex items-start gap-2">
-                      {isEligibleForAssets && (
-                        <Checkbox
-                          className="mt-1 shrink-0"
-                          checked={selectedForAssets.has(order.id)}
-                          onCheckedChange={() => toggleSelectForAssets(order.id)}
-                          data-testid={`checkbox-select-${order.id}`}
-                        />
-                      )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <ShoppingCart className="w-4 h-4 text-primary shrink-0" />
@@ -1320,24 +1203,7 @@ export default function PurchaseOrders() {
                       {["pending", "approved", "ordered"].includes(order.status) && <Button size="sm" variant="outline" className="text-xs" disabled={updateMutation.isPending} onClick={() => {
                         if (window.confirm(`Cancel ${order.poNumber}? This closes the order without receiving inventory.`)) updateMutation.mutate({ id: order.id, data: { status: "cancelled" } });
                       }}>Cancel order</Button>}
-                      {order.status === "ordered" && <Button size="sm" variant="outline" asChild><a href="/finance/invoices">Receive through supplier invoice</a></Button>}
-                      {isEligibleForAssets && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-8 gap-1"
-                          disabled={createAssetsMutation.isPending || isBulkLoading}
-                          onClick={() => {
-                            if (window.confirm(`Process ${itemCount} inventory line(s) from this PO?`)) {
-                              createAssetsMutation.mutate(order.id);
-                            }
-                          }}
-                          data-testid={`button-create-assets-${order.id}`}
-                        >
-                          <Boxes className="h-3 w-3" />
-                          {createAssetsMutation.isPending ? "Processing…" : `Process ${itemCount} Item${itemCount !== 1 ? "s" : ""}`}
-                        </Button>
-                      )}
+                      {order.status === "ordered" && <Button size="sm" variant="outline" asChild><a href="/finance/invoices">Create matched supplier invoice</a></Button>}
                       {order.status === "received" && itemCount === 0 && (
                         <p className="text-xs text-muted-foreground italic self-center">
                           No items — edit this PO to add items before creating assets

@@ -700,6 +700,7 @@ export const consumableStockMovements = pgTable("consumable_stock_movements", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   consumableId: varchar("consumable_id").notNull().references(() => consumables.id),
   movementType: text("movement_type").notNull(), // receipt, issue, transfer
+  reasonCode: text("reason_code"),
   quantity: integer("quantity").notNull(),
   fromWarehouseLocationId: varchar("from_warehouse_location_id").references(() => warehouseLocations.id),
   toWarehouseLocationId: varchar("to_warehouse_location_id").references(() => warehouseLocations.id),
@@ -756,6 +757,7 @@ export const vendorQuotations = pgTable("vendor_quotations", {
 export const vendorQuotationItems = pgTable("vendor_quotation_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   quotationId: varchar("quotation_id").notNull().references(() => vendorQuotations.id, { onDelete: "cascade" }),
+  consumableId: varchar("consumable_id").references(() => consumables.id, { onDelete: "set null" }),
   description: text("description").notNull(),
   itemType: text("item_type").notNull().default("asset"),
   quantity: integer("quantity").notNull(),
@@ -2070,6 +2072,7 @@ export const insertVendorQuotationSchema = createInsertSchema(vendorQuotations).
   items: z.array(z.object({
     description: z.string().trim().min(1).max(500),
     itemType: z.enum(["asset", "consumable"]).default("asset"),
+    consumableId: z.string().uuid().nullable().optional(),
     quantity: z.coerce.number().int().min(1).max(100000),
     unitPrice: z.coerce.number().min(0),
     discountType: z.enum(["percentage", "fixed"]).default("fixed"),
@@ -2400,6 +2403,7 @@ export const vendorQuotationsRelations = relations(vendorQuotations, ({ one, man
 
 export const vendorQuotationItemsRelations = relations(vendorQuotationItems, ({ one }) => ({
   quotation: one(vendorQuotations, { fields: [vendorQuotationItems.quotationId], references: [vendorQuotations.id] }),
+  consumable: one(consumables, { fields: [vendorQuotationItems.consumableId], references: [consumables.id] }),
 }));
 
 export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({

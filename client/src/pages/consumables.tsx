@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeftRight, Boxes, MapPin, PackagePlus, Pencil, Plus, Search, Truck, Warehouse } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ArrowUpDown, Boxes, MapPin, PackagePlus, Pencil, Plus, Search, Truck, Warehouse } from "lucide-react";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -51,7 +51,9 @@ export default function ConsumablesPage() {
   const [editing, setEditing] = useState<Consumable | null>(null);
   const [draft, setDraft] = useState<ConsumableDraft>(emptyDraft);
   const [movementItem, setMovementItem] = useState<Consumable | null>(null);
-  const [movementType, setMovementType] = useState<"issue" | "transfer">("issue");
+  const [movementType, setMovementType] = useState<"issue" | "transfer" | "adjustment">("issue");
+  const [adjustmentDirection, setAdjustmentDirection] = useState<"increase" | "decrease">("increase");
+  const [adjustmentReason, setAdjustmentReason] = useState("cycle_count");
   const [movementQuantity, setMovementQuantity] = useState("1");
   const [movementRecipient, setMovementRecipient] = useState("");
   const [destination, setDestination] = useState("");
@@ -143,13 +145,15 @@ export default function ConsumablesPage() {
     mutationFn: async () => apiRequest("POST", `/api/consumables/${movementItem!.id}/stock-movement`, {
       movementType,
       quantity: Number(movementQuantity),
-      ...(movementType === "issue" ? { recipientUserId: movementRecipient } : { toWarehouseLocationId: destination }),
+      ...(movementType === "issue" ? { recipientUserId: movementRecipient } : movementType === "transfer"
+        ? { toWarehouseLocationId: destination }
+        : { direction: adjustmentDirection, reasonCode: adjustmentReason }),
       notes: movementNotes.trim() || undefined,
     }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/consumables"] });
-      toast({ title: movementType === "issue" ? "Stock issued" : "Stock transferred" });
-      setMovementItem(null); setMovementRecipient(""); setDestination(""); setMovementNotes(""); setMovementQuantity("1");
+      toast({ title: movementType === "issue" ? "Stock issued" : movementType === "transfer" ? "Stock transferred" : "Stock adjusted" });
+      setMovementItem(null); setMovementRecipient(""); setDestination(""); setMovementNotes(""); setMovementQuantity("1"); setAdjustmentDirection("increase"); setAdjustmentReason("cycle_count");
     },
     onError: (error: Error) => toast({ title: "Stock movement failed", description: error.message, variant: "destructive" }),
   });
@@ -236,7 +240,8 @@ export default function ConsumablesPage() {
               <TableCell>{item.vendorName ?? "—"}</TableCell>
               <TableCell>{formatDateDisplay(item.createdAt)}</TableCell>
               <TableCell><div className="flex justify-end gap-1">
-                <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("issue"); }} disabled={!item.warehouseIsActive} title={!item.warehouseIsActive ? "Reactivate the warehouse to move stock" : undefined}><Truck className="mr-1 h-3.5 w-3.5" />Issue / Transfer</Button>
+                <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("issue"); setMovementQuantity("1"); }} disabled={!item.warehouseIsActive} title={!item.warehouseIsActive ? "Reactivate the warehouse to move stock" : undefined}><Truck className="mr-1 h-3.5 w-3.5" />Issue / Transfer</Button>
+                <Button size="sm" variant="outline" onClick={() => { setMovementItem(item); setMovementType("adjustment"); setMovementQuantity("1"); setAdjustmentDirection("increase"); setAdjustmentReason("cycle_count"); }} disabled={!item.warehouseIsActive} title={!item.warehouseIsActive ? "Reactivate the warehouse before adjusting stock" : "Adjust stock with an audit reason"}><ArrowUpDown className="mr-1 h-3.5 w-3.5" />Adjust stock</Button>
                 {low && <Button size="icon" variant="outline" title={item.warehouseIsActive ? "Create draft purchase order" : "Reactivate the warehouse to create a replenishment order"} aria-label={`Create draft purchase order for ${item.name}`} onClick={() => {
                   const poNumber = poSequence?.numberingMode === "manual" ? window.prompt("Enter a unique purchase-order number")?.trim() : undefined;
                   if (poSequence?.numberingMode === "manual" && !poNumber) return;
@@ -278,15 +283,21 @@ export default function ConsumablesPage() {
       </form>
     </InventoryDialog>
 
-    <InventoryDialog open={Boolean(movementItem)} onOpenChange={open => { if (!open) setMovementItem(null); }} title="Manual issue / transfer" description={`Current quantity: ${movementItem?.quantityInStock ?? 0} · ${movementItem?.warehouseName ?? ""}`}>
+    <InventoryDialog open={Boolean(movementItem)} onOpenChange={open => { if (!open) setMovementItem(null); }} title={movementType === "adjustment" ? "Adjust stock count" : "Manual issue / transfer"} description={`Current quantity: ${movementItem?.quantityInStock ?? 0} · ${movementItem?.warehouseName ?? ""}`}>
       {movementItem && <form className="grid gap-4" onSubmit={event => { event.preventDefault(); moveStock.mutate(); }}>
-        <label className="grid gap-1.5 text-sm">Movement type<Select value={movementType} onValueChange={value => setMovementType(value as "issue" | "transfer")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="issue">Issue to employee</SelectItem><SelectItem value="transfer">Transfer to another location</SelectItem></SelectContent></Select></label>
-        <label className="grid gap-1.5 text-sm">Quantity<Input type="number" min="1" max={movementItem.quantityInStock} step="1" value={movementQuantity} onChange={event => setMovementQuantity(event.target.value)} required /></label>
+        <label className="grid gap-1.5 text-sm">Movement type<Select value={movementType} onValueChange={value => setMovementType(value as "issue" | "transfer" | "adjustment")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="issue">Issue to employee</SelectItem><SelectItem value="transfer">Transfer to another location</SelectItem><SelectItem value="adjustment">Manual stock adjustment</SelectItem></SelectContent></Select></label>
+        {movementType === "adjustment" && <>
+          <label className="grid gap-1.5 text-sm">Adjustment direction<Select value={adjustmentDirection} onValueChange={value => setAdjustmentDirection(value as "increase" | "decrease")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="increase">Increase stock</SelectItem><SelectItem value="decrease">Decrease stock</SelectItem></SelectContent></Select></label>
+          <label className="grid gap-1.5 text-sm">Audit reason code<Select value={adjustmentReason} onValueChange={setAdjustmentReason}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cycle_count">Cycle count correction</SelectItem><SelectItem value="damage">Damaged stock</SelectItem><SelectItem value="correction">Inventory correction</SelectItem><SelectItem value="found_stock">Found stock</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></label>
+        </>}
+        <label className="grid gap-1.5 text-sm">{movementType === "adjustment" ? "Quantity to add / remove" : "Quantity"}<Input type="number" min="1" max={movementType === "adjustment" && adjustmentDirection === "increase" ? undefined : movementItem.quantityInStock} step="1" value={movementQuantity} onChange={event => setMovementQuantity(event.target.value)} required /></label>
         {movementType === "issue"
           ? <label className="grid gap-1.5 text-sm">Employee<select className="h-10 rounded-md border bg-background px-3 text-sm" value={movementRecipient} onChange={event => setMovementRecipient(event.target.value)} required><option value="">Select employee</option>{options.users.map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}</select></label>
-           : <label className="grid gap-1.5 text-sm">Destination warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={destination} onChange={event => setDestination(event.target.value)} required><option value="">Select destination</option>{activeWarehouses.filter(location => location.id !== movementItem.warehouseLocationId).map(location => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select></label>}
-        <label className="grid gap-1.5 text-sm">Notes <Textarea maxLength={2000} value={movementNotes} onChange={event => setMovementNotes(event.target.value)} /></label>
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setMovementItem(null)}>Cancel</Button><Button type="submit" disabled={moveStock.isPending || Number(movementQuantity) > movementItem.quantityInStock}>{moveStock.isPending ? "Saving…" : movementType === "issue" ? "Issue stock" : "Transfer stock"}<ArrowLeftRight className="ml-2 h-4 w-4" /></Button></div>
+          : movementType === "transfer"
+            ? <label className="grid gap-1.5 text-sm">Destination warehouse<select className="h-10 rounded-md border bg-background px-3 text-sm" value={destination} onChange={event => setDestination(event.target.value)} required><option value="">Select destination</option>{activeWarehouses.filter(location => location.id !== movementItem.warehouseLocationId).map(location => <option key={location.id} value={location.id}>{location.name} ({location.code})</option>)}</select></label>
+            : null}
+        <label className="grid gap-1.5 text-sm">Audit notes{movementType === "adjustment" && adjustmentReason === "other" ? " (required)" : ""}<Textarea maxLength={2000} value={movementNotes} onChange={event => setMovementNotes(event.target.value)} required={movementType === "adjustment" && adjustmentReason === "other"} /></label>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setMovementItem(null)}>Cancel</Button><Button type="submit" disabled={moveStock.isPending || (movementType !== "adjustment" || adjustmentDirection === "decrease") && Number(movementQuantity) > movementItem.quantityInStock || movementType === "adjustment" && adjustmentReason === "other" && !movementNotes.trim()}>{moveStock.isPending ? "Saving…" : movementType === "issue" ? "Issue stock" : movementType === "transfer" ? "Transfer stock" : "Save adjustment"}<ArrowLeftRight className="ml-2 h-4 w-4" /></Button></div>
       </form>}
     </InventoryDialog>
 

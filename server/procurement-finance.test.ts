@@ -22,7 +22,10 @@ describe("P2P input validation", () => {
     const valid = {
       vendorId, quoteNumber: "Q-001", issueDate: "2026-01-01", validUntil: "2026-02-01",
       currency: "USD", subtotal: "10.00", taxAmount: "1.00", totalAmount: "11.00",
-      status: "submitted", items: [{ description: "Laptop", itemType: "asset", quantity: 1, unitPrice: 10 }],
+      status: "submitted", items: [
+        { description: "Laptop", itemType: "asset", quantity: 1, unitPrice: 10 },
+        { description: "Toner", itemType: "consumable", consumableId, quantity: 2, unitPrice: 5, warehouseLocationId: warehouseId },
+      ],
     };
     expect(insertVendorQuotationSchema.safeParse(valid).success).toBe(true);
     expect(insertVendorQuotationSchema.safeParse({ ...valid, currency: "US" }).success).toBe(false);
@@ -63,5 +66,9 @@ describe("P2P input validation", () => {
     for (const table of ["vendor_quotations", "purchase_invoices", "purchase_invoice_payments", "purchase_returns", "purchase_return_items"]) {
       expect(migration).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
     }
+    const catalogAdjustmentMigration = await readFile(path.resolve("migrations/onprem/20261204_procurement_catalog_stock_adjustments.sql"), "utf8");
+    expect(() => assertAdditiveMigration(catalogAdjustmentMigration, "20261204_procurement_catalog_stock_adjustments.sql")).not.toThrow();
+    expect(catalogAdjustmentMigration).toContain("vendor_quotation_items");
+    expect(catalogAdjustmentMigration).toContain("consumable_stock_movements");
   });
 });

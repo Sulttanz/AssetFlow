@@ -5775,6 +5775,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const movementSchema = z.discriminatedUnion("movementType", [
       z.object({ movementType: z.literal("issue"), quantity: z.number().int().positive(), recipientUserId: z.string().uuid(), notes: z.string().trim().max(2000).optional() }),
       z.object({ movementType: z.literal("transfer"), quantity: z.number().int().positive(), toWarehouseLocationId: z.string().uuid(), notes: z.string().trim().max(2000).optional() }),
+      z.object({
+        movementType: z.literal("adjustment"),
+        direction: z.enum(["increase", "decrease"]),
+        quantity: z.number().int().positive(),
+        reasonCode: z.enum(["cycle_count", "damage", "correction", "found_stock", "other"]),
+        notes: z.string().trim().max(2000).optional(),
+      }).superRefine((input, context) => {
+        if (input.reasonCode === "other" && !input.notes?.trim()) {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ["notes"], message: "Add an audit note when the reason is Other" });
+        }
+      }),
     ]);
     try {
       const input = movementSchema.parse(req.body);
@@ -5784,8 +5795,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [sourceLocation] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
           .where(and(eq(warehouseLocations.id, source.warehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
         if (!sourceLocation) throw Object.assign(new Error("Stock movements are blocked for a disabled warehouse"), { status: 409 });
-        if (source.quantityInStock < input.quantity) throw Object.assign(new Error("Not enough stock is available"), { status: 409 });
         if (input.movementType === "issue") {
+          if (source.quantityInStock < input.quantity) throw Object.assign(new Error("Not enough stock is available"), { status: 409 });
           const [recipient] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, input.recipientUserId), eq(users.isActive, true)));
           if (!recipient) throw Object.assign(new Error("Select an active employee"), { status: 400 });
           const [updated] = await tx.update(consumables).set({
@@ -5800,6 +5811,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return { consumable: updated, movement };
         }
 
+        if (input.movementType === "adjustment") {
+          if (input.direction === "decrease" && source.quantityInStock < input.quantity) {
+            throw Object.assign(new Error("Stock adjustment cannot reduce inventory below zero"), { status: 409 });
+          }
+          const adjustedQuantity = source.quantityInStock + (input.direction === "increase" ? input.quantity : -input.quantity);
+          const [updated] = await tx.update(consumables).set({
+            quantityInStock: adjustedQuantity,
+            updatedAt: new Date(),
+          }).where(eq(consumables.id, source.id)).returning();
+          const [movement] = await tx.insert(consumableStockMovements).values({
+            consumableId: source.id,
+            movementType: input.direction === "increase" ? "adjustment_in" : "adjustment_out",
+            reasonCode: input.reasonCode,
+            quantity: input.quantity,
+            fromWarehouseLocationId: input.direction === "decrease" ? source.warehouseLocationId : null,
+            toWarehouseLocationId: input.direction === "increase" ? source.warehouseLocationId : null,
+            actorId: req.user!.id,
+            notes: input.notes?.trim() || null,
+          }).returning();
+          return { consumable: updated, movement };
+        }
+
+        if (source.quantityInStock < input.quantity) throw Object.assign(new Error("Not enough stock is available"), { status: 409 });
         const [destination] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
           .where(and(eq(warehouseLocations.id, input.toWarehouseLocationId), eq(warehouseLocations.isActive, true))).for("update");
         if (!destination) throw Object.assign(new Error("Select an active destination location"), { status: 400 });
@@ -5969,6 +6003,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (Math.abs(totals.grandTotal - Number(validatedData.totalAmount)) > 0.01) {
         return res.status(400).json({ message: "Purchase order total must match line discounts and tax settings" });
       }
+      let sourceQuoteNumber: string | undefined;
       const purchaseOrder = await db.transaction(async tx => {
         const poNumber = await reserveFinancialDocumentNumber(tx, "purchase_order", validatedData.poNumber);
         if (validatedData.quotationId) {
@@ -5977,9 +6012,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (quotation.vendorId !== validatedData.vendorId || quotation.currency !== validatedData.currency) throw Object.assign(new Error("The PO supplier and currency must match the imported quotation"), { status: 400 });
           const [existingOrder] = await tx.select({ id: purchaseOrders.id }).from(purchaseOrders).where(eq(purchaseOrders.quotationId, quotation.id));
           if (existingOrder) throw Object.assign(new Error("This quotation has already been converted to a purchase order"), { status: 409 });
+          const quoteItems = await tx.select().from(vendorQuotationItems).where(eq(vendorQuotationItems.quotationId, quotation.id));
+          const moneyEquals = (left: unknown, right: unknown) => Math.round(Number(left ?? 0) * 100) === Math.round(Number(right ?? 0) * 100);
+          const sameItems = quoteItems.length === itemInputs.length && quoteItems.every((quoteItem, index) => {
+            const poItem = itemInputs[index];
+            return quoteItem.description === poItem.description &&
+              quoteItem.itemType === poItem.itemType &&
+              quoteItem.quantity === poItem.quantity &&
+              moneyEquals(quoteItem.unitPrice, poItem.unitPrice) &&
+              (quoteItem.consumableId ?? null) === (poItem.consumableId || null) &&
+              (quoteItem.consumableCategory ?? null) === (poItem.consumableCategory || null) &&
+              (quoteItem.modelPartNumber ?? null) === (poItem.modelPartNumber || null) &&
+              (quoteItem.warehouseLocationId ?? null) === (poItem.warehouseLocationId || null) &&
+              quoteItem.discountType === poItem.discountType &&
+              moneyEquals(quoteItem.discountValue, poItem.discountValue) &&
+              moneyEquals(quoteItem.taxRate ?? quotation.taxRate, poItem.taxRate ?? validatedData.taxRate) &&
+              Boolean(quoteItem.taxInclusive ?? quotation.taxMode === "inclusive") === Boolean(poItem.taxInclusive ?? validatedData.taxMode === "inclusive");
+          });
+          if (!sameItems) throw Object.assign(new Error("Purchase-order lines must match the accepted quotation; create a revised quotation for changes"), { status: 409 });
+          sourceQuoteNumber = quotation.quoteNumber;
         }
         const [order] = await tx.insert(purchaseOrders).values({
           ...validatedData,
+          reference: sourceQuoteNumber ? `Quotation ${sourceQuoteNumber}` : validatedData.reference,
           poNumber,
           status: "pending",
           expectedDelivery: validatedData.expectedDelivery || null,
@@ -6262,8 +6317,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // PO receipt processing creates tagged assets and/or adds consumable stock.
-  app.post("/api/purchase-orders/:id/create-assets", requireAuth, requirePermission('purchase_order_update'), async (req, res) => {
+  // Legacy-only recovery endpoint for older, already-received POs. New receipts
+  // are created atomically by matched invoice saves; restrict recovery to admins.
+  app.post("/api/purchase-orders/:id/create-assets", requireAuth, requirePermission("system_admin"), async (req, res) => {
     try {
       const po = await storage.getPurchaseOrder(req.params.id);
       if (!po) return res.status(404).json({ message: "Purchase order not found" });
@@ -6593,6 +6649,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       if (!parsed.success) return res.status(400).json({ message: "Invalid quotation", errors: parsed.error.issues });
       const { items, ...quotationInput } = parsed.data;
+      if (items.some(line => line.consumableId && line.itemType !== "consumable")) {
+        return res.status(400).json({ message: "Only consumable quotation lines may reference a stock item" });
+      }
       const totals = calculateDocumentTotals(items.map(line => ({
         quantity: line.quantity,
         unitPrice: line.unitPrice,
@@ -6618,6 +6677,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const saved = await db.transaction(async tx => {
         const quoteNumber = await reserveFinancialDocumentNumber(tx, "quotation", quotationInput.quoteNumber);
+        for (const line of items) {
+          if (line.itemType === "consumable") {
+            const [activeWarehouse] = await tx.select({ id: warehouseLocations.id }).from(warehouseLocations)
+              .where(and(eq(warehouseLocations.id, line.warehouseLocationId!), eq(warehouseLocations.isActive, true)));
+            if (!activeWarehouse) throw Object.assign(new Error("Select an active receiving warehouse for each consumable line"), { status: 400 });
+          }
+          if (line.consumableId) {
+            const [stock] = await tx.select({
+              id: consumables.id,
+              warehouseLocationId: consumables.warehouseLocationId,
+            }).from(consumables).where(eq(consumables.id, line.consumableId));
+            if (!stock || !line.warehouseLocationId || stock.warehouseLocationId !== line.warehouseLocationId) {
+              throw Object.assign(new Error("Selected consumable is not in the quotation's receiving warehouse"), { status: 400 });
+            }
+          }
+        }
         const [quotation] = await tx.insert(vendorQuotations).values({
           ...quotationInput,
           quoteNumber,
@@ -6633,6 +6708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           quotationId: quotation.id,
           description: line.description,
           itemType: line.itemType,
+          consumableId: line.consumableId ?? null,
           quantity: line.quantity,
           unitPrice: line.unitPrice.toFixed(2),
           discountType: line.discountType,
@@ -6713,7 +6789,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: line.description,
           assetType: line.assetType ?? "other",
           itemType: line.itemType,
-          consumableId: null,
+          consumableId: line.consumableId ?? null,
           consumableCategory: line.consumableCategory,
           modelPartNumber: line.modelPartNumber,
           warehouseLocationId: line.warehouseLocationId,
@@ -6931,10 +7007,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
           createdBy: req.user!.id,
         }).returning();
         await tx.insert(purchaseInvoiceMatchLines).values(normalizedLines.map(line => ({ ...line, invoiceId: invoice.id })));
-        return invoice;
+        const orderedLines = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, lockedOrder.id));
+        const matched = await tx.select({
+          invoiceId: purchaseInvoiceMatchLines.invoiceId,
+          purchaseOrderItemId: purchaseInvoiceMatchLines.purchaseOrderItemId,
+          description: purchaseInvoiceMatchLines.description,
+          quantity: purchaseInvoiceMatchLines.quantity,
+          unitPrice: purchaseInvoiceMatchLines.unitPrice,
+          discountType: purchaseInvoiceMatchLines.discountType,
+          discountValue: purchaseInvoiceMatchLines.discountValue,
+          discountAmount: purchaseInvoiceMatchLines.discountAmount,
+          taxRate: purchaseInvoiceMatchLines.taxRate,
+          taxInclusive: purchaseInvoiceMatchLines.taxInclusive,
+          totalPrice: purchaseInvoiceMatchLines.totalPrice,
+        }).from(purchaseInvoiceMatchLines)
+          .innerJoin(purchaseInvoices, eq(purchaseInvoiceMatchLines.invoiceId, purchaseInvoices.id))
+          .where(and(eq(purchaseInvoices.purchaseOrderId, lockedOrder.id), sql`${purchaseInvoices.status} <> 'void'`));
+        const receivedLines = await tx.select({
+          purchaseOrderItemId: purchaseInvoiceItems.purchaseOrderItemId,
+          quantity: purchaseInvoiceItems.quantity,
+        }).from(purchaseInvoiceItems)
+          .innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
+          .where(and(eq(purchaseInvoices.purchaseOrderId, lockedOrder.id), sql`${purchaseInvoices.status} <> 'void'`));
+        const matchedQuantities = new Map<string, number>();
+        for (const line of [...matched, ...receivedLines]) {
+          matchedQuantities.set(line.purchaseOrderItemId, (matchedQuantities.get(line.purchaseOrderItemId) ?? 0) + line.quantity);
+        }
+        const fullOrderMatched = orderedLines.length > 0 &&
+          orderedLines.every(line => matchedQuantities.get(line.id) === line.quantity);
+        let receiptSummary: { createdAssets: any[]; stockUnits: number } | null = null;
+        if (fullOrderMatched) {
+          if (lockedOrder.status === "ordered") {
+            await tx.update(purchaseOrders).set({
+              status: "received",
+              actualDelivery: toDateInputValue(new Date()),
+            }).where(eq(purchaseOrders.id, lockedOrder.id));
+            await tx.insert(auditLogs).values({
+              userId: req.user!.id,
+              action: "UPDATE",
+              tableName: "purchase_orders",
+              recordId: lockedOrder.id,
+              recordName: `PO ${lockedOrder.poNumber}`,
+              oldValues: JSON.stringify({ status: lockedOrder.status }),
+              newValues: JSON.stringify({ status: "received", invoiceId: invoice.id, reason: "All PO quantities matched by saved supplier invoices" }),
+              ipAddress: req.ip,
+              userAgent: req.get("user-agent")?.slice(0, 512),
+            });
+          }
+          receiptSummary = await receivePurchaseOrderInventory(lockedOrder.id, req.user!.id, tx);
+          const receiptRows = await tx.select({
+            id: purchaseOrderItemReceipts.id,
+            purchaseOrderItemId: purchaseOrderItemReceipts.purchaseOrderItemId,
+          }).from(purchaseOrderItemReceipts).where(eq(purchaseOrderItemReceipts.purchaseOrderId, lockedOrder.id));
+          const receiptIds = new Map(receiptRows.map(row => [row.purchaseOrderItemId, row.id]));
+          const invoiceIds = Array.from(new Set(matched.map(line => line.invoiceId)));
+          for (const line of matched) {
+            const receiptId = receiptIds.get(line.purchaseOrderItemId);
+            if (!receiptId) throw Object.assign(new Error(`Inventory receipt was not created for "${line.description}"`), { status: 409 });
+            await tx.insert(purchaseInvoiceItems).values({
+              invoiceId: line.invoiceId,
+              purchaseOrderItemId: line.purchaseOrderItemId,
+              receiptId,
+              description: line.description,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              discountType: line.discountType,
+              discountValue: line.discountValue,
+              discountAmount: line.discountAmount,
+              taxRate: line.taxRate,
+              taxInclusive: line.taxInclusive,
+              totalPrice: line.totalPrice,
+            });
+          }
+          if (invoiceIds.length) {
+            await tx.delete(purchaseInvoiceMatchLines).where(inArray(purchaseInvoiceMatchLines.invoiceId, invoiceIds));
+            await tx.update(purchaseInvoices).set({ receivedAt: new Date(), updatedAt: new Date() })
+              .where(inArray(purchaseInvoices.id, invoiceIds));
+          }
+        }
+        const [savedInvoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, invoice.id));
+        return { invoice: savedInvoice ?? invoice, inventoryReceived: Boolean(receiptSummary), receiptSummary };
       });
-      await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.id, `Invoice ${saved.invoiceNumber}`, null, saved, req);
-      res.status(201).json({ ...saved, items: normalizedLines, payments: [] });
+      await logAudit(req.user?.id, "CREATE", "purchase_invoices", saved.invoice.id, `Invoice ${saved.invoice.invoiceNumber}`, null, saved.invoice, req);
+      if (saved.inventoryReceived && saved.receiptSummary) {
+        await logAudit(req.user?.id, "CREATE", "assets", po.id, `Inventory from PO ${po.poNumber}`, null, {
+          invoiceId: saved.invoice.id,
+          createdAssets: saved.receiptSummary.createdAssets.length,
+          consumableUnitsReceived: saved.receiptSummary.stockUnits,
+        }, req);
+      }
+      res.status(201).json({
+        ...saved.invoice,
+        items: normalizedLines,
+        payments: [],
+        inventoryReceived: saved.inventoryReceived,
+        createdAssets: saved.receiptSummary?.createdAssets.length ?? 0,
+        consumableUnitsReceived: saved.receiptSummary?.stockUnits ?? 0,
+      });
     } catch (error) {
       if (error instanceof ProcurementPricingError) return res.status(400).json({ message: error.message });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
@@ -6953,70 +7122,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [invoice] = await tx.select().from(purchaseInvoices).where(eq(purchaseInvoices.id, req.params.id)).for("update");
         if (!invoice) throw Object.assign(new Error("Purchase invoice not found"), { status: 404 });
         const conflict = (message: string) => { throw Object.assign(new Error(message), { status: 409 }); };
+        if (status === "received") conflict("Inventory receiving is automatic when the saved supplier invoices match every purchase-order quantity.");
         if (invoice.status === "void" && status !== "void") conflict("Voided invoices cannot be reopened");
         if (invoice.status === "received" && status !== "received") conflict("Received invoices cannot be reversed after inventory processing");
         if (invoice.status === "approved" && status === "pending") conflict("Approved invoices cannot return to pending review");
-        if (invoice.status === "pending" && status === "received") conflict("Approve the invoice before receiving it into inventory");
         if (status === "void") {
           const [payment] = await tx.select({ id: purchaseInvoicePayments.id }).from(purchaseInvoicePayments).where(eq(purchaseInvoicePayments.invoiceId, invoice.id));
           const [credit] = await tx.select({ id: purchaseReturns.id }).from(purchaseReturns).where(eq(purchaseReturns.purchaseInvoiceId, invoice.id));
           if (payment || credit) conflict("Invoices with payments or supplier credits cannot be voided");
-        }
-        if (status === "received") {
-          if (invoice.status !== "approved" && invoice.status !== "received") conflict("Approve the invoice before receiving it into inventory");
-          const [order] = await tx.select().from(purchaseOrders).where(eq(purchaseOrders.id, invoice.purchaseOrderId)).for("update");
-          if (!order || (order.status !== "ordered" && order.status !== "received")) conflict("Only an ordered purchase order can be received through its matched invoice");
-          if (order.status === "ordered") {
-            // Receiving is a full-PO event. A partial bill must not silently
-            // create stock for quantities that have not been matched/approved.
-            const orderedLines = await tx.select().from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, order.id));
-            const approvedStage = await tx.select({ itemId: purchaseInvoiceMatchLines.purchaseOrderItemId, quantity: purchaseInvoiceMatchLines.quantity })
-              .from(purchaseInvoiceMatchLines).innerJoin(purchaseInvoices, eq(purchaseInvoiceMatchLines.invoiceId, purchaseInvoices.id))
-              .where(and(eq(purchaseInvoices.purchaseOrderId, order.id), inArray(purchaseInvoices.status, ["approved", "received"])));
-            const approvedPhysical = await tx.select({ itemId: purchaseInvoiceItems.purchaseOrderItemId, quantity: purchaseInvoiceItems.quantity })
-              .from(purchaseInvoiceItems).innerJoin(purchaseInvoices, eq(purchaseInvoiceItems.invoiceId, purchaseInvoices.id))
-              .where(and(eq(purchaseInvoices.purchaseOrderId, order.id), inArray(purchaseInvoices.status, ["approved", "received"])));
-            const quantities = new Map<string, number>();
-            for (const line of [...approvedStage, ...approvedPhysical]) quantities.set(line.itemId, (quantities.get(line.itemId) ?? 0) + line.quantity);
-            if (!orderedLines.length || orderedLines.some(line => quantities.get(line.id) !== line.quantity)) {
-              conflict("Match and approve invoice quantities for every PO line before confirming full-order delivery. Partial invoices may remain approved until the order is fully matched.");
-            }
-            await tx.update(purchaseOrders).set({ status: "received", actualDelivery: toDateInputValue(new Date()) }).where(eq(purchaseOrders.id, order.id));
-            await tx.insert(auditLogs).values({
-              userId: req.user!.id, action: "UPDATE", tableName: "purchase_orders", recordId: order.id,
-              recordName: `PO ${order.poNumber}`, oldValues: JSON.stringify({ status: "ordered" }),
-              newValues: JSON.stringify({ status: "received", invoiceId: invoice.id, reason: "Matched supplier invoice processed" }),
-              ipAddress: req.ip, userAgent: req.get("user-agent")?.slice(0, 512),
-            });
-          }
-          await receivePurchaseOrderInventory(invoice.purchaseOrderId, req.user!.id, tx);
-          const staged = await tx.select().from(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
-          if (staged.length) {
-            const existingItems = await tx.select({ purchaseOrderItemId: purchaseInvoiceItems.purchaseOrderItemId })
-              .from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id));
-            const existingItemIds = new Set(existingItems.map(row => row.purchaseOrderItemId));
-            const toInsert = staged.filter(line => !existingItemIds.has(line.purchaseOrderItemId));
-            for (const line of toInsert) {
-              const [receipt] = await tx.select({ id: purchaseOrderItemReceipts.id }).from(purchaseOrderItemReceipts)
-                .where(and(eq(purchaseOrderItemReceipts.purchaseOrderId, invoice.purchaseOrderId), eq(purchaseOrderItemReceipts.purchaseOrderItemId, line.purchaseOrderItemId)));
-              if (!receipt) throw Object.assign(new Error(`Inventory receipt was not created for "${line.description}"`), { status: 409 });
-              await tx.insert(purchaseInvoiceItems).values({
-                invoiceId: invoice.id,
-                purchaseOrderItemId: line.purchaseOrderItemId,
-                receiptId: receipt.id,
-                description: line.description,
-                quantity: line.quantity,
-                unitPrice: line.unitPrice,
-                discountType: line.discountType,
-                discountValue: line.discountValue,
-                discountAmount: line.discountAmount,
-                taxRate: line.taxRate,
-                taxInclusive: line.taxInclusive,
-                totalPrice: line.totalPrice,
-              });
-            }
-            await tx.delete(purchaseInvoiceMatchLines).where(eq(purchaseInvoiceMatchLines.invoiceId, invoice.id));
-          }
+          const [receivedLine] = await tx.select({ id: purchaseInvoiceItems.id }).from(purchaseInvoiceItems).where(eq(purchaseInvoiceItems.invoiceId, invoice.id));
+          if (receivedLine || invoice.receivedAt) conflict("Invoices linked to received inventory cannot be voided; record a supplier return and debit note instead");
         }
         const [updated] = await tx.update(purchaseInvoices).set({
           status,
