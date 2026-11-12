@@ -28,7 +28,7 @@ There is no `db/` directory in this workspace. The schema is `shared/schema.ts`;
 | `npm run check` | TypeScript compiler (`tsc`) |
 | `npm test` | `node scripts/run-full-vitest.mjs` |
 | `npm run build` | Security audit gate, Vite client build, then esbuild server bundle |
-| `npm run audit:security` | `npm audit --audit-level=high` |
+| `npm run audit:security` | `npm audit --audit-level=moderate` |
 | `npm run db:push` | `drizzle-kit push` |
 | `npm run db:sync:dev` | CAB development schema synchronization script |
 

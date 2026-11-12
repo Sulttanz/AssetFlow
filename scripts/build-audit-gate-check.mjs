@@ -135,7 +135,7 @@ process.exit(result.status ?? 1);
       .split("\n")
       .filter(Boolean)
       .map(line => JSON.parse(line));
-    assert.deepEqual(auditCalls, [["audit", "--audit-level=high"]], "build must run the configured high-severity audit");
+    assert.deepEqual(auditCalls, [["audit", "--audit-level=moderate"]], "build must run the configured moderate-severity audit");
     return result;
   }
 
