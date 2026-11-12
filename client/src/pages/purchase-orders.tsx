@@ -98,6 +98,7 @@ function PurchaseOrderForm({
   taxRates,
   manualNumbering,
   autoNumberPreview,
+  onCancel,
 }: {
   form: any;
   onSubmit: (data: PurchaseOrderFormData) => void;
@@ -110,6 +111,7 @@ function PurchaseOrderForm({
   taxRates: FinanceTaxRate[];
   manualNumbering: boolean;
   autoNumberPreview: string;
+  onCancel?: () => void;
 }) {
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -548,7 +550,8 @@ function PurchaseOrderForm({
           ))}
         </div>
 
-        <div className="flex justify-end pt-2">
+        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+          {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
           <Button type="submit" disabled={Boolean(orderPricing.validationError)} data-testid="button-submit">
             {submitText}
           </Button>
@@ -651,7 +654,6 @@ export default function PurchaseOrders() {
       queryClient.invalidateQueries({ queryKey: ["/api/finance/document-sequences"] });
       setIsCreateDialogOpen(false);
       setSelectedQuotationId("");
-      createForm.reset({ ...defaultFormValues, poNumber: manualPONumber ? "" : poNumberPreview });
       toast({ title: "Success", description: "Purchase order created successfully" });
     },
     onError: (error: Error) => {
@@ -756,6 +758,18 @@ export default function PurchaseOrders() {
     resolver: zodResolver(purchaseOrderFormSchema),
     defaultValues: defaultFormValues,
   });
+
+  const handleCreateDialogOpenChange = (open: boolean) => {
+    // Configuration failures must never trap the user inside a modal.
+    if (open) {
+      if (documentSequencesError || documentSequencesLoading) return;
+      // Reset only when starting a new draft, not during Radix's close/unmount
+      // and focus-restoration lifecycle. Duplicating an order has its own opener.
+      createForm.reset({ ...defaultFormValues, poNumber: manualPONumber ? "" : poNumberPreview });
+      setSelectedQuotationId("");
+    }
+    setIsCreateDialogOpen(open);
+  };
 
   useEffect(() => {
     if (isCreateDialogOpen) {
@@ -868,6 +882,7 @@ export default function PurchaseOrders() {
   };
 
   const handleDuplicate = (order: PurchaseOrderWithDetails) => {
+    setSelectedQuotationId("");
     createForm.reset({
       poNumber: manualPONumber ? "" : poNumberPreview,
       quotationId: "",
@@ -1013,7 +1028,7 @@ export default function PurchaseOrders() {
             <h1 className="text-2xl font-bold text-foreground">Purchase Orders</h1>
             <p className="text-sm text-muted-foreground">Manage procurement requests</p>
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={open => { if (documentSequencesError) return; setIsCreateDialogOpen(open); }}>
+          <Dialog open={isCreateDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
             <DialogTrigger asChild>
               <Button size="sm" disabled={documentSequencesError || documentSequencesLoading} data-testid="button-add-purchase-order">
                 <Plus className="w-4 h-4 mr-1" />
@@ -1053,6 +1068,7 @@ export default function PurchaseOrders() {
                 taxRates={financeTaxRates}
                 manualNumbering={manualPONumber}
                 autoNumberPreview={poNumberPreview}
+                onCancel={() => handleCreateDialogOpenChange(false)}
               />
             </DialogContent>
           </Dialog>
@@ -1353,7 +1369,7 @@ export default function PurchaseOrders() {
                 : "Try a different status filter"}
             </p>
             {statusFilter === "__all__" && (
-              <Button onClick={() => setIsCreateDialogOpen(true)} data-testid="button-add-first-order">
+              <Button disabled={documentSequencesError || documentSequencesLoading} onClick={() => handleCreateDialogOpenChange(true)} data-testid="button-add-first-order">
                 <Plus className="w-4 h-4 mr-2" />
                 Create Your First Order
               </Button>
