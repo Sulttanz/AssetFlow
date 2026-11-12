@@ -499,6 +499,61 @@ it("reopens the CAB stream promptly after an ITSM-enabled signal", async () => {
   expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
 });
 
+it("opens one CAB stream when polling and repeated ITSM-enabled signals overlap", async () => {
+  vi.useFakeTimers();
+  let resolveEnabledModules!: (result: Response) => void;
+  const enabledModules = new Promise<Response>((resolve) => {
+    resolveEnabledModules = resolve;
+  });
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]))
+    .mockImplementationOnce(() => enabledModules)
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }));
+  vi.stubGlobal("fetch", fetchAccess);
+  const fetchQuery = vi.spyOn(queryClient, "fetchQuery");
+  const cabStream = renderAuthWithStream();
+
+  cabStream.dispatchEvent(new Event("error"));
+  await flushAsyncWork();
+  const accessStream = FakeEventSource.instances[1];
+  expect(accessStream.url).toBe("/api/module-settings/events");
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  await flushAsyncWork();
+
+  expect(fetchAccess).toHaveBeenCalledTimes(3);
+  expect(fetchQuery).toHaveBeenCalledTimes(3);
+
+  await act(async () => {
+    resolveEnabledModules(response(200, [{ key: "itsm", enabled: true }]));
+    await flushAsyncWork();
+  });
+
+  expect(fetchAccess.mock.calls.map(([url]) => url)).toEqual([
+    "/api/user",
+    "/api/module-settings",
+    "/api/module-settings",
+    "/api/user",
+  ]);
+  expect(fetchQuery).toHaveBeenCalledTimes(4);
+  expect(accessStream.close).toHaveBeenCalledOnce();
+  expect(cabStream.close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances).toHaveLength(3);
+  expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
+
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  await flushAsyncWork();
+  expect(fetchAccess).toHaveBeenCalledTimes(4);
+  expect(fetchQuery).toHaveBeenCalledTimes(4);
+  expect(FakeEventSource.instances).toHaveLength(3);
+});
+
 it.each([
   {
     name: "the module-status check fails",
