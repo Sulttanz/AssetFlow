@@ -500,6 +500,66 @@ it("reopens the CAB stream promptly after an ITSM-enabled signal", async () => {
 });
 
 it.each([
+  {
+    name: "the module-status check fails",
+    wakeupChecks: [response(503)],
+    retryChecks: [
+      response(200, [{ key: "itsm", enabled: true }]),
+      response(200, { id: "alice", isActive: true }),
+    ],
+    wakeupRequestCount: 3,
+  },
+  {
+    name: "the account check fails",
+    wakeupChecks: [
+      response(200, [{ key: "itsm", enabled: true }]),
+      response(503),
+    ],
+    retryChecks: [
+      response(200, [{ key: "itsm", enabled: true }]),
+      response(200, { id: "alice", isActive: true }),
+    ],
+    wakeupRequestCount: 4,
+  },
+])("keeps CAB alerts paused after a wake-up when $name and recovers on polling", async ({
+  wakeupChecks,
+  retryChecks,
+  wakeupRequestCount,
+}) => {
+  vi.useFakeTimers();
+  const fetchAccess = vi.fn()
+    .mockResolvedValueOnce(response(200, { id: "alice", isActive: true }))
+    .mockResolvedValueOnce(response(200, [{ key: "itsm", enabled: false }]));
+  for (const result of [...wakeupChecks, ...retryChecks]) {
+    fetchAccess.mockResolvedValueOnce(result);
+  }
+  vi.stubGlobal("fetch", fetchAccess);
+  const cabStream = renderAuthWithStream();
+
+  cabStream.dispatchEvent(new Event("error"));
+  await flushAsyncWork();
+  const accessStream = FakeEventSource.instances[1];
+  expect(accessStream.url).toBe("/api/module-settings/events");
+  expect(cabStream.close).toHaveBeenCalledOnce();
+
+  accessStream.dispatchEvent(new Event("itsm-enabled"));
+  await flushAsyncWork();
+  expect(fetchAccess).toHaveBeenCalledTimes(wakeupRequestCount);
+  expect(FakeEventSource.instances).toHaveLength(2);
+  expect(accessStream.close).not.toHaveBeenCalled();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+  });
+  await flushAsyncWork();
+
+  expect(fetchAccess).toHaveBeenCalledTimes(wakeupRequestCount + retryChecks.length);
+  expect(accessStream.close).toHaveBeenCalledOnce();
+  expect(FakeEventSource.instances).toHaveLength(3);
+  expect(FakeEventSource.instances[2].url).toBe("/api/changes/events");
+});
+
+it.each([
   { name: "a different signed-in account", currentUser: { id: "bob", isActive: true }, expectedStreams: 3 },
   { name: "an inactive account", currentUser: { id: "alice", isActive: false }, expectedStreams: 2 },
 ])("does not restore the previous account's CAB stream for $name after an ITSM-enabled signal", async ({ currentUser, expectedStreams }) => {
