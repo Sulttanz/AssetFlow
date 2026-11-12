@@ -93,16 +93,6 @@ export default function AuthPage() {
 
   if (user) return <Redirect to="/dashboard" />;
 
-  if (statusLoading) {
-    return (
-      <main className="auth-shell auth-loading" aria-label="Loading sign-in">
-        <div className="auth-loading-mark" />
-        <div className="auth-loading-line" />
-        <p>Checking system status…</p>
-      </main>
-    );
-  }
-
   if (systemStatus && !systemStatus.initialized) return <Redirect to="/initialize" />;
 
   const onSubmit = (data: LoginFormData) => {
@@ -137,6 +127,12 @@ export default function AuthPage() {
                 <p>Use your organization credentials to continue.</p>
               </div>
             </div>
+
+            {statusLoading && (
+              <p className="auth-status-note" role="status">
+                Checking sign-in availability…
+              </p>
+            )}
 
             <Form {...form}>
               <form

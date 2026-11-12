@@ -104,11 +104,17 @@ describe("Enterprise sign-in", () => {
     expect(screen.queryByRole("heading", { name: "Employee Self-Service" })).toBeNull();
   });
 
-  it("retains the system-status loading screen", () => {
+  it("keeps username and password usable while system status is loading", () => {
     state.statusLoading = true;
     render(<AuthPage />);
-    expect(screen.getByText(/checking system status/i)).toBeTruthy();
-    expect(screen.queryByTestId("button-login")).toBeNull();
+    expect(screen.getByText(/checking sign-in availability/i)).toBeTruthy();
+    const username = screen.getByLabelText("Username") as HTMLInputElement;
+    const password = screen.getByLabelText("Password") as HTMLInputElement;
+    fireEvent.change(username, { target: { value: "qa-user" } });
+    fireEvent.change(password, { target: { value: "form-test-value" } });
+    expect(username.value).toBe("qa-user");
+    expect(password.value).toBe("form-test-value");
+    expect(screen.getByTestId("button-login")).toBeTruthy();
   });
 
   it("retains setup redirection when the system is not initialized", () => {

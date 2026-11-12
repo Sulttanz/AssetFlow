@@ -198,6 +198,12 @@
   font-size: 0.84rem;
 }
 
+.auth-status-note {
+  margin: -0.8rem 0 1rem;
+  color: #64748b;
+  font-size: 0.76rem;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
