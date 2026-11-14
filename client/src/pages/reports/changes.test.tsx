@@ -144,9 +144,23 @@ describe("change report page", () => {
         && (!scheduledStartTo || (!!change.scheduledStart && change.scheduledStart.slice(0, 10) <= scheduledStartTo))
         && (!search || change.changeNumber.toLowerCase().includes(search) || change.title.toLowerCase().includes(search)),
       );
+      if (params.get("exportSnapshot") === "true") {
+        const changeIds = [...matching]
+          .sort((left, right) => right.changeNumber.localeCompare(left.changeNumber))
+          .map(change => change.id);
+        return {
+          ok: true,
+          json: async () => ({ changeIds }),
+        };
+      }
+      const exportChangeIds = params.get("exportChangeIds");
       const cursorPaging = params.get("cursorPaging") === "true";
       let pageChanges = matching;
-      if (cursorPaging) {
+      if (exportChangeIds) {
+        pageChanges = exportChangeIds.split(",")
+          .map(id => reportRows.find(change => change.id === id))
+          .filter((change): change is (typeof reportRows)[number] => !!change);
+      } else if (cursorPaging) {
         pageChanges = matching.sort((left, right) =>
           right.changeNumber.localeCompare(left.changeNumber),
         );
@@ -383,7 +397,7 @@ describe("change report page", () => {
       }
     });
     const exportRequests = requests.filter(url =>
-      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+      new URL(url, "http://report.test").searchParams.has("exportChangeIds"),
     );
     expect(exportRequests.map(url =>
       new URL(url, "http://report.test").searchParams.get("page"),
@@ -391,24 +405,35 @@ describe("change report page", () => {
     for (const url of exportRequests) {
       const params = new URL(url, "http://report.test").searchParams;
       expect(params.get("cursorPaging")).toBe("true");
-      expect(params.get("search")).toBe("Export batch");
-      expect(params.get("status")).toBe("completed");
-      expect(params.get("type")).toBe("emergency");
-      expect(params.get("risk")).toBe("high");
-      expect(params.get("scheduledStartFrom")).toBe("2026-10-01");
-      expect(params.get("scheduledStartTo")).toBe("2026-10-03");
+      expect(params.has("search")).toBe(false);
+      expect(params.has("status")).toBe(false);
+      expect(params.has("type")).toBe(false);
+      expect(params.has("risk")).toBe(false);
+      expect(params.has("scheduledStartFrom")).toBe(false);
+      expect(params.has("scheduledStartTo")).toBe(false);
     }
+    const snapshotRequest = requests.find(url =>
+      new URL(url, "http://report.test").searchParams.get("exportSnapshot") === "true",
+    );
+    expect(snapshotRequest).toBeTruthy();
+    const snapshotParams = new URL(snapshotRequest!, "http://report.test").searchParams;
+    expect(snapshotParams.get("search")).toBe("Export batch");
+    expect(snapshotParams.get("status")).toBe("completed");
+    expect(snapshotParams.get("type")).toBe("emergency");
+    expect(snapshotParams.get("risk")).toBe("high");
+    expect(snapshotParams.get("scheduledStartFrom")).toBe("2026-10-01");
+    expect(snapshotParams.get("scheduledStartTo")).toBe("2026-10-03");
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
     if (exportType === "PDF") expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
   });
 
-  it.each(["added", "removed"])("keeps export batches stable when a matching change is %s between requests", async (mutation) => {
+  it("keeps export membership stable when matching and non-matching filters change between batches", async () => {
     const user = userEvent.setup();
     const initialRows = Array.from({ length: 250 }, (_, index) => ({
       id: `moving-change-${index + 1}`,
       changeNumber: `MOV-${String(index + 1).padStart(3, "0")}`,
-      title: `Moving change ${index + 1}`,
+      title: `Include change ${index + 1}`,
       type: "normal",
       status: "completed",
       priority: "medium",
@@ -417,7 +442,16 @@ describe("change report page", () => {
       approvals: [],
       removedApprovals: [],
     }));
-    reportRows = initialRows;
+    const initiallyNonMatching = {
+      ...initialRows[0],
+      id: "moving-change-outside",
+      changeNumber: "MOV-OUTSIDE",
+      title: "Outside search",
+      type: "emergency",
+      status: "draft",
+      risk: "high",
+    };
+    reportRows = [...initialRows, initiallyNonMatching];
 
     let releasePageTwo!: () => void;
     exportPageTwoGate = new Promise<void>((resolve) => {
@@ -430,37 +464,42 @@ describe("change report page", () => {
     onExportPageTwoRequest = pageTwoRequested;
 
     render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
-    expect(await screen.findByText("Moving change 1")).toBeTruthy();
+    expect(await screen.findByText("Include change 1")).toBeTruthy();
+    const searchInput = screen.getByPlaceholderText("Search change #, title...");
+    await user.type(searchInput, "Include change");
+    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(screen.getByRole("option", { name: "Completed" }));
+    await user.click(screen.getAllByRole("combobox")[1]);
+    await user.click(screen.getByRole("option", { name: "Normal" }));
+    await user.click(screen.getAllByRole("combobox")[2]);
+    await user.click(screen.getByRole("option", { name: "Low" }));
+    await waitFor(() => {
+      expect(screen.getByText((_, element) =>
+        element?.tagName === "P" && element.textContent?.includes("250 matching changes") === true,
+      )).toBeTruthy();
+    });
     await user.click(screen.getByRole("button", { name: "Excel" }));
     await pageTwoRequest;
 
-    if (mutation === "added") {
-      reportRows = [{
-        ...initialRows[0],
-        id: "moving-change-new",
-        changeNumber: "MOV-NEW",
-        title: "New matching change",
-        createdAt: new Date(Date.UTC(2027, 0, 1)).toISOString(),
-      }, ...reportRows];
-    } else {
-      reportRows = reportRows.filter(change => change.id !== initialRows[0].id);
-    }
+    reportRows = reportRows.map(change => {
+      if (change.id === initialRows[0].id) return { ...change, status: "draft" };
+      if (change.id === initiallyNonMatching.id) {
+        return { ...change, title: "Include change now matching", type: "normal", status: "completed", risk: "low" };
+      }
+      return change;
+    });
     releasePageTwo();
 
     await waitFor(() => expect(exportToExcel).toHaveBeenCalledOnce());
     const exportedNumbers = vi.mocked(exportToExcel).mock.calls[0][0].map(change => change.changeNumber);
-    if (mutation === "added") {
-      expect(exportedNumbers).toHaveLength(initialRows.length);
-      expect(exportedNumbers).not.toContain("MOV-NEW");
-      expect(new Set(exportedNumbers).size).toBe(initialRows.length);
-      expect(new Set(exportedNumbers)).toEqual(new Set(initialRows.map(change => change.changeNumber)));
-    } else {
-      const expectedNumbers = initialRows.slice(1).map(change => change.changeNumber);
-      expect(exportedNumbers).toHaveLength(initialRows.length - 1);
-      expect(new Set(exportedNumbers).size).toBe(expectedNumbers.length);
-      expect(new Set(exportedNumbers)).toEqual(new Set(expectedNumbers));
-    }
-  });
+    expect(exportedNumbers).toHaveLength(initialRows.length);
+    expect(new Set(exportedNumbers).size).toBe(initialRows.length);
+    expect(new Set(exportedNumbers)).toEqual(new Set(initialRows.map(change => change.changeNumber)));
+    expect(exportedNumbers).not.toContain(initiallyNonMatching.changeNumber);
+    expect(vi.mocked(exportToExcel).mock.calls[0][0].find(change =>
+      change.changeNumber === initialRows[0].changeNumber,
+    )?.status).toBe("draft");
+  }, 10_000);
 
   it("shows batch progress and blocks other export actions until loading finishes", async () => {
     const user = userEvent.setup();
@@ -558,7 +597,7 @@ describe("change report page", () => {
     expect(exportToPDF).not.toHaveBeenCalled();
     expect(printMock).not.toHaveBeenCalled();
     expect(requests.filter(url =>
-      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+      new URL(url, "http://report.test").searchParams.has("exportChangeIds"),
     ).map(url => new URL(url, "http://report.test").searchParams.get("page"))).toEqual(["1", "2"]);
 
     exportPageTwoGate = null;
@@ -605,12 +644,17 @@ describe("change report page", () => {
     expect(exportToPDF).not.toHaveBeenCalled();
     expect(printMock).not.toHaveBeenCalled();
     expect(requests.filter(url =>
-      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+      new URL(url, "http://report.test").searchParams.has("exportChangeIds"),
     )).toHaveLength(2);
     for (const url of requests) {
       const params = new URL(url, "http://report.test").searchParams;
-      expect(params.get("search")).toBe("Retry change");
-      expect(params.get("pageSize")).toBe("100");
+      if (params.get("exportSnapshot") === "true") {
+        expect(params.get("search")).toBe("Retry change");
+      }
+      if (params.has("exportChangeIds")) {
+        expect(params.get("pageSize")).toBe("100");
+        expect(params.has("search")).toBe(false);
+      }
     }
 
     failExportPage = null;
@@ -622,13 +666,13 @@ describe("change report page", () => {
     });
     expect(screen.queryByRole("alert")).toBeNull();
     const retryRequests = requests.filter(url =>
-      new URL(url, "http://report.test").searchParams.get("pageSize") === "100",
+      new URL(url, "http://report.test").searchParams.has("exportChangeIds"),
     );
     expect(retryRequests.map(url =>
       new URL(url, "http://report.test").searchParams.get("page"),
     )).toEqual(["1", "2", "1", "2", "3"]);
     for (const url of retryRequests.slice(2)) {
-      expect(new URL(url, "http://report.test").searchParams.get("search")).toBe("Retry change");
+      expect(new URL(url, "http://report.test").searchParams.has("search")).toBe(false);
     }
   });
 });

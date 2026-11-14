@@ -11315,6 +11315,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
+      if (req.query.exportSnapshot === "true" && req.query.exportChangeIds !== undefined) {
+        return res.status(400).json({ message: "Invalid change report export request" });
+      }
+      if (req.query.exportSnapshot === "true") {
+        const changeIds = await storage.getChangeReportMatchingIds({
+          search, searchType: true, type, status, risk, scheduledStartFrom, scheduledStartToExclusive,
+        });
+        return res.json({ changeIds });
+      }
+      if (req.query.exportChangeIds !== undefined) {
+        if (
+          !cursorPaging
+          || typeof req.query.exportChangeIds !== "string"
+          || !req.query.exportChangeIds
+        ) {
+          return res.status(400).json({ message: "Invalid change report export batch" });
+        }
+        const changeIds = req.query.exportChangeIds.split(",");
+        if (
+          changeIds.length > 100
+          || changeIds.some(id => !id || id.length > 128)
+          || new Set(changeIds).size !== changeIds.length
+        ) {
+          return res.status(400).json({ message: "Invalid change report export batch" });
+        }
+        const [result, summary] = await Promise.all([
+          storage.getChangeReportPage({
+            page: 1, pageSize: changeIds.length, cursorPaging: true, changeIds,
+          }),
+          storage.getChangeReportSummary(startOfMonth),
+        ]);
+        const impactSummaries = await getChangeImpactSummaries(result.changes.map(change => change.id));
+        return res.json({
+          ...result,
+          total: changeIds.length,
+          changes: result.changes.map(change => ({ ...change, impactSummary: impactSummaries.get(change.id) })),
+          page,
+          pageSize: changeIds.length,
+          summary,
+        });
+      }
       const [result, summary] = await Promise.all([
         storage.getChangeReportPage({
           page, pageSize, search, searchType: true, type, status, risk, cursorPaging,

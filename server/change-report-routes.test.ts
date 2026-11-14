@@ -13,6 +13,7 @@ const store = vi.hoisted(() => ({
   getAssets: vi.fn(),
   getProblems: vi.fn(),
   getChangeReportPage: vi.fn(),
+  getChangeReportMatchingIds: vi.fn(),
   getChangeReportSummary: vi.fn(),
 }));
 
@@ -148,15 +149,18 @@ describe("change report and KPI endpoints", () => {
       scheduledStartToExclusive?: Date;
       cursorPaging?: boolean;
       cursorChangeNumber?: string;
+      changeIds?: string[];
     }) => {
       const term = options.search?.toLowerCase();
-      const matching = changes.filter(change =>
-        (!term || `${change.changeNumber} ${change.title} ${change.type}`.toLowerCase().includes(term)) &&
-        (!options.type || change.type === options.type) &&
-        (!options.status || change.status === options.status) &&
-        (!options.risk || change.risk === options.risk) &&
-        (!options.scheduledStartFrom || (!!change.scheduledStart && change.scheduledStart >= options.scheduledStartFrom)) &&
-        (!options.scheduledStartToExclusive || (!!change.scheduledStart && change.scheduledStart < options.scheduledStartToExclusive)));
+      const matching = options.changeIds
+        ? options.changeIds.map(id => changes.find(change => change.id === id)).filter((change): change is ReportChange => !!change)
+        : changes.filter(change =>
+          (!term || `${change.changeNumber} ${change.title} ${change.type}`.toLowerCase().includes(term)) &&
+          (!options.type || change.type === options.type) &&
+          (!options.status || change.status === options.status) &&
+          (!options.risk || change.risk === options.risk) &&
+          (!options.scheduledStartFrom || (!!change.scheduledStart && change.scheduledStart >= options.scheduledStartFrom)) &&
+          (!options.scheduledStartToExclusive || (!!change.scheduledStart && change.scheduledStart < options.scheduledStartToExclusive)));
       const offset = (options.page - 1) * options.pageSize;
       return {
         total: matching.length,
@@ -183,6 +187,25 @@ describe("change report and KPI endpoints", () => {
           };
         }),
       };
+    });
+    store.getChangeReportMatchingIds.mockImplementation(async (options: {
+      search?: string;
+      type?: string;
+      status?: string;
+      risk?: string;
+      scheduledStartFrom?: Date;
+      scheduledStartToExclusive?: Date;
+    }) => {
+      const term = options.search?.toLowerCase();
+      return changes.filter(change =>
+        (!term || `${change.changeNumber} ${change.title} ${change.type}`.toLowerCase().includes(term)) &&
+        (!options.type || change.type === options.type) &&
+        (!options.status || change.status === options.status) &&
+        (!options.risk || change.risk === options.risk) &&
+        (!options.scheduledStartFrom || (!!change.scheduledStart && change.scheduledStart >= options.scheduledStartFrom)) &&
+        (!options.scheduledStartToExclusive || (!!change.scheduledStart && change.scheduledStart < options.scheduledStartToExclusive)))
+        .sort((left, right) => right.changeNumber.localeCompare(left.changeNumber))
+        .map(change => change.id);
     });
   });
 
@@ -261,6 +284,37 @@ describe("change report and KPI endpoints", () => {
     }));
     expect(store.getChangeReportPage).toHaveBeenNthCalledWith(4, expect.objectContaining({
       page: 2, pageSize: 2, cursorPaging: true, cursorChangeNumber: "CHG-2",
+    }));
+  });
+
+  it("captures matching change IDs once and loads export batches without live filters", async () => {
+    const snapshot = await getJson(
+      "/api/reports/changes?exportSnapshot=true&search=report&status=completed&type=normal&risk=low",
+    );
+    expect(snapshot.changeIds).toEqual(["change-7"]);
+    expect(store.getChangeReportMatchingIds).toHaveBeenCalledWith(expect.objectContaining({
+      search: "report",
+      searchType: true,
+      status: "completed",
+      type: "normal",
+      risk: "low",
+    }));
+
+    const batch = await getJson(
+      "/api/reports/changes?page=1&pageSize=100&cursorPaging=true&exportChangeIds=change-7",
+    );
+    expect(batch.total).toBe(1);
+    expect(batch.changes.map((change: ReportChange) => change.id)).toEqual(["change-7"]);
+    expect(store.getChangeReportPage).toHaveBeenCalledWith(expect.objectContaining({
+      page: 1,
+      pageSize: 1,
+      cursorPaging: true,
+      changeIds: ["change-7"],
+    }));
+    expect(store.getChangeReportPage).not.toHaveBeenCalledWith(expect.objectContaining({
+      status: "completed",
+      type: "normal",
+      risk: "low",
     }));
   });
 

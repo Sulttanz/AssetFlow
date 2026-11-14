@@ -357,7 +357,8 @@ export interface IStorage {
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
   getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
-  getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }>;
+  getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string; changeIds?: string[] }): Promise<{ changes: ChangeReportRow[]; total: number }>;
+  getChangeReportMatchingIds(options: { search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date }): Promise<string[]>;
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
   getPendingCabChanges(userId: string): Promise<ChangeWithDetails[]>;
   getPendingCabAlertChanges(userId: string): Promise<Pick<Change, "id" | "changeNumber" | "title" | "type">[]>;
@@ -2748,7 +2749,8 @@ export class MemStorage implements IStorage {
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
   async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
-  async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string; changeIds?: string[] }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangeReportMatchingIds(_options: { search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date }): Promise<string[]> { return []; }
   async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
     return {
       total: 0, draft: 0, submitted: 0, approved: 0, rejected: 0, requested: 0,
@@ -4379,7 +4381,7 @@ export class DatabaseStorage implements IStorage {
     ]);
     return { changes: await this.buildChangeDetails(rows), total: Number(countRows[0]?.count ?? 0) };
   }
-  async getChangeReportPage({ page, pageSize, search, searchType, type, status, risk, scheduledStartFrom, scheduledStartToExclusive, cursorPaging, cursorChangeNumber }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string }): Promise<{ changes: ChangeReportRow[]; total: number }> {
+  async getChangeReportMatchingIds({ search, searchType, type, status, risk, scheduledStartFrom, scheduledStartToExclusive }: { search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date }): Promise<string[]> {
     const term = search?.trim();
     const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
     const conditions = [
@@ -4393,6 +4395,28 @@ export class DatabaseStorage implements IStorage {
       risk ? eq(changes.risk, risk) : undefined,
       scheduledStartFrom ? gte(changes.scheduledStart, scheduledStartFrom) : undefined,
       scheduledStartToExclusive ? lt(changes.scheduledStart, scheduledStartToExclusive) : undefined,
+    ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
+    const rows = await db.select({ id: changes.id }).from(changes)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(changes.changeNumber), desc(changes.id));
+    return rows.map(row => row.id);
+  }
+
+  async getChangeReportPage({ page, pageSize, search, searchType, type, status, risk, scheduledStartFrom, scheduledStartToExclusive, cursorPaging, cursorChangeNumber, changeIds }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string; changeIds?: string[] }): Promise<{ changes: ChangeReportRow[]; total: number }> {
+    const term = search?.trim();
+    const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
+    const conditions = [
+      pattern ? or(
+        ilike(changes.title, pattern),
+        ilike(changes.changeNumber, pattern),
+        ...(searchType ? [ilike(changes.type, pattern)] : []),
+      ) : undefined,
+      type ? eq(changes.type, type) : undefined,
+      status ? eq(changes.status, status) : undefined,
+      risk ? eq(changes.risk, risk) : undefined,
+      scheduledStartFrom ? gte(changes.scheduledStart, scheduledStartFrom) : undefined,
+      scheduledStartToExclusive ? lt(changes.scheduledStart, scheduledStartToExclusive) : undefined,
+      changeIds ? inArray(changes.id, changeIds) : undefined,
     ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
     const where = conditions.length ? and(...conditions) : undefined;
     const pageConditions = [
@@ -4421,7 +4445,7 @@ export class DatabaseStorage implements IStorage {
         .leftJoin(requester, eq(changes.requestedById, requester.id))
         .leftJoin(assignee, eq(changes.assignedToId, assignee.id))
         .where(pageWhere)
-        .orderBy(cursorPaging ? desc(changes.changeNumber) : desc(changes.createdAt), desc(changes.id))
+        .orderBy(cursorPaging || changeIds ? desc(changes.changeNumber) : desc(changes.createdAt), desc(changes.id))
         .limit(pageSize)
         .offset(cursorPaging ? 0 : (page - 1) * pageSize),
     ]);

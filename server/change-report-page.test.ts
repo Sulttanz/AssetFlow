@@ -179,5 +179,36 @@ describe("change report page projection", () => {
     expect(cursorPageQuery?.where).toContain("change_number");
     expect(cursorPageQuery?.params).toContain("CHG-000050");
     expect(cursorPageQuery?.orderBySql).toContain("change_number");
+
+    const snapshotQueryStart = queries.length;
+    const matchingIds = await new DatabaseStorage().getChangeReportMatchingIds({
+      search: "emergency",
+      searchType: true,
+      type: "emergency",
+      status: "approved",
+      risk: "critical",
+      scheduledStartFrom: new Date("2026-10-05T00:00:00.000Z"),
+      scheduledStartToExclusive: new Date("2026-10-06T00:00:00.000Z"),
+    });
+    expect(matchingIds).toEqual(["change-1"]);
+    const snapshotQuery = queries.slice(snapshotQueryStart).find(query => query.keys.includes("id"));
+    expect(snapshotQuery?.keys).toEqual(["id"]);
+    expect(snapshotQuery?.where).toContain("status");
+    expect(snapshotQuery?.where).toContain("risk");
+    expect(snapshotQuery?.where).toContain("scheduled_start");
+    expect(snapshotQuery?.orderBySql).toContain("change_number");
+    expect(snapshotQuery?.orderBySql).toContain("id");
+
+    const idBatchQueryStart = queries.length;
+    await new DatabaseStorage().getChangeReportPage({
+      page: 1,
+      pageSize: 1,
+      cursorPaging: true,
+      changeIds: ["change-1"],
+    });
+    const idBatchPageQuery = queries.slice(idBatchQueryStart).find(query => query.keys.includes("requestedByLabel"));
+    expect(idBatchPageQuery?.where).toContain("id");
+    expect(idBatchPageQuery?.where).not.toContain("status");
+    expect(idBatchPageQuery?.orderBySql).toContain("change_number");
   });
 });

@@ -168,41 +168,50 @@ export default function ChangesReport() {
 
   const loadAllMatchingChanges = async (
     filters: ExportFilters,
-    initialTotal: number,
     onProgress: (loaded: number, total: number, batch: number) => void,
     signal: AbortSignal,
   ) => {
     const exportPageSize = 100;
-    const params = new URLSearchParams({
+    const snapshotParams = new URLSearchParams({
       pageSize: String(exportPageSize),
       cursorPaging: "true",
+      exportSnapshot: "true",
     });
-    if (filters.search) params.set("search", filters.search);
-    if (filters.status !== "all") params.set("status", filters.status);
-    if (filters.type !== "all") params.set("type", filters.type);
-    if (filters.risk !== "all") params.set("risk", filters.risk);
-    if (filters.scheduledStartFrom) params.set("scheduledStartFrom", filters.scheduledStartFrom);
-    if (filters.scheduledStartTo) params.set("scheduledStartTo", filters.scheduledStartTo);
+    if (filters.search) snapshotParams.set("search", filters.search);
+    if (filters.status !== "all") snapshotParams.set("status", filters.status);
+    if (filters.type !== "all") snapshotParams.set("type", filters.type);
+    if (filters.risk !== "all") snapshotParams.set("risk", filters.risk);
+    if (filters.scheduledStartFrom) snapshotParams.set("scheduledStartFrom", filters.scheduledStartFrom);
+    if (filters.scheduledStartTo) snapshotParams.set("scheduledStartTo", filters.scheduledStartTo);
 
     const allChanges: ChangeReportRow[] = [];
-    let exportPage = 1;
-    let matchingTotal = initialTotal;
-    let lastBatchSize: number;
-    do {
+    signal.throwIfAborted();
+    const snapshotResponse = await apiRequest(
+      "GET",
+      `/api/reports/changes?${snapshotParams}`,
+      undefined,
+      { signal },
+    );
+    const { changeIds } = await snapshotResponse.json() as { changeIds: string[] };
+    const matchingTotal = changeIds.length;
+    onProgress(0, matchingTotal, 0);
+
+    for (let offset = 0; offset < changeIds.length; offset += exportPageSize) {
       signal.throwIfAborted();
-      params.set("page", String(exportPage));
+      const exportPage = Math.floor(offset / exportPageSize) + 1;
+      const batchIds = changeIds.slice(offset, offset + exportPageSize);
+      const params = new URLSearchParams({
+        page: String(exportPage),
+        pageSize: String(exportPageSize),
+        cursorPaging: "true",
+        exportChangeIds: batchIds.join(","),
+      });
       const response = await apiRequest("GET", `/api/reports/changes?${params}`, undefined, { signal });
       const result = await response.json() as ChangeReportPage;
       signal.throwIfAborted();
-      matchingTotal = Math.max(result.total, allChanges.length + result.changes.length);
-      lastBatchSize = result.changes.length;
-      if (lastBatchSize === 0) break;
       allChanges.push(...result.changes);
       onProgress(allChanges.length, matchingTotal, exportPage);
-      const lastChange = result.changes[lastBatchSize - 1];
-      params.set("cursorChangeNumber", lastChange.changeNumber);
-      exportPage += 1;
-    } while (lastBatchSize === exportPageSize);
+    }
     return allChanges;
   };
 
@@ -221,7 +230,7 @@ export default function ChangesReport() {
     });
 
     try {
-      const exportChanges = await loadAllMatchingChanges(request.filters, request.matchingTotal, (loaded, matchingTotal, batch) => {
+      const exportChanges = await loadAllMatchingChanges(request.filters, (loaded, matchingTotal, batch) => {
         setExportStatus({
           action: request.action,
           loaded,
