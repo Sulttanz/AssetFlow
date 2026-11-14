@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import AuthPage from "./auth-page";
 
 const state = vi.hoisted(() => ({
@@ -65,6 +66,23 @@ describe("Enterprise sign-in", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
     expect(password.type).toBe("password");
     expect(state.mutate).not.toHaveBeenCalled();
+  });
+
+  it("allows pointer focus and typing in the username and password fields", async () => {
+    const user = userEvent.setup();
+    render(<AuthPage />);
+    const username = screen.getByLabelText("Username") as HTMLInputElement;
+    const password = screen.getByLabelText("Password") as HTMLInputElement;
+
+    await user.click(username);
+    expect(document.activeElement).toBe(username);
+    await user.type(username, "qa-user");
+    await user.click(password);
+    expect(document.activeElement).toBe(password);
+    await user.type(password, "safe-test-value");
+
+    expect(username.value).toBe("qa-user");
+    expect(password.value).toBe("safe-test-value");
   });
 
   it("keeps required-field validation and blocks empty submissions", async () => {

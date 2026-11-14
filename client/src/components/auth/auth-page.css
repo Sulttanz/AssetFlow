@@ -227,13 +227,14 @@
 
 .auth-input-wrap {
   position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
 }
 
 .auth-input-icon {
   position: absolute;
-  z-index: 1;
+  z-index: 1000000;
   left: 0.95rem;
   width: 16px;
   height: 16px;
@@ -242,6 +243,8 @@
 }
 
 .auth-shell .auth-input {
+  position: relative;
+  z-index: 999999;
   height: 49px;
   padding: 0 0.9rem 0 2.8rem;
   border: 1px solid #e2e8f0;
@@ -252,6 +255,9 @@
   font-size: 0.88rem;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035);
   transition: border-color 160ms ease, box-shadow 160ms ease;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .auth-shell .auth-input::placeholder {
@@ -276,6 +282,7 @@
 
 .auth-password-toggle {
   position: absolute;
+  z-index: 1000001;
   right: 0.55rem;
   display: grid;
   width: 38px;
