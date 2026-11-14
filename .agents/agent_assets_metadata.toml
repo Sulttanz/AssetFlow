@@ -84,3 +84,31 @@ mtime_ms = 1793977198230
 storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/34655834-8882-4507-a4e1-ffa06c82bc54/5eaad505-1154-46a9-9ebd-a8342611ce31"
 storage_version_token = "1793977220694495"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "O7AjkwrR4RGZVt-ZKk5Du"
+uri = "file://generated-artifacts/architecture-reference/master-system-reference-ar.html"
+type = "html"
+title = "المرجع المعماري والتشغيلي الشامل — نسخة عربية"
+description = "مرجع قابل للتصفح والطباعة يتضمن الشاشات والجداول وواجهات API ومسارات العمل والصلاحيات ونتائج تدقيق الجاهزية."
+logical_id = "50f0dfcc-be2c-4b07-bf8b-1526b8a1df2e"
+content_hash = "sha256:55ff26af2708e822ca723712c778da867ef57e1009539fdf1ab23839339d5f18"
+size = 3026822
+mtime_ms = 1794675726927
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/50f0dfcc-be2c-4b07-bf8b-1526b8a1df2e/e99ae3b6-1848-4cd8-ab78-6e73aed76422"
+storage_version_token = "1794675740176873"
+content_type = "text/html"
+
+[[outputs]]
+id = "7WbMrZ0szs5F76GePKVnN"
+uri = "file://generated-artifacts/architecture-reference/master-system-reference-ar-markdown.zip"
+type = "unspecified"
+title = "حزمة المرجع بصيغة Markdown"
+description = "المرجع الرئيسي والملاحق التفصيلية وإحصاءات الحصر وسكربتات إعادة توليد التوثيق."
+logical_id = "783789b3-d4ba-48d6-b6e2-18d114a8f55d"
+content_hash = "sha256:94ed02c87fd3875e15b998be3d36649c854db8f08bfb6ed84e29fc7350aa47d3"
+size = 296290
+mtime_ms = 1794675727635
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:0ed3db1e-2376-40f3-a959-6bba59864d52/783789b3-d4ba-48d6-b6e2-18d114a8f55d/0a7b6eab-cb8b-4ef4-865a-5f7b25330fd6"
+storage_version_token = "1794675742262802"
+content_type = "application/octet-stream"

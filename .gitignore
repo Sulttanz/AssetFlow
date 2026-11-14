@@ -8,3 +8,4 @@ vite.config.ts.*
 /deployment/onprem/*.env
 /deployment/onprem/secrets/
 /deployment/onprem/tls/
+/generated-artifacts/
