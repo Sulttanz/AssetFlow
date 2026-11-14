@@ -312,6 +312,227 @@ describe("CAB overview pending count plan", () => {
       samples.set(writeCase.name, result);
     }
 
+    const concurrentWriterCount = 8;
+    const concurrentWritesPerWriter = 128;
+    const concurrentWriteCount = concurrentWriterCount * concurrentWritesPerWriter;
+    const concurrentWithIndex = "change_approvals_concurrent_with_count_index";
+    const concurrentWithoutIndex = "change_approvals_concurrent_without_count_index";
+    await plannerPool.query(`
+      CREATE TABLE ${concurrentWithIndex} (LIKE ${withIndex} INCLUDING ALL);
+      CREATE TABLE ${concurrentWithoutIndex} (LIKE ${withoutIndex} INCLUDING ALL);
+    `);
+    type ConcurrentMeasurement = {
+      elapsedMs: number;
+      writesPerSecond: number;
+      databaseWriteMetrics: {
+        walBytes: number;
+        walRecords: number;
+        walFullPageImages: number;
+        sharedHitBlocks: number;
+        sharedReadBlocks: number;
+        sharedDirtiedBlocks: number;
+        sharedWrittenBlocks: number;
+        totalStatementExecutionMs: number;
+        slowestStatementExecutionMs: number;
+      };
+      finalPendingCount: number;
+      completedWrites: number;
+    };
+    type ConcurrentSamples = { withIndex: ConcurrentMeasurement[]; withoutIndex: ConcurrentMeasurement[] };
+    const concurrentSamples = new Map<string, ConcurrentSamples>();
+    const measureConcurrentWrite = async (
+      table: string,
+      operation: "insert" | "decision" | "removal",
+      round: number,
+    ): Promise<ConcurrentMeasurement> => {
+      await plannerPool!.query(`TRUNCATE ${table}`);
+      if (operation !== "insert") {
+        await plannerPool!.query(`
+          INSERT INTO ${table} (
+            id, change_id, approver_id, original_approver_id, approver_label, decision
+          )
+          SELECT
+            'concurrent-${round}-' || lpad(worker_no::text, 2, '0') || '-' ||
+              lpad(vote_no::text, 4, '0'),
+            'concurrent-change-' || worker_no || '-' || vote_no,
+            'concurrent-reviewer-' || worker_no || '-' || vote_no,
+            'concurrent-reviewer-' || worker_no || '-' || vote_no,
+            'Concurrent benchmark reviewer',
+            'pending'
+          FROM generate_series(0, ${concurrentWriterCount - 1}) AS workers(worker_no)
+          CROSS JOIN generate_series(1, ${concurrentWritesPerWriter}) AS votes(vote_no)
+        `);
+      }
+
+      const makeStatement = (worker: number) => {
+        const prefix = `concurrent-${round}-${String(worker).padStart(2, "0")}-`;
+        if (operation === "insert") {
+          return `
+            INSERT INTO ${table} (
+              id, change_id, approver_id, original_approver_id, approver_label, decision
+            )
+            SELECT
+              '${prefix}' || lpad(vote_no::text, 4, '0'),
+              'concurrent-change-${round}-${worker}-' || vote_no,
+              'concurrent-reviewer-${round}-${worker}-' || vote_no,
+              'concurrent-reviewer-${round}-${worker}-' || vote_no,
+              'Concurrent benchmark reviewer',
+              'pending'
+            FROM generate_series(1, ${concurrentWritesPerWriter}) AS votes(vote_no)
+          `;
+        }
+        if (operation === "decision") {
+          return `
+            UPDATE ${table}
+            SET decision = 'approved',
+                comments = 'Concurrent benchmark decision',
+                decided_at = now()
+            WHERE id >= '${prefix}0001' AND id <= '${prefix}${String(concurrentWritesPerWriter).padStart(4, "0")}'
+              AND decision = 'pending' AND removed_at IS NULL
+          `;
+        }
+        return `
+          UPDATE ${table}
+          SET removed_at = now(),
+              removed_by_id = 'concurrent-benchmark-operator',
+              removed_by_label = 'Concurrent benchmark operator'
+          WHERE id >= '${prefix}0001' AND id <= '${prefix}${String(concurrentWritesPerWriter).padStart(4, "0")}'
+            AND decision = 'pending' AND removed_at IS NULL
+        `;
+      };
+
+      const clients = await Promise.all(
+        Array.from({ length: concurrentWriterCount }, () => plannerPool!.connect()),
+      );
+      const startedAt = process.hrtime.bigint();
+      let explainedResults: Awaited<ReturnType<typeof clients[number]["query"]>>[];
+      try {
+        const settled = await Promise.allSettled(clients.map((client, worker) =>
+          client.query(`EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) ${makeStatement(worker)}`),
+        ));
+        const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failure) throw failure.reason;
+        explainedResults = settled.map(result => (result as PromiseFulfilledResult<typeof settled[number]>).value);
+      } finally {
+        clients.forEach(client => client.release());
+      }
+      const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+      const statementMetrics = explainedResults.map(result => {
+        const json = result.rows[0]?.["QUERY PLAN"] as unknown;
+        const [explanation] = typeof json === "string"
+          ? JSON.parse(json) as { Plan: PlanNode & Record<string, unknown>; "Execution Time": number }[]
+          : json as { Plan: PlanNode & Record<string, unknown>; "Execution Time": number }[];
+        const plan = explanation.Plan;
+        return {
+          walBytes: Number(plan["WAL Bytes"] ?? 0),
+          walRecords: Number(plan["WAL Records"] ?? 0),
+          walFullPageImages: Number(plan["WAL FPI"] ?? 0),
+          sharedHitBlocks: Number(plan["Shared Hit Blocks"] ?? 0),
+          sharedReadBlocks: Number(plan["Shared Read Blocks"] ?? 0),
+          sharedDirtiedBlocks: Number(plan["Shared Dirtied Blocks"] ?? 0),
+          sharedWrittenBlocks: Number(plan["Shared Written Blocks"] ?? 0),
+          executionMs: Number(explanation["Execution Time"]),
+        };
+      });
+      const targetRows = await plannerPool!.query(`
+        SELECT
+          count(*)::int AS total,
+          count(*) FILTER (WHERE decision = 'pending' AND removed_at IS NULL)::int AS pending,
+          count(*) FILTER (WHERE decision = 'approved' AND removed_at IS NULL)::int AS approved,
+          count(*) FILTER (WHERE removed_at IS NOT NULL)::int AS removed
+        FROM ${table}
+      `);
+      const counts = targetRows.rows[0] as {
+        total: number;
+        pending: number;
+        approved: number;
+        removed: number;
+      };
+      const completedWrites = operation === "insert"
+        ? Number(counts.pending)
+        : operation === "decision" ? Number(counts.approved) : Number(counts.removed);
+      const finalPendingCount = Number(counts.pending);
+      const expectedPendingCount = operation === "insert" ? concurrentWriteCount : 0;
+      expect(Number(counts.total)).toBe(concurrentWriteCount);
+      expect(completedWrites).toBe(concurrentWriteCount);
+      expect(finalPendingCount).toBe(expectedPendingCount);
+
+      return {
+        elapsedMs,
+        writesPerSecond: concurrentWriteCount / (elapsedMs / 1000),
+        databaseWriteMetrics: {
+          walBytes: statementMetrics.reduce((total, metrics) => total + metrics.walBytes, 0),
+          walRecords: statementMetrics.reduce((total, metrics) => total + metrics.walRecords, 0),
+          walFullPageImages: statementMetrics.reduce((total, metrics) => total + metrics.walFullPageImages, 0),
+          sharedHitBlocks: statementMetrics.reduce((total, metrics) => total + metrics.sharedHitBlocks, 0),
+          sharedReadBlocks: statementMetrics.reduce((total, metrics) => total + metrics.sharedReadBlocks, 0),
+          sharedDirtiedBlocks: statementMetrics.reduce((total, metrics) => total + metrics.sharedDirtiedBlocks, 0),
+          sharedWrittenBlocks: statementMetrics.reduce((total, metrics) => total + metrics.sharedWrittenBlocks, 0),
+          totalStatementExecutionMs: statementMetrics.reduce((total, metrics) => total + metrics.executionMs, 0),
+          slowestStatementExecutionMs: Math.max(...statementMetrics.map(metrics => metrics.executionMs)),
+        },
+        finalPendingCount,
+        completedWrites,
+      };
+    };
+
+    for (const writeCase of writeCases) {
+      const result: ConcurrentSamples = { withIndex: [], withoutIndex: [] };
+      for (let round = 0; round < 3; round += 1) {
+        const runWithFirst = round % 2 === 0;
+        const first = runWithFirst ? concurrentWithIndex : concurrentWithoutIndex;
+        const second = runWithFirst ? concurrentWithoutIndex : concurrentWithIndex;
+        const firstResult = await measureConcurrentWrite(
+          first, writeCase.name as "insert" | "decision" | "removal", round,
+        );
+        const secondResult = await measureConcurrentWrite(
+          second, writeCase.name as "insert" | "decision" | "removal", round,
+        );
+        expect(firstResult.finalPendingCount).toBe(secondResult.finalPendingCount);
+        result[first === concurrentWithIndex ? "withIndex" : "withoutIndex"].push(firstResult);
+        result[second === concurrentWithIndex ? "withIndex" : "withoutIndex"].push(secondResult);
+      }
+      concurrentSamples.set(writeCase.name, result);
+    }
+
+    const concurrentMedian = (values: number[]) =>
+      [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+    const concurrentWriteCosts = [...concurrentSamples].map(([operation, result]) => ({
+      operation,
+      withIndex: {
+        elapsedMs: concurrentMedian(result.withIndex.map(sample => sample.elapsedMs)),
+        writesPerSecond: concurrentMedian(result.withIndex.map(sample => sample.writesPerSecond)),
+        databaseWriteMetrics: Object.fromEntries(
+          Object.keys(result.withIndex[0].databaseWriteMetrics).map(metric => [
+            metric,
+            concurrentMedian(result.withIndex.map(sample =>
+              sample.databaseWriteMetrics[metric as keyof ConcurrentMeasurement["databaseWriteMetrics"]],
+            )),
+          ]),
+        ),
+        finalPendingCounts: result.withIndex.map(sample => sample.finalPendingCount),
+      },
+      withoutIndex: {
+        elapsedMs: concurrentMedian(result.withoutIndex.map(sample => sample.elapsedMs)),
+        writesPerSecond: concurrentMedian(result.withoutIndex.map(sample => sample.writesPerSecond)),
+        databaseWriteMetrics: Object.fromEntries(
+          Object.keys(result.withoutIndex[0].databaseWriteMetrics).map(metric => [
+            metric,
+            concurrentMedian(result.withoutIndex.map(sample =>
+              sample.databaseWriteMetrics[metric as keyof ConcurrentMeasurement["databaseWriteMetrics"]],
+            )),
+          ]),
+        ),
+        finalPendingCounts: result.withoutIndex.map(sample => sample.finalPendingCount),
+      },
+    }));
+    console.info("CAB count index concurrent write costs", JSON.stringify({
+      writers: concurrentWriterCount,
+      writesPerWriter: concurrentWritesPerWriter,
+      writesPerOperation: concurrentWriteCount,
+      operations: concurrentWriteCosts,
+    }));
+
     const sizeResult = await plannerPool.query(`
       SELECT
         pg_relation_size($1::regclass)::bigint AS index_bytes,
