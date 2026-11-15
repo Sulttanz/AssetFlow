@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { exportToExcel, exportToPDF } from "@/lib/report-utils";
+import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
 import ChangesReport from "./changes";
 
 const { printMock } = vi.hoisted(() => ({ printMock: vi.fn() }));
@@ -426,6 +426,48 @@ describe("change report page", () => {
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
     if (exportType === "PDF") expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+  });
+
+  it.each(["Excel", "PDF", "Print"])("uses the chosen fields and order for %s", async (exportType) => {
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Choose export fields/ }));
+    await user.click(screen.getByRole("button", { name: "PDF defaults" }));
+    await user.click(screen.getByRole("button", { name: "Move Title down" }));
+    await user.click(screen.getByRole("checkbox", { name: "Approvals" }));
+
+    const expectedKeys = [
+      "changeNumber", "type", "title", "status", "risk", "requestedBy",
+      "affectedServices", "affectedAssets", "createdAt", "approvals",
+    ];
+    const expectedLabels = [
+      "Change #", "Type", "Title", "Status", "Risk", "Requested By",
+      "Affected Services", "Affected Assets", "Created", "Approvals",
+    ];
+    await user.click(screen.getByRole("button", { name: exportType }));
+
+    if (exportType === "Excel") {
+      await waitFor(() => expect(exportToExcel).toHaveBeenCalledOnce());
+      expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.key)).toEqual(expectedKeys);
+      expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.header)).toEqual(expectedLabels);
+    } else if (exportType === "PDF") {
+      await waitFor(() => expect(exportToPDF).toHaveBeenCalledOnce());
+      expect(vi.mocked(exportToPDF).mock.calls[0][1]).toEqual(expectedLabels);
+      expect(vi.mocked(exportToPDF).mock.calls[0][0][0]).toEqual([
+        "CHG-9", "normal", "Report change 9", "requested", "low", "N/A",
+        "None", "None", formatDate(history[8].createdAt), "None",
+      ]);
+    } else {
+      await waitFor(() => expect(printMock).toHaveBeenCalledOnce());
+      const table = screen.getByRole("table");
+      expect(within(table).getAllByRole("columnheader").map(header => header.textContent)).toEqual(expectedLabels);
+      expect(within(table).getAllByRole("cell").slice(0, expectedLabels.length).map(cell => cell.textContent)).toEqual([
+        "CHG-9", "normal", "Report change 9", "requested", "low", "N/A",
+        "None", "None", formatDate(history[8].createdAt), "None",
+      ]);
+    }
   });
 
   it("keeps export membership stable when matching and non-matching filters change between batches", async () => {

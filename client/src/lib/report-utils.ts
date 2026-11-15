@@ -2,6 +2,69 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatDateDisplay, formatDateTime } from "./date-utils";
 import { formatExportValue } from "@shared/date-format";
+import type { ChangeReportRow } from "@shared/schema";
+
+export const CHANGE_REPORT_EXPORT_FIELDS = [
+  { key: "changeNumber", label: "Change #", width: 14 },
+  { key: "title", label: "Title", width: 30 },
+  { key: "type", label: "Type", width: 12 },
+  { key: "status", label: "Status", width: 14 },
+  { key: "priority", label: "Priority", width: 12 },
+  { key: "risk", label: "Risk", width: 12 },
+  { key: "requestedBy", label: "Requested By", width: 20 },
+  { key: "assignedTo", label: "Assigned To", width: 20 },
+  { key: "affectedServices", label: "Affected Services", width: 32 },
+  { key: "affectedAssets", label: "Affected Assets", width: 36 },
+  { key: "approvals", label: "Approvals", width: 24 },
+  { key: "scheduledStart", label: "Scheduled Start", width: 16 },
+  { key: "scheduledEnd", label: "Scheduled End", width: 16 },
+  { key: "createdAt", label: "Created", width: 14 },
+] as const;
+
+export type ChangeReportExportFieldKey = typeof CHANGE_REPORT_EXPORT_FIELDS[number]["key"];
+
+export const CHANGE_REPORT_EXPORT_PRESETS: Record<string, ChangeReportExportFieldKey[]> = {
+  Excel: [
+    "changeNumber", "title", "type", "status", "priority", "risk", "requestedBy",
+    "assignedTo", "affectedServices", "affectedAssets", "scheduledStart", "scheduledEnd", "createdAt",
+  ],
+  PDF: [
+    "changeNumber", "title", "type", "status", "risk", "requestedBy",
+    "affectedServices", "affectedAssets", "createdAt",
+  ],
+  Print: [
+    "changeNumber", "title", "type", "status", "priority", "risk", "affectedServices",
+    "affectedAssets", "approvals", "requestedBy", "scheduledStart", "createdAt",
+  ],
+};
+
+export function getChangeReportExportField(key: ChangeReportExportFieldKey) {
+  return CHANGE_REPORT_EXPORT_FIELDS.find(field => field.key === key)!;
+}
+
+export function getChangeReportExportValue(
+  change: ChangeReportRow,
+  key: ChangeReportExportFieldKey,
+): string {
+  switch (key) {
+    case "changeNumber": return change.changeNumber;
+    case "title": return change.title;
+    case "type": return change.type;
+    case "status": return change.status.replace("_", " ");
+    case "priority": return change.priority;
+    case "risk": return change.risk || "low";
+    case "requestedBy": return change.requestedByLabel ?? "N/A";
+    case "assignedTo": return change.assignedToLabel ?? "Unassigned";
+    case "affectedServices": return change.impactSummary?.services.join(", ") || "None";
+    case "affectedAssets": return change.impactSummary?.assets.join(", ") || "None";
+    case "approvals": return change.activeApprovalCount > 0
+      ? `${change.approvedCount} approved, ${change.pendingCount} pending`
+      : "None";
+    case "scheduledStart": return change.scheduledStart ? formatDate(change.scheduledStart) : "N/A";
+    case "scheduledEnd": return change.scheduledEnd ? formatDate(change.scheduledEnd) : "N/A";
+    case "createdAt": return change.createdAt ? formatDate(change.createdAt) : "N/A";
+  }
+}
 
 // Excel Export Utility
 export async function exportToExcel(

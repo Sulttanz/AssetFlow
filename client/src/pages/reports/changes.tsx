@@ -5,11 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Download, FileSpreadsheet, Printer, GitMerge, Search, CheckCircle2, AlertTriangle, Clock, XCircle,
+  ChevronDown, ChevronUp, Columns3,
 } from "lucide-react";
-import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
+import {
+  CHANGE_REPORT_EXPORT_FIELDS,
+  CHANGE_REPORT_EXPORT_PRESETS,
+  getChangeReportExportField,
+  getChangeReportExportValue,
+  exportToExcel,
+  exportToPDF,
+  formatDate,
+  type ChangeReportExportFieldKey,
+} from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import Header from "@/components/layout/header";
 import type { ChangeReportRow } from "@shared/schema";
@@ -52,6 +64,7 @@ interface ExportRequest {
   action: ExportAction;
   filters: ExportFilters;
   matchingTotal: number;
+  fieldKeys: ChangeReportExportFieldKey[];
 }
 
 interface ExportStatus {
@@ -96,7 +109,13 @@ export default function ChangesReport() {
   const [scheduledStartTo, setScheduledStartTo] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [exportFieldKeys, setExportFieldKeys] = useState<ChangeReportExportFieldKey[]>([
+    ...CHANGE_REPORT_EXPORT_PRESETS.Excel,
+  ]);
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
+  const [printFieldKeys, setPrintFieldKeys] = useState<ChangeReportExportFieldKey[]>([
+    ...CHANGE_REPORT_EXPORT_PRESETS.Excel,
+  ]);
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const exportInProgress = useRef(false);
   const exportController = useRef<AbortController | null>(null);
@@ -243,58 +262,27 @@ export default function ChangesReport() {
       if (request.action === "Print") {
         exportController.current = null;
         setExportStatus((current) => current ? { ...current, phase: "printing" } : null);
+        setPrintFieldKeys(request.fieldKeys);
         setPrintChanges(exportChanges);
         return;
       }
 
       if (request.action === "Excel") {
+        const columns = request.fieldKeys.map(key => {
+          const field = getChangeReportExportField(key);
+          return { header: field.label, key: field.key, width: field.width };
+        });
         await exportToExcel(
-          exportChanges.map((c) => ({
-            changeNumber: c.changeNumber,
-            title: c.title,
-            type: c.type,
-            status: c.status.replace("_", " "),
-            priority: c.priority,
-            risk: c.risk || "low",
-            requestedBy: c.requestedByLabel ?? "N/A",
-            assignedTo: c.assignedToLabel ?? "Unassigned",
-            affectedServices: c.impactSummary?.services.join(", ") || "None",
-            affectedAssets: c.impactSummary?.assets.join(", ") || "None",
-            scheduledStart: c.scheduledStart ? formatDate(c.scheduledStart as any) : "N/A",
-            scheduledEnd: c.scheduledEnd ? formatDate(c.scheduledEnd as any) : "N/A",
-            createdAt: c.createdAt ? formatDate(c.createdAt as any) : "N/A",
-          })),
-          [
-            { header: "Change #", key: "changeNumber", width: 14 },
-            { header: "Title", key: "title", width: 30 },
-            { header: "Type", key: "type", width: 12 },
-            { header: "Status", key: "status", width: 14 },
-            { header: "Priority", key: "priority", width: 12 },
-            { header: "Risk", key: "risk", width: 12 },
-            { header: "Requested By", key: "requestedBy", width: 20 },
-            { header: "Assigned To", key: "assignedTo", width: 20 },
-            { header: "Affected Services", key: "affectedServices", width: 32 },
-            { header: "Affected Assets", key: "affectedAssets", width: 36 },
-            { header: "Scheduled Start", key: "scheduledStart", width: 16 },
-            { header: "Scheduled End", key: "scheduledEnd", width: 16 },
-            { header: "Created", key: "createdAt", width: 14 },
-          ],
+          exportChanges.map(change => Object.fromEntries(
+            request.fieldKeys.map(key => [key, getChangeReportExportValue(change, key)]),
+          )),
+          columns,
           "changes-report"
         );
       } else {
         exportToPDF(
-          exportChanges.map((c) => [
-            c.changeNumber,
-            c.title,
-            c.type,
-            c.status.replace("_", " "),
-            c.risk || "low",
-            c.requestedByLabel ?? "N/A",
-            c.impactSummary?.services.join(", ") || "None",
-            c.impactSummary?.assets.join(", ") || "None",
-            c.createdAt ? formatDate(c.createdAt as any) : "N/A",
-          ]),
-          ["Change #", "Title", "Type", "Status", "Risk", "Requested By", "Affected Services", "Affected Assets", "Created"],
+          exportChanges.map(change => request.fieldKeys.map(key => getChangeReportExportValue(change, key))),
+          request.fieldKeys.map(key => getChangeReportExportField(key).label),
           "Change Management Report",
           "changes-report"
         );
@@ -352,6 +340,26 @@ export default function ChangesReport() {
         scheduledStartTo,
       },
       matchingTotal: total,
+      fieldKeys: [...exportFieldKeys],
+    });
+  };
+
+  const toggleExportField = (key: ChangeReportExportFieldKey, checked: boolean) => {
+    setExportFieldKeys(current => {
+      if (checked) return current.includes(key) ? current : [...current, key];
+      if (current.length <= 1) return current;
+      return current.filter(fieldKey => fieldKey !== key);
+    });
+  };
+
+  const moveExportField = (key: ChangeReportExportFieldKey, direction: -1 | 1) => {
+    setExportFieldKeys(current => {
+      const index = current.indexOf(key);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
     });
   };
 
@@ -376,6 +384,80 @@ export default function ChangesReport() {
               </div>
             </div>
             <div className="flex gap-2 print:hidden">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={exportIsActive} aria-label={`Choose export fields, ${exportFieldKeys.length} selected`}>
+                    <Columns3 className="mr-2 h-4 w-4" />Fields ({exportFieldKeys.length})
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[360px] p-3">
+                  <div className="mb-3">
+                    <p className="text-sm font-medium">Fields in exports</p>
+                    <p className="text-xs text-muted-foreground">Select fields and use the arrows to set their order.</p>
+                  </div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {(["Excel", "PDF", "Print"] as const).map(preset => (
+                      <Button
+                        key={preset}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setExportFieldKeys([...CHANGE_REPORT_EXPORT_PRESETS[preset]])}
+                      >
+                        {preset} defaults
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="max-h-72 space-y-1 overflow-y-auto">
+                    {[
+                      ...exportFieldKeys,
+                      ...CHANGE_REPORT_EXPORT_FIELDS
+                        .map(field => field.key)
+                        .filter(key => !exportFieldKeys.includes(key)),
+                    ].map(key => {
+                      const field = getChangeReportExportField(key);
+                      const selectedIndex = exportFieldKeys.indexOf(key);
+                      const selected = selectedIndex !== -1;
+                      return (
+                        <div key={key} className="flex min-h-9 items-center gap-2 rounded px-1 hover:bg-muted/50">
+                          <Checkbox
+                            id={`export-field-${key}`}
+                            checked={selected}
+                            disabled={selected && exportFieldKeys.length === 1}
+                            onCheckedChange={checked => toggleExportField(key, checked === true)}
+                          />
+                          <label htmlFor={`export-field-${key}`} className="flex-1 cursor-pointer text-sm">
+                            {field.label}
+                          </label>
+                          {selected && (
+                            <div className="flex">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label={`Move ${field.label} up`}
+                                disabled={selectedIndex === 0}
+                                onClick={() => moveExportField(key, -1)}
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label={`Move ${field.label} down`}
+                                disabled={selectedIndex === exportFieldKeys.length - 1}
+                                onClick={() => moveExportField(key, 1)}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
               <Button variant="outline" size="sm" onClick={handleExportExcel} disabled={!total || exportIsActive}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
               </Button>
@@ -570,55 +652,67 @@ export default function ChangesReport() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Change #</TableHead>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Priority</TableHead>
-                      <TableHead>Risk</TableHead>
-                      <TableHead>Affected Services</TableHead>
-                      <TableHead>Affected Assets</TableHead>
-                      <TableHead>Approvals</TableHead>
-                      <TableHead>Requested By</TableHead>
-                      <TableHead>Scheduled Start</TableHead>
-                      <TableHead>Created</TableHead>
+                      {printChanges
+                        ? printFieldKeys.map(key => (
+                          <TableHead key={key}>{getChangeReportExportField(key).label}</TableHead>
+                        ))
+                        : <>
+                          <TableHead>Change #</TableHead>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Priority</TableHead>
+                          <TableHead>Risk</TableHead>
+                          <TableHead>Affected Services</TableHead>
+                          <TableHead>Affected Assets</TableHead>
+                          <TableHead>Approvals</TableHead>
+                          <TableHead>Requested By</TableHead>
+                          <TableHead>Scheduled Start</TableHead>
+                          <TableHead>Created</TableHead>
+                        </>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {displayedChanges.map((c) => {
                       return (
                         <TableRow key={c.id}>
-                          <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
-                          <TableCell className="font-medium max-w-[220px] truncate">{c.title}</TableCell>
-                          <TableCell>
-                            <Badge className={typeColors[c.type]}>{c.type}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={statusColors[c.status]}>{c.status.replace("_", " ")}</Badge>
-                          </TableCell>
-                          <TableCell className="capitalize">{c.priority}</TableCell>
-                          <TableCell>
-                            <Badge className={riskColors[c.risk || "low"]}>{c.risk || "low"}</Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[220px] text-xs" title={c.impactSummary?.services.join(", ") || ""}>
-                            {c.impactSummary?.services.join(", ") || <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell className="max-w-[240px] text-xs" title={c.impactSummary?.assets.join(", ") || ""}>
-                            {c.impactSummary?.assets.join(", ") || <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell>
-                            {c.activeApprovalCount > 0 ? (
-                              <span className="text-sm">
-                                <span className="text-green-600 font-medium">{c.approvedCount}✓</span>
-                                {c.pendingCount > 0 && <span className="text-amber-600 font-medium ml-1">{c.pendingCount} pending</span>}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-sm">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{c.requestedByLabel ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                          <TableCell className="text-sm">{c.scheduledStart ? formatDate(c.scheduledStart as any) : <span className="text-muted-foreground">—</span>}</TableCell>
-                          <TableCell className="text-sm">{c.createdAt ? formatDate(c.createdAt as any) : "—"}</TableCell>
+                          {printChanges
+                            ? printFieldKeys.map(key => (
+                              <TableCell key={key}>{getChangeReportExportValue(c, key)}</TableCell>
+                            ))
+                            : <>
+                              <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
+                              <TableCell className="font-medium max-w-[220px] truncate">{c.title}</TableCell>
+                              <TableCell>
+                                <Badge className={typeColors[c.type]}>{c.type}</Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge className={statusColors[c.status]}>{c.status.replace("_", " ")}</Badge>
+                              </TableCell>
+                              <TableCell className="capitalize">{c.priority}</TableCell>
+                              <TableCell>
+                                <Badge className={riskColors[c.risk || "low"]}>{c.risk || "low"}</Badge>
+                              </TableCell>
+                              <TableCell className="max-w-[220px] text-xs" title={c.impactSummary?.services.join(", ") || ""}>
+                                {c.impactSummary?.services.join(", ") || <span className="text-muted-foreground">—</span>}
+                              </TableCell>
+                              <TableCell className="max-w-[240px] text-xs" title={c.impactSummary?.assets.join(", ") || ""}>
+                                {c.impactSummary?.assets.join(", ") || <span className="text-muted-foreground">—</span>}
+                              </TableCell>
+                              <TableCell>
+                                {c.activeApprovalCount > 0 ? (
+                                  <span className="text-sm">
+                                    <span className="text-green-600 font-medium">{c.approvedCount}✓</span>
+                                    {c.pendingCount > 0 && <span className="text-amber-600 font-medium ml-1">{c.pendingCount} pending</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">—</span>
+                                )}
+                              </TableCell>
+                              <TableCell>{c.requestedByLabel ?? <span className="text-muted-foreground">—</span>}</TableCell>
+                              <TableCell className="text-sm">{c.scheduledStart ? formatDate(c.scheduledStart as any) : <span className="text-muted-foreground">—</span>}</TableCell>
+                              <TableCell className="text-sm">{c.createdAt ? formatDate(c.createdAt as any) : "—"}</TableCell>
+                            </>}
                         </TableRow>
                       );
                     })}
