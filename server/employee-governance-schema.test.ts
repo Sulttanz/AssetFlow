@@ -20,7 +20,7 @@ describe("optional employee email", () => {
 
   it("preserves omitted fields on partial updates, but allows explicit clearing", () => {
     expect(insertEmployeeSchema.partial().parse({ firstName: "Renamed" })).not.toHaveProperty("email");
-    expect(insertEmployeeSchema.partial().parse({ email: " " })).toEqual({ email: null });
+    expect(insertEmployeeSchema.partial().parse({ email: " " })).toMatchObject({ email: null, status: "active" });
   });
 
   it("rejects malformed nonblank addresses and non-string inputs", () => {

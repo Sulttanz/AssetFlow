@@ -333,7 +333,7 @@ export default function SystemSettings() {
             System Update &amp; Version
           </CardTitle>
           <CardDescription>
-            Review the installed release and check the configured update version.
+            Review this installation’s version and compare it with the manually configured release version.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -346,14 +346,26 @@ export default function SystemSettings() {
             </p>
           </div>
           {updateCheckResult && (
-            <p className="text-sm" role="status" data-testid="update-check-result">
-              {updateCheckResult.updateAvailable
-                ? `Version ${updateCheckResult.latestVersion} is available (current: ${updateCheckResult.currentVersion}).`
-                : updateCheckResult.sourceConfigured
-                  ? `You are up to date (${updateCheckResult.currentVersion}).`
-                  : `No update version is configured. Current version: ${updateCheckResult.currentVersion}.`}
-            </p>
+            <div className="space-y-1" role="status" data-testid="update-check-result">
+              <p className="text-sm">
+                {updateCheckResult.updateAvailable
+                  ? `Version ${updateCheckResult.latestVersion} is newer than the installed version ${updateCheckResult.currentVersion}. This check does not install it.`
+                  : updateCheckResult.sourceConfigured
+                    ? `The configured release version matches or is not newer than ${updateCheckResult.currentVersion}.`
+                    : `No release version is configured. Current version: ${updateCheckResult.currentVersion}. Set UPDATE_AVAILABLE_VERSION to enable comparison.`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Checked {appFormatDateTime(updateCheckResult.checkedAt)}
+                {updateCheckResult.latestVersion ? ` · Configured release: ${updateCheckResult.latestVersion}` : ""}
+              </p>
+            </div>
           )}
+          <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+            This is a version comparison only; it does not download or apply updates. On Replit, rebuild and deploy changes
+            with <span className="font-medium text-foreground">Republish</span>. For on-premises installations,
+            UPDATE_AVAILABLE_VERSION must be set by the deployment administrator; acquiring and installing releases
+            still requires your Git/release and deployment process.
+          </div>
           <Button
             type="button"
             variant="outline"
