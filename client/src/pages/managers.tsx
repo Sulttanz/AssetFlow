@@ -52,7 +52,7 @@ export default function Managers() {
     return (
       manager.firstName.toLowerCase().includes(searchLower) ||
       manager.lastName.toLowerCase().includes(searchLower) ||
-      manager.email.toLowerCase().includes(searchLower) ||
+      (manager.email ?? "").toLowerCase().includes(searchLower) ||
       departmentName.toLowerCase().includes(searchLower) ||
       manager.position.toLowerCase().includes(searchLower) ||
       locationName.toLowerCase().includes(searchLower)

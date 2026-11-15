@@ -186,9 +186,9 @@ export default function EmployeeForm({ employee, onSuccess, onCancel, initialTab
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>Email (optional)</FormLabel>
               <FormControl>
-                <Input type="email" placeholder="Enter email address" {...field} data-testid="input-email" />
+                <Input type="email" placeholder="Email address (optional)" {...field} value={field.value ?? ""} data-testid="input-email" />
               </FormControl>
               <FormMessage />
             </FormItem>

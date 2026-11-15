@@ -885,6 +885,7 @@ export class MemStorage implements IStorage {
       ...insertEmployee, 
       id,
       status: insertEmployee.status ?? "active",
+      email: insertEmployee.email ?? null,
       offboardedDate: insertEmployee.offboardedDate ?? null,
       offboardedReason: insertEmployee.offboardedReason ?? null,
       department: insertEmployee.department ?? null,

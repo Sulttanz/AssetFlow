@@ -70,6 +70,12 @@ export function assertAdditiveMigration(sql: string, name: string): void {
   if (!statements.length) throw new Error(`Migration ${name} is empty.`);
 
   for (const statement of statements) {
+    // This data-preserving relaxation is intentionally narrower than permitting
+    // arbitrary ALTER COLUMN, DROP, or UPDATE statements in startup migrations.
+    if (
+      /^ALTER TABLE employees ALTER COLUMN email DROP NOT NULL$/i.test(statement) ||
+      /^UPDATE employees SET email = NULL WHERE email IS NOT NULL AND email ~ '\^\[\[:space:\]\]\*\$'$/i.test(statement)
+    ) continue;
     if (
       /^\s*(?:DROP|DELETE\b|TRUNCATE|RENAME|UPDATE)\b/i.test(statement) ||
       /^ALTER TABLE\b[\s\S]*\b(?:DROP|ALTER COLUMN|RENAME)\b/i.test(statement)

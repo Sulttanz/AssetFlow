@@ -2,7 +2,8 @@
 import express from "express";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { readFile } from "node:fs/promises";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as s from "@shared/schema";
 import { db, pool } from "./db";
@@ -117,6 +118,44 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     expect(invalid.errors).toEqual(expect.arrayContaining([expect.objectContaining({ path: "firstName" })]));
     const duplicateUpdate = await request("PUT", `/api/employees/${employeeIds[0]}`, { employeeId: "3" }, 409);
     expect(duplicateUpdate.code).toBe("DUPLICATE_EMPLOYEE_ID");
+  });
+
+  it("stores multiple blank emails as null and preserves omitted emails on update", async () => {
+    const input = { firstName: "Optional", lastName: "Email", position: "Engineer" };
+    for (const email of ["", " \t ", null, undefined]) {
+      const employee = await request("POST", "/api/employees", { ...input, email }, 201);
+      employeeIds.push(employee.id);
+      expect(employee.email).toBeNull();
+      const [stored] = await db.select().from(s.employees).where(eq(s.employees.id, employee.id));
+      expect(stored.email).toBeNull();
+    }
+    const address = `optional-${suffix}@example.test`;
+    const employee = await request("POST", "/api/employees", { ...input, email: ` ${address} ` }, 201);
+    employeeIds.push(employee.id);
+    expect(employee.email).toBe(address);
+    expect((await request("PUT", `/api/employees/${employee.id}`, { firstName: "Renamed" })).email).toBe(address);
+    for (const email of ["", "   ", null]) {
+      expect((await request("PUT", `/api/employees/${employee.id}`, { email: address })).email).toBe(address);
+      expect((await request("PUT", `/api/employees/${employee.id}`, { email })).email).toBeNull();
+    }
+    const invalid = await request("POST", "/api/employees", { ...input, email: "invalid" }, 400);
+    expect(invalid.errors).toEqual(expect.arrayContaining([expect.objectContaining({ path: "email" })]));
+  });
+
+  it("normalizes legacy blank emails idempotently without changing real addresses", async () => {
+    const input = { firstName: "Legacy", lastName: "Email", position: "Engineer" };
+    const address = `legacy-${suffix}@example.test`;
+    const rows = await db.insert(s.employees).values([
+      { ...input, email: "" }, { ...input, email: " \t " }, { ...input, email: address },
+    ]).returning();
+    employeeIds.push(...rows.map(row => row.id));
+    const migration = await readFile("migrations/onprem/20261206_optional_employee_email.sql", "utf8");
+    await db.execute(sql.raw(migration));
+    await db.execute(sql.raw(migration));
+    for (const [index, employee] of rows.entries()) {
+      const [stored] = await db.select().from(s.employees).where(eq(s.employees.id, employee.id));
+      expect(stored.email).toBe(index === 2 ? address : null);
+    }
   });
 
   it("verifies incident creation, partial edits, assignment, resolution/closure, project updates and contract updates", async () => {

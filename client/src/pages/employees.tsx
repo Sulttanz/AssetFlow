@@ -80,7 +80,7 @@ export default function Employees() {
     return (
       employee.firstName.toLowerCase().includes(searchLower) ||
       employee.lastName.toLowerCase().includes(searchLower) ||
-      employee.email.toLowerCase().includes(searchLower) ||
+      (employee.email ?? "").toLowerCase().includes(searchLower) ||
       departmentName.toLowerCase().includes(searchLower) ||
       employee.position.toLowerCase().includes(searchLower) ||
       locationName.toLowerCase().includes(searchLower)
@@ -202,7 +202,7 @@ export default function Employees() {
                         <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" title={`${employee.firstName} ${employee.lastName}`}>
                           {employee.firstName} {employee.lastName}
                         </TableCell>
-                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" title={employee.email}>{employee.email}</TableCell>
+                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" title={employee.email ?? undefined}>{employee.email || "—"}</TableCell>
                         <TableCell className="truncate whitespace-nowrap px-2 py-1.5" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
                           {employee.departmentDetails?.name || employee.department || "-"}
                         </TableCell>

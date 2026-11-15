@@ -2,7 +2,32 @@ import { describe, expect, it } from "vitest";
 import {
   employeeOffboardingSubmissionSchema,
   insertEmployeeAccessRightSchema,
+  insertEmployeeSchema,
 } from "@shared/schema";
+
+describe("optional employee email", () => {
+  const employee = { firstName: "Optional", lastName: "Email", position: "Engineer" };
+
+  it.each(["", "   ", "\t \n", null])("normalizes blank email %j to null", email => {
+    expect(insertEmployeeSchema.parse({ ...employee, email }).email).toBeNull();
+  });
+
+  it("allows an omitted email and trims a real address", () => {
+    expect(insertEmployeeSchema.parse(employee).email).toBeUndefined();
+    expect(insertEmployeeSchema.parse({ ...employee, email: "  engineer@example.test  " }).email)
+      .toBe("engineer@example.test");
+  });
+
+  it("preserves omitted fields on partial updates, but allows explicit clearing", () => {
+    expect(insertEmployeeSchema.partial().parse({ firstName: "Renamed" })).not.toHaveProperty("email");
+    expect(insertEmployeeSchema.partial().parse({ email: " " })).toEqual({ email: null });
+  });
+
+  it("rejects malformed nonblank addresses and non-string inputs", () => {
+    expect(insertEmployeeSchema.safeParse({ ...employee, email: "not-an-email" }).success).toBe(false);
+    expect(insertEmployeeSchema.safeParse({ ...employee, email: 3 }).success).toBe(false);
+  });
+});
 
 describe("employee access governance input", () => {
   it("requires a business justification and accepts an optional expiry date", () => {

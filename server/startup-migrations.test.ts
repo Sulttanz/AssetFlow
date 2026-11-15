@@ -81,6 +81,20 @@ describe("on-prem startup migrations", () => {
     )).toThrow(/destructive|non-additive or unsupported/);
   });
 
+  it("allows only the narrowly approved employee email relaxation and blank cleanup", async () => {
+    const migration = await readFile("migrations/onprem/20261206_optional_employee_email.sql", "utf8");
+    expect(() => assertAdditiveMigration(migration, "optional_employee_email.sql")).not.toThrow();
+    for (const sql of [
+      "ALTER TABLE users ALTER COLUMN email DROP NOT NULL;",
+      "ALTER TABLE employees DROP COLUMN email;",
+      "ALTER TABLE employees ALTER COLUMN first_name DROP NOT NULL;",
+      "UPDATE employees SET email = NULL;",
+      "UPDATE employees SET email = NULL WHERE email IS NOT NULL;",
+    ]) {
+      expect(() => assertAdditiveMigration(sql, "unsafe.sql")).toThrow(/destructive|unsupported/);
+    }
+  });
+
   it("accepts the ITSM migrations' additive foreign keys and activity tables", async () => {
     for (const name of [
       "20261020_incident_management.sql",

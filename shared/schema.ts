@@ -10,7 +10,7 @@ export const employees = pgTable("employees", {
   employeeId: text("employee_id").unique(),
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
-  email: text("email").notNull().unique(),
+  email: text("email").unique(),
   status: text("status").notNull().default("active"),
   offboardedDate: date("offboarded_date"),
   offboardedReason: text("offboarded_reason"),
@@ -2016,6 +2016,9 @@ export const insertConfigurationDocumentSchema = createInsertSchema(configuratio
 }).omit({ id: true, uploadedAt: true });
 export const insertEmployeeSchema = createInsertSchema(employees, {
   status: z.enum(["active", "disabled"]).default("active"),
+  email: z.string().trim()
+    .refine(value => value === "" || z.email().safeParse(value).success, "Enter a valid email address")
+    .nullable().optional().transform(value => value === "" ? null : value),
 }).omit({ id: true });
 export const EMPLOYEE_OFFBOARDING_CLEARANCE_TYPES = [
   "physical_asset_return",

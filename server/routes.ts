@@ -1343,7 +1343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
         email: user.email,
       }]));
-      const employeeContacts = new Map(employeeRows.map(employee => [employee.email.toLowerCase(), {
+      const employeeContacts = new Map(employeeRows.filter((employee): employee is typeof employee & { email: string } => Boolean(employee.email)).map(employee => [employee.email.toLowerCase(), {
         phone: employee.phone,
         mobile: employee.mobile,
       }]));
@@ -1714,7 +1714,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
         email: user.email,
       }]));
-      const employeeContacts = new Map(employeeRows.map(employee => [employee.email.toLowerCase(), {
+      const employeeContacts = new Map(employeeRows.filter((employee): employee is typeof employee & { email: string } => Boolean(employee.email)).map(employee => [employee.email.toLowerCase(), {
         phone: employee.phone,
         mobile: employee.mobile,
       }]));
@@ -4162,8 +4162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         eq(employeeAccessRights.employeeId, employee.id),
         eq(employeeAccessRights.status, "active"),
       )),
-      executor.select({ id: users.id, username: users.username, email: users.email, isActive: users.isActive })
-        .from(users).where(sql`lower(${users.email}) = ${String(employee.email).trim().toLowerCase()}`),
+      employee.email ? executor.select({ id: users.id, username: users.username, email: users.email, isActive: users.isActive })
+        .from(users).where(sql`lower(${users.email}) = ${employee.email.trim().toLowerCase()}`) : Promise.resolve([]),
     ]);
     const activeAccounts = linkedAccounts.filter((account: any) => account.isActive === true);
     return {
@@ -4801,7 +4801,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/employees", requireAuth, requireModule('asset_management'), requirePermission('employee_create'), async (req, res) => {
     try {
       const validatedData = insertEmployeeSchema.omit({ status: true, offboardedDate: true, offboardedReason: true }).parse(req.body);
-      const employee = await storage.createEmployee({ ...validatedData, status: "active" });
+      const employee = await storage.createEmployee({ ...validatedData, email: validatedData.email ?? null, status: "active" });
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'employees', employee.id.toString(), `${employee.firstName} ${employee.lastName}`, null, { firstName: employee.firstName, lastName: employee.lastName, email: employee.email }, req);
