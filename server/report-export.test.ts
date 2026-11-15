@@ -21,6 +21,31 @@ describe("spreadsheet report generation", () => {
     expect(sheet.autoFilter).toEqual({ from: { row: 1, column: 1 }, to: { row: 1, column: 3 } });
   });
 
+  it("includes active filters on a separate sheet and omits that sheet when unfiltered", () => {
+    const input = reportExportSchema.parse({
+      filename: "change-report",
+      columns: [{ header: "Change #", key: "changeNumber" }],
+      data: [{ changeNumber: "CHG-1" }],
+      filters: [
+        { label: "Status", value: "Completed" },
+        { label: "Scheduled start from", value: "01-10-2026" },
+      ],
+    });
+    const workbook = buildReportWorkbook(input);
+    const filtersSheet = workbook.getWorksheet("Applied filters")!;
+    expect(filtersSheet.getRow(1).values).toEqual([, "Filter", "Applied value"]);
+    expect(filtersSheet.getRow(2).values).toEqual([, "Status", "Completed"]);
+    expect(filtersSheet.getRow(3).values).toEqual([, "Scheduled start from", "01-10-2026"]);
+    expect(workbook.getWorksheet("Report")!.getRow(1).values).toEqual([, "Change #"]);
+
+    const unfiltered = buildReportWorkbook(reportExportSchema.parse({
+      filename: "change-report",
+      columns: [{ header: "Change #", key: "changeNumber" }],
+      data: [],
+    }));
+    expect(unfiltered.getWorksheet("Applied filters")).toBeUndefined();
+  });
+
   it("rejects invalid and oversized export definitions", () => {
     expect(reportExportSchema.safeParse({ filename: "../report", columns: [], data: [] }).success).toBe(false);
     expect(reportExportSchema.safeParse({

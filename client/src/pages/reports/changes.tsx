@@ -15,12 +15,14 @@ import {
 import {
   CHANGE_REPORT_EXPORT_FIELDS,
   CHANGE_REPORT_EXPORT_PRESETS,
+  getChangeReportActiveFilters,
   getChangeReportExportField,
   getChangeReportExportValue,
   exportToExcel,
   exportToPDF,
   formatDate,
   type ChangeReportExportFieldKey,
+  type ChangeReportFilters,
 } from "@/lib/report-utils";
 import { useReactToPrint } from "react-to-print";
 import Header from "@/components/layout/header";
@@ -51,18 +53,9 @@ interface ChangeReportPage {
 
 type ExportAction = "Excel" | "PDF" | "Print";
 
-interface ExportFilters {
-  search: string;
-  status: string;
-  type: string;
-  risk: string;
-  scheduledStartFrom: string;
-  scheduledStartTo: string;
-}
-
 interface ExportRequest {
   action: ExportAction;
-  filters: ExportFilters;
+  filters: ChangeReportFilters;
   matchingTotal: number;
   fieldKeys: ChangeReportExportFieldKey[];
 }
@@ -113,6 +106,7 @@ export default function ChangesReport() {
     ...CHANGE_REPORT_EXPORT_PRESETS.Excel,
   ]);
   const [printChanges, setPrintChanges] = useState<ChangeReportRow[] | null>(null);
+  const [printFilters, setPrintFilters] = useState<ReturnType<typeof getChangeReportActiveFilters>>([]);
   const [printFieldKeys, setPrintFieldKeys] = useState<ChangeReportExportFieldKey[]>([
     ...CHANGE_REPORT_EXPORT_PRESETS.Excel,
   ]);
@@ -152,6 +146,7 @@ export default function ChangesReport() {
     contentRef: printRef,
     onAfterPrint: () => {
       setPrintChanges(null);
+      setPrintFilters([]);
       setExportStatus(null);
       exportInProgress.current = false;
     },
@@ -175,6 +170,7 @@ export default function ChangesReport() {
       } catch (error) {
         exportInProgress.current = false;
         setPrintChanges(null);
+        setPrintFilters([]);
         setExportStatus((current) => current ? {
           ...current,
           phase: "error",
@@ -186,7 +182,7 @@ export default function ChangesReport() {
   const displayedChanges = printChanges ?? filtered;
 
   const loadAllMatchingChanges = async (
-    filters: ExportFilters,
+    filters: ChangeReportFilters,
     onProgress: (loaded: number, total: number, batch: number) => void,
     signal: AbortSignal,
   ) => {
@@ -249,6 +245,7 @@ export default function ChangesReport() {
     });
 
     try {
+      const activeFilters = getChangeReportActiveFilters(request.filters);
       const exportChanges = await loadAllMatchingChanges(request.filters, (loaded, matchingTotal, batch) => {
         setExportStatus({
           action: request.action,
@@ -263,6 +260,7 @@ export default function ChangesReport() {
         exportController.current = null;
         setExportStatus((current) => current ? { ...current, phase: "printing" } : null);
         setPrintFieldKeys(request.fieldKeys);
+        setPrintFilters(activeFilters);
         setPrintChanges(exportChanges);
         return;
       }
@@ -277,14 +275,17 @@ export default function ChangesReport() {
             request.fieldKeys.map(key => [key, getChangeReportExportValue(change, key)]),
           )),
           columns,
-          "changes-report"
+          "changes-report",
+          activeFilters,
         );
       } else {
         exportToPDF(
           exportChanges.map(change => request.fieldKeys.map(key => getChangeReportExportValue(change, key))),
           request.fieldKeys.map(key => getChangeReportExportField(key).label),
           "Change Management Report",
-          "changes-report"
+          "changes-report",
+          "portrait",
+          activeFilters,
         );
       }
       setExportStatus({
@@ -302,6 +303,7 @@ export default function ChangesReport() {
           exportController.current = null;
           setExportStatus(null);
           setPrintChanges(null);
+          setPrintFilters([]);
           exportInProgress.current = false;
         }
         return;
@@ -324,6 +326,7 @@ export default function ChangesReport() {
     controller.abort();
     setExportStatus(null);
     setPrintChanges(null);
+    setPrintFilters([]);
     exportInProgress.current = false;
   };
 
@@ -636,6 +639,16 @@ export default function ChangesReport() {
               : total === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`}</span> of{" "}
             <span className="font-medium">{total}</span> matching changes
           </p>
+          {printChanges && printFilters.length > 0 && (
+            <div className="mb-4 text-sm">
+              <p className="font-medium">Applied filters</p>
+              <ul className="list-disc pl-5">
+                {printFilters.map(filter => (
+                  <li key={filter.label}>{filter.label}: {filter.value}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <Card>
             <CardContent className="p-0">

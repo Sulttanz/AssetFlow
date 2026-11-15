@@ -425,7 +425,32 @@ describe("change report page", () => {
     expect(snapshotParams.get("scheduledStartTo")).toBe("2026-10-03");
 
     if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
-    if (exportType === "PDF") expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+    if (exportType === "Excel") {
+      expect(vi.mocked(exportToExcel).mock.calls[0][3]).toEqual([
+        { label: "Search change #, title...", value: "Export batch" },
+        { label: "Status", value: "Completed" },
+        { label: "Type", value: "Emergency" },
+        { label: "Risk", value: "High" },
+        { label: "Scheduled start from", value: "01-10-2026" },
+        { label: "Scheduled start through", value: "03-10-2026" },
+      ]);
+    }
+    if (exportType === "PDF") {
+      expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+      expect(vi.mocked(exportToPDF).mock.calls[0][5]).toEqual([
+        { label: "Search change #, title...", value: "Export batch" },
+        { label: "Status", value: "Completed" },
+        { label: "Type", value: "Emergency" },
+        { label: "Risk", value: "High" },
+        { label: "Scheduled start from", value: "01-10-2026" },
+        { label: "Scheduled start through", value: "03-10-2026" },
+      ]);
+    }
+    if (exportType === "Print") {
+      expect(screen.getByText("Applied filters")).toBeTruthy();
+      expect(screen.getByText("Search change #, title...: Export batch")).toBeTruthy();
+      expect(screen.getByText("Scheduled start through: 03-10-2026")).toBeTruthy();
+    }
   });
 
   it.each(["Excel", "PDF", "Print"])("uses the chosen fields and order for %s", async (exportType) => {
@@ -450,10 +475,12 @@ describe("change report page", () => {
 
     if (exportType === "Excel") {
       await waitFor(() => expect(exportToExcel).toHaveBeenCalledOnce());
+      expect(vi.mocked(exportToExcel).mock.calls[0][3]).toEqual([]);
       expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.key)).toEqual(expectedKeys);
       expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.header)).toEqual(expectedLabels);
     } else if (exportType === "PDF") {
       await waitFor(() => expect(exportToPDF).toHaveBeenCalledOnce());
+      expect(vi.mocked(exportToPDF).mock.calls[0][5]).toEqual([]);
       expect(vi.mocked(exportToPDF).mock.calls[0][1]).toEqual(expectedLabels);
       expect(vi.mocked(exportToPDF).mock.calls[0][0][0]).toEqual([
         "CHG-9", "normal", "Report change 9", "requested", "low", "N/A",
@@ -461,6 +488,7 @@ describe("change report page", () => {
       ]);
     } else {
       await waitFor(() => expect(printMock).toHaveBeenCalledOnce());
+      expect(screen.queryByText("Applied filters")).toBeNull();
       const table = screen.getByRole("table");
       expect(within(table).getAllByRole("columnheader").map(header => header.textContent)).toEqual(expectedLabels);
       expect(within(table).getAllByRole("cell").slice(0, expectedLabels.length).map(cell => cell.textContent)).toEqual([

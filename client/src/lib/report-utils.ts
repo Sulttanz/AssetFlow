@@ -23,6 +23,20 @@ export const CHANGE_REPORT_EXPORT_FIELDS = [
 
 export type ChangeReportExportFieldKey = typeof CHANGE_REPORT_EXPORT_FIELDS[number]["key"];
 
+export interface ChangeReportFilter {
+  label: string;
+  value: string;
+}
+
+export interface ChangeReportFilters {
+  search: string;
+  status: string;
+  type: string;
+  risk: string;
+  scheduledStartFrom: string;
+  scheduledStartTo: string;
+}
+
 export const CHANGE_REPORT_EXPORT_PRESETS: Record<string, ChangeReportExportFieldKey[]> = {
   Excel: [
     "changeNumber", "title", "type", "status", "priority", "risk", "requestedBy",
@@ -37,6 +51,57 @@ export const CHANGE_REPORT_EXPORT_PRESETS: Record<string, ChangeReportExportFiel
     "affectedAssets", "approvals", "requestedBy", "scheduledStart", "createdAt",
   ],
 };
+
+const statusFilterLabels: Record<string, string> = {
+  draft: "Draft",
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const typeFilterLabels: Record<string, string> = {
+  standard: "Standard",
+  normal: "Normal",
+  emergency: "Emergency",
+};
+
+const riskFilterLabels: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  critical: "Critical",
+};
+
+export function getChangeReportActiveFilters(filters: ChangeReportFilters): ChangeReportFilter[] {
+  const activeFilters: ChangeReportFilter[] = [];
+  const search = filters.search.trim();
+  if (search) activeFilters.push({ label: "Search change #, title...", value: search });
+  if (filters.status !== "all") {
+    activeFilters.push({ label: "Status", value: statusFilterLabels[filters.status] ?? filters.status });
+  }
+  if (filters.type !== "all") {
+    activeFilters.push({ label: "Type", value: typeFilterLabels[filters.type] ?? filters.type });
+  }
+  if (filters.risk !== "all") {
+    activeFilters.push({ label: "Risk", value: riskFilterLabels[filters.risk] ?? filters.risk });
+  }
+  if (filters.scheduledStartFrom) {
+    activeFilters.push({
+      label: "Scheduled start from",
+      value: formatDate(filters.scheduledStartFrom),
+    });
+  }
+  if (filters.scheduledStartTo) {
+    activeFilters.push({
+      label: "Scheduled start through",
+      value: formatDate(filters.scheduledStartTo),
+    });
+  }
+  return activeFilters;
+}
 
 export function getChangeReportExportField(key: ChangeReportExportFieldKey) {
   return CHANGE_REPORT_EXPORT_FIELDS.find(field => field.key === key)!;
@@ -70,7 +135,8 @@ export function getChangeReportExportValue(
 export async function exportToExcel(
   data: any[],
   columns: { header: string; key: string; width?: number }[],
-  filename: string
+  filename: string,
+  filters: ChangeReportFilter[] = [],
 ) {
   const response = await fetch("/api/report-exports/xlsx", {
     method: "POST",
@@ -83,6 +149,7 @@ export async function exportToExcel(
       ]))),
       columns,
       filename,
+      ...(filters.length ? { filters } : {}),
     }),
   });
   if (!response.ok) {
@@ -105,6 +172,7 @@ export function exportToPDF(
   title: string,
   filename: string,
   orientation: "portrait" | "landscape" = "portrait",
+  filters: ChangeReportFilter[] = [],
 ) {
   const doc = new jsPDF({ orientation });
   
@@ -116,11 +184,25 @@ export function exportToPDF(
   doc.setFontSize(10);
   doc.text(`Generated: ${formatDateTime(new Date())}`, 14, 22);
 
+  let tableStartY = 30;
+  if (filters.length) {
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("Applied filters", 14, 30);
+    doc.setFont("helvetica", "normal");
+    const filterLines = doc.splitTextToSize(
+      filters.map(filter => `${filter.label}: ${filter.value}`).join(" | "),
+      doc.internal.pageSize.getWidth() - 28,
+    );
+    doc.text(filterLines, 14, 36);
+    tableStartY = 42 + filterLines.length * 5;
+  }
+
   // Add table
   autoTable(doc, {
     head: [columns],
     body: data.map(row => row.map(value => formatExportValue(value))),
-    startY: 30,
+    startY: tableStartY,
     theme: 'striped',
     headStyles: { fillColor: [74, 85, 104] },
     styles: { fontSize: 8 },

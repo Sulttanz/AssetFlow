@@ -13,6 +13,10 @@ export const reportExportSchema = z.object({
     width: z.number().min(1).max(100).optional(),
   })).min(1).max(200),
   filename: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9 _.-]*$/),
+  filters: z.array(z.object({
+    label: z.string().trim().min(1).max(200),
+    value: z.string().trim().min(1).max(1000),
+  }).strict()).max(20).optional(),
 }).strict();
 
 export function buildReportWorkbook(input: z.infer<typeof reportExportSchema>): ExcelJS.Workbook {
@@ -39,5 +43,21 @@ export function buildReportWorkbook(input: z.infer<typeof reportExportSchema>): 
     from: { row: 1, column: 1 },
     to: { row: 1, column: input.columns.length },
   };
+  if (input.filters?.length) {
+    const filtersSheet = workbook.addWorksheet("Applied filters");
+    filtersSheet.columns = [
+      { header: "Filter", key: "label", width: 28 },
+      { header: "Applied value", key: "value", width: 40 },
+    ];
+    filtersSheet.getRow(1).font = { color: { argb: "FFFFFFFF" }, bold: true };
+    filtersSheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF4A5568" },
+    };
+    for (const filter of input.filters) {
+      filtersSheet.addRow(filter);
+    }
+  }
   return workbook;
 }
