@@ -85,6 +85,10 @@ app.use((req, res, next) => {
       console.error("❌ FATAL: DATABASE_URL environment variable is not set");
       process.exit(1);
     }
+    if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.trim().length < 32) {
+      console.error("❌ FATAL: SESSION_SECRET must be set to at least 32 characters.");
+      process.exit(1);
+    }
     
     console.log("✅ Environment variables validated");
 

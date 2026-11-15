@@ -15,7 +15,7 @@ Set these values in the hosting platform's secret/environment-variable manager. 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Yes | PostgreSQL connection string used by the application, session store, and startup migrations. |
-| `SESSION_SECRET` | Yes | Secret used to sign session cookies. Use a long, randomly generated value and keep it private. |
+| `SESSION_SECRET` | Yes | Secret used to sign session cookies. Use a long, randomly generated value of at least 32 characters and keep it private; startup fails if it is missing or shorter. |
 | `NODE_ENV` | Production | Set to `production` for deployment. |
 | `APP_ALLOWED_ORIGINS` | No | Comma-separated exact browser origins trusted for cross-origin API writes. Same-origin requests need no entry. |
 | `PORT` | No | Listening port; defaults to `5000`. The hosting platform may provide this value. |
@@ -25,6 +25,8 @@ Set these values in the hosting platform's secret/environment-variable manager. 
 | `UPDATE_AVAILABLE_VERSION` | No | Optional version shown by the application update-status endpoint. |
 
 The optional `VITEST_TEST_DATABASE_URL` and `CAB_SCHEMA_SYNC_TEST_DATABASE_URL` variables are for isolated test databases only. Never point them at production data.
+
+On an empty installation, visit `/initialize` and create the first administrator account with a unique username and a strong password. The server validates the credentials, hashes the password, rate-limits attempts, and disables first-run initialization as soon as an account exists. No preset administrator credentials are used or displayed.
 
 ## Cloud deployment (Replit)
 

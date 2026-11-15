@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -13,17 +14,52 @@ export default function SystemInitialization() {
   const [, setLocation] = useLocation();
   const [isSeedDialogOpen, setIsSeedDialogOpen] = useState(false);
   const [initializationComplete, setInitializationComplete] = useState(false);
-  const [adminCredentials, setAdminCredentials] = useState<any>(null);
+  const [adminCredentials, setAdminCredentials] = useState<{ username: string; email: string } | null>(null);
+  const [adminForm, setAdminForm] = useState({
+    username: "",
+    email: "",
+    firstName: "",
+    lastName: "",
+    password: "",
+    passwordConfirm: "",
+  });
+  const passwordIsStrong = adminForm.password.length >= 12 &&
+    /[a-z]/.test(adminForm.password) &&
+    /[A-Z]/.test(adminForm.password) &&
+    /[0-9]/.test(adminForm.password) &&
+    /[^A-Za-z0-9]/.test(adminForm.password);
+  const adminFormIsValid =
+    /^[a-zA-Z0-9._-]{3,64}$/.test(adminForm.username.trim()) &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminForm.email.trim()) &&
+    Boolean(adminForm.firstName.trim()) &&
+    Boolean(adminForm.lastName.trim()) &&
+    passwordIsStrong &&
+    adminForm.password === adminForm.passwordConfirm;
 
   const seedDataMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/system/seed-data", {});
+      const credentials = {
+        username: adminForm.username.trim(),
+        email: adminForm.email.trim(),
+        firstName: adminForm.firstName.trim(),
+        lastName: adminForm.lastName.trim(),
+        password: adminForm.password,
+      };
+      const response = await apiRequest("POST", "/api/system/seed-data", credentials);
       return response.json();
     },
     onSuccess: (data) => {
       setAdminCredentials(data.summary.adminCredentials);
       setInitializationComplete(true);
       setIsSeedDialogOpen(false);
+      setAdminForm({
+        username: "",
+        email: "",
+        firstName: "",
+        lastName: "",
+        password: "",
+        passwordConfirm: "",
+      });
       toast({
         title: "System Initialized Successfully",
         description: `Created ${data.summary.permissions} permissions, ${data.summary.roles} roles, and admin user.`,
@@ -54,7 +90,7 @@ export default function SystemInitialization() {
             </div>
             <h1 className="text-3xl font-bold text-foreground">System Initialized Successfully!</h1>
             <p className="text-muted-foreground">
-              Your IT Asset Management System has been set up with default roles, permissions, and an admin user.
+              Your system has been set up with its default roles and permissions. The administrator account was created using the credentials you chose.
             </p>
           </div>
 
@@ -65,7 +101,7 @@ export default function SystemInitialization() {
                 Admin Login Credentials
               </CardTitle>
               <CardDescription>
-                Use these credentials to log in as the system administrator. Please change the password after your first login.
+                Use the administrator username and the password you chose during setup.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -73,20 +109,14 @@ export default function SystemInitialization() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Username</label>
                   <div className="p-3 bg-muted rounded-md font-mono" data-testid="admin-username">
-                    {adminCredentials?.username || 'ahmad.sulttan'}
+                    {adminCredentials?.username}
                   </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Email</label>
                   <div className="p-3 bg-muted rounded-md font-mono" data-testid="admin-email">
-                    {adminCredentials?.email || 'admin@company.com'}
+                    {adminCredentials?.email}
                   </div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground">Temporary Password</label>
-                <div className="p-3 bg-muted rounded-md font-mono" data-testid="admin-password">
-                  123456
                 </div>
               </div>
 
@@ -98,7 +128,7 @@ export default function SystemInitialization() {
                       Important Security Notice
                     </p>
                     <ul className="text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
-                      <li>Change the admin password immediately after logging in</li>
+                      <li>Store the administrator password securely</li>
                       <li>Create additional users with appropriate role assignments</li>
                       <li>Review and customize system settings as needed</li>
                     </ul>
@@ -132,7 +162,7 @@ export default function SystemInitialization() {
           </div>
           <h1 className="text-3xl font-bold text-foreground">Welcome to IT Asset Manager</h1>
           <p className="text-muted-foreground">
-            Your system needs to be initialized with default roles, permissions, and an admin user before you can get started.
+            Your system needs default roles and permissions, plus an administrator account that you create now.
           </p>
         </div>
 
@@ -144,7 +174,7 @@ export default function SystemInitialization() {
               System Initialization Required
             </CardTitle>
             <CardDescription>
-              Set up your system with default configuration, roles, permissions, and an admin user account.
+              Set up the default configuration and choose the first administrator’s account credentials.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -158,7 +188,7 @@ export default function SystemInitialization() {
                   <ul className="text-blue-700 dark:text-blue-300 mt-2 space-y-1 list-disc list-inside">
                     <li><span className="font-medium">34 system permissions</span> for all operations (assets, users, budgets, etc.)</li>
                     <li><span className="font-medium">4 default roles</span>: System Administrator, IT Manager, Asset Manager, Read Only User</li>
-                    <li><span className="font-medium">Admin user account</span> with username 'ahmad.sulttan' and email 'ahmad.sulttan@gmail.com'</li>
+                    <li><span className="font-medium">Administrator account</span> using the username and password you choose below</li>
                     <li><span className="font-medium">Default system settings</span> for asset ID generation and date formats</li>
                   </ul>
                 </div>
@@ -189,13 +219,42 @@ export default function SystemInitialization() {
                     Initialize IT Asset Management System
                   </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will create the default system configuration including roles, permissions, 
-                    system settings, and an admin user account with the following credentials:
+                    This creates the default system configuration and your administrator account. The setup endpoint is disabled as soon as the first account is created.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 
                 <div className="py-4 space-y-4">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label htmlFor="setup-first-name" className="text-sm font-medium">First name</label>
+                      <Input id="setup-first-name" autoComplete="given-name" value={adminForm.firstName} onChange={event => setAdminForm(form => ({ ...form, firstName: event.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="setup-last-name" className="text-sm font-medium">Last name</label>
+                      <Input id="setup-last-name" autoComplete="family-name" value={adminForm.lastName} onChange={event => setAdminForm(form => ({ ...form, lastName: event.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="setup-username" className="text-sm font-medium">Username</label>
+                      <Input id="setup-username" autoComplete="username" value={adminForm.username} onChange={event => setAdminForm(form => ({ ...form, username: event.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="setup-email" className="text-sm font-medium">Email</label>
+                      <Input id="setup-email" type="email" autoComplete="email" value={adminForm.email} onChange={event => setAdminForm(form => ({ ...form, email: event.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="setup-password" className="text-sm font-medium">Administrator password</label>
+                      <Input id="setup-password" type="password" autoComplete="new-password" value={adminForm.password} onChange={event => setAdminForm(form => ({ ...form, password: event.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="setup-password-confirm" className="text-sm font-medium">Confirm password</label>
+                      <Input id="setup-password-confirm" type="password" autoComplete="new-password" value={adminForm.passwordConfirm} onChange={event => setAdminForm(form => ({ ...form, passwordConfirm: event.target.value }))} />
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Password must be at least 12 characters and include lowercase, uppercase, a number, and a symbol.
+                    {adminForm.passwordConfirm && adminForm.password !== adminForm.passwordConfirm ? " Passwords do not match." : ""}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div className="flex justify-between">
                       <span>Permissions:</span>
                       <span className="font-medium">34 system permissions</span>
@@ -206,18 +265,12 @@ export default function SystemInitialization() {
                     </div>
                     <div className="flex justify-between">
                       <span>Admin User:</span>
-                      <span className="font-medium">ahmad.sulttan@gmail.com</span>
+                      <span className="font-medium">Chosen by you</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Settings:</span>
                       <span className="font-medium">3 default settings</span>
                     </div>
-                  </div>
-                  
-                  <div className="p-3 bg-muted rounded-md">
-                    <p className="text-sm font-medium mb-1">Admin Login Details:</p>
-                    <p className="text-sm text-muted-foreground">Username: <span className="font-mono">ahmad.sulttan</span></p>
-                    <p className="text-sm text-muted-foreground">Password: <span className="font-mono">123456</span></p>
                   </div>
                 </div>
                 
@@ -230,7 +283,7 @@ export default function SystemInitialization() {
                   </AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => seedDataMutation.mutate()}
-                    disabled={seedDataMutation.isPending}
+                    disabled={seedDataMutation.isPending || !adminFormIsValid}
                     data-testid="button-confirm-initialize"
                   >
                     {seedDataMutation.isPending ? "Initializing..." : "Initialize System"}

@@ -10,6 +10,7 @@ import { registerSystemClearDataRoute } from "./system-clear-data-route";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
+import type { PoolClient } from "pg";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema, departments,
@@ -39,7 +40,7 @@ import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { APP_VERSION } from "@shared/version";
 import { calculateDocumentTotals, ProcurementPricingError } from "@shared/procurement-pricing";
 import { canTransitionPurchaseOrder } from "@shared/purchase-order-lifecycle";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and, inArray, isNull, isNotNull, sql, or, ilike, desc, asc, gte, lt, lte } from "drizzle-orm";
 import {
   ACCESS_DROPDOWN_CATEGORIES,
@@ -2942,16 +2943,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Seed data route - for initializing system with default data
-  app.post("/api/system/seed-data", async (req, res) => {
+  // One-time bootstrap for an empty installation. Credentials are supplied by
+  // the operator and a PostgreSQL advisory lock prevents parallel first-user
+  // requests from creating multiple bootstrap administrators.
+  app.post("/api/system/seed-data", rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many initialization attempts. Please try again later." },
+  }), async (req, res) => {
+    const bootstrapSchema = z.object({
+      username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/, "Use letters, numbers, dots, underscores, or hyphens for the username."),
+      email: z.string().trim().email().max(254),
+      firstName: z.string().trim().min(1).max(100),
+      lastName: z.string().trim().min(1).max(100),
+      password: z.string().min(12, "Use a password of at least 12 characters.")
+        .max(256)
+        .regex(/[a-z]/, "Include a lowercase letter.")
+        .regex(/[A-Z]/, "Include an uppercase letter.")
+        .regex(/[0-9]/, "Include a number.")
+        .regex(/[^A-Za-z0-9]/, "Include a symbol."),
+    });
+    const parsedBootstrap = bootstrapSchema.safeParse(req.body);
+    if (!parsedBootstrap.success) {
+      return res.status(400).json({
+        message: parsedBootstrap.error.issues[0]?.message ?? "Enter valid administrator details.",
+      });
+    }
+
+    let bootstrapClient: PoolClient | undefined;
+    let bootstrapLockAcquired = false;
     try {
-      const { hashPassword } = await import("./auth");
-      
-      // Check if system is already seeded (if admin user exists)
+      bootstrapClient = await pool.connect();
+      await bootstrapClient.query("SELECT pg_advisory_lock($1)", [73421091]);
+      bootstrapLockAcquired = true;
+
+      // Re-check after acquiring the lock; the endpoint disables itself once
+      // any account has been created.
       const existingUsers = await storage.getUsers();
       if (existingUsers.length > 0) {
-        return res.status(400).json({ message: "System is already initialized with seed data" });
+        return res.status(409).json({ message: "System is already initialized." });
       }
+      const bootstrapAdmin = parsedBootstrap.data;
 
       // Define all permissions used in the system
       const permissions = [
@@ -3091,14 +3125,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Create default admin user
-      const adminPasswordHash = await hashPassword('123456');
+      // Create the administrator account chosen during first-run setup.
+      const adminPasswordHash = await hashPassword(bootstrapAdmin.password);
       const adminUser = await storage.createUser({
-        username: 'ahmad.sulttan',
-        email: 'ahmad.sulttan@gmail.com',
+        username: bootstrapAdmin.username,
+        email: bootstrapAdmin.email,
         password: adminPasswordHash,
-        firstName: 'Ahmad',
-        lastName: 'Sulttan',
+        firstName: bootstrapAdmin.firstName,
+        lastName: bootstrapAdmin.lastName,
         isActive: true,
       });
 
@@ -3136,7 +3170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`Seed data created successfully at ${new Date().toISOString()}`);
       console.log(`- ${permissions.length} permissions created`);
       console.log(`- ${roles.length} roles created`);
-      console.log(`- 1 admin user created (username: ahmad.sulttan)`);
+      console.log("- 1 operator-configured administrator account created");
       console.log(`- 3 system settings created`);
 
       res.json({
@@ -3147,16 +3181,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           users: 1,
           systemSettings: 3,
           adminCredentials: {
-            username: 'ahmad.sulttan',
-            email: 'ahmad.sulttan@gmail.com',
-            note: 'Your admin account is ready to use'
+            username: adminUser.username,
+            email: adminUser.email,
           }
         },
         createdAt: new Date().toISOString()
       });
     } catch (error) {
       console.error("Error creating seed data:", error);
-      res.status(500).json({ message: "Failed to create seed data" });
+      res.status(500).json({ message: "Failed to initialize system" });
+    } finally {
+      if (bootstrapClient) {
+        if (bootstrapLockAcquired) {
+          await bootstrapClient.query("SELECT pg_advisory_unlock($1)", [73421091]).catch(() => {});
+        }
+        bootstrapClient.release();
+      }
     }
   });
 
@@ -11383,7 +11423,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const users = await storage.getUsers();
       if (users.length === 0) return res.status(400).json({ message: "No users found — seed base data first" });
 
-      const adminUser = users.find(u => u.username === "ahmad.sulttan") || users[0];
+      const adminUser = users[0];
       const secondUser = users[1] || adminUser;
       const thirdUser = users[2] || adminUser;
 
