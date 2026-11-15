@@ -501,6 +501,43 @@ describe("change report page", () => {
     )?.status).toBe("draft");
   }, 10_000);
 
+  it("continues exporting without gaps when the last loaded change is deleted", async () => {
+    const user = userEvent.setup();
+    const initialRows = Array.from({ length: 201 }, (_, index) => ({
+      id: `cursor-delete-change-${index + 1}`,
+      changeNumber: `CUR-${String(index + 1).padStart(3, "0")}`,
+      title: `Cursor delete change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      createdAt: new Date(Date.UTC(2026, 9, 1) - index * 60_000).toISOString(),
+      approvals: [],
+      removedApprovals: [],
+    }));
+    reportRows = [...initialRows];
+    let deletedCursorNumber: string | undefined;
+    onExportPageTwoRequest = () => {
+      deletedCursorNumber = reportRows.find(change => change.changeNumber === "CUR-102")?.changeNumber;
+      reportRows = reportRows.filter(change => change.changeNumber !== "CUR-102");
+    };
+
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+    expect(await screen.findByText("Cursor delete change 1")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Excel" }));
+
+    await waitFor(() => expect(exportToExcel).toHaveBeenCalledOnce());
+    expect(deletedCursorNumber).toBe("CUR-102");
+    const exportedNumbers = vi.mocked(exportToExcel).mock.calls[0][0].map(change => change.changeNumber);
+    expect(new Set(exportedNumbers).size).toBe(exportedNumbers.length);
+
+    const remainingNumbers = reportRows.map(change => change.changeNumber);
+    expect(exportedNumbers).toEqual(expect.arrayContaining(remainingNumbers));
+    for (const changeNumber of remainingNumbers) {
+      expect(exportedNumbers.filter(number => number === changeNumber)).toHaveLength(1);
+    }
+  });
+
   it("shows batch progress and blocks other export actions until loading finishes", async () => {
     const user = userEvent.setup();
     reportRows = Array.from({ length: 251 }, (_, index) => ({

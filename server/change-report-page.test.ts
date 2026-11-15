@@ -8,6 +8,105 @@ vi.mock("./db", () => ({ db: { select } }));
 import { DatabaseStorage } from "./storage";
 
 describe("change report page projection", () => {
+  it("continues after the last loaded cursor row is deleted", async () => {
+    const dialect = new PgDialect();
+    let liveChanges = Array.from({ length: 4 }, (_, index) => ({
+      id: `change-${index + 1}`,
+      changeNumber: `CHG-00000${4 - index}`,
+      title: `Change ${index + 1}`,
+      type: "normal",
+      status: "completed",
+      priority: "medium",
+      risk: "low",
+      scheduledStart: null,
+      scheduledEnd: null,
+      createdAt: new Date("2026-10-01T10:00:00.000Z"),
+      requestedByLabel: null,
+      assignedToLabel: null,
+    }));
+    let cursorWhereSql: string | undefined;
+
+    select.mockImplementation((selection: Record<string, unknown>) => {
+      let where: Parameters<typeof dialect.sqlToQuery>[0] | undefined;
+      let limit = Number.POSITIVE_INFINITY;
+      let offset = 0;
+      const builder = {
+        from() {
+          return builder;
+        },
+        leftJoin() {
+          return builder;
+        },
+        where(condition: Parameters<typeof dialect.sqlToQuery>[0] | undefined) {
+          where = condition;
+          return builder;
+        },
+        orderBy() {
+          return builder;
+        },
+        limit(value: number) {
+          limit = value;
+          return builder;
+        },
+        offset(value: number) {
+          offset = value;
+          return builder;
+        },
+        groupBy() {
+          return builder;
+        },
+        then(resolve: (value: unknown[]) => unknown, reject?: (reason: unknown) => unknown) {
+          if (Object.hasOwn(selection, "count")) {
+            return Promise.resolve([{ count: String(liveChanges.length) }]).then(resolve, reject);
+          }
+          if (Object.hasOwn(selection, "changeId")) {
+            return Promise.resolve([]).then(resolve, reject);
+          }
+
+          const compiled = where ? dialect.sqlToQuery(where) : { sql: "", params: [] };
+          const cursor = compiled.params.find(
+            (parameter): parameter is string => typeof parameter === "string" && parameter.startsWith("CHG-"),
+          );
+          if (cursor) cursorWhereSql = compiled.sql;
+          const rows = liveChanges
+            .filter(change => !cursor || change.changeNumber.localeCompare(cursor) < 0)
+            .sort((left, right) => right.changeNumber.localeCompare(left.changeNumber))
+            .slice(offset, offset + limit);
+          return Promise.resolve(rows).then(resolve, reject);
+        },
+      };
+      return builder;
+    });
+
+    const storage = new DatabaseStorage();
+    const firstBatch = await storage.getChangeReportPage({
+      page: 1,
+      pageSize: 2,
+      cursorPaging: true,
+    });
+    const deletedCursorNumber = firstBatch.changes.at(-1)?.changeNumber;
+    expect(deletedCursorNumber).toBe("CHG-000003");
+    liveChanges = liveChanges.filter(change => change.changeNumber !== deletedCursorNumber);
+
+    const nextBatch = await storage.getChangeReportPage({
+      page: 2,
+      pageSize: 2,
+      cursorPaging: true,
+      cursorChangeNumber: deletedCursorNumber,
+    });
+    expect(cursorWhereSql).toContain("change_number");
+    expect(cursorWhereSql).toContain("<");
+    const exportedChanges = [...firstBatch.changes, ...nextBatch.changes];
+    const remainingNumbers = liveChanges.map(change => change.changeNumber);
+    const exportedNumbers = exportedChanges.map(change => change.changeNumber);
+
+    expect(exportedNumbers).toEqual(expect.arrayContaining(remainingNumbers));
+    expect(new Set(exportedNumbers).size).toBe(exportedNumbers.length);
+    for (const changeNumber of remainingNumbers) {
+      expect(exportedNumbers.filter(number => number === changeNumber)).toHaveLength(1);
+    }
+  });
+
   it("joins row labels and returns active approval counts without hydrating approval or stage history", async () => {
     const dialect = new PgDialect();
     const pageRows = [{
