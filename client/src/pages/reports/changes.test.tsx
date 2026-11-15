@@ -5,10 +5,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
 import ChangesReport from "./changes";
 
-const { printMock } = vi.hoisted(() => ({ printMock: vi.fn() }));
+const { printMock, authState } = vi.hoisted(() => ({
+  printMock: vi.fn(),
+  authState: { userId: "viewer-1" as string | null },
+}));
 
 vi.mock("react-to-print", () => ({
   useReactToPrint: () => printMock,
+}));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: authState.userId ? { id: authState.userId } : null }),
 }));
 
 vi.mock("@/lib/report-utils", async (importOriginal) => {
@@ -81,6 +88,8 @@ describe("change report page", () => {
 
   beforeEach(() => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    authState.userId = "viewer-1";
+    window.localStorage.clear();
     requests = [];
     reportRows = history;
     reportSummary = globalSummary;
@@ -303,6 +312,47 @@ describe("change report page", () => {
       const params = new URL(url, "http://report.test").searchParams;
       return params.get("page") === "1" && params.get("pageSize") === "100";
     })).toBe(true);
+  });
+
+  it("restores the saved page size for the same viewer after returning to the report", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+    await user.click(screen.getByRole("combobox", { name: "Rows per page" }));
+    await user.click(screen.getByRole("option", { name: "25" }));
+    expect(await screen.findByText("Page 1 of 3")).toBeTruthy();
+    expect(window.localStorage.getItem("change-report-page-size:viewer-1")).toBe("25");
+
+    unmount();
+    queryClient.clear();
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Page 1 of 3")).toBeTruthy();
+    expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("pageSize") === "25")).toBe(true);
+  });
+
+  it.each(["10", "invalid"])("uses the default page size for an unsupported saved value: %s", async (savedValue) => {
+    window.localStorage.setItem("change-report-page-size:viewer-1", savedValue);
+    render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Mixed CAB decisions")).toBeTruthy();
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("pageSize") === "50")).toBe(true);
+  });
+
+  it("keeps saved page sizes separate for different viewers", async () => {
+    window.localStorage.setItem("change-report-page-size:viewer-1", "25");
+    window.localStorage.setItem("change-report-page-size:viewer-2", "100");
+    const { rerender } = render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Page 1 of 3")).toBeTruthy();
+    authState.userId = "viewer-2";
+    rerender(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
+
+    expect(await screen.findByText("Page 1 of 1")).toBeTruthy();
+    expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("pageSize") === "100")).toBe(true);
   });
 
   it("filters scheduled start dates inclusively before pagination and can clear an empty result", async () => {

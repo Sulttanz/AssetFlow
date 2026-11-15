@@ -28,9 +28,34 @@ import { useReactToPrint } from "react-to-print";
 import Header from "@/components/layout/header";
 import type { ChangeReportRow } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_STORAGE_KEY = "change-report-page-size";
+
+function getSavedPageSize(userId?: string): number {
+  if (!userId || typeof window === "undefined") return DEFAULT_PAGE_SIZE;
+
+  try {
+    const storedPageSize = Number(window.localStorage.getItem(`${PAGE_SIZE_STORAGE_KEY}:${userId}`));
+    return PAGE_SIZE_OPTIONS.includes(storedPageSize as typeof PAGE_SIZE_OPTIONS[number])
+      ? storedPageSize
+      : DEFAULT_PAGE_SIZE;
+  } catch {
+    return DEFAULT_PAGE_SIZE;
+  }
+}
+
+function savePageSize(userId: string | undefined, pageSize: number) {
+  if (!userId || !PAGE_SIZE_OPTIONS.includes(pageSize as typeof PAGE_SIZE_OPTIONS[number])) return;
+
+  try {
+    window.localStorage.setItem(`${PAGE_SIZE_STORAGE_KEY}:${userId}`, String(pageSize));
+  } catch {
+    // The report remains usable when browser storage is unavailable.
+  }
+}
 
 interface ChangeReportSummary {
   total: number;
@@ -93,6 +118,7 @@ const riskColors: Record<string, string> = {
 };
 
 export default function ChangesReport() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -101,7 +127,7 @@ export default function ChangesReport() {
   const [scheduledStartFrom, setScheduledStartFrom] = useState("");
   const [scheduledStartTo, setScheduledStartTo] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageSize, setPageSize] = useState(() => getSavedPageSize(user?.id));
   const [exportFieldKeys, setExportFieldKeys] = useState<ChangeReportExportFieldKey[]>([
     ...CHANGE_REPORT_EXPORT_PRESETS.Excel,
   ]);
@@ -115,6 +141,11 @@ export default function ChangesReport() {
   const exportController = useRef<AbortController | null>(null);
   const retryRequest = useRef<ExportRequest | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setPageSize(getSavedPageSize(user?.id));
+    setPage(1);
+  }, [user?.id]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -615,7 +646,10 @@ export default function ChangesReport() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page</span>
               <Select value={String(pageSize)} onValueChange={(value) => {
-                setPageSize(Number(value));
+                const nextPageSize = Number(value);
+                if (!PAGE_SIZE_OPTIONS.includes(nextPageSize as typeof PAGE_SIZE_OPTIONS[number])) return;
+                setPageSize(nextPageSize);
+                savePageSize(user?.id, nextPageSize);
                 setPage(1);
               }}>
                 <SelectTrigger className="w-[100px]" aria-label="Rows per page"><SelectValue /></SelectTrigger>
