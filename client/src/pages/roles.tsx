@@ -15,6 +15,7 @@ import Header from "@/components/layout/header";
 import { Eye, Edit, Trash2, Shield, Plus, Key } from "lucide-react";
 import type { RoleWithDetails, Permission } from "@shared/schema";
 import RoleForm from "@/components/roles/role-form";
+import { getRoleDisplayName } from "@shared/role-catalog";
 
 export default function RolesPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,7 +56,7 @@ export default function RolesPage() {
     const searchLower = searchQuery.toLowerCase();
     const permissionNames = role.permissions?.map(p => p.name).join(" ") || "";
     return (
-      role.name.toLowerCase().includes(searchLower) ||
+      getRoleDisplayName(role.name).toLowerCase().includes(searchLower) ||
       role.description?.toLowerCase().includes(searchLower) ||
       permissionNames.toLowerCase().includes(searchLower)
     );
@@ -158,7 +159,7 @@ export default function RolesPage() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2" data-testid={`text-name-${role.id}`}>
                         <Shield className="h-4 w-4 text-blue-600" />
-                        {role.name}
+                        {getRoleDisplayName(role.name)}
                       </div>
                     </TableCell>
                     <TableCell data-testid={`text-description-${role.id}`}>
@@ -216,7 +217,9 @@ export default function RolesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDeleteRole(role.id, role.name)}
+                          onClick={() => handleDeleteRole(role.id, getRoleDisplayName(role.name))}
+                          disabled={Boolean(role.isSystemRole)}
+                          title={role.isSystemRole ? "Standard system roles cannot be deleted" : "Delete role"}
                           className="text-destructive hover:text-destructive"
                           data-testid={`button-delete-${role.id}`}
                         >
@@ -269,7 +272,7 @@ export default function RolesPage() {
                   <label className="font-medium text-muted-foreground">Role Name</label>
                   <div className="flex items-center gap-2 mt-1">
                     <Shield className="h-4 w-4 text-blue-600" />
-                    <span className="font-medium" data-testid="view-name">{selectedRole.name}</span>
+                    <span className="font-medium" data-testid="view-name">{getRoleDisplayName(selectedRole.name)}</span>
                   </div>
                 </div>
                 <div>

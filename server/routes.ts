@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import { ensureDropdownIntegrity } from "./dropdown-integrity";
 import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
+import { getStandardRoleKey, STANDARD_ROLE_DEFINITIONS } from "@shared/role-catalog";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
@@ -483,7 +484,7 @@ async function ensureItsmPermissions() {
     }
 
     const rolesWithDetails = await storage.getRolesWithDetails();
-    const adminRole = rolesWithDetails.find(r => r.name === "System Administrator");
+    const adminRole = rolesWithDetails.find(r => getStandardRoleKey(r.name) === "system_admin");
     if (adminRole) {
       const grantedPermissionIds = new Set((adminRole.permissions || []).map(p => p.id));
       for (const permissionId of createdOrExisting) {
@@ -547,29 +548,25 @@ async function ensurePersonaRoles() {
       permissionByName.set(created.name, created);
     }
 
-    const descriptions = {
-      end_user: "Employee self-service: service catalog, personal tickets, and assigned assets",
-      it_agent: "IT operations: incident, request, problem, and IT asset workbenches",
-      cab_member: "Change approval, CMDB impact, financial review, and offboarding clearance",
-      it_manager: "IT operations management, change governance, CMDB, financials, and offboarding",
-      auditor: "Read-only access governance, audit logs, and asset inventory",
-    } as const;
     const rolesWithDetails = await storage.getRolesWithDetails();
-    const roleNames = new Set(rolesWithDetails.map(role => role.name.trim().toLowerCase()));
-    for (const key of ["end_user", "it_agent", "cab_member", "it_manager", "auditor"] as const) {
-      if (roleNames.has(key)) continue;
+    const standardRoleKeys = new Set(rolesWithDetails
+      .map(role => getStandardRoleKey(role.name))
+      .filter((key): key is NonNullable<typeof key> => key !== null));
+    for (const definition of STANDARD_ROLE_DEFINITIONS) {
+      if (standardRoleKeys.has(definition.key)) continue;
       await storage.createRole({
-        name: key,
-        description: descriptions[key],
+        name: definition.key,
+        description: definition.description,
         isSystemRole: true,
       });
+      standardRoleKeys.add(definition.key);
     }
 
     const allRoles = await storage.getRolesWithDetails();
     for (const role of allRoles) {
-      const normalizedName = role.name.trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const standardRoleKey = getStandardRoleKey(role.name);
       const personaKey = getPersonaRoleKeys([role.name])[0];
-      const isAdmin = ["system_administrator", "administrator", "admin"].includes(normalizedName);
+      const isAdmin = standardRoleKey === "system_admin";
       const desiredNames = new Set<string>();
 
       if (isAdmin) {
@@ -918,7 +915,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/roles", requireAuth, requirePermission('role_create'), async (req, res) => {
     try {
       const validatedData = insertRoleSchema.parse(req.body);
-      const role = await storage.createRole(validatedData);
+      if (validatedData.isSystemRole || getStandardRoleKey(validatedData.name)) {
+        return res.status(409).json({ message: "Standard roles are provisioned by the system and cannot be recreated." });
+      }
+      const role = await storage.createRole({
+        ...validatedData,
+        name: validatedData.name.trim(),
+        isSystemRole: false,
+      });
       
       // Log audit
       await logAudit(req.user?.id, 'CREATE', 'roles', role.id, role.name, null, { name: role.name, description: role.description }, req);
@@ -938,8 +942,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get old role for audit log
       const oldRole = await storage.getRole(req.params.id);
+      if (!oldRole) return res.status(404).json({ message: "Role not found" });
+      const requestedStandardKey = validatedData.name ? getStandardRoleKey(validatedData.name) : null;
+      if (oldRole.isSystemRole && validatedData.name && requestedStandardKey !== getStandardRoleKey(oldRole.name)) {
+        return res.status(400).json({ message: "Standard role keys cannot be changed." });
+      }
+      if (!oldRole.isSystemRole && (validatedData.isSystemRole === true || requestedStandardKey)) {
+        return res.status(409).json({ message: "This role name is reserved for a standard system role." });
+      }
+      const roleUpdate = oldRole.isSystemRole
+        ? { ...validatedData, name: oldRole.name, isSystemRole: true }
+        : { ...validatedData, name: validatedData.name?.trim(), isSystemRole: false };
       
-      const role = await storage.updateRole(req.params.id, validatedData);
+      const role = await storage.updateRole(req.params.id, roleUpdate);
       if (!role) {
         return res.status(404).json({ message: "Role not found" });
       }
@@ -960,6 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get role for audit log before deleting
       const role = await storage.getRole(req.params.id);
+      if (role?.isSystemRole) {
+        return res.status(409).json({ message: "Standard system roles cannot be deleted." });
+      }
       
       const deleted = await storage.deleteRole(req.params.id);
       if (!deleted) {
@@ -1381,10 +1399,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .where(eq(assignmentGroups.active, true)).orderBy(asc(assignmentGroups.name))
           : Promise.resolve([]),
       ]);
-      const staffRoleNames = new Set(["it staff", "it support staff", "manager", "it manager", "admin", "administrator", "system administrator", "helpdesk agent", "help desk agent"]);
+      const staffRoleKeys = new Set(["it_agent", "it_manager", "system_admin"]);
       const eligibleUsers = new Map<string, { id: string; name: string }>();
       for (const user of userRows) {
-        if (staffRoleNames.has(user.roleName.trim().toLowerCase())) {
+        if (staffRoleKeys.has(getStandardRoleKey(user.roleName) ?? "")) {
           eligibleUsers.set(user.id, { id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username });
         }
       }
@@ -2097,9 +2115,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   async function canViewAllItsmRecords(userId: string): Promise<boolean> {
     const [perms, roles] = await Promise.all([storage.getUserPermissions(userId), storage.getUserRoles(userId)]);
-    const elevatedRoleNames = new Set(["it staff", "it support staff", "manager", "system administrator", "administrator", "admin", "it manager", "helpdesk agent", "help desk agent"]);
     return perms.some(permission => ["system_admin", "ticket_manage", "ticket_view_all", "change_view_all", "change_approve"].includes(permission)) ||
-      roles.some(role => elevatedRoleNames.has(role.name.trim().toLowerCase()));
+      roles.some(role => ["system_admin", "it_manager", "it_agent"].includes(getStandardRoleKey(role.name) ?? ""));
   }
 
   async function canReadChangeRecord(userId: string, changeId: string): Promise<boolean> {
@@ -2119,10 +2136,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       storage.getUserPermissions(userId),
       storage.getUserRoles(userId),
     ]);
-    const managerRoles = new Set([
-      "admin", "administrator", "system administrator", "system_administrator", "manager", "it manager", "it_manager",
-    ]);
-    return perms.includes("system_admin") || assignedRoles.some(role => managerRoles.has(role.name.trim().toLowerCase()));
+    return perms.includes("system_admin") || assignedRoles.some(role =>
+      ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? ""),
+    );
   }
 
   async function canAccessAssignmentMembers(userId: string): Promise<boolean> {
@@ -3073,13 +3089,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Define default roles
       const roles = [
         {
-          name: 'System Administrator',
+          name: 'system_admin',
           description: 'Full system access with all permissions',
+          isSystemRole: true,
           permissions: Array.from(createdPermissions.values()).map(p => p.id), // All permissions
         },
         {
-          name: 'IT Manager',
+          name: 'it_manager',
           description: 'IT operations management with most permissions except user management',
+          isSystemRole: true,
           permissions: [
             'asset_view', 'asset_create', 'asset_update', 'asset_delete', 'compliance_view',
             'employee_create', 'employee_update', 'employee_delete',
@@ -3093,8 +3111,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ].map(name => createdPermissions.get(name).id),
         },
         {
-          name: 'Asset Manager',
+          name: 'asset_manager',
           description: 'Asset and assignment management',
+          isSystemRole: true,
           permissions: [
             'asset_view', 'asset_create', 'asset_update', 'compliance_view',
             'employee_create', 'employee_update',
@@ -3105,8 +3124,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ].map(name => createdPermissions.get(name).id),
         },
         {
-          name: 'Read Only User',
+          name: 'read_only_user',
           description: 'View-only access to system data',
+          isSystemRole: true,
           permissions: [
             'compliance_view'
           ].map(name => createdPermissions.get(name).id),
@@ -3115,14 +3135,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create roles and assign permissions
       const createdRoles = new Map();
+      const currentRoles = await storage.getRolesWithDetails();
       for (const roleData of roles) {
         const { permissions: permissionIds, ...roleInfo } = roleData;
-        const role = await storage.createRole(roleInfo);
+        const existingRole = currentRoles.find(existing => existing.name === roleInfo.name);
+        const role = existingRole ??
+          await storage.createRole(roleInfo);
         createdRoles.set(roleData.name, role);
 
         // Assign permissions to role
+        const currentPermissionIds = new Set((existingRole?.permissions ?? []).map(permission => permission.id));
         for (const permissionId of permissionIds) {
-          await storage.assignRolePermission(role.id, permissionId);
+          if (!currentPermissionIds.has(permissionId)) {
+            await storage.assignRolePermission(role.id, permissionId);
+          }
         }
       }
 
@@ -3138,7 +3164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Assign System Administrator role to admin user
-      const adminRole = createdRoles.get('System Administrator');
+      const adminRole = createdRoles.get('system_admin');
       await storage.assignUserRole(adminUser.id, adminRole.id);
 
       // The persona roles were provisioned before the initial seed data existed.
@@ -5008,9 +5034,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         storage.getUserRoles(req.user!.id),
         storage.getUserPermissions(req.user!.id),
       ]);
-      const roleNames = userRoles.map(role => role.name.trim().toLowerCase().replace(/[\s-]+/g, "_"));
       const isAdmin = userPermissions.includes("system_admin") ||
-        roleNames.some(name => ["admin", "administrator", "system_administrator"].includes(name));
+        userRoles.some(role => getStandardRoleKey(role.name) === "system_admin");
       const personaRoles = getPersonaRoleKeys(userRoles.map(role => role.name));
       if (!isAdmin && !isDemoViewer(userRoles.map(role => role.name)) && !personaRoles.some(role => role === "it_manager" || role === "cab_member")) {
         return res.status(403).json({ message: "Executive analytics are available to IT Managers, CAB Members, and administrators" });

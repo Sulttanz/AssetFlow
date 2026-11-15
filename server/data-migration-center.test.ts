@@ -77,8 +77,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       { id: otherActorId, username: `${prefix}-other`, email: `${prefix}-other@example.test`, password: "not-a-login-credential", firstName: "Other", lastName: "Tester" },
       { id: noRoleId, username: `${prefix}-visitor`, email: `${prefix}-visitor@example.test`, password: "not-a-login-credential", firstName: "Read", lastName: "Only" },
     ]);
-    await db.insert(roles).values({ name: "IT Manager" }).onConflictDoNothing();
-    const [managerRole] = await db.select().from(roles).where(eq(roles.name, "IT Manager"));
+    const [managerRole] = await db.select().from(roles).where(eq(roles.name, "it_manager"));
     await db.insert(userRoles).values([
       { userId: actorId, roleId: managerRole.id },
       { userId: otherActorId, roleId: managerRole.id },

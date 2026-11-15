@@ -59,7 +59,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       email: `${username}@example.test`, firstName: "Mutation", lastName: "Verifier", isActive: true,
     });
     await db.insert(s.roles).values({ id: roleId, name: `Mutation Verification ${suffix}` });
-    for (const name of ["system_admin", "employee_create", "employee_update"]) {
+    for (const name of ["system_admin", "employee_create", "employee_update", "role_view", "role_create", "role_update", "role_delete"]) {
       await db.insert(s.permissions).values({ name, description: name }).onConflictDoNothing();
       const [permission] = await db.select().from(s.permissions).where(eq(s.permissions.name, name));
       await db.insert(s.rolePermissions).values({ roleId, permissionId: permission.id });
@@ -118,6 +118,25 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     expect(invalid.errors).toEqual(expect.arrayContaining([expect.objectContaining({ path: "firstName" })]));
     const duplicateUpdate = await request("PUT", `/api/employees/${employeeIds[0]}`, { employeeId: "3" }, 409);
     expect(duplicateUpdate.code).toBe("DUPLICATE_EMPLOYEE_ID");
+  });
+
+  it("lists canonical standard role keys, renders standard names through the catalog, and protects system roles", async () => {
+    const roles = await request("GET", "/api/roles");
+    const standardKeys = [
+      "system_admin", "it_manager", "it_agent", "cab_member",
+      "auditor", "asset_manager", "end_user", "read_only_user",
+    ];
+    for (const key of standardKeys) {
+      const role = roles.find((entry: { name: string }) => entry.name === key);
+      expect(role, `missing standard role ${key}`).toBeDefined();
+      expect(role.isSystemRole).toBe(true);
+    }
+    const itManager = roles.find((entry: { name: string }) => entry.name === "it_manager");
+    expect(await request("POST", "/api/roles", { name: "IT Manager", description: "duplicate", isSystemRole: false }, 409))
+      .toMatchObject({ message: expect.stringContaining("Standard roles") });
+    expect(await request("PUT", `/api/roles/${itManager.id}`, { name: "IT Manager" })).toMatchObject({ name: "it_manager" });
+    await request("PUT", `/api/roles/${itManager.id}`, { name: "Different Role" }, 400);
+    await request("DELETE", `/api/roles/${itManager.id}`, undefined, 409);
   });
 
   it("stores multiple blank emails as null and preserves omitted emails on update", async () => {

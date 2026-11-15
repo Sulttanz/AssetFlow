@@ -1,4 +1,5 @@
 import { respondWithApiError } from "./api-error-handler";
+import { getStandardRoleKey } from "@shared/role-catalog";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
@@ -46,7 +47,7 @@ import { toSpreadsheetDateInput } from "@shared/date-format";
 import { db } from "./db";
 import { storage } from "./storage";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
-import { isSystemAdministrator, getPersonaRoleKeys } from "@shared/personas";
+import { isSystemAdministrator } from "@shared/personas";
 
 const MAX_ROWS = 5000;
 const PREVIEW_TTL_MS = 60 * 60 * 1000;
@@ -1084,9 +1085,7 @@ export function registerDataMigrationRoutes(
         storage.getUserRoles(req.user.id),
         storage.getUserPermissions(req.user.id),
       ]);
-      const names = roles.map(role => role.name.trim().toLowerCase().replace(/[\s-]+/g, "_"));
-      const manager = names.some(name => ["manager", "it_manager"].includes(name)) ||
-        getPersonaRoleKeys(roles.map(role => role.name)).includes("it_manager");
+      const manager = roles.some(role => getStandardRoleKey(role.name) === "it_manager");
       if (!manager && !isSystemAdministrator({ roles, permissions })) {
         return void res.status(403).json({ message: "Bulk imports are restricted to Managers and Administrators." });
       }

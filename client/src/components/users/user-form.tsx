@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { insertUserSchema, type User, type Role } from "@shared/schema";
+import { getRoleDisplayName } from "@shared/role-catalog";
 import { z } from "zod";
 
 // Create separate schemas for create and edit operations
@@ -330,7 +331,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
                       data-testid={`checkbox-role-${role.name}`}
                     />
                     <label htmlFor={`role-${role.id}`} className="text-sm font-medium">
-                      {role.name}
+                      {getRoleDisplayName(role.name)}
                     </label>
                   </div>
                 ))}

@@ -92,7 +92,7 @@ async function ensureRolePermission(tx: any, roleId: string, permissionId: strin
 }
 
 const people = [
-  { key: "admin", firstName: "Alex", lastName: "Morgan", title: "System Administrator", department: "IT", role: "admin" },
+  { key: "admin", firstName: "Alex", lastName: "Morgan", title: "System Administrator", department: "IT", role: "system_admin" },
   { key: "manager", firstName: "Riley", lastName: "Chen", title: "IT Project Manager", department: "IT", role: "it_manager" },
   { key: "support-1", firstName: "Jordan", lastName: "Patel", title: "Support Engineer", department: "IT", role: "it_agent" },
   { key: "support-2", firstName: "Casey", lastName: "Reed", title: "Network Engineer", department: "IT", role: "it_agent" },
@@ -198,7 +198,7 @@ export async function seedComprehensiveData(
     }
 
     const roleIds = new Map<string, string>();
-    for (const roleName of ["admin", "it_manager", "it_agent", "end_user", "cab_member"]) {
+    for (const roleName of ["system_admin", "it_manager", "it_agent", "end_user", "cab_member", "auditor", "asset_manager", "read_only_user"]) {
       const [existing] = await tx.select({ id: roles.id }).from(roles).where(eq(roles.name, roleName)).limit(1);
       if (existing) {
         roleIds.set(roleName, existing.id);

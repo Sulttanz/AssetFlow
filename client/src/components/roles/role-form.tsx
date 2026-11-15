@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Key } from "lucide-react";
+import { getRoleDisplayName } from "@shared/role-catalog";
 
 // Extend the role schema to include selected permissions
 const roleFormSchema = insertRoleSchema.extend({
@@ -55,7 +56,7 @@ export default function RoleForm({ role, permissions, onSuccess, onCancel }: Rol
   useEffect(() => {
     if (role) {
       form.reset({
-        name: role.name,
+        name: getRoleDisplayName(role.name),
         description: role.description || "",
         isSystemRole: role.isSystemRole,
         selectedPermissions: role.permissions?.map(p => p.id) || [],
@@ -145,6 +146,8 @@ export default function RoleForm({ role, permissions, onSuccess, onCancel }: Rol
                   <Input
                     placeholder="Enter role name"
                     {...field}
+                    readOnly={Boolean(role?.isSystemRole)}
+                    className={role?.isSystemRole ? "bg-muted" : undefined}
                     data-testid="input-name"
                   />
                 </FormControl>
@@ -182,6 +185,7 @@ export default function RoleForm({ role, permissions, onSuccess, onCancel }: Rol
                   <Checkbox
                     checked={field.value || false}
                     onCheckedChange={field.onChange}
+                    disabled={Boolean(role?.isSystemRole)}
                     data-testid="checkbox-systemRole"
                   />
                 </FormControl>

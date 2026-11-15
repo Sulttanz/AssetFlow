@@ -187,7 +187,7 @@ export default function SystemInitialization() {
                   </p>
                   <ul className="text-blue-700 dark:text-blue-300 mt-2 space-y-1 list-disc list-inside">
                     <li><span className="font-medium">34 system permissions</span> for all operations (assets, users, budgets, etc.)</li>
-                    <li><span className="font-medium">4 default roles</span>: System Administrator, IT Manager, Asset Manager, Read Only User</li>
+                    <li><span className="font-medium">8 standard roles</span>: System Administrator, IT Manager, IT Agent, CAB Member, Auditor, Asset Manager, End User, Read Only User</li>
                     <li><span className="font-medium">Administrator account</span> using the username and password you choose below</li>
                     <li><span className="font-medium">Default system settings</span> for asset ID generation and date formats</li>
                   </ul>

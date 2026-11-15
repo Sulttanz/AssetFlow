@@ -15,6 +15,7 @@ import Header from "@/components/layout/header";
 import UserForm from "@/components/users/user-form";
 import { Eye, Edit, Trash2, Users, UserPlus, Shield } from "lucide-react";
 import type { UserWithDetails } from "@shared/schema";
+import { getRoleDisplayName } from "@shared/role-catalog";
 import {
   Pagination,
   PaginationContent,
@@ -60,7 +61,7 @@ export default function UsersPage() {
 
   const filteredUsers = users?.filter(user => {
     const searchLower = searchQuery.toLowerCase();
-    const roles = user.roles?.map(r => r.name).join(" ") || "";
+    const roles = user.roles?.map(r => getRoleDisplayName(r.name)).join(" ") || "";
     return (
       user.firstName.toLowerCase().includes(searchLower) ||
       user.lastName.toLowerCase().includes(searchLower) ||
@@ -215,7 +216,7 @@ export default function UsersPage() {
                         {user.roles?.map((role) => (
                           <Badge key={role.id} variant="outline" className="text-xs">
                             <Shield className="h-3 w-3 mr-1" />
-                            {role.name}
+                            {getRoleDisplayName(role.name)}
                           </Badge>
                         )) || <span className="text-muted-foreground text-sm">No roles</span>}
                       </div>
@@ -350,7 +351,7 @@ export default function UsersPage() {
                     {selectedUser.roles?.map((role) => (
                       <Badge key={role.id} variant="outline">
                         <Shield className="h-3 w-3 mr-1" />
-                        {role.name}
+                        {getRoleDisplayName(role.name)}
                       </Badge>
                     )) || <span className="text-muted-foreground">No roles assigned</span>}
                   </div>

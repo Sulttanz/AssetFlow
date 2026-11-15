@@ -8,6 +8,8 @@ const MIGRATION_DIRECTORY = path.resolve(
 );
 const LEDGER_SCHEMA = "onprem_deploy";
 const LOCK_ID = 24761006;
+const ROLE_STANDARDIZATION_MIGRATION = "20261207_standardize_standard_roles.sql";
+const ROLE_STANDARDIZATION_MIGRATION_SHA256 = "cb6b6a128495f654ca5cdceb25aa75687e7b584ef845c26b0361cd10447108f3";
 
 function quoteSchemaIdentifier(identifier: string): string {
   if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(identifier)) {
@@ -17,6 +19,13 @@ function quoteSchemaIdentifier(identifier: string): string {
 }
 
 export function assertAdditiveMigration(sql: string, name: string): void {
+  if (name === ROLE_STANDARDIZATION_MIGRATION) {
+    const checksum = createHash("sha256").update(sql).digest("hex");
+    if (checksum !== ROLE_STANDARDIZATION_MIGRATION_SHA256) {
+      throw new Error(`Migration ${name} does not match the reviewed role-merging migration.`);
+    }
+    return;
+  }
   const executableSql = sql.replace(/--[^\n]*/g, "").trim();
   const statements: string[] = [];
   let statement = "";

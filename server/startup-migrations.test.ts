@@ -95,6 +95,15 @@ describe("on-prem startup migrations", () => {
     }
   });
 
+  it("accepts only the exact reviewed built-in role merge migration", async () => {
+    const migration = await readFile("migrations/onprem/20261207_standardize_standard_roles.sql", "utf8");
+    expect(() => assertAdditiveMigration(migration, "20261207_standardize_standard_roles.sql")).not.toThrow();
+    expect(() => assertAdditiveMigration(
+      `${migration}\nDROP TABLE users;`,
+      "20261207_standardize_standard_roles.sql",
+    )).toThrow(/reviewed role-merging migration/);
+  });
+
   it("accepts the ITSM migrations' additive foreign keys and activity tables", async () => {
     for (const name of [
       "20261020_incident_management.sql",

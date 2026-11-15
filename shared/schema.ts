@@ -1109,8 +1109,8 @@ export const insertGroupMemberSchema = createInsertSchema(assignmentGroupMembers
 export type AssignmentGroup = typeof assignmentGroups.$inferSelect;
 export type AssignmentGroupMember = typeof assignmentGroupMembers.$inferSelect;
 
-// These are the standard workspace personas. The roles table remains text-based
-// so installations can keep their custom roles alongside the built-in personas.
+// Persona role names are stored as canonical lower-snake-case keys; custom role
+// names remain supported and are kept separate from the standard role catalog.
 export const PERSONA_ROLE_KEYS = [
   "end_user",
   "it_agent",

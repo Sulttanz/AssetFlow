@@ -60,6 +60,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useModules } from "@/hooks/use-modules";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { isPersonaApiAllowed, isPersonaPageAllowed, isSystemAdministrator, personaRolesForUser } from "@shared/personas";
+import { getRoleDisplayName, getStandardRoleKey } from "@shared/role-catalog";
 import { isDemoViewer } from "@shared/demo-viewer";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -303,7 +304,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           href: "/import",
           icon: DatabaseBackup,
           current: location === "/import" || location === "/migration",
-          visible: (isSystemAdministrator(user) || personaRoles.includes("it_manager") || roleNames.some(name => name.trim().toLowerCase() === "manager")) &&
+          visible: (isSystemAdministrator(user) || personaRoles.includes("it_manager") || roleNames.some(name => getStandardRoleKey(name) === "it_manager")) &&
             ["asset_management", "cmdb", "itsm", "project_management", "risk_management"].some(isModuleEnabled),
         },
         { name: "Settings", href: "/settings", icon: Settings, current: location === "/settings" },
@@ -319,7 +320,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
           icon: Users,
           current: location === "/admin/assignment-groups",
           visible: isSystemAdministrator(user) || personaRoles.includes("it_manager") ||
-            roleNames.some(name => ["manager", "it manager", "it_manager"].includes(name.trim().toLowerCase())),
+            roleNames.some(name => getStandardRoleKey(name) === "it_manager"),
         },
       ],
     },
@@ -361,7 +362,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     }),
   }));
   const overviewExpandedByDefault = isSystemAdministrator(user) ||
-    personaRoles.includes("it_manager") || roleNames.some(name => name.trim().toLowerCase() === "manager");
+    personaRoles.includes("it_manager") || roleNames.some(name => getStandardRoleKey(name) === "it_manager");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
     const activeSection = navigationSections.find((section) =>
       section.items.some((item: any) => item.current || item.submenu?.some((sub: any) => sub.current))
@@ -551,7 +552,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.username || 'User'}
             </p>
             <p className="text-xs text-muted-foreground truncate" data-testid="user-role">
-              {user?.roles?.[0]?.name || 'User'}
+              {getRoleDisplayName(user?.roles?.[0]?.name) || 'User'}
             </p>
           </div>
           <DropdownMenu>

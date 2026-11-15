@@ -1,18 +1,11 @@
-import type { PersonaRoleKey } from "./schema";
+import { PERSONA_ROLE_KEYS, type PersonaRoleKey } from "./schema";
 import { isDemoApiAllowed, isDemoPageAllowed, isDemoViewer } from "./demo-viewer";
+import { getStandardRoleKey } from "./role-catalog";
 
 export type PersonaUserLike = {
   id?: string;
   roles?: Array<{ name: string }> | null;
   permissions?: readonly string[] | null;
-};
-
-const ROLE_ALIASES: Record<PersonaRoleKey, readonly string[]> = {
-  end_user: ["end_user", "end user", "employee"],
-  it_agent: ["it_agent", "it agent", "it staff", "it support staff", "helpdesk agent", "help desk agent"],
-  cab_member: ["cab_member", "cab member", "cab approver"],
-  it_manager: ["it_manager", "it manager", "it operations manager"],
-  auditor: ["auditor", "compliance auditor"],
 };
 
 const IT_AGENT_PAGE_PREFIXES = [
@@ -32,26 +25,20 @@ const MANAGER_PAGE_PREFIXES = [
   "/reports/project-variance", "/reports/project-velocity", "/reports/risk-heatmap", "/reports/itsm-cab",
 ];
 
-function normalize(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
-
 function matchesPath(path: string, prefix: string): boolean {
   return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 export function getPersonaRoleKeys(roleNames: readonly string[] = []): PersonaRoleKey[] {
-  const normalizedNames = new Set(roleNames.map(normalize));
-  return (Object.keys(ROLE_ALIASES) as PersonaRoleKey[]).filter(key =>
-    ROLE_ALIASES[key].some(alias => normalizedNames.has(normalize(alias))),
-  );
+  const normalizedNames = new Set(roleNames.map(getStandardRoleKey).filter((key): key is NonNullable<typeof key> => key !== null));
+  return PERSONA_ROLE_KEYS.filter(key => normalizedNames.has(key));
 }
 
 export function isSystemAdministrator(user: PersonaUserLike | null | undefined): boolean {
   if (!user) return false;
   if (isDemoViewer(user.roles?.map(role => role.name) ?? [])) return false;
   return user.permissions?.includes("system_admin") === true ||
-    user.roles?.some(role => ["system_administrator", "administrator", "admin"].includes(normalize(role.name))) === true;
+    user.roles?.some(role => getStandardRoleKey(role.name) === "system_admin") === true;
 }
 
 export function personaRolesForUser(user: PersonaUserLike | null | undefined): PersonaRoleKey[] {
@@ -73,9 +60,7 @@ export function isPersonaPageAllowed(
   if (path === "/knowledge-base") return true;
   if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
   if (["/reports", "/reports/personnel", "/reports/employee-directory", "/reports/workload-heatmap", "/reports/account-activity"].includes(path)) return true;
-  if (permissions.includes("system_admin") || roleNames.some(name =>
-    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
-  )) return true;
+  if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
 
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
@@ -164,9 +149,7 @@ export function isPersonaApiAllowed(
   method: string,
 ): boolean {
   if (isDemoViewer(roleNames)) return isDemoApiAllowed(path, method);
-  if (permissions.includes("system_admin") || roleNames.some(name =>
-    ["system_administrator", "administrator", "admin"].includes(normalize(name)),
-  )) return true;
+  if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true;
   const apiPath = path.split("?", 1)[0] || "/";

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Pencil, Search, UserPlus, UserRoundMinus } from "lucide-react";
 import { isSystemAdministrator } from "@shared/personas";
+import { getStandardRoleKey } from "@shared/role-catalog";
 import Header from "@/components/layout/header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,10 +40,9 @@ export default function AssignmentGroupsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const roleNames = user?.roles?.map(role => role.name.trim().toLowerCase()) ?? [];
   const canManage = Boolean(user && (
     isSystemAdministrator(user) ||
-    roleNames.some(role => ["manager", "it manager", "it_manager"].includes(role))
+    user.roles?.some(role => getStandardRoleKey(role.name) === "it_manager")
   ));
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<AssignmentGroup | null>(null);

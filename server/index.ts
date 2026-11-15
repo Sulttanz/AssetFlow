@@ -177,7 +177,7 @@ app.use((req, res, next) => {
           .select({ id: users.id })
           .from(users)
           .innerJoin(userRoles, eq(userRoles.userId, users.id))
-          .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, "System Administrator")))
+          .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, "system_admin")))
           .limit(1);
         const systemAuthorId = systemUser?.id ?? null;
         if (!systemAuthorId) return; // No admin user; skip this run
