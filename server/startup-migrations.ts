@@ -172,11 +172,25 @@ export async function runStartupMigrations(): Promise<void> {
   const client = await pool.connect();
   try {
     const result = await applyStartupMigrations(client);
+    await assertCabStreamLeasesTable(client);
     console.log(
       `On-prem SQL migrations: ${result.applied.length} applied, ${result.alreadyApplied.length} already applied.`,
     );
   } finally {
     client.release();
+  }
+}
+
+export async function assertCabStreamLeasesTable(client: {
+  query: (query: string, values?: unknown[]) => Promise<{ rows?: any[] }>;
+}): Promise<void> {
+  const { rows = [] } = await client.query(
+    "SELECT to_regclass('cab_stream_leases') AS table_name",
+  );
+  if (!rows[0]?.table_name) {
+    throw new Error(
+      "Required CAB event lease table cab_stream_leases is missing after startup migrations.",
+    );
   }
 }
 

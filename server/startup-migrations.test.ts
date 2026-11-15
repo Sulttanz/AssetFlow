@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   applyStartupMigrations,
+  assertCabStreamLeasesTable,
   assertAdditiveMigration,
   compareAppVersions,
 } from "./startup-migrations";
@@ -23,6 +24,9 @@ class MigrationClient {
       return { rows: [] };
     }
     if (/^INSERT INTO settings\b/i.test(query.trim())) {
+      this.executedSql.push(query);
+    }
+    if (/^CREATE TABLE IF NOT EXISTS cab_stream_leases\b/i.test(query.trim())) {
       this.executedSql.push(query);
     }
     if (/CREATE INDEX IF NOT EXISTS\b/i.test(query)) {
@@ -133,6 +137,45 @@ describe("on-prem startup migrations", () => {
       alreadyApplied: [],
     });
     expect(client.executedSql).toContain(deployedMigration);
+  });
+
+  it("applies the CAB stream lease table migration and verifies it before startup", async () => {
+    const deployedMigration = await readFile(
+      path.resolve(process.cwd(), "migrations/onprem/20261205_cab_stream_leases.sql"),
+      "utf8",
+    );
+    const developmentMigration = await readFile(
+      path.resolve(process.cwd(), "migrations/20261004_cab_stream_leases.sql"),
+      "utf8",
+    );
+
+    expect(() => assertAdditiveMigration(deployedMigration, "CAB stream leases")).not.toThrow();
+    expect(deployedMigration.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim())
+      .toBe(developmentMigration.replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim());
+
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "onprem-cab-leases-test-"));
+    const filename = "20261205_cab_stream_leases.sql";
+    await writeFile(path.join(tempDirectory, filename), deployedMigration);
+    const client = new MigrationClient();
+    await expect(applyStartupMigrations(client, tempDirectory)).resolves.toMatchObject({
+      applied: [filename],
+      alreadyApplied: [],
+    });
+    await expect(applyStartupMigrations(client, tempDirectory)).resolves.toMatchObject({
+      applied: [],
+      alreadyApplied: [filename],
+    });
+    expect(client.executedSql).toHaveLength(1);
+    expect(client.executedSql[0]).toContain("CREATE TABLE IF NOT EXISTS cab_stream_leases");
+    expect(client.executedSql[0]).toContain("CREATE INDEX IF NOT EXISTS cab_stream_leases_user_expiry_idx");
+    expect(client.executedSql[0]).toContain("CREATE INDEX IF NOT EXISTS cab_stream_leases_expiry_idx");
+
+    await expect(assertCabStreamLeasesTable({
+      query: async () => ({ rows: [{ table_name: "cab_stream_leases" }] }),
+    })).resolves.toBeUndefined();
+    await expect(assertCabStreamLeasesTable({
+      query: async () => ({ rows: [{ table_name: null }] }),
+    })).rejects.toThrow(/required CAB event lease table cab_stream_leases is missing/i);
   });
 
   it("compares configured release versions numerically", () => {
