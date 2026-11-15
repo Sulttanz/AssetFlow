@@ -72,6 +72,7 @@ import { resolveIncidentContractContext } from "./incident-contract-resolution";
 import { registerEnterpriseReportingRoutes } from "./enterprise-reporting";
 import { receivePurchaseOrderInventory } from "./procurement-inventory";
 import { reserveFinancialDocumentNumber } from "./finance-document-numbering";
+import { respondWithApiError } from "./api-error-handler";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -120,7 +121,7 @@ export function checkModuleEnabled(moduleKey: string) {
       }
       next();
     } catch (error) {
-      res.status(500).json({ message: "Failed to verify module status" });
+      respondWithApiError(res, error, "Failed to verify module status");
     }
   };
 }
@@ -317,7 +318,7 @@ async function listServiceContracts(req: any, res: any) {
     return res.json(result);
   } catch (error) {
     console.error("Failed to fetch service contracts:", error);
-    return res.status(500).json({ message: "Failed to fetch service contracts" });
+    return respondWithApiError(res, error, "Failed to fetch service contracts");
   }
 }
 
@@ -329,7 +330,7 @@ async function getServiceContractById(id: number, res: any) {
     return res.json({ ...contract, status: getServiceContractStatus(contract) });
   } catch (error) {
     console.error("Failed to fetch service contract:", error);
-    return res.status(500).json({ message: "Failed to fetch service contract" });
+    return respondWithApiError(res, error, "Failed to fetch service contract");
   }
 }
 
@@ -344,7 +345,7 @@ async function createServiceContract(req: any, res: any) {
     if (isDatabaseConstraintError(error, "23505")) return res.status(409).json({ message: "A service contract with this number already exists" });
     if (isDatabaseConstraintError(error, "23503")) return res.status(400).json({ message: "The selected project or SLA policy does not exist" });
     console.error("Failed to create service contract:", error);
-    return res.status(500).json({ message: "Failed to create service contract" });
+    return respondWithApiError(res, error, "Failed to create service contract");
   }
 }
 
@@ -369,7 +370,7 @@ async function updateServiceContract(id: number, req: any, res: any) {
     if (isDatabaseConstraintError(error, "23505")) return res.status(409).json({ message: "A service contract with this number already exists" });
     if (isDatabaseConstraintError(error, "23503")) return res.status(400).json({ message: "The selected project or SLA policy does not exist" });
     console.error("Failed to update service contract:", error);
-    return res.status(500).json({ message: "Failed to update service contract" });
+    return respondWithApiError(res, error, "Failed to update service contract");
   }
 }
 
@@ -383,7 +384,7 @@ async function deleteServiceContract(id: number, req: any, res: any) {
     return res.status(204).send();
   } catch (error) {
     console.error("Failed to delete service contract:", error);
-    return res.status(500).json({ message: "Failed to delete service contract" });
+    return respondWithApiError(res, error, "Failed to delete service contract");
   }
 }
 
@@ -633,7 +634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid spreadsheet export data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to generate Excel report" });
+      respondWithApiError(res, error, "Failed to generate Excel report");
     }
   });
 
@@ -670,7 +671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return next();
         } catch (error) {
           console.error("Failed to verify API persona access:", error);
-          return res.status(500).json({ error: "Failed to verify API access" });
+          return respondWithApiError(res, error, "Failed to verify API access");
         }
       })();
     });
@@ -758,7 +759,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const usersWithoutPasswords = users.map(({ password, ...user }) => user);
       res.json(usersWithoutPasswords);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch users" });
+      respondWithApiError(res, error, "Failed to fetch users");
     }
   });
 
@@ -772,7 +773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { password, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch user" });
+      respondWithApiError(res, error, "Failed to fetch user");
     }
   });
 
@@ -798,7 +799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid user data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create user", error: error instanceof Error ? error.message : 'Unknown error' });
+      respondWithApiError(res, error, "Failed to create user");
     }
   });
 
@@ -866,7 +867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid user data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update user" });
+      respondWithApiError(res, error, "Failed to update user");
     }
   });
 
@@ -888,7 +889,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete user" });
+      respondWithApiError(res, error, "Failed to delete user");
     }
   });
 
@@ -898,7 +899,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const roles = await storage.getRolesWithDetails();
       res.json(roles);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch roles" });
+      respondWithApiError(res, error, "Failed to fetch roles");
     }
   });
 
@@ -910,7 +911,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(role);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch role" });
+      respondWithApiError(res, error, "Failed to fetch role");
     }
   });
 
@@ -927,7 +928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid role data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create role" });
+      respondWithApiError(res, error, "Failed to create role");
     }
   });
 
@@ -951,7 +952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid role data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update role" });
+      respondWithApiError(res, error, "Failed to update role");
     }
   });
 
@@ -972,7 +973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete role" });
+      respondWithApiError(res, error, "Failed to delete role");
     }
   });
 
@@ -982,7 +983,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const permissions = await storage.getPermissions();
       res.json(permissions);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch permissions" });
+      respondWithApiError(res, error, "Failed to fetch permissions");
     }
   });
 
@@ -1009,7 +1010,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const managedIds = new Set(managed.map(row => row.id));
       res.json(contracts.map(row => ({ ...row, vendorContractManaged: managedIds.has(row.id) })));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch contracts" });
+      respondWithApiError(res, error, "Failed to fetch contracts");
     }
   });
 
@@ -1024,7 +1025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(contract);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create contract" });
+      respondWithApiError(res, error, "Failed to create contract");
     }
   });
 
@@ -1035,7 +1036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!contract) return res.status(404).json({ message: "Contract not found" });
       res.json(contract);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch contract" });
+      respondWithApiError(res, error, "Failed to fetch contract");
     }
   });
 
@@ -1051,7 +1052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(contract);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid contract data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update contract" });
+      respondWithApiError(res, error, "Failed to update contract");
     }
   });
 
@@ -1065,7 +1066,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (contract) await logAudit(req.user?.id, 'DELETE', 'contracts', contract.id, contract.name, contract, null, req);
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete contract" });
+      respondWithApiError(res, error, "Failed to delete contract");
     }
   });
 
@@ -1075,7 +1076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const bookings = await storage.getAssetBookings();
       res.json(bookings);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch bookings" });
+      respondWithApiError(res, error, "Failed to fetch bookings");
     }
   });
 
@@ -1087,7 +1088,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(booking);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create booking" });
+      respondWithApiError(res, error, "Failed to create booking");
     }
   });
 
@@ -1097,7 +1098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!booking) return res.status(404).json({ message: "Booking not found" });
       res.json(booking);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch booking" });
+      respondWithApiError(res, error, "Failed to fetch booking");
     }
   });
 
@@ -1111,7 +1112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(booking);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid booking data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update booking" });
+      respondWithApiError(res, error, "Failed to update booking");
     }
   });
 
@@ -1123,7 +1124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (booking) await logAudit(req.user?.id, 'DELETE', 'asset_bookings', booking.id, `Booking for ${booking.assetId}`, booking, null, req);
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete booking" });
+      respondWithApiError(res, error, "Failed to delete booking");
     }
   });
 
@@ -1133,7 +1134,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const records = await storage.getAssetDisposalRecords();
       res.json(records);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch disposal records" });
+      respondWithApiError(res, error, "Failed to fetch disposal records");
     }
   });
 
@@ -1149,7 +1150,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(record);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create disposal record" });
+      respondWithApiError(res, error, "Failed to create disposal record");
     }
   });
 
@@ -1163,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(record);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid disposal data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update disposal record" });
+      respondWithApiError(res, error, "Failed to update disposal record");
     }
   });
 
@@ -1173,7 +1174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessions = await storage.getAssetAuditSessions();
       res.json(sessions);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch audit sessions" });
+      respondWithApiError(res, error, "Failed to fetch audit sessions");
     }
   });
 
@@ -1188,7 +1189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(session);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create audit session" });
+      respondWithApiError(res, error, "Failed to create audit session");
     }
   });
 
@@ -1198,7 +1199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!session) return res.status(404).json({ message: "Audit session not found" });
       res.json(session);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch audit session" });
+      respondWithApiError(res, error, "Failed to fetch audit session");
     }
   });
 
@@ -1212,7 +1213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(session);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit session data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update audit session" });
+      respondWithApiError(res, error, "Failed to update audit session");
     }
   });
 
@@ -1221,7 +1222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const items = await storage.getAuditItems(req.params.id);
       res.json(items);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch audit items" });
+      respondWithApiError(res, error, "Failed to fetch audit items");
     }
   });
 
@@ -1242,7 +1243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.issues });
-      res.status(500).json({ message: "Failed to upsert audit item" });
+      respondWithApiError(res, error, "Failed to upsert audit item");
     }
   });
 
@@ -1266,7 +1267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid audit item data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update audit item" });
+      respondWithApiError(res, error, "Failed to update audit item");
     }
   });
 
@@ -1276,7 +1277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const relationships = await storage.getAssetRelationships(req.params.id);
       res.json(relationships);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch asset relationships" });
+      respondWithApiError(res, error, "Failed to fetch asset relationships");
     }
   });
 
@@ -1287,7 +1288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(relationship);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid relationship data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create relationship" });
+      respondWithApiError(res, error, "Failed to create relationship");
     }
   });
 
@@ -1297,7 +1298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!deleted) return res.status(404).json({ message: "Relationship not found" });
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete relationship" });
+      respondWithApiError(res, error, "Failed to delete relationship");
     }
   });
 
@@ -1307,7 +1308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requests = await storage.getAssetRequests();
       res.json(requests);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch asset requests" });
+      respondWithApiError(res, error, "Failed to fetch asset requests");
     }
   });
 
@@ -1319,7 +1320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(request);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create asset request" });
+      respondWithApiError(res, error, "Failed to create asset request");
     }
   });
 
@@ -1359,8 +1360,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         requesterMobile: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null : null,
         assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch incidents" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch incidents");
     }
   });
 
@@ -1399,8 +1400,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         managedAssignmentGroups: canManageTickets ? managedAssignmentGroups : [],
         slaPolicies: policyRows.filter(policy => !policy.ticketType || policy.ticketType === "incident"),
       });
-    } catch {
-      res.status(500).json({ message: "Failed to load incident options" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load incident options");
     }
   });
 
@@ -1427,8 +1428,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(incident);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch incident" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch incident");
     }
   });
 
@@ -1446,8 +1447,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).from(incidentActivities).leftJoin(users, eq(users.id, incidentActivities.actorId))
         .where(eq(incidentActivities.incidentId, incident.id));
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch incident activity" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch incident activity");
     }
   });
 
@@ -1511,7 +1512,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(incident);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create incident" });
+      respondWithApiError(res, error, "Failed to create incident");
     }
   });
 
@@ -1546,7 +1547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update incident assignment" });
+      respondWithApiError(res, error, "Failed to update incident assignment");
     }
   });
 
@@ -1578,7 +1579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid status transition", errors: error.issues });
       if (error instanceof IncidentTransitionError) return res.status(error.statusCode).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update incident status" });
+      respondWithApiError(res, error, "Failed to update incident status");
     }
   });
 
@@ -1667,7 +1668,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(error.statusCode).json({ message: error.message });
         return;
       }
-      res.status(500).json({ message: "Failed to update incident" });
+      respondWithApiError(res, error, "Failed to update incident");
     }
   };
   app.put("/api/incidents/:id", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_manage", "system_admin"), updateIncidentHandler);
@@ -1688,8 +1689,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       await storage.updateIncident(incident.id, { changeRequestId: change.id });
       res.status(201).json(change);
-    } catch {
-      res.status(500).json({ message: "Failed to create linked change request" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to create linked change request");
     }
   });
 
@@ -1731,8 +1732,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         requesterMobile: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null,
         assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch service requests" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch service requests");
     }
   });
 
@@ -1744,8 +1745,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(request);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch service request" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch service request");
     }
   });
 
@@ -1798,8 +1799,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       }
       res.json({ stock: matching, requestedQuantity: request.requestedQuantity || 1, dispatch: dispatchDetails });
-    } catch {
-      res.status(500).json({ message: "Failed to fetch fulfillment stock options" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch fulfillment stock options");
     }
   });
 
@@ -1818,8 +1819,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .leftJoin(users, eq(users.id, serviceRequestActivities.actorId))
         .where(eq(serviceRequestActivities.serviceRequestId, request.id));
       res.json(entries);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch service request activity" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch service request activity");
     }
   });
 
@@ -1842,7 +1843,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(request);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create service request" });
+      respondWithApiError(res, error, "Failed to create service request");
     }
   });
 
@@ -1863,7 +1864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "A closure note is required", errors: error.issues });
-      res.status(500).json({ message: "Failed to close service request" });
+      respondWithApiError(res, error, "Failed to close service request");
     }
   });
 
@@ -1884,7 +1885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid approval decision", errors: error.issues });
-      res.status(500).json({ message: "Failed to review service request" });
+      respondWithApiError(res, error, "Failed to review service request");
     }
   });
 
@@ -1911,7 +1912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update assignment" });
+      respondWithApiError(res, error, "Failed to update assignment");
     }
   });
 
@@ -1953,7 +1954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid fulfillment stage", errors: error.issues });
       if (error instanceof Error && error.message.includes("no longer in store")) return res.status(409).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update fulfillment stage" });
+      respondWithApiError(res, error, "Failed to update fulfillment stage");
     }
   });
 
@@ -2032,7 +2033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Select a source warehouse", errors: error.issues });
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
-      res.status(500).json({ message: "Failed to fulfill consumable request" });
+      respondWithApiError(res, error, "Failed to fulfill consumable request");
     }
   });
 
@@ -2085,7 +2086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid service request data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update service request" });
+      respondWithApiError(res, error, "Failed to update service request");
     }
   });
 
@@ -2194,8 +2195,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...group,
         members: membersByGroup.get(group.id) ?? [],
       })));
-    } catch {
-      res.status(500).json({ message: "Failed to load assignment groups" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load assignment groups");
     }
   });
 
@@ -2234,8 +2235,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       res.json(Array.from(eligible.values()));
-    } catch {
-      res.status(500).json({ message: "Failed to load eligible assignment group members" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load eligible assignment group members");
     }
   });
 
@@ -2253,7 +2254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment group", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "An assignment group with this name already exists." });
-      res.status(500).json({ message: "Failed to create assignment group" });
+      respondWithApiError(res, error, "Failed to create assignment group");
     }
   });
 
@@ -2274,7 +2275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid assignment group update", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "An assignment group with this name already exists." });
-      res.status(500).json({ message: "Failed to update assignment group" });
+      respondWithApiError(res, error, "Failed to update assignment group");
     }
   });
 
@@ -2315,8 +2316,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       res.json(Array.from(members.values()));
-    } catch {
-      res.status(500).json({ message: "Failed to load assignment group members" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load assignment group members");
     }
   });
 
@@ -2348,7 +2349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(created);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid group member", errors: error.issues });
-      res.status(500).json({ message: "Failed to add assignment group member" });
+      respondWithApiError(res, error, "Failed to add assignment group member");
     }
   });
 
@@ -2363,8 +2364,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!removed) return res.status(404).json({ message: "Assignment group member not found" });
       await logAudit(req.user.id, "DELETE", "assignment_group_members", String(removed.id), `${groupId}: ${req.params.userId}`, removed, null, req);
       res.status(204).end();
-    } catch {
-      res.status(500).json({ message: "Failed to remove assignment group member" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to remove assignment group member");
     }
   });
 
@@ -2385,7 +2386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(await storage.getTickets());
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch tickets" });
+      respondWithApiError(res, error, "Failed to fetch tickets");
     }
   });
 
@@ -2395,7 +2396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const all = await storage.getTickets();
       res.json(all.filter(ticket => ticket.assignedToId === user.id));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assigned tickets" });
+      respondWithApiError(res, error, "Failed to fetch assigned tickets");
     }
   });
 
@@ -2405,7 +2406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const all = await storage.getTickets();
       res.json(all.filter(ticket => ticket.requesterId === user.id));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch your requests" });
+      respondWithApiError(res, error, "Failed to fetch your requests");
     }
   });
 
@@ -2427,7 +2428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(ticket);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create ticket" });
+      respondWithApiError(res, error, "Failed to create ticket");
     }
   });
 
@@ -2442,7 +2443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(ticket);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch ticket" });
+      respondWithApiError(res, error, "Failed to fetch ticket");
     }
   });
 
@@ -2455,7 +2456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(ticket);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create ticket" });
+      respondWithApiError(res, error, "Failed to create ticket");
     }
   });
 
@@ -2500,7 +2501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(ticket);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid ticket data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update ticket" });
+      respondWithApiError(res, error, "Failed to update ticket");
     }
   });
 
@@ -2520,7 +2521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(user.id, 'UPDATE', 'tickets', ticket.id, ticket.title, existing, ticket, req);
       res.json(ticket);
     } catch (error) {
-      res.status(500).json({ message: "Failed to close ticket" });
+      respondWithApiError(res, error, "Failed to close ticket");
     }
   });
 
@@ -2547,7 +2548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(ticket);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Cancellation reason cannot exceed 2000 characters", errors: error.issues });
-      res.status(500).json({ message: "Failed to cancel request" });
+      respondWithApiError(res, error, "Failed to cancel request");
     }
   });
 
@@ -2575,7 +2576,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(ticket);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "A reopen reason of at least 5 characters is required", errors: error.issues });
-      res.status(500).json({ message: "Failed to reopen ticket" });
+      respondWithApiError(res, error, "Failed to reopen ticket");
     }
   });
 
@@ -2588,7 +2589,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (deleted) await logAudit(user.id, 'DELETE', 'tickets', existing.id, existing.title, existing, null, req);
       res.json({ success: deleted });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete ticket" });
+      respondWithApiError(res, error, "Failed to delete ticket");
     }
   });
 
@@ -2605,7 +2606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const comments = await storage.getTicketComments(req.params.id);
       res.json(canViewInternal ? comments : comments.filter(comment => !comment.isInternal));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch comments" });
+      respondWithApiError(res, error, "Failed to fetch comments");
     }
   });
 
@@ -2627,7 +2628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(comment);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid comment data", errors: error.issues });
-      res.status(500).json({ message: "Failed to create comment" });
+      respondWithApiError(res, error, "Failed to create comment");
     }
   });
 
@@ -2636,7 +2637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tickets = await storage.getTickets();
       res.json(tickets);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch ticket report data" });
+      respondWithApiError(res, error, "Failed to fetch ticket report data");
     }
   });
 
@@ -2646,7 +2647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!request) return res.status(404).json({ message: "Request not found" });
       res.json(request);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch request" });
+      respondWithApiError(res, error, "Failed to fetch request");
     }
   });
 
@@ -2660,7 +2661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(request);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid request data", errors: error.issues });
-      res.status(500).json({ message: "Failed to update request" });
+      respondWithApiError(res, error, "Failed to update request");
     }
   });
 
@@ -2674,7 +2675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!request) return res.status(404).json({ message: "Request not found" });
       res.json(request);
     } catch (error) {
-      res.status(500).json({ message: "Failed to approve request" });
+      respondWithApiError(res, error, "Failed to approve request");
     }
   });
 
@@ -2690,7 +2691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!request) return res.status(404).json({ message: "Request not found" });
       res.json(request);
     } catch (error) {
-      res.status(500).json({ message: "Failed to reject request" });
+      respondWithApiError(res, error, "Failed to reject request");
     }
   });
 
@@ -2704,7 +2705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!request) return res.status(404).json({ message: "Request not found" });
       res.json(request);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fulfill request" });
+      respondWithApiError(res, error, "Failed to fulfill request");
     }
   });
 
@@ -2720,7 +2721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!valid) return res.status(401).json({ message: "Incorrect password" });
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ message: "Failed to verify password" });
+      respondWithApiError(res, error, "Failed to verify password");
     }
   });
 
@@ -2738,7 +2739,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json({ secret: secret.base32, qrCodeUrl });
     } catch (error) {
-      res.status(500).json({ message: "Failed to setup 2FA" });
+      respondWithApiError(res, error, "Failed to setup 2FA");
     }
   });
 
@@ -2760,7 +2761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUser2FA(req.user!.id, secret, true);
       res.json({ message: "2FA enabled successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to enable 2FA" });
+      respondWithApiError(res, error, "Failed to enable 2FA");
     }
   });
 
@@ -2769,7 +2770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUser2FA(req.user!.id, null, false);
       res.json({ message: "2FA disabled successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to disable 2FA" });
+      respondWithApiError(res, error, "Failed to disable 2FA");
     }
   });
 
@@ -2795,7 +2796,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ message: "2FA verified successfully" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to verify 2FA" });
+      respondWithApiError(res, error, "Failed to verify 2FA");
     }
   });
 
@@ -2817,7 +2818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid role assignment data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to assign role to user" });
+      respondWithApiError(res, error, "Failed to assign role to user");
     }
   });
 
@@ -2829,7 +2830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to remove role from user" });
+      respondWithApiError(res, error, "Failed to remove role from user");
     }
   });
 
@@ -2839,7 +2840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const roles = await storage.getUserRoles(req.params.id);
       res.json(roles);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch user roles" });
+      respondWithApiError(res, error, "Failed to fetch user roles");
     }
   });
 
@@ -2848,7 +2849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const permissions = await storage.getUserPermissions(req.params.id);
       res.json(permissions);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch user permissions" });
+      respondWithApiError(res, error, "Failed to fetch user permissions");
     }
   });
 
@@ -2866,7 +2867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(settings);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch system settings" });
+      respondWithApiError(res, error, "Failed to fetch system settings");
     }
   });
 
@@ -2890,7 +2891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid system settings", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update system settings" });
+      respondWithApiError(res, error, "Failed to update system settings");
     }
   });
 
@@ -2904,7 +2905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeModules: modules.filter((module) => module.enabled).map((module) => module.moduleKey),
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch system version" });
+      respondWithApiError(res, error, "Failed to fetch system version");
     }
   });
 
@@ -2921,8 +2922,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         checkedAt: new Date().toISOString(),
         sourceConfigured: latestVersion !== null,
       });
-    } catch {
-      res.status(500).json({ message: "Configured update version is invalid" });
+    } catch (error) {
+      respondWithApiError(res, error, "Configured update version is invalid");
     }
   });
 
@@ -2939,7 +2940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error checking system status:", error);
-      res.status(500).json({ message: "Failed to check system status" });
+      respondWithApiError(res, error, "Failed to check system status");
     }
   });
 
@@ -3189,7 +3190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error creating seed data:", error);
-      res.status(500).json({ message: "Failed to initialize system" });
+      respondWithApiError(res, error, "Failed to initialize system");
     } finally {
       if (bootstrapClient) {
         if (bootstrapLockAcquired) {
@@ -3239,7 +3240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(assignedAssets);
     } catch (error) {
       console.error("Failed to load assigned assets for current user:", error);
-      res.status(500).json({ message: "Failed to load your assigned assets" });
+      respondWithApiError(res, error, "Failed to load your assigned assets");
     }
   });
 
@@ -3257,7 +3258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         [...linked, ...slaLinks].filter(contract => contract.assetId === asset.id).map(contract => [contract.id, contract]),
       ).values()) })));
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assets" });
+      respondWithApiError(res, error, "Failed to fetch assets");
     }
   });
 
@@ -3275,7 +3276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(and(eq(vendorContractAssets.assetId, asset.id), sql`${contracts.status} <> 'terminated'`));
       res.json({ ...asset, linkedContracts: Array.from(new Map([...linkedContracts, ...slaLinks].map(contract => [contract.id, contract])).values()) });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch asset" });
+      respondWithApiError(res, error, "Failed to fetch asset");
     }
   });
 
@@ -3316,7 +3317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
       }
       console.error("Asset creation error:", error);
-      res.status(500).json({ message: "Failed to create asset" });
+      respondWithApiError(res, error, "Failed to create asset");
     }
   });
 
@@ -3364,7 +3365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Asset ID already in use. Please choose a different Asset ID." });
       }
       console.error("Asset update error:", error);
-      res.status(500).json({ message: "Failed to update asset" });
+      respondWithApiError(res, error, "Failed to update asset");
     }
   });
 
@@ -3392,7 +3393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       console.error("Asset deletion error:", error);
-      res.status(500).json({ message: "Failed to delete asset" });
+      respondWithApiError(res, error, "Failed to delete asset");
     }
   });
 
@@ -3407,7 +3408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).from(softwareLicenseAllocations).innerJoin(employees, eq(employees.id, softwareLicenseAllocations.employeeId))
         .where(and(eq(softwareLicenseAllocations.assetId, req.params.id), isNull(softwareLicenseAllocations.releasedAt)));
       res.json(allocations);
-    } catch { res.status(500).json({ message: "Failed to fetch seat allocations" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch seat allocations"); }
   });
 
   app.post("/api/assets/:id/license-allocations", requireAuth, requireModule("asset_management"), requirePermission("asset_update"), async (req, res) => {
@@ -3419,7 +3420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Employee is required" });
-      res.status(500).json({ message: "Failed to allocate seat" });
+      respondWithApiError(res, error, "Failed to allocate seat");
     }
   });
 
@@ -3430,7 +3431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result);
     } catch (error) {
       if (error instanceof AssetLicenseError) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to release seat" });
+      respondWithApiError(res, error, "Failed to release seat");
     }
   });
 
@@ -3460,7 +3461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ updated, message: `${updated} asset(s) updated successfully` });
     } catch (error) {
       console.error("Bulk update error:", error);
-      res.status(500).json({ message: "Failed to bulk update assets" });
+      respondWithApiError(res, error, "Failed to bulk update assets");
     }
   });
 
@@ -3529,8 +3530,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: cmdbApplications.status,
       }).from(cmdbApplications).orderBy(asc(cmdbApplications.name));
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to load application options" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load application options");
     }
   });
 
@@ -3580,8 +3581,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         db.select({ total: sql<number>`count(*)::int` }).from(cmdbApplications).where(where),
       ]);
       res.json({ data, total, page, pageSize });
-    } catch {
-      res.status(500).json({ message: "Failed to load applications" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load applications");
     }
   });
 
@@ -3597,7 +3598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
-      res.status(500).json({ message: "Failed to create application" });
+      respondWithApiError(res, error, "Failed to create application");
     }
   });
 
@@ -3616,7 +3617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid application data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "An application with this name already exists" });
-      res.status(500).json({ message: "Failed to update application" });
+      respondWithApiError(res, error, "Failed to update application");
     }
   });
 
@@ -3636,8 +3637,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(applicationServerLinks.applicationId, application.id))
         .orderBy(asc(servers.hostname));
       res.json(hostedServers);
-    } catch {
-      res.status(500).json({ message: "Failed to load hosted infrastructure" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load hosted infrastructure");
     }
   });
 
@@ -3673,8 +3674,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         db.select({ total: sql<number>`count(*)::int` }).from(servers).where(where),
       ]);
       res.json({ data, total, page, pageSize });
-    } catch {
-      res.status(500).json({ message: "Failed to load servers" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load servers");
     }
   });
 
@@ -3695,7 +3696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
-      res.status(500).json({ message: "Failed to create server" });
+      respondWithApiError(res, error, "Failed to create server");
     }
   });
 
@@ -3722,7 +3723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid server data", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A server with this hostname already exists" });
-      res.status(500).json({ message: "Failed to update server" });
+      respondWithApiError(res, error, "Failed to update server");
     }
   });
 
@@ -3739,8 +3740,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(applicationServerLinks.serverId, server.id))
         .orderBy(asc(cmdbApplications.name));
       res.json(hostedApplications);
-    } catch {
-      res.status(500).json({ message: "Failed to load hosted applications" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load hosted applications");
     }
   });
 
@@ -3753,8 +3754,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.serviceRequestId, request.id));
       res.json(rows.map(({ filePath: _filePath, ...row }) => row));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch service request attachments" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch service request attachments");
     }
   });
 
@@ -3766,8 +3767,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       next();
-    } catch {
-      res.status(500).json({ message: "Failed to authorize service request attachment upload" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to authorize service request attachment upload");
     }
   }, diskUpload.single("file"), async (req: any, res) => {
     try {
@@ -3801,7 +3802,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try { fs.unlinkSync(req.file.path); } catch {}
       }
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.issues });
-      res.status(500).json({ message: "Failed to upload service request attachment" });
+      respondWithApiError(res, error, "Failed to upload service request attachment");
     }
   });
 
@@ -3818,8 +3819,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ));
       if (!attachment) return res.status(404).json({ message: "Attachment not found" });
       res.download(attachment.filePath, attachment.originalName);
-    } catch {
-      res.status(500).json({ message: "Failed to download service request attachment" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to download service request attachment");
     }
   });
 
@@ -3829,7 +3830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rows);
     } catch (error) {
       console.error("Fetch attachments error:", error);
-      res.status(500).json({ message: "Failed to fetch attachments" });
+      respondWithApiError(res, error, "Failed to fetch attachments");
     }
   });
 
@@ -3840,7 +3841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       next();
     } catch (error) {
-      res.status(500).json({ message: "Failed to verify asset" });
+      respondWithApiError(res, error, "Failed to verify asset");
     }
   }, diskUpload.single('file'), async (req, res) => {
     try {
@@ -3859,7 +3860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(row);
     } catch (error) {
       console.error("Upload attachment error:", error);
-      res.status(500).json({ message: "Failed to upload attachment" });
+      respondWithApiError(res, error, "Failed to upload attachment");
     }
   });
 
@@ -3875,7 +3876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       console.error("Delete attachment error:", error);
-      res.status(500).json({ message: "Failed to delete attachment" });
+      respondWithApiError(res, error, "Failed to delete attachment");
     }
   });
 
@@ -3972,7 +3973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try { fs.unlinkSync(req.file.path); } catch {}
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document metadata", errors: error.issues });
       if (error?.code === "23505") return res.status(409).json({ message: "A newer version was uploaded at the same time. Please retry." });
-      return res.status(500).json({ message: "Failed to upload configuration document" });
+      return respondWithApiError(res, error, "Failed to upload configuration document");
     }
   };
 
@@ -3995,25 +3996,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/applications/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await listConfigurationDocuments("application", req.params.id, res); }
-    catch { res.status(500).json({ message: "Failed to load application documents" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to load application documents"); }
   });
   app.post("/api/applications/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
     await uploadConfigurationDocument("application", req.params.id, req, res);
   });
   app.get("/api/applications/:id/documents/:documentId", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await downloadConfigurationDocument("application", req.params.id, req.params.documentId, res); }
-    catch { res.status(500).json({ message: "Failed to download application document" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to download application document"); }
   });
   app.get("/api/servers/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await listConfigurationDocuments("server", req.params.id, res); }
-    catch { res.status(500).json({ message: "Failed to load server documents" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to load server documents"); }
   });
   app.post("/api/servers/:id/documents", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), diskUpload.single("file"), async (req: any, res) => {
     await uploadConfigurationDocument("server", req.params.id, req, res);
   });
   app.get("/api/servers/:id/documents/:documentId", requireAuth, requireModule("cmdb"), requirePermission("asset_update"), async (req, res) => {
     try { await downloadConfigurationDocument("server", req.params.id, req.params.documentId, res); }
-    catch { res.status(500).json({ message: "Failed to download server document" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to download server document"); }
   });
 
   // Ticket Attachments
@@ -4030,7 +4031,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rows);
     } catch (error) {
       console.error("Fetch ticket attachments error:", error);
-      res.status(500).json({ message: "Failed to fetch attachments" });
+      respondWithApiError(res, error, "Failed to fetch attachments");
     }
   });
 
@@ -4044,7 +4045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       next();
     } catch (error) {
-      res.status(500).json({ message: "Failed to authorize upload" });
+      respondWithApiError(res, error, "Failed to authorize upload");
     }
   }, diskUpload.single('file'), async (req, res) => {
     try {
@@ -4072,7 +4073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.issues });
       console.error("Upload ticket attachment error:", error);
-      res.status(500).json({ message: "Failed to upload attachment" });
+      respondWithApiError(res, error, "Failed to upload attachment");
     }
   });
 
@@ -4096,7 +4097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       console.error("Delete ticket attachment error:", error);
-      res.status(500).json({ message: "Failed to delete attachment" });
+      respondWithApiError(res, error, "Failed to delete attachment");
     }
   });
 
@@ -4327,7 +4328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const employees = await storage.getEmployeesWithDetails();
       res.json(employees);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch employees" });
+      respondWithApiError(res, error, "Failed to fetch employees");
     }
   });
 
@@ -4339,7 +4340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(employee);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch employee" });
+      respondWithApiError(res, error, "Failed to fetch employee");
     }
   });
 
@@ -4348,8 +4349,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) return res.status(404).json({ message: "Employee not found" });
       res.json(await getEmployeeOffboardingReview(db, employee));
-    } catch {
-      res.status(500).json({ message: "Failed to load offboarding review" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load offboarding review");
     }
   });
 
@@ -4415,7 +4416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Complete each clearance and enter a note for every waiver", errors: error.issues });
       if (error?.review) return res.status(409).json({ message: error.message, review: error.review });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to offboard employee" });
+      respondWithApiError(res, error, "Failed to offboard employee");
     }
   });
 
@@ -4447,7 +4448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a reactivation reason", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to reactivate employee" });
+      respondWithApiError(res, error, "Failed to reactivate employee");
     }
   });
 
@@ -4456,7 +4457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(await getAccessSystemCatalog(db));
     } catch (error) {
       console.error("Failed to load access system catalog:", error);
-      res.status(500).json({ message: "Failed to load access system catalog" });
+      respondWithApiError(res, error, "Failed to load access system catalog");
     }
   });
 
@@ -4571,8 +4572,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pageSize: filters.pageSize,
         expirySummary,
       });
-    } catch {
-      res.status(500).json({ message: "Failed to load access governance records" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load access governance records");
     }
   });
 
@@ -4582,8 +4583,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await storage.getEmployee(req.params.id))) return res.status(404).json({ message: "Employee not found" });
       const rows = await db.select().from(employeeAccessRights).where(eq(employeeAccessRights.employeeId, req.params.id));
       res.json(rows.map(row => ({ ...row, expiryState: getAccessExpiryState(row.status, row.expiresAt) })));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch employee access rights" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch employee access rights");
     }
   });
 
@@ -4630,7 +4631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to grant employee access" });
+      respondWithApiError(res, error, "Failed to grant employee access");
     }
   });
 
@@ -4703,7 +4704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid access entitlement", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to update employee access" });
+      respondWithApiError(res, error, "Failed to update employee access");
     }
   });
 
@@ -4757,7 +4758,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Provide a valid extension period and business justification", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to extend employee access" });
+      respondWithApiError(res, error, "Failed to extend employee access");
     }
   });
 
@@ -4793,7 +4794,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "A revocation reason is required", errors: error.issues });
       if (error?.status) return res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Failed to revoke employee access" });
+      respondWithApiError(res, error, "Failed to revoke employee access");
     }
   });
 
@@ -4807,10 +4808,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(201).json(employee);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.issues });
-      }
-      res.status(500).json({ message: "Failed to create employee" });
+      console.error("Failed to create employee:", error);
+      return respondWithApiError(res, error, "Create employee");
     }
   });
 
@@ -4834,10 +4833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(employee);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid employee data", errors: error.issues });
-      }
-      res.status(500).json({ message: "Failed to update employee" });
+      return respondWithApiError(res, error, "Update employee");
     }
   });
 
@@ -4853,7 +4849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const assignments = await storage.getAssignmentsWithDetails();
       res.json(assignments);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assignments" });
+      respondWithApiError(res, error, "Failed to fetch assignments");
     }
   });
 
@@ -4865,7 +4861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(assignment);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assignment" });
+      respondWithApiError(res, error, "Failed to fetch assignment");
     }
   });
 
@@ -4895,7 +4891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       }
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
-      res.status(500).json({ message: "Failed to create assignment" });
+      respondWithApiError(res, error, "Failed to create assignment");
     }
   });
 
@@ -4926,7 +4922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid assignment data", errors: error.issues });
       }
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
-      res.status(500).json({ message: "Failed to update assignment" });
+      respondWithApiError(res, error, "Failed to update assignment");
     }
   });
 
@@ -4952,7 +4948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete assignment" });
+      respondWithApiError(res, error, "Failed to delete assignment");
     }
   });
 
@@ -4974,7 +4970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await logAudit(req.user?.id, "UPDATE", "assignments", assignment.id, `Assignment #${assignment.id} returned`, assignment, updatedAssignment, req);
       res.json(updatedAssignment);
     } catch (error) {
-      res.status(500).json({ message: "Failed to return asset" });
+      respondWithApiError(res, error, "Failed to return asset");
     }
   });
 
@@ -5002,7 +4998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalDepartments: departments.length
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch dashboard stats" });
+      respondWithApiError(res, error, "Failed to fetch dashboard stats");
     }
   });
 
@@ -5204,7 +5200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Failed to build executive dashboard aggregates:", error);
-      res.status(500).json({ message: "Failed to fetch executive dashboard data" });
+      respondWithApiError(res, error, "Failed to fetch executive dashboard data");
     }
   });
 
@@ -5435,7 +5431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(alerts);
     } catch (error) {
       console.error('Alerts error:', error);
-      res.status(500).json({ message: "Failed to fetch alerts" });
+      respondWithApiError(res, error, "Failed to fetch alerts");
     }
   });
 
@@ -5445,7 +5441,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const locations = await storage.getLocationsWithDetails();
       res.json(locations);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch locations" });
+      respondWithApiError(res, error, "Failed to fetch locations");
     }
   });
 
@@ -5462,7 +5458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid location data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create location" });
+      respondWithApiError(res, error, "Failed to create location");
     }
   });
 
@@ -5486,7 +5482,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid location data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update location" });
+      respondWithApiError(res, error, "Failed to update location");
     }
   });
 
@@ -5507,7 +5503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete location" });
+      respondWithApiError(res, error, "Failed to delete location");
     }
   });
 
@@ -5517,7 +5513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const departments = await storage.getDepartmentsWithDetails();
       res.json(departments);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch departments" });
+      respondWithApiError(res, error, "Failed to fetch departments");
     }
   });
 
@@ -5534,7 +5530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid department data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create department" });
+      respondWithApiError(res, error, "Failed to create department");
     }
   });
 
@@ -5558,7 +5554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid department data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update department" });
+      respondWithApiError(res, error, "Failed to update department");
     }
   });
 
@@ -5579,7 +5575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete department" });
+      respondWithApiError(res, error, "Failed to delete department");
     }
   });
 
@@ -5589,7 +5585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vendors = await storage.getVendorsWithDetails();
       res.json(vendors);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch vendors" });
+      respondWithApiError(res, error, "Failed to fetch vendors");
     }
   });
 
@@ -5607,7 +5603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid vendor data", errors: error.issues });
       }
       if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
-      res.status(500).json({ message: "Failed to create vendor" });
+      respondWithApiError(res, error, "Failed to create vendor");
     }
   });
 
@@ -5619,7 +5615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(vendor);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch vendor" });
+      respondWithApiError(res, error, "Failed to fetch vendor");
     }
   });
 
@@ -5644,7 +5640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid vendor data", errors: error.issues });
       }
       if (((error as any)?.code ?? (error as any)?.cause?.code) === "23505") return res.status(409).json({ message: "Vendor name or code already exists" });
-      res.status(500).json({ message: "Failed to update vendor" });
+      respondWithApiError(res, error, "Failed to update vendor");
     }
   });
 
@@ -5668,7 +5664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       if (((error as any)?.code ?? (error as any)?.cause?.code) === "23503") return res.status(409).json({ message: "Vendor is referenced by historical records; mark it Inactive instead." });
-      res.status(500).json({ message: "Failed to delete vendor" });
+      respondWithApiError(res, error, "Failed to delete vendor");
     }
   });
 
@@ -5676,8 +5672,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/warehouse-locations", requireAuth, requireModule("asset_management"), async (_req, res) => {
     try {
       res.json(await db.select().from(warehouseLocations).orderBy(warehouseLocations.name));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch warehouse locations" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch warehouse locations");
     }
   });
 
@@ -5689,7 +5685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
-      res.status(500).json({ message: "Failed to create warehouse location" });
+      respondWithApiError(res, error, "Failed to create warehouse location");
     }
   });
 
@@ -5705,7 +5701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid warehouse location", errors: error.issues });
       if ((error as any)?.code === "23505") return res.status(409).json({ message: "Warehouse code is already in use" });
-      res.status(500).json({ message: "Failed to update warehouse location" });
+      respondWithApiError(res, error, "Failed to update warehouse location");
     }
   };
 
@@ -5727,8 +5723,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         vendors: vendorRows,
         users: userRows.map(user => ({ id: user.id, name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username, email: user.email })),
       });
-    } catch {
-      res.status(500).json({ message: "Failed to fetch consumables options" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch consumables options");
     }
   });
 
@@ -5756,8 +5752,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .leftJoin(vendors, eq(vendors.id, consumables.vendorId))
         .orderBy(consumables.name, warehouseLocations.name);
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch consumables" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch consumables");
     }
   });
 
@@ -5783,7 +5779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.issues });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
-      res.status(500).json({ message: "Failed to create consumable" });
+      respondWithApiError(res, error, "Failed to create consumable");
     }
   });
 
@@ -5808,7 +5804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid consumable", errors: error.issues });
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as any).message });
-      res.status(500).json({ message: "Failed to update consumable" });
+      respondWithApiError(res, error, "Failed to update consumable");
     }
   });
 
@@ -5914,7 +5910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid stock movement", errors: error.issues });
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
-      res.status(500).json({ message: "Failed to save stock movement" });
+      respondWithApiError(res, error, "Failed to save stock movement");
     }
   });
 
@@ -5972,7 +5968,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "Purchase-order number already exists" });
       console.error("Reorder draft creation failed:", error);
-      res.status(500).json({ message: "Failed to create draft purchase order" });
+      respondWithApiError(res, error, "Failed to create draft purchase order");
     }
   });
 
@@ -5981,7 +5977,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const purchaseOrders = await storage.getPurchaseOrdersWithDetails();
       res.json(purchaseOrders);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch purchase orders" });
+      respondWithApiError(res, error, "Failed to fetch purchase orders");
     }
   });
 
@@ -6140,7 +6136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create purchase order" });
+      respondWithApiError(res, error, "Failed to create purchase order");
     }
   });
 
@@ -6300,7 +6296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid purchase order data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update purchase order" });
+      respondWithApiError(res, error, "Failed to update purchase order");
     }
   });
 
@@ -6354,7 +6350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete purchase order" });
+      respondWithApiError(res, error, "Failed to delete purchase order");
     }
   });
 
@@ -6490,7 +6486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
       console.error('Create assets from PO error:', error);
-      res.status(500).json({ message: "Failed to create assets from purchase order" });
+      respondWithApiError(res, error, "Failed to create assets from purchase order");
     }
   });
 
@@ -6508,7 +6504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(503).json({ message: "Financial settings have not been initialized; apply the startup migrations" });
     } catch (error) {
       console.error("Finance tax settings read failed:", error);
-      return res.status(500).json({ message: "Failed to load financial tax settings" });
+      return respondWithApiError(res, error, "Failed to load financial tax settings");
     }
   });
 
@@ -6564,7 +6560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid financial tax settings", errors: error.issues });
       console.error("Finance tax settings update failed:", error);
-      return res.status(500).json({ message: "Failed to update financial tax settings" });
+      return respondWithApiError(res, error, "Failed to update financial tax settings");
     }
   });
 
@@ -6574,7 +6570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json(rates);
     } catch (error) {
       console.error("Finance tax rates read failed:", error);
-      return res.status(500).json({ message: "Failed to load tax rates" });
+      return respondWithApiError(res, error, "Failed to load tax rates");
     }
   });
 
@@ -6599,7 +6595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "A tax rate with this code already exists" });
       console.error("Finance tax rate create failed:", error);
-      return res.status(500).json({ message: "Failed to create tax rate" });
+      return respondWithApiError(res, error, "Failed to create tax rate");
     }
   });
 
@@ -6631,7 +6627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const code = (error as any)?.code ?? (error as any)?.cause?.code;
       if (code === "23505") return res.status(409).json({ message: "A tax rate with this code already exists" });
       console.error("Finance tax rate update failed:", error);
-      return res.status(500).json({ message: "Failed to update tax rate" });
+      return respondWithApiError(res, error, "Failed to update tax rate");
     }
   });
 
@@ -6641,7 +6637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json(sequences);
     } catch (error) {
       console.error("Financial document sequences read failed:", error);
-      return res.status(500).json({ message: "Failed to load document numbering settings" });
+      return respondWithApiError(res, error, "Failed to load document numbering settings");
     }
   });
 
@@ -6661,7 +6657,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid document numbering settings", errors: error.issues });
       console.error("Financial document sequence update failed:", error);
-      return res.status(500).json({ message: "Failed to update document numbering settings" });
+      return respondWithApiError(res, error, "Failed to update document numbering settings");
     }
   });
 
@@ -6675,7 +6671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result);
     } catch (error) {
       console.error("Vendor quotation list failed:", error);
-      res.status(500).json({ message: "Failed to fetch vendor quotations" });
+      respondWithApiError(res, error, "Failed to fetch vendor quotations");
     }
   });
 
@@ -6707,7 +6703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       if ((error as any)?.status) return res.status((error as any).status).json({ message: (error as Error).message });
       console.error("Vendor quotation delete failed:", error);
-      return res.status(500).json({ message: "Failed to delete vendor quotation" });
+      return respondWithApiError(res, error, "Failed to delete vendor quotation");
     }
   };
   app.delete("/api/vendor-quotations/:id", requireAuth, requirePermission("purchase_order_update"), deleteVendorQuotation);
@@ -6808,7 +6804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (code === "23505") return res.status(409).json({ message: "Quotation number already exists" });
       if (code === "23503") return res.status(400).json({ message: "Vendor or warehouse reference is invalid" });
       console.error("Vendor quotation create failed:", error);
-      res.status(500).json({ message: "Failed to create vendor quotation" });
+      respondWithApiError(res, error, "Failed to create vendor quotation");
     }
   });
 
@@ -6824,7 +6820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(updated);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid quotation status" });
-      res.status(500).json({ message: "Failed to update quotation" });
+      respondWithApiError(res, error, "Failed to update quotation");
     }
   });
 
@@ -6888,7 +6884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const status = (error as any)?.status;
       if (status) return res.status(status).json({ message: (error as Error).message });
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid purchase order conversion data", errors: error.issues });
-      res.status(500).json({ message: "Failed to convert quotation" });
+      respondWithApiError(res, error, "Failed to convert quotation");
     }
   });
 
@@ -6908,7 +6904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })));
     } catch (error) {
       console.error("Purchase invoice list failed:", error);
-      res.status(500).json({ message: "Failed to fetch purchase invoices" });
+      respondWithApiError(res, error, "Failed to fetch purchase invoices");
     }
   });
 
@@ -6927,8 +6923,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .innerJoin(purchaseOrderItems, eq(purchaseOrderItemReceipts.purchaseOrderItemId, purchaseOrderItems.id))
         .where(eq(purchaseOrderItemReceipts.purchaseOrderId, req.params.id));
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch received PO lines" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch received PO lines");
     }
   });
 
@@ -6951,8 +6947,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalPrice: purchaseOrderItems.totalPrice,
       }).from(purchaseOrderItems).where(eq(purchaseOrderItems.purchaseOrderId, order.id));
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch ordered purchase-order lines" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch ordered purchase-order lines");
     }
   });
 
@@ -6977,8 +6973,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ));
       const rows = await assetQuery;
       res.json(rows);
-    } catch {
-      res.status(500).json({ message: "Failed to fetch returnable assets" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch returnable assets");
     }
   });
 
@@ -7186,7 +7182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (code === "23505") return res.status(409).json({ message: "This invoice number already exists for the vendor" });
       if (code === "23503" || code === "23514" || code === "22007" || code === "22008") return res.status(400).json({ message: "Invoice references, amounts, or dates are invalid" });
       console.error("Purchase invoice create failed:", error);
-      res.status(500).json({ message: "Failed to create purchase invoice" });
+      respondWithApiError(res, error, "Failed to create purchase invoice");
     }
   });
 
@@ -7223,7 +7219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status) return res.status(status).json({ message: (error as Error).message });
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid invoice status" });
       console.error("Purchase invoice status update failed:", error);
-      res.status(500).json({ message: "Failed to update invoice status" });
+      respondWithApiError(res, error, "Failed to update invoice status");
     }
   });
 
@@ -7264,7 +7260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status) return res.status(status).json({ message: (error as Error).message });
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid payment" });
       console.error("Purchase invoice payment failed:", error);
-      res.status(500).json({ message: "Failed to record invoice payment" });
+      respondWithApiError(res, error, "Failed to record invoice payment");
     }
   });
 
@@ -7275,8 +7271,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...purchaseReturn,
         items: await db.select().from(purchaseReturnItems).where(eq(purchaseReturnItems.returnId, purchaseReturn.id)),
       }))));
-    } catch {
-      res.status(500).json({ message: "Failed to fetch purchase returns" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch purchase returns");
     }
   });
 
@@ -7415,7 +7411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (status) return res.status(status).json({ message: (error as Error).message });
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid purchase return" });
       console.error("Purchase return failed:", error);
-      res.status(500).json({ message: "Failed to process purchase return" });
+      respondWithApiError(res, error, "Failed to process purchase return");
     }
   });
 
@@ -7539,7 +7535,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Procurement finance report failed:", error);
-      res.status(500).json({ message: "Failed to generate procurement finance report" });
+      respondWithApiError(res, error, "Failed to generate procurement finance report");
     }
   });
 
@@ -7549,7 +7545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const budgets = await storage.getBudgets();
       res.json(budgets);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch budgets" });
+      respondWithApiError(res, error, "Failed to fetch budgets");
     }
   });
 
@@ -7566,7 +7562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid budget data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create budget" });
+      respondWithApiError(res, error, "Failed to create budget");
     }
   });
 
@@ -7590,7 +7586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid budget data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update budget" });
+      respondWithApiError(res, error, "Failed to update budget");
     }
   });
 
@@ -7611,7 +7607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete budget" });
+      respondWithApiError(res, error, "Failed to delete budget");
     }
   });
 
@@ -7621,7 +7617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const schedules = await storage.getMaintenanceSchedulesWithDetails();
       res.json(schedules);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch maintenance schedules" });
+      respondWithApiError(res, error, "Failed to fetch maintenance schedules");
     }
   });
 
@@ -7638,7 +7634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to create maintenance schedule" });
+      respondWithApiError(res, error, "Failed to create maintenance schedule");
     }
   });
 
@@ -7662,7 +7658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid maintenance schedule data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update maintenance schedule" });
+      respondWithApiError(res, error, "Failed to update maintenance schedule");
     }
   });
 
@@ -7683,7 +7679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete maintenance schedule" });
+      respondWithApiError(res, error, "Failed to delete maintenance schedule");
     }
   });
 
@@ -7693,7 +7689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const records = await storage.getMaintenanceRecordsWithDetails();
       res.json(records);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch maintenance records" });
+      respondWithApiError(res, error, "Failed to fetch maintenance records");
     }
   });
 
@@ -7723,7 +7719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof Error && (error.message === "This schedule is already completed." || error.message.startsWith("This schedule has advanced"))) {
         return res.status(409).json({ message: error.message });
       }
-      res.status(500).json({ message: "Failed to create maintenance record" });
+      respondWithApiError(res, error, "Failed to create maintenance record");
     }
   });
 
@@ -7747,7 +7743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Invalid maintenance record data", errors: error.issues });
       }
-      res.status(500).json({ message: "Failed to update maintenance record" });
+      respondWithApiError(res, error, "Failed to update maintenance record");
     }
   });
 
@@ -7768,7 +7764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete maintenance record" });
+      respondWithApiError(res, error, "Failed to delete maintenance record");
     }
   });
 
@@ -7783,7 +7779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(filtered);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assets by security classification" });
+      respondWithApiError(res, error, "Failed to fetch assets by security classification");
     }
   });
 
@@ -7799,7 +7795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(filtered);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assets due for audit" });
+      respondWithApiError(res, error, "Failed to fetch assets due for audit");
     }
   });
 
@@ -7812,7 +7808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(filtered);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch assets by compliance status" });
+      respondWithApiError(res, error, "Failed to fetch assets by compliance status");
     }
   });
 
@@ -7825,7 +7821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.json(filtered);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch vendors by risk level" });
+      respondWithApiError(res, error, "Failed to fetch vendors by risk level");
     }
   });
 
@@ -7876,7 +7872,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalVendors: vendors.length
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch compliance dashboard data" });
+      respondWithApiError(res, error, "Failed to fetch compliance dashboard data");
     }
   });
 
@@ -7923,7 +7919,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locations
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate asset summary report" });
+      respondWithApiError(res, error, "Failed to generate asset summary report");
     }
   });
   
@@ -7982,7 +7978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         byWarrantyStatus
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate asset lifecycle report" });
+      respondWithApiError(res, error, "Failed to generate asset lifecycle report");
     }
   });
   
@@ -8012,7 +8008,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(hardwareAssets);
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate hardware inventory report" });
+      respondWithApiError(res, error, "Failed to generate hardware inventory report");
     }
   });
   
@@ -8090,7 +8086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignmentHistory
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate asset assignments report" });
+      respondWithApiError(res, error, "Failed to generate asset assignments report");
     }
   });
   
@@ -8168,7 +8164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assignmentHistory
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate assignments report" });
+      respondWithApiError(res, error, "Failed to generate assignments report");
     }
   });
   
@@ -8206,7 +8202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         byType
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate maintenance schedule report" });
+      respondWithApiError(res, error, "Failed to generate maintenance schedule report");
     }
   });
   
@@ -8235,7 +8231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recentPOs,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate purchase orders report" });
+      respondWithApiError(res, error, "Failed to generate purchase orders report");
     }
   });
   
@@ -8274,7 +8270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         budgets: budgetAnalysis
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate budget analysis report" });
+      respondWithApiError(res, error, "Failed to generate budget analysis report");
     }
   });
   
@@ -8305,7 +8301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(departmentReport);
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate assets by department report" });
+      respondWithApiError(res, error, "Failed to generate assets by department report");
     }
   });
   
@@ -8355,7 +8351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expiredCount: expiredWarranties.length
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate expiring warranties report" });
+      respondWithApiError(res, error, "Failed to generate expiring warranties report");
     }
   });
   
@@ -8386,7 +8382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(vendorAnalysis.sort((a, b) => b.totalSpending - a.totalSpending));
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate vendor analysis report" });
+      respondWithApiError(res, error, "Failed to generate vendor analysis report");
     }
   });
 
@@ -8411,7 +8407,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         byStatus,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate summary report" });
+      respondWithApiError(res, error, "Failed to generate summary report");
     }
   });
 
@@ -8453,7 +8449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         byWarrantyStatus,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate lifecycle report" });
+      respondWithApiError(res, error, "Failed to generate lifecycle report");
     }
   });
 
@@ -8478,7 +8474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       res.json(result);
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate hardware report" });
+      respondWithApiError(res, error, "Failed to generate hardware report");
     }
   });
 
@@ -8573,7 +8569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         items,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate missing data report" });
+      respondWithApiError(res, error, "Failed to generate missing data report");
     }
   });
 
@@ -8619,7 +8615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completedMaintenance,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate maintenance report" });
+      respondWithApiError(res, error, "Failed to generate maintenance report");
     }
   });
 
@@ -8656,7 +8652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         budgetDetails,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate budget report" });
+      respondWithApiError(res, error, "Failed to generate budget report");
     }
   });
 
@@ -8696,7 +8692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ departmentDetails, totalDepartments, totalAssets, totalValue, avgAssetsPerDept });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate department report" });
+      respondWithApiError(res, error, "Failed to generate department report");
     }
   });
 
@@ -8734,7 +8730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assets: warrantyAssets,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate warranties report" });
+      respondWithApiError(res, error, "Failed to generate warranties report");
     }
   });
 
@@ -8801,7 +8797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Depreciation report error:", error);
-      res.status(500).json({ message: "Failed to generate depreciation report" });
+      respondWithApiError(res, error, "Failed to generate depreciation report");
     }
   });
 
@@ -8829,7 +8825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ schedule, summary, asset: { id: asset.id, name: asset.name, assetTag: (asset as any).assetTag, purchasePrice: price } });
     } catch (error) {
       console.error("Depreciation schedule error:", error);
-      res.status(500).json({ message: "Failed to generate depreciation schedule" });
+      respondWithApiError(res, error, "Failed to generate depreciation schedule");
     }
   });
 
@@ -8884,7 +8880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ totalReleased, avgDuration, thisMonth, topDepartment: topDept, records });
     } catch (error) {
       console.error("Released assets report error:", error);
-      res.status(500).json({ message: "Failed to generate released assets report" });
+      respondWithApiError(res, error, "Failed to generate released assets report");
     }
   });
 
@@ -8956,7 +8952,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Assignment history report error:", error);
-      res.status(500).json({ message: "Failed to generate assignment history report" });
+      respondWithApiError(res, error, "Failed to generate assignment history report");
     }
   });
 
@@ -8987,7 +8983,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         vendorDetails,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate vendor report" });
+      respondWithApiError(res, error, "Failed to generate vendor report");
     }
   });
 
@@ -9015,7 +9011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         recentPOs,
       });
     } catch (error) {
-      res.status(500).json({ message: "Failed to generate PO report" });
+      respondWithApiError(res, error, "Failed to generate PO report");
     }
   });
 
@@ -9057,7 +9053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(enrichedLogs);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch audit logs" });
+      respondWithApiError(res, error, "Failed to fetch audit logs");
     }
   });
 
@@ -9073,7 +9069,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(setting);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch setting" });
+      respondWithApiError(res, error, "Failed to fetch setting");
     }
   });
 
@@ -9087,7 +9083,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const setting = await storage.updateSetting(req.params.key, value);
       res.json(setting);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update setting" });
+      respondWithApiError(res, error, "Failed to update setting");
     }
   });
 
@@ -9112,7 +9108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(enriched);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch module status" });
+      respondWithApiError(res, error, "Failed to fetch module status");
     }
   });
 
@@ -9133,7 +9129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.json(enriched);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch module settings" });
+      respondWithApiError(res, error, "Failed to fetch module settings");
     }
   });
 
@@ -9165,7 +9161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(setting);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update module setting" });
+      respondWithApiError(res, error, "Failed to update module setting");
     }
   });
 
@@ -9211,7 +9207,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await workbook.xlsx.write(res);
       res.end();
     } catch (error) {
-      if (!res.headersSent) res.status(500).json({ message: "Failed to export assets" });
+      if (!res.headersSent) respondWithApiError(res, error, "Failed to export assets");
       else res.destroy(error instanceof Error ? error : undefined);
     }
   });
@@ -9316,7 +9312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.end();
     } catch (error) {
       console.error('Error generating template:', error);
-      res.status(500).json({ error: 'Failed to generate template' });
+      respondWithApiError(res, error, "Failed to generate template");
     }
   });
 
@@ -9621,10 +9617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error("Excel import error:", error);
-      res.status(500).json({ 
-        error: "Failed to import Excel file", 
-        message: error instanceof Error ? error.message : 'Unknown error' 
-      });
+      respondWithApiError(res, error, "Failed to import Excel file");
     }
   });
 
@@ -9640,7 +9633,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : await storage.getDropdownOptions();
       res.json(options);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch dropdown options" });
+      respondWithApiError(res, error, "Failed to fetch dropdown options");
     }
   });
 
@@ -9651,7 +9644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : await storage.getDropdownOptionsByCategory(req.params.category);
       res.json(options);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch dropdown options" });
+      respondWithApiError(res, error, "Failed to fetch dropdown options");
     }
   });
 
@@ -9673,7 +9666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if ((error?.code ?? error?.cause?.code) === "23505") {
         return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
       }
-      res.status(500).json({ message: "Failed to create dropdown option" });
+      respondWithApiError(res, error, "Failed to create dropdown option");
     }
   });
 
@@ -9698,7 +9691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid dropdown option data", errors: error.issues });
       }
       if ((error?.code ?? error?.cause?.code) === "23505") return res.status(409).json({ message: "A dropdown option with this value already exists in this category." });
-      res.status(500).json({ message: "Failed to update dropdown option" });
+      respondWithApiError(res, error, "Failed to update dropdown option");
     }
   });
 
@@ -9710,7 +9703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete dropdown option" });
+      respondWithApiError(res, error, "Failed to delete dropdown option");
     }
   });
 
@@ -9723,7 +9716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid category" });
-      res.status(500).json({ message: "Failed to clean up duplicates" });
+      respondWithApiError(res, error, "Failed to clean up duplicates");
     }
   });
 
@@ -9826,7 +9819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, migrated: created, skipped });
     } catch (error) {
       console.error("Migration error:", error);
-      res.status(500).json({ message: "Failed to migrate data from assets" });
+      respondWithApiError(res, error, "Failed to migrate data from assets");
     }
   });
 
@@ -9969,7 +9962,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true, created });
     } catch (error) {
-      res.status(500).json({ message: "Failed to seed dropdown options" });
+      respondWithApiError(res, error, "Failed to seed dropdown options");
     }
   });
 
@@ -9979,7 +9972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const policies = await storage.getSlaPolicies();
       res.json(policies);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch SLA policies" });
+      respondWithApiError(res, error, "Failed to fetch SLA policies");
     }
   });
 
@@ -9988,7 +9981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const policy = await storage.createSlaPolicy(req.body);
       res.status(201).json(policy);
     } catch (error) {
-      res.status(500).json({ message: "Failed to create SLA policy" });
+      respondWithApiError(res, error, "Failed to create SLA policy");
     }
   });
 
@@ -9998,7 +9991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!policy) return res.status(404).json({ message: "SLA policy not found" });
       res.json(policy);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update SLA policy" });
+      respondWithApiError(res, error, "Failed to update SLA policy");
     }
   });
 
@@ -10008,7 +10001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!deleted) return res.status(404).json({ message: "SLA policy not found" });
       res.json({ success: true });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete SLA policy" });
+      respondWithApiError(res, error, "Failed to delete SLA policy");
     }
   });
 
@@ -10032,7 +10025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Problem Management ───────────────────────────────────────────────────
   app.get("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
     try { res.json(await storage.getProblems()); }
-    catch { res.status(500).json({ message: "Failed to fetch problems" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch problems"); }
   });
 
   app.get("/api/problems/:id", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -10040,7 +10033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const p = await storage.getProblem(req.params.id);
       if (!p) return res.status(404).json({ message: "Problem not found" });
       res.json(p);
-    } catch { res.status(500).json({ message: "Failed to fetch problem" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch problem"); }
   });
 
   app.post("/api/problems", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -10048,7 +10041,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       const problem = await storage.createProblem({ ...req.body, createdById: user.id });
       res.status(201).json(problem);
-    } catch { res.status(500).json({ message: "Failed to create problem" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to create problem"); }
   });
 
   app.put("/api/problems/:id", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -10056,7 +10049,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const problem = await storage.updateProblem(req.params.id, req.body);
       if (!problem) return res.status(404).json({ message: "Problem not found" });
       res.json(problem);
-    } catch { res.status(500).json({ message: "Failed to update problem" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to update problem"); }
   });
 
   app.delete("/api/problems/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
@@ -10064,21 +10057,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deleted = await storage.deleteProblem(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Problem not found" });
       res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to delete problem" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to delete problem"); }
   });
 
   app.post("/api/problems/:id/link-incident", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const link = await storage.linkIncidentToProblem(req.params.id, req.body.ticketId);
       res.status(201).json(link);
-    } catch { res.status(500).json({ message: "Failed to link incident" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to link incident"); }
   });
 
   app.delete("/api/problems/:id/link-incident/:ticketId", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       await storage.unlinkIncidentFromProblem(req.params.id, req.params.ticketId);
       res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to unlink incident" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to unlink incident"); }
   });
 
   // ── Service Catalog ──────────────────────────────────────────────────────
@@ -10086,7 +10079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const activeOnly = req.query.activeOnly === "true";
       res.json(await storage.getCatalogItems(activeOnly));
-    } catch { res.status(500).json({ message: "Failed to fetch catalog items" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog items"); }
   });
 
   app.get("/api/catalog/items/:id", requireAuth, async (req, res) => {
@@ -10094,7 +10087,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const item = await storage.getCatalogItem(req.params.id);
       if (!item) return res.status(404).json({ message: "Item not found" });
       res.json(item);
-    } catch { res.status(500).json({ message: "Failed to fetch catalog item" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog item"); }
   });
 
   app.post("/api/catalog/items", requireAuth, requirePermission("system_admin"), async (req, res) => {
@@ -10105,7 +10098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.issues });
-      res.status(500).json({ message: "Failed to create catalog item" });
+      respondWithApiError(res, error, "Failed to create catalog item");
     }
   });
 
@@ -10118,7 +10111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(item);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid catalog item", errors: error.issues });
-      res.status(500).json({ message: "Failed to update catalog item" });
+      respondWithApiError(res, error, "Failed to update catalog item");
     }
   });
 
@@ -10128,7 +10121,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deleted = await storage.deleteCatalogItem(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Item not found" });
       res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to delete catalog item" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to delete catalog item"); }
   });
 
   // Catalog self-service: create ticket from catalog item
@@ -10156,7 +10149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         catalogItemId: item.id,
       } as any);
       res.status(201).json(ticket);
-    } catch { res.status(500).json({ message: "Failed to create service request" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to create service request"); }
   });
 
   // ── Risk Management ──────────────────────────────────────────────────────
@@ -10166,7 +10159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(users).where(eq(users.isActive, true)));
     } catch (error) {
       console.error("Failed to fetch risk owners:", error);
-      res.status(500).json({ message: "Failed to fetch risk owners" });
+      respondWithApiError(res, error, "Failed to fetch risk owners");
     }
   });
 
@@ -10200,7 +10193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })));
     } catch (error) {
       console.error("Failed to fetch risks:", error);
-      res.status(500).json({ message: "Failed to fetch risks" });
+      respondWithApiError(res, error, "Failed to fetch risks");
     }
   });
 
@@ -10237,7 +10230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(risk);
     } catch (error) {
       console.error("Failed to create risk:", error);
-      res.status(500).json({ message: "Failed to create risk" });
+      respondWithApiError(res, error, "Failed to create risk");
     }
   });
 
@@ -10282,7 +10275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(risk);
     } catch (error) {
       console.error("Failed to update risk:", error);
-      res.status(500).json({ message: "Failed to update risk" });
+      respondWithApiError(res, error, "Failed to update risk");
     }
   });
 
@@ -10676,8 +10669,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).from(assets).orderBy(asc(assets.name)) : Promise.resolve([]),
       ]);
       res.json({ applications: applicationRows, servers: serverRows, assets: assetRows });
-    } catch {
-      res.status(500).json({ message: "Failed to load change target catalog" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load change target catalog");
     }
   });
 
@@ -10739,8 +10732,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )).orderBy(asc(changeBlackouts.startDate), asc(changeBlackouts.title)),
       ]);
       res.json({ changes: plannedChanges, blackouts: blackoutRows });
-    } catch {
-      res.status(500).json({ message: "Failed to load change calendar" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load change calendar");
     }
   });
 
@@ -10754,8 +10747,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdById: (req.user as any).id,
       }).returning();
       res.status(201).json(created);
-    } catch {
-      res.status(500).json({ message: "Failed to create blackout period" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to create blackout period");
     }
   });
 
@@ -10770,8 +10763,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).where(eq(changeBlackouts.id, req.params.id)).returning();
       if (!updated) return res.status(404).json({ message: "Blackout period not found" });
       res.json(updated);
-    } catch {
-      res.status(500).json({ message: "Failed to update blackout period" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to update blackout period");
     }
   });
 
@@ -10780,8 +10773,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [deleted] = await db.delete(changeBlackouts).where(eq(changeBlackouts.id, req.params.id)).returning({ id: changeBlackouts.id });
       if (!deleted) return res.status(404).json({ message: "Blackout period not found" });
       res.json({ success: true });
-    } catch {
-      res.status(500).json({ message: "Failed to delete blackout period" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to delete blackout period");
     }
   });
 
@@ -10811,12 +10804,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         changes: result.changes.map(change => ({ ...change, impactSummary: impactSummaries.get(change.id) })),
       });
     }
-    catch { res.status(500).json({ message: "Failed to fetch changes" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch changes"); }
   });
 
   app.get("/api/changes/pending-votes", requireAuth, requireModule("itsm"), async (req, res) => {
     try { res.json(await storage.getPendingCabChanges((req.user as any).id)); }
-    catch { res.status(500).json({ message: "Failed to fetch pending CAB votes" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch pending CAB votes"); }
   });
 
   app.get("/api/changes/:id", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -10831,7 +10824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id) });
-    } catch { res.status(500).json({ message: "Failed to fetch change" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch change"); }
   });
 
   app.post("/api/changes", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -10881,7 +10874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Failed to create change:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.issues });
       if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
-      res.status(500).json({ message: "Failed to create change", detail: err instanceof Error ? err.message : String(err) });
+      respondWithApiError(res, err, "Failed to create change");
     }
   });
 
@@ -10970,7 +10963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Failed to update change:", err);
       if (err instanceof z.ZodError) return res.status(400).json({ message: "Invalid change targets", errors: err.issues });
       if ((err as any)?.status) return res.status((err as any).status).json({ message: (err as any).message });
-      res.status(500).json({ message: "Failed to update change", detail: err instanceof Error ? err.message : String(err) });
+      respondWithApiError(res, err, "Failed to update change");
     }
   });
 
@@ -10979,7 +10972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const deleted = await storage.deleteChange(req.params.id);
       if (!deleted) return res.status(404).json({ message: "Change not found" });
       res.json({ success: true });
-    } catch { res.status(500).json({ message: "Failed to delete change" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to delete change"); }
   });
 
   app.get("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -10991,7 +10984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(await storage.getChangeApprovals(req.params.id));
     }
-    catch { res.status(500).json({ message: "Failed to fetch approvals" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch approvals"); }
   });
 
   app.post("/api/changes/:id/approvals", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11050,7 +11043,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           removed = history.some(a => a.originalApproverId === approverId && a.removedAt);
         } catch (lookupError) {
           console.error("Failed to check approval history after conflict:", lookupError);
-          return res.status(500).json({ message: "Failed to check approval history" });
+          return respondWithApiError(res, lookupError, "Failed to check approval history");
         }
         return res.status(409).json({
           message: removed
@@ -11060,7 +11053,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       console.error("Failed to add approval:", error);
-      res.status(500).json({ message: "Failed to add approval" });
+      respondWithApiError(res, error, "Failed to add approval");
     }
   });
 
@@ -11088,7 +11081,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to remove approval:", error);
-      res.status(500).json({ message: "Failed to remove approval" });
+      respondWithApiError(res, error, "Failed to remove approval");
     }
   });
 
@@ -11135,7 +11128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await publishCabChange();
       res.json(approval);
-    } catch { res.status(500).json({ message: "Failed to update approval" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to update approval"); }
   });
 
   // ── Change Post-Implementation Review (PIR) ──────────────────────────────
@@ -11145,7 +11138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!pir) return res.status(404).json({ message: "PIR not found" });
       if (!(await canReadChangeRecord((req.user as any).id, req.params.id))) return res.status(403).json({ message: "Insufficient permissions" });
       res.json(pir);
-    } catch { res.status(500).json({ message: "Failed to fetch PIR" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to fetch PIR"); }
   });
 
   app.post("/api/changes/:id/pir", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11160,7 +11153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing) return res.status(409).json({ message: "PIR already exists for this change" });
       const pir = await storage.createChangePIR({ ...req.body, changeId: req.params.id, completedById: user.id });
       res.status(201).json(pir);
-    } catch { res.status(500).json({ message: "Failed to create PIR" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to create PIR"); }
   });
 
   app.put("/api/changes/:id/pir", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11168,7 +11161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pir = await storage.updateChangePIR(req.params.id, req.body);
       if (!pir) return res.status(404).json({ message: "PIR not found" });
       res.json(pir);
-    } catch { res.status(500).json({ message: "Failed to update PIR" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to update PIR"); }
   });
 
   // ── Change Workflow Actions ───────────────────────────────────────────────
@@ -11182,7 +11175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } as any);
       if (!change) return res.status(404).json({ message: "Change not found" });
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to assign change" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to assign change"); }
   });
 
   app.post("/api/changes/:id/submit", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11200,7 +11193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!result.change) return res.status(404).json({ message: "Change not found" });
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to submit change" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to submit change"); }
   });
 
   app.post("/api/changes/:id/start", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11239,7 +11232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existing = await storage.getChangeStages(req.params.id);
       if (existing.length === 0) await storage.createDefaultChangeStages(req.params.id);
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to start change" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to start change"); }
   });
 
   app.post("/api/changes/:id/complete", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11249,7 +11242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (ch.status !== "in_progress") return res.status(400).json({ message: "Change must be in progress to complete" });
       await storage.updateChange(req.params.id, { status: "completed", actualEnd: new Date() } as any);
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to complete change" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to complete change"); }
   });
 
   app.post("/api/changes/:id/cancel", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11259,7 +11252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (["completed","cancelled"].includes(ch.status)) return res.status(400).json({ message: "Cannot cancel a completed or already cancelled change" });
       await storage.updateChange(req.params.id, { status: "cancelled" } as any);
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to cancel change" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to cancel change"); }
   });
 
   // ── Environment Stages ───────────────────────────────────────────────────
@@ -11268,7 +11261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await canReadChangeRecord((req.user as any).id, req.params.id))) return res.status(403).json({ message: "Insufficient permissions" });
       res.json(await storage.getChangeStages(req.params.id));
     }
-    catch { res.status(500).json({ message: "Failed to fetch stages" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch stages"); }
   });
 
   app.post("/api/changes/:id/stages/init", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11277,7 +11270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing.length > 0) return res.json(existing);
       const stages = await storage.createDefaultChangeStages(req.params.id);
       res.status(201).json(stages);
-    } catch { res.status(500).json({ message: "Failed to initialize stages" }); }
+    } catch (error) { respondWithApiError(res, error, "Failed to initialize stages"); }
   });
 
   app.put("/api/changes/:id/stages/:stageId", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
@@ -11308,13 +11301,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const stage = await storage.updateChangeStage(req.params.stageId, updates);
       if (!stage) return res.status(404).json({ message: "Stage not found" });
       res.json(await storage.getChange(req.params.id));
-    } catch (e) { console.error(e); res.status(500).json({ message: "Failed to update stage" }); }
+    } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to update stage"); }
   });
 
   // ── ITSM Report Endpoints ────────────────────────────────────────────────────
   app.get("/api/reports/problems", requireAuth, requireModule("itsm"), async (req, res) => {
     try { res.json(await storage.getProblems()); }
-    catch { res.status(500).json({ message: "Failed to fetch problem report" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch problem report"); }
   });
 
   app.get("/api/reports/changes", requireAuth, requireModule("itsm"), async (req, res) => {
@@ -11414,7 +11407,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         summary,
       });
     }
-    catch { res.status(500).json({ message: "Failed to fetch change report" }); }
+    catch (error) { respondWithApiError(res, error, "Failed to fetch change report"); }
   });
 
   // ── ITSM Sample Data Seed ────────────────────────────────────────────────────
@@ -11698,7 +11691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error seeding ITSM data:", error);
-      res.status(500).json({ message: "Failed to seed ITSM data", error: String(error) });
+      respondWithApiError(res, error, "Failed to seed ITSM data");
     }
   });
 
@@ -11841,7 +11834,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (err) {
       console.error("KPI error:", err);
-      res.status(500).json({ message: "Failed to compute KPIs" });
+      respondWithApiError(res, err, "Failed to compute KPIs");
     }
   });
 

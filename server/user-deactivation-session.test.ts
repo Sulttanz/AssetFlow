@@ -267,7 +267,9 @@ describe("user deactivation session revocation", () => {
       const deactivation = await setAccountActive(adminSession, false);
 
       expect(deactivation.status).toBe(500);
-      expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
+      expect(await deactivation.json()).toEqual({
+        message: "Failed to update user", code: "INTERNAL_SERVER_ERROR", requestId: expect.any(String),
+      });
       expect(authTestState.query).toHaveBeenCalledWith(
         `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
         ["target"],
@@ -295,7 +297,9 @@ describe("user deactivation session revocation", () => {
     const deactivation = await setAccountActive(adminSession, false);
 
     expect(deactivation.status).toBe(500);
-    expect(await deactivation.json()).toEqual({ message: "Failed to update user" });
+    expect(await deactivation.json()).toEqual({
+      message: "Failed to update user", code: "INTERNAL_SERVER_ERROR", requestId: expect.any(String),
+    });
     expect(authTestState.query).toHaveBeenCalledWith(
       `DELETE FROM "sessions" WHERE sess->'passport'->>'user' = $1`,
       ["target"],
@@ -320,7 +324,9 @@ describe("user deactivation session revocation", () => {
     });
 
     expect(login.status).toBe(500);
-    expect(await login.json()).toEqual({ error: "Login failed during session creation" });
+    expect(await login.json()).toEqual({
+      message: "Login failed during session creation", code: "INTERNAL_SERVER_ERROR", requestId: expect.any(String),
+    });
     expect(Array.from(authTestState.sessions.values()).some(saved => saved.passport?.user === "target")).toBe(false);
 
     const loginClient = authTestState.clients.at(-1)!;

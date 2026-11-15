@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { RequestHandler } from "express";
 import { isDemoApiAllowed, isDemoViewer } from "@shared/demo-viewer";
 
@@ -12,8 +13,8 @@ export function createDemoViewerGuard(
         return res.status(403).json({ error: "Demo Viewer is read-only. This action or administration area is restricted." });
       }
       return next();
-    } catch {
-      return res.status(500).json({ error: "Unable to verify demo access permissions" });
+    } catch (error) {
+      return respondWithApiError(res, error, "Unable to verify demo access permissions");
     }
   };
 }

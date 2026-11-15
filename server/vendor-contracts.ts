@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
@@ -34,7 +35,7 @@ function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<
       if (code === "23505") { res.status(409).json({ message: "Vendor name, vendor code or contract number already exists" }); return; }
       if (code === "23503") { res.status(409).json({ message: "A linked record changed or is still referenced. Refresh and try again." }); return; }
       console.error("Vendor contract operation failed:", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ message: "Vendor contract operation failed" });
+      respondWithApiError(res, error, "Vendor contract operation failed");
     }
   };
 }

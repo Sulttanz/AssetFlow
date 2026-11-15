@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
@@ -1090,8 +1091,8 @@ export function registerDataMigrationRoutes(
         return void res.status(403).json({ message: "Bulk imports are restricted to Managers and Administrators." });
       }
       next();
-    } catch {
-      res.status(500).json({ message: "Could not verify bulk import authorization." });
+    } catch (error) {
+      respondWithApiError(res, error, "Could not verify bulk import authorization.");
     }
   };
   const requireEnabledModule: RequestHandler = async (req, res, next) => {
@@ -1100,8 +1101,8 @@ export function registerDataMigrationRoutes(
     try {
       if (!await isFeatureEnabled(module.featureKey)) return void sendFeatureNotEnabled(res, module.featureKey);
       next();
-    } catch {
-      res.status(500).json({ message: "Could not verify the import module license." });
+    } catch (error) {
+      respondWithApiError(res, error, "Could not verify the import module license.");
     }
   };
   const guards = [requireAuth, requireManagerOrAdmin] as const;
@@ -1113,8 +1114,8 @@ export function registerDataMigrationRoutes(
         enabled: await isFeatureEnabled(module.featureKey),
       })));
       res.json(available.filter(entry => entry.enabled).map(entry => entry.module));
-    } catch {
-      res.status(500).json({ message: "Failed to load available import modules." });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load available import modules.");
     }
   };
 
@@ -1148,8 +1149,8 @@ export function registerDataMigrationRoutes(
           ...details,
         };
       }));
-    } catch {
-      res.status(500).json({ message: "Failed to load data migration history" });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load data migration history");
     }
   };
   app.get("/api/data-migrations/history", ...guards, historyHandler);

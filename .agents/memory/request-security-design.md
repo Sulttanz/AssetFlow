@@ -24,3 +24,16 @@ Audit parts `AHZ` omit request/response headers and bodies but do not guarantee 
 **Why:** Treating those raw records as credential-free can expose sensitive values through audit or error messages even when body logging is disabled.
 
 **How to apply:** Restrict raw evidence and require tested matched-data redaction before centralizing it or exposing it through the application audit UI.
+
+## Descriptive API errors
+
+Provide actionable client-facing error codes and a log reference, not raw SQL or
+exception text, when extending the user's requested system-wide error diagnostics.
+
+**Why:** The user wants failures to be diagnosable across all features. Returning
+database exceptions verbatim would expose queries, connection details, or record
+values to API callers, so detailed diagnostics belong in restricted server logs.
+
+**How to apply:** Preserve domain validation and authorization responses; carry
+unexpected failures and wrapped database errors through the shared error response
+contract rather than discarding the underlying exception.

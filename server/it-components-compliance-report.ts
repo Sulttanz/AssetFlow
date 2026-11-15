@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -258,7 +259,7 @@ export function registerItComponentsComplianceRoutes(
         res.json(result);
       } catch (error) {
         console.error("Failed to generate IT components compliance report", error instanceof Error ? error.message : "Unknown error");
-        res.status(500).json({ message: "Failed to generate IT components compliance report" });
+        respondWithApiError(res, error, "Failed to generate IT components compliance report");
       }
     },
   );
@@ -329,7 +330,7 @@ export function registerItComponentsComplianceRoutes(
         res.json(saved);
       } catch (error) {
         console.error("Failed to save component compliance review", error instanceof Error ? error.message : "Unknown error");
-        res.status(500).json({ message: "Failed to save component compliance review" });
+        respondWithApiError(res, error, "Failed to save component compliance review");
       }
     },
   );

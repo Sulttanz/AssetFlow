@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, getTableColumns, inArray, ne, sql } from "drizzle-orm";
@@ -32,7 +33,7 @@ function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<
       if (error instanceof z.ZodError) { res.status(400).json({ message: "Invalid catalog data", errors: error.issues }); return; }
       if (error instanceof CatalogError) { res.status(error.status).json({ message: error.message }); return; }
       console.error("Service catalog operation failed:", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ message: "Service catalog operation failed" });
+      respondWithApiError(res, error, "Service catalog operation failed");
     }
   };
 }

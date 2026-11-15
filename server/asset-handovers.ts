@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request } from "express";
 import { and, asc, desc, eq, ilike, isNull, notExists, or, sql } from "drizzle-orm";
 import {
@@ -147,7 +148,7 @@ export function registerAssetHandoverRoutes(app: Express) {
         res.json({ employees: employeeRows, assets: assetRows, types, conditions });
       } catch (error) {
         console.error("Failed to load asset handover options:", error);
-        res.status(500).json({ message: "Failed to load handover options" });
+        respondWithApiError(res, error, "Failed to load handover options");
       }
     },
   );
@@ -213,7 +214,7 @@ export function registerAssetHandoverRoutes(app: Express) {
         res.json(rows);
       } catch (error) {
         console.error("Failed to list asset handovers:", error);
-        res.status(500).json({ message: "Failed to load asset handovers" });
+        respondWithApiError(res, error, "Failed to load asset handovers");
       }
     },
   );
@@ -261,7 +262,7 @@ export function registerAssetHandoverRoutes(app: Express) {
       res.json(row);
     } catch (error) {
       console.error("Failed to fetch asset handover:", error);
-      res.status(500).json({ message: "Failed to fetch handover receipt" });
+      respondWithApiError(res, error, "Failed to fetch handover receipt");
     }
   });
 
@@ -412,7 +413,7 @@ export function registerAssetHandoverRoutes(app: Express) {
       if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid handover data", errors: error.issues });
       if (errorStatus(error)) return res.status(errorStatus(error)!).json({ message: (error as Error).message });
       console.error("Failed to create asset handover:", error);
-      res.status(500).json({ message: "Failed to create asset handover" });
+      respondWithApiError(res, error, "Failed to create asset handover");
     }
   });
 
@@ -455,7 +456,7 @@ export function registerAssetHandoverRoutes(app: Express) {
       res.json(rows);
     } catch (error) {
       console.error("Failed to load current employee custody receipts:", error);
-      res.status(500).json({ message: "Failed to load your custody receipts" });
+      respondWithApiError(res, error, "Failed to load your custody receipts");
     }
   });
 
@@ -509,7 +510,7 @@ export function registerAssetHandoverRoutes(app: Express) {
     } catch (error) {
       if (errorStatus(error)) return res.status(errorStatus(error)!).json({ message: (error as Error).message });
       console.error("Failed to acknowledge asset handover:", error);
-      res.status(500).json({ message: "Failed to acknowledge handover receipt" });
+      respondWithApiError(res, error, "Failed to acknowledge handover receipt");
     }
   });
 }

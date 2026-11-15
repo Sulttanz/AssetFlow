@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { asc, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -147,7 +148,7 @@ export function registerBackupGovernanceRoutes(
       if (code === "23505") return void res.status(409).json({ message: "This backup record already exists" });
       if (code === "23503") return void res.status(409).json({ message: "This backup record is still referenced" });
       console.error("Backup governance request failed", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ message: "Backup governance request failed" });
+      respondWithApiError(res, error, "Backup governance request failed");
     }
   };
 

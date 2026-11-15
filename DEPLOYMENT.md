@@ -8,6 +8,19 @@ The current database adapter in `server/db.ts` is `@neondatabase/serverless` ove
 
 Current attachment handlers write to `server/uploads`. Replit production filesystems are not persistent across publishes, and local files are not shared between Autoscale instances. Before relying on uploads in cloud production, move these handlers to durable shared object storage. On-premises installations must mount and back up `server/uploads` on persistent storage with write access for the service account.
 
+## Diagnosing API errors
+
+Unexpected route failures are logged server-side with the original exception and a
+reference ID. Error responses include `message`, `code`, and `requestId`; use the
+reference ID to find the corresponding server log. SQL statements, database
+connection details, and stack traces are not returned to the browser.
+
+Employee number/email conflicts return HTTP 409 with `DUPLICATE_EMPLOYEE_ID` or
+`DUPLICATE_EMPLOYEE_EMAIL`. Invalid employee payloads return HTTP 400 with
+field-level `errors`. Database outages/timeouts return HTTP 503; schema mismatches
+return `DATABASE_SCHEMA_ERROR` and require administrator investigation. Do not
+remove uniqueness constraints or delete employee records to work around a conflict.
+
 ## Required environment
 
 Set these values in the hosting platform's secret/environment-variable manager. Do not commit credentials to the repository.

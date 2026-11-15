@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, RequestHandler } from "express";
 import type { User } from "@shared/schema";
 import {
@@ -37,7 +38,7 @@ export function registerSystemClearDataRoute(
         userId, username: user.username, ipAddress: req.ip,
         userAgent: req.get("user-agent")?.slice(0, 512),
       });
-      if (!success) return void res.status(500).json({ message: "Failed to clear system data; no changes were committed" });
+      if (!success) return void respondWithApiError(res, new Error("Clear data operation returned false"), "Failed to clear system data; no changes were committed");
       res.json({
         message: "Business data cleared successfully. User accounts, authorization, system settings, reference data and system guides were preserved.",
         clearedAt: new Date().toISOString(),
@@ -49,7 +50,7 @@ export function registerSystemClearDataRoute(
       });
     } catch (error) {
       console.error("Error clearing system data:", error);
-      res.status(500).json({ message: "Failed to clear system data; no changes were committed" });
+      respondWithApiError(res, error, "Failed to clear system data; no changes were committed");
     }
   });
 }

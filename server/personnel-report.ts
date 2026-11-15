@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express } from "express";
 import { asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
@@ -149,7 +150,7 @@ export function registerPersonnelReportRoute(app: Express) {
       });
     } catch (error) {
       console.error("Failed to load personnel report", error);
-      res.status(500).json({ message: "Failed to load personnel report" });
+      respondWithApiError(res, error, "Failed to load personnel report");
     }
   });
 }

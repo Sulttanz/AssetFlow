@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { and, asc, desc, eq, getTableColumns, ilike, inArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -155,7 +156,7 @@ export function registerNetworkTopologyRoutes(
       if (code === "23505") return void res.status(409).json({ message: "A record with the same name or reference already exists" });
       if (code === "23503") return void res.status(409).json({ message: "This record is still referenced and cannot be removed" });
       console.error("Network governance request failed", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ message: "Network governance request failed" });
+      respondWithApiError(res, error, "Network governance request failed");
     }
   };
 

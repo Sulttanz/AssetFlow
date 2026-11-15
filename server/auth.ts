@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express, type Request } from "express";
@@ -157,7 +158,7 @@ export function setupAuth(app: Express) {
         });
       }).catch((loginError) => {
         if (res.headersSent) return next(loginError);
-        res.status(500).json({ error: "Login failed during session creation" });
+        respondWithApiError(res, loginError, "Login failed during session creation");
       });
     })(req, res, next);
   });
@@ -183,7 +184,7 @@ export function setupAuth(app: Express) {
       const { password, ...safeUser } = user;
       res.json({ ...safeUser, roles, permissions });
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch user data" });
+      respondWithApiError(res, error, "Failed to fetch user data");
     }
   });
 }
@@ -265,7 +266,7 @@ export function requirePermission(permission: string) {
       }
       next();
     } catch (error) {
-      res.status(500).json({ error: "Permission check failed" });
+      respondWithApiError(res, error, "Permission check failed");
     }
   };
 }
@@ -281,8 +282,8 @@ export function requireAnyPermission(...permissions: string[]) {
         return res.status(403).json({ error: "Insufficient permissions" });
       }
       next();
-    } catch {
-      res.status(500).json({ error: "Permission check failed" });
+    } catch (error) {
+      respondWithApiError(res, error, "Permission check failed");
     }
   };
 }

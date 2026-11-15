@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express } from "express";
 import { and, desc, eq, gte, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -282,7 +283,7 @@ export function registerEnterpriseReportingRoutes(app: Express) {
       return res.json(response);
     } catch (error) {
       console.error("Failed to build enterprise operations report", error);
-      return res.status(500).json({ message: "Failed to load enterprise operations report." });
+      return respondWithApiError(res, error, "Failed to load enterprise operations report.");
     }
   });
 
@@ -364,7 +365,7 @@ export function registerEnterpriseReportingRoutes(app: Express) {
       })));
     } catch (error) {
       console.error("Failed to load audit events report", error);
-      return res.status(500).json({ message: "Failed to load audit events report." });
+      return respondWithApiError(res, error, "Failed to load audit events report.");
     }
   });
 }

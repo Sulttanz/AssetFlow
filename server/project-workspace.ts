@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
@@ -179,7 +180,7 @@ function sendError(error: unknown, res: Response) {
   if (code === "23505") return res.status(409).json({ message: "A record with that reference already exists." });
   if (code === "23514") return res.status(400).json({ message: "The values do not meet the required project constraints." });
   console.error("Project workspace operation failed:", error);
-  return res.status(500).json({ message: "Project operation failed." });
+  return respondWithApiError(res, error, "Project operation failed.");
 }
 
 async function validateActiveUser(id: string | null | undefined, message: string) {

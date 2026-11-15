@@ -51,7 +51,7 @@ export function respondWithApiError(
   res: Response,
   error: unknown,
   operation: string,
-  fallbackMessage = "An unexpected server error occurred.",
+  fallbackMessage = operation,
 ) {
   const requestId = randomUUID();
   console.error(`[API ${requestId}] ${operation} failed:`, error);
@@ -67,10 +67,10 @@ export function respondWithApiError(
 
   const databaseError = getDatabaseErrorInfo(error);
   if (databaseError.code === "23505") {
-    if (databaseError.constraint === "employees_employee_id_unique") {
+    if (["employees_employee_id_unique", "employees_employee_id_key"].includes(databaseError.constraint ?? "")) {
       return sendJsonError(res, 409, "DUPLICATE_EMPLOYEE_ID", "That employee number is already in use.", requestId);
     }
-    if (databaseError.constraint === "employees_email_unique") {
+    if (["employees_email_unique", "employees_email_key"].includes(databaseError.constraint ?? "")) {
       return sendJsonError(res, 409, "DUPLICATE_EMPLOYEE_EMAIL", "An employee with that email address already exists.", requestId);
     }
     return sendJsonError(res, 409, "DUPLICATE_RECORD", "A record with one or more of these values already exists.", requestId);
@@ -88,11 +88,29 @@ export function respondWithApiError(
       requestId,
     );
   }
-  if (["22P02", "22001", "23514"].includes(databaseError.code ?? "")) {
+  if (["22P02", "22001", "22003", "22007", "22008", "23514"].includes(databaseError.code ?? "")) {
     return sendJsonError(res, 400, "INVALID_FIELD_VALUE", "One or more field values are invalid.", requestId);
   }
   if (["40001", "40P01"].includes(databaseError.code ?? "")) {
     return sendJsonError(res, 409, "DATABASE_RETRYABLE_CONFLICT", "The record changed during this operation. Please retry.", requestId);
+  }
+  if (databaseError.code?.startsWith("08") ||
+    ["57P01", "57P02", "57P03", "53300", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT"].includes(databaseError.code ?? "")) {
+    return sendJsonError(res, 503, "DATABASE_UNAVAILABLE", "The database is temporarily unavailable. Please try again shortly.", requestId);
+  }
+  if (databaseError.code === "57014") {
+    return sendJsonError(res, 503, "DATABASE_TIMEOUT", "The database request timed out. Please try again.", requestId);
+  }
+  if (["42P01", "42703"].includes(databaseError.code ?? "")) {
+    return sendJsonError(res, 500, "DATABASE_SCHEMA_ERROR", "A database schema update is required. Please contact your administrator.", requestId);
+  }
+  const httpError = error as { status?: unknown; statusCode?: unknown; type?: unknown } | null;
+  const status = httpError?.status ?? httpError?.statusCode;
+  if (typeof status === "number" && Number.isInteger(status) && status >= 400 && status < 500) {
+    const message = status === 413 ? "The uploaded request is too large."
+      : httpError?.type === "entity.parse.failed" ? "The request body contains invalid JSON."
+      : "The request could not be processed. Check your input and permissions.";
+    return sendJsonError(res, status, `HTTP_${status}`, message, requestId);
   }
 
   return sendJsonError(res, 500, "INTERNAL_SERVER_ERROR", fallbackMessage, requestId);
@@ -100,5 +118,5 @@ export function respondWithApiError(
 
 export const apiErrorMiddleware: ErrorRequestHandler = (error, req, res, next) => {
   if (res.headersSent) return next(error);
-  respondWithApiError(res, error, `${req.method} ${req.originalUrl}`);
+  respondWithApiError(res, error, `${req.method} ${req.path}`, "An unexpected server error occurred.");
 };

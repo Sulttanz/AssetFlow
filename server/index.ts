@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startCabEventListener } from "./cab-events";
 import { startContractRenewalChecker } from "./services/contract-renewal-checker";
+import { apiErrorMiddleware } from "./api-error-handler";
 import { runStartupMigrations } from "./startup-migrations";
 import {
   apiSecurityMiddleware,
@@ -130,17 +131,7 @@ app.use((req, res, next) => {
     }
 
     // Error handling middleware
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
-      
-      console.error(`❌ Error ${status}:`, message);
-      if (err.stack) {
-        console.error(err.stack);
-      }
-
-      res.status(status).json({ message });
-    });
+    app.use(apiErrorMiddleware);
 
     // Setup Vite in development or serve static files in production
     if (app.get("env") === "development") {

@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
@@ -182,7 +183,7 @@ export function registerKnowledgeRoutes(
         const code = (error as any)?.code ?? (error as any)?.cause?.code;
         if (code === "23505") return void res.status(409).json({ message: "A duplicate article, attachment, or control mapping already exists" });
         console.error("Knowledge governance request failed", error instanceof Error ? error.message : "Unknown error");
-        res.status(500).json({ message: "Knowledge-base request failed" });
+        respondWithApiError(res, error, "Knowledge-base request failed");
       }
     };
   const editorMiddleware: RequestHandler = async (req, res, next) => {
@@ -191,7 +192,7 @@ export function registerKnowledgeRoutes(
       next();
     } catch (error) {
       if (error instanceof KnowledgeError) return void res.status(error.status).json({ message: error.message });
-      res.status(500).json({ message: "Could not verify knowledge governance access" });
+      respondWithApiError(res, error, "Could not verify knowledge governance access");
     }
   };
   const passThrough: RequestHandler = (_req, _res, next) => next();

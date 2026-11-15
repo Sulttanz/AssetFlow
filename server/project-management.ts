@@ -1,3 +1,4 @@
+import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { and, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import {
@@ -249,7 +250,7 @@ function sendMutationError(error: unknown, res: Response) {
     return res.status(400).json({ message: "Project values do not meet the required constraints." });
   }
   console.error("Project management request failed:", error);
-  return res.status(500).json({ message: "Project operation failed." });
+  return respondWithApiError(res, error, "Project operation failed.");
 }
 
 async function getProjectDetail(projectId: string) {

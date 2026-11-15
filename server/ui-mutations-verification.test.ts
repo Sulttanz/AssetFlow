@@ -28,6 +28,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
   let projectId: string | undefined;
   let contractId: number | undefined;
   let assignmentGroupId: number | undefined;
+  const employeeIds: string[] = [];
   const results: { method: string; path: string; status: number; expectedStatus: number }[] = [];
 
   async function request(method: string, path: string, input?: unknown, expectedStatus = 200) {
@@ -56,12 +57,12 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       id: actorId, username, password: await hashPassword(password),
       email: `${username}@example.test`, firstName: "Mutation", lastName: "Verifier", isActive: true,
     });
-    await db.insert(s.permissions).values({
-      name: "system_admin", description: "System administrator",
-    }).onConflictDoNothing();
-    const [permission] = await db.select().from(s.permissions).where(eq(s.permissions.name, "system_admin"));
     await db.insert(s.roles).values({ id: roleId, name: `Mutation Verification ${suffix}` });
-    await db.insert(s.rolePermissions).values({ roleId, permissionId: permission.id });
+    for (const name of ["system_admin", "employee_create", "employee_update"]) {
+      await db.insert(s.permissions).values({ name, description: name }).onConflictDoNothing();
+      const [permission] = await db.select().from(s.permissions).where(eq(s.permissions.name, name));
+      await db.insert(s.rolePermissions).values({ roleId, permissionId: permission.id });
+    }
     await db.insert(s.userRoles).values({ userId: actorId, roleId });
     const login = await fetch(`${base}/api/login`, {
       method: "POST", headers: { "content-type": "application/json" },
@@ -78,6 +79,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       if (contractId) await db.delete(s.serviceContracts).where(eq(s.serviceContracts.id, contractId));
       if (projectId) await db.delete(s.projects).where(eq(s.projects.id, projectId));
       if (assignmentGroupId) await db.delete(s.assignmentGroups).where(eq(s.assignmentGroups.id, assignmentGroupId));
+      for (const id of employeeIds) await db.delete(s.employees).where(eq(s.employees.id, id));
       await db.delete(s.userRoles).where(eq(s.userRoles.userId, actorId));
       await db.delete(s.rolePermissions).where(eq(s.rolePermissions.roleId, roleId));
       await db.delete(s.roles).where(eq(s.roles.id, roleId));
@@ -87,6 +89,34 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
       await pool.end();
     }
+  });
+
+  it("creates the third employee, and returns descriptive conflicts and field validation", async () => {
+    const employeeInput = {
+      firstName: "Employee", lastName: "Verification",
+      email: `employee-3-${suffix}@example.test`, position: "QA", employeeId: "3",
+    };
+    for (const number of ["1", "2", "3"]) {
+      const employee = await request("POST", "/api/employees", {
+        ...employeeInput, employeeId: number, email: `employee-${number}-${suffix}@example.test`,
+      }, 201);
+      employeeIds.push(employee.id);
+      expect(employee.employeeId).toBe(number);
+      expect(employee.id).not.toBe(number);
+    }
+    const duplicateId = await request("POST", "/api/employees", {
+      ...employeeInput, email: `different-${suffix}@example.test`,
+    }, 409);
+    expect(duplicateId).toMatchObject({ code: "DUPLICATE_EMPLOYEE_ID", requestId: expect.any(String) });
+    const duplicateEmail = await request("POST", "/api/employees", {
+      ...employeeInput, employeeId: `different-${suffix}`,
+    }, 409);
+    expect(duplicateEmail.code).toBe("DUPLICATE_EMPLOYEE_EMAIL");
+    const invalid = await request("POST", "/api/employees", { employeeId: "3" }, 400);
+    expect(invalid.code).toBe("VALIDATION_ERROR");
+    expect(invalid.errors).toEqual(expect.arrayContaining([expect.objectContaining({ path: "firstName" })]));
+    const duplicateUpdate = await request("PUT", `/api/employees/${employeeIds[0]}`, { employeeId: "3" }, 409);
+    expect(duplicateUpdate.code).toBe("DUPLICATE_EMPLOYEE_ID");
   });
 
   it("verifies incident creation, partial edits, assignment, resolution/closure, project updates and contract updates", async () => {
