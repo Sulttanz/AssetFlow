@@ -502,6 +502,75 @@ describe("CAB route notifications across signed-in sessions", () => {
     }
   });
 
+  it.each(["expired", "missing"] as const)("closes a stream when its shared lease is %s", async leaseState => {
+    const realSetTimeout = setTimeout;
+    const timeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(
+      ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) =>
+        realSetTimeout(callback, delay === 25_000 ? 10 : delay, ...args)) as typeof setTimeout,
+    );
+    try {
+      const cookie = await login("alice");
+      const stream = await openStream(cookie);
+      const lease = cabLeases.find(item => item.userId === "alice");
+      expect(lease).toBeDefined();
+      if (leaseState === "expired") {
+        lease!.expiresAt = new Date(Date.now() - 1);
+      } else {
+        cabLeases.splice(cabLeases.indexOf(lease!), 1);
+      }
+
+      await Promise.race([
+        stream.closed,
+        new Promise((_, reject) => realSetTimeout(() => reject(new Error("CAB stream with an invalid lease stayed open")), 1000)),
+      ]);
+      expect(leaseQuery).toHaveBeenCalled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("closes a stream after lease renewal fails and still enforces the shared stream limit", async () => {
+    const realSetTimeout = setTimeout;
+    const timeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(
+      ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) =>
+        realSetTimeout(callback, delay === 25_000 ? 1000 : delay, ...args)) as typeof setTimeout,
+    );
+    const activeStreams: Awaited<ReturnType<typeof openStream>>[] = [];
+    try {
+      const cookies = await Promise.all(Array.from({ length: 6 }, () => login("manager")));
+      activeStreams.push(...await Promise.all(cookies.map(openStream)));
+      expect(cabLeases).toHaveLength(6);
+
+      const failedLease = cabLeases[0];
+      const normalNotify = notify.getMockImplementation()!;
+      notify.mockImplementation(async (sql: string, parameters: any[] = []) => {
+        const statement = sql.replace(/\s+/g, " ").trim();
+        if (statement.startsWith("UPDATE cab_stream_leases SET expires_at") && parameters[0] === failedLease.id) {
+          throw new Error("Lease renewal database failure");
+        }
+        if (statement.startsWith("DELETE FROM cab_stream_leases WHERE id =") && parameters[0] === failedLease.id) {
+          throw new Error("Lease release database failure");
+        }
+        return normalNotify(sql, parameters);
+      });
+
+      await Promise.race([
+        activeStreams[0].closed,
+        new Promise((_, reject) => realSetTimeout(() => reject(new Error("CAB stream stayed open after lease renewal failed")), 2000)),
+      ]);
+
+      const excessCookie = await login("manager");
+      const excessResponse = await request("/api/changes/events", excessCookie);
+      expect(excessResponse.status).toBe(429);
+      expect(excessResponse.headers.get("retry-after")).toBe("5");
+      await excessResponse.body?.cancel();
+      expect(cabLeases).toHaveLength(6);
+    } finally {
+      activeStreams.forEach(stream => stream.abort());
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("keeps two tabs on the same cookie live while refusing excess account connections", async () => {
     const cookies = await Promise.all(Array.from({ length: 6 }, () => login("manager")));
     const [firstTab, secondTab, ...others] = await Promise.all([
