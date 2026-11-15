@@ -645,9 +645,9 @@ export class MemStorage implements IStorage {
       ...insertAsset, 
       id,
       // Core fields
-      status: insertAsset.status || "available",
-      condition: insertAsset.condition || "good",
-      usedSeats: insertAsset.usedSeats ?? 0,
+      status: insertAsset.status ?? "available",
+      condition: insertAsset.condition === undefined ? "good" : insertAsset.condition,
+      usedSeats: insertAsset.usedSeats === undefined ? 0 : insertAsset.usedSeats,
       cloudProvider: insertAsset.cloudProvider ?? null,
       tenantAccountId: insertAsset.tenantAccountId ?? null,
       billingCycle: insertAsset.billingCycle ?? null,
@@ -737,8 +737,8 @@ export class MemStorage implements IStorage {
       purchasePrice: normalizeField(insertAsset.purchasePrice),
       currentBookValue: normalizeField(insertAsset.currentBookValue),
       currentValue: normalizeField(insertAsset.currentValue),
-      depreciationRate: normalizeField(insertAsset.depreciationRate),
-      depreciationMethod: normalizeField(insertAsset.depreciationMethod),
+      depreciationRate: insertAsset.depreciationRate === undefined ? "20.00" : normalizeField(insertAsset.depreciationRate),
+      depreciationMethod: insertAsset.depreciationMethod === undefined ? "straight-line" : normalizeField(insertAsset.depreciationMethod),
       depreciationSchedule: normalizeField(insertAsset.depreciationSchedule),
       usefulLifeYears: insertAsset.usefulLifeYears ?? null,
       residualValue: insertAsset.residualValue ?? null,
@@ -799,7 +799,7 @@ export class MemStorage implements IStorage {
       auditFindings: normalizeField(insertAsset.auditFindings),
       remediationStatus: normalizeField(insertAsset.remediationStatus),
       assetRegistryEntryDate: normalizeField(insertAsset.assetRegistryEntryDate),
-      lastUpdatedDate: insertAsset.lastUpdatedDate ?? new Date(),
+      lastUpdatedDate: insertAsset.lastUpdatedDate === undefined ? new Date() : insertAsset.lastUpdatedDate,
       updatedBy: normalizeField(insertAsset.updatedBy),
       
       // Environmental & Physical Security
@@ -2096,7 +2096,7 @@ export class MemStorage implements IStorage {
       assignedToId: ticket.assignedToId ?? null,
       departmentId: ticket.departmentId ?? null,
       dueDate: ticket.dueDate ?? null,
-      resolutionCode: null,
+      resolutionCode: ticket.resolutionCode ?? null,
       reopenCount: 0,
       slaResponseDueAt,
       slaResolutionDueAt,
@@ -2678,8 +2678,8 @@ export class MemStorage implements IStorage {
     const newOption: DropdownOption = {
       ...option,
       id: randomUUID(),
-      isActive: option.isActive ?? true,
-      displayOrder: option.displayOrder ?? 0,
+      isActive: option.isActive === undefined ? true : option.isActive,
+      displayOrder: option.displayOrder === undefined ? 0 : option.displayOrder,
       createdAt: now,
       updatedAt: now,
     };
@@ -2764,7 +2764,33 @@ export class MemStorage implements IStorage {
   async getChange(_id: string): Promise<ChangeWithDetails | undefined> { return undefined; }
   async createChange(change: InsertChange): Promise<Change> {
     const id = randomUUID(); const now = new Date();
-    return { id, changeNumber: `CHG-000001`, ...change, type: change.type ?? "normal", status: change.status ?? "draft", priority: change.priority ?? "medium", risk: change.risk ?? "low", cabRequired: change.cabRequired ?? false, cabReviewVersion: 1, description: change.description ?? null, rollbackPlan: change.rollbackPlan ?? null, implementationPlan: change.implementationPlan ?? null, testPlan: change.testPlan ?? null, impact: change.impact ?? null, scheduledStart: change.scheduledStart ?? null, scheduledEnd: change.scheduledEnd ?? null, actualStart: null, actualEnd: null, assignedAt: change.assignedAt ?? null, submittedAt: change.submittedAt ?? null, approvedAt: change.approvedAt ?? null, cabScheduledFor: change.cabScheduledFor ?? null, requestedById: change.requestedById ?? null, assignedToId: change.assignedToId ?? null, departmentId: change.departmentId ?? null, projectId: change.projectId ?? null, createdAt: now, updatedAt: now };
+    return {
+      ...change, id, changeNumber: "CHG-000001",
+      type: change.type ?? "normal",
+      status: change.status ?? "draft",
+      priority: change.priority ?? "medium",
+      risk: change.risk === undefined ? "low" : change.risk,
+      cabRequired: change.cabRequired === undefined ? false : change.cabRequired,
+      cabReviewVersion: change.cabReviewVersion ?? 1,
+      description: change.description ?? null,
+      rollbackPlan: change.rollbackPlan ?? null,
+      implementationPlan: change.implementationPlan ?? null,
+      testPlan: change.testPlan ?? null,
+      impact: change.impact ?? null,
+      scheduledStart: change.scheduledStart ?? null,
+      scheduledEnd: change.scheduledEnd ?? null,
+      actualStart: change.actualStart ?? null,
+      actualEnd: change.actualEnd ?? null,
+      assignedAt: change.assignedAt ?? null,
+      submittedAt: change.submittedAt ?? null,
+      approvedAt: change.approvedAt ?? null,
+      cabScheduledFor: change.cabScheduledFor ?? null,
+      requestedById: change.requestedById ?? null,
+      assignedToId: change.assignedToId ?? null,
+      departmentId: change.departmentId ?? null,
+      projectId: change.projectId ?? null,
+      createdAt: now, updatedAt: now,
+    };
   }
   async updateChange(_id: string, _c: Partial<InsertChange>): Promise<Change | undefined> { return undefined; }
   async updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>) {
