@@ -41,6 +41,7 @@ describe("Enterprise sidebar navigation", () => {
   });
 
   it("renders the exact section order, expands Overview and keeps collapse levels independent", () => {
+    state.user = { ...state.user!, employeeId: "employee-1" };
     render(<Sidebar />);
     expect(screen.getAllByTestId(/^section-toggle-/).map(element => element.textContent)).toEqual([
       "Overview", "Employee Support", "My Assets", "Asset Management", "CMDB & Infrastructure",

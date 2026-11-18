@@ -28,6 +28,7 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
   const managerId = randomUUID();
   const adminId = randomUUID();
   const projectId = randomUUID();
+  const incidentCatalogItemId = randomUUID();
   const testRoleId = randomUUID();
   const incidentIds: string[] = [];
   let contractId: number | undefined;
@@ -69,6 +70,7 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
         priority: "P3",
         category: "Hardware",
         projectId,
+        incidentCatalogItemId,
       }),
     });
     const body = await response.json();
@@ -172,6 +174,14 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
       });
       await db.insert(s.projectManagers).values({ projectId, userId: managerId, isPrimary: true });
       await db.insert(s.projectTeamMembers).values({ projectId, userId: actorId });
+      await db.insert(s.incidentCatalogItems).values({
+        id: incidentCatalogItemId,
+        name: `Contract verification incident ${suffix}`,
+        category: "Hardware",
+        defaultImpact: "medium",
+        defaultUrgency: "medium",
+        defaultPriority: "P3",
+      });
 
       const [systemPermission] = await db.select().from(s.permissions)
         .where(eq(s.permissions.name, "system_admin")).limit(1);
@@ -326,6 +336,7 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
         ));
         await db.delete(s.serviceContracts).where(eq(s.serviceContracts.id, contractId));
       }
+      await db.delete(s.incidentCatalogItems).where(eq(s.incidentCatalogItems.id, incidentCatalogItemId));
       await db.delete(s.projectManagers).where(eq(s.projectManagers.projectId, projectId));
       await db.delete(s.projects).where(eq(s.projects.id, projectId));
       if (policyIds.length) await db.delete(s.slaPolicies).where(inArray(s.slaPolicies.id, policyIds));

@@ -5,7 +5,7 @@ import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
 import { getStandardRoleKey, STANDARD_ROLE_DEFINITIONS } from "@shared/role-catalog";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage, computeTicketSlaDates } from "./storage";
 import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
 import multer from "multer";
@@ -1394,7 +1394,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .orderBy(asc(projects.name));
   };
 
-  app.get("/api/incident-catalog", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  const requireIncidentCatalogManager: RequestHandler = async (req, res, next) => {
+    try {
+      const [permissions, roleRows] = await Promise.all([
+        storage.getUserPermissions(req.user!.id), storage.getUserRoles(req.user!.id),
+      ]);
+      if (permissions.includes("system_admin") || roleRows.some(role => ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? ""))) {
+        next();
+        return;
+      }
+      res.status(403).json({ message: "Only administrators and IT managers can manage the incident catalog." });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to authorize incident catalog management");
+    }
+  };
+
+  app.get("/api/incident-catalog", requireAuth, requireModule("itsm"), requireIncidentCatalogManager, async (req: any, res) => {
     try {
       const includeInactive = req.query.includeInactive === "true";
       const [rows, projectRows] = await Promise.all([
@@ -1425,7 +1440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return true;
   };
 
-  app.post("/api/incident-catalog", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.post("/api/incident-catalog", requireAuth, requireModule("itsm"), requireIncidentCatalogManager, async (req: any, res) => {
     try {
       const input = insertIncidentCatalogItemSchema.parse(req.body);
       if (!await validateIncidentCatalogProject(input.projectId, res)) return;
@@ -1444,7 +1459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.put("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requireIncidentCatalogManager, async (req: any, res) => {
     try {
       const input = insertIncidentCatalogItemSchema.partial().parse(req.body);
       if (input.projectId !== undefined && !await validateIncidentCatalogProject(input.projectId, res)) return;
@@ -1464,7 +1479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+  app.delete("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requireIncidentCatalogManager, async (req: any, res) => {
     try {
       const [existing] = await db.select().from(incidentCatalogItems).where(eq(incidentCatalogItems.id, req.params.id)).limit(1);
       if (!existing) return res.status(404).json({ message: "Incident catalog item not found." });
@@ -1484,11 +1499,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id as string;
       const assignedProjects = await getProjectsAssignedToUser(userId);
       const requestedProjectId = typeof req.query.projectId === "string" ? req.query.projectId : "";
+      if (requestedProjectId && !assignedProjects.some(project => project.id === requestedProjectId)) {
+        return res.status(403).json({ message: "Select a project assigned to your account." });
+      }
       const allowedProjectId = assignedProjects.some(project => project.id === requestedProjectId)
         ? requestedProjectId
         : (!requestedProjectId && assignedProjects.length === 1 ? assignedProjects[0].id : "");
-      const catalogConditions = [eq(incidentCatalogItems.isActive, true), isNull(incidentCatalogItems.projectId)];
-      if (allowedProjectId) catalogConditions.push(eq(incidentCatalogItems.projectId, allowedProjectId));
+      const catalogScope = allowedProjectId
+        ? or(isNull(incidentCatalogItems.projectId), eq(incidentCatalogItems.projectId, allowedProjectId))
+        : isNull(incidentCatalogItems.projectId);
       const catalog = await db.select({
         id: incidentCatalogItems.id,
         name: incidentCatalogItems.name,
@@ -1500,7 +1519,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         defaultUrgency: incidentCatalogItems.defaultUrgency,
         defaultPriority: incidentCatalogItems.defaultPriority,
         defaultAssignmentGroup: incidentCatalogItems.defaultAssignmentGroup,
-      }).from(incidentCatalogItems).where(and(...catalogConditions)).orderBy(asc(incidentCatalogItems.name));
+      }).from(incidentCatalogItems).where(and(eq(incidentCatalogItems.isActive, true), catalogScope)).orderBy(asc(incidentCatalogItems.name));
       let assignedAssets: { id: string; name: string; assetTag: string | null; serialNumber: string | null }[] = [];
       if (req.user.employeeId && await isFeatureEnabled("asset_management")) {
         assignedAssets = await db.select({
@@ -1723,7 +1742,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!assignedAsset) return res.status(400).json({ message: "Select equipment currently assigned to your employee record." });
       }
       const parsed = insertIncidentSchema.parse({
-        ...req.body,
+        title: req.body.title,
+        description: req.body.description,
         projectId,
         incidentCatalogItemId: selectedIncidentCatalog?.id ?? null,
         category: selectedIncidentCatalog?.category ?? req.body.category,
@@ -1732,6 +1752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         impact: canManageIntake ? req.body.impact ?? selectedIncidentCatalog?.defaultImpact : selectedIncidentCatalog?.defaultImpact,
         assignmentGroup: canManageIntake ? req.body.assignmentGroup ?? selectedIncidentCatalog?.defaultAssignmentGroup : selectedIncidentCatalog?.defaultAssignmentGroup,
         assigneeId: canManageIntake ? req.body.assigneeId ?? null : null,
+        assignedToId: canManageIntake ? req.body.assigneeId ?? null : null,
         slaPolicyId: canManageIntake ? req.body.slaPolicyId ?? null : null,
         assetId,
         creatorId: req.user.id,
@@ -1884,7 +1905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(400).json({ message: "Asset not found" });
         return;
       }
-      if (parsed.slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(eq(slaPolicies.id, parsed.slaPolicyId))).length) {
+      if (parsed.slaPolicyId && !(await db.select({ id: slaPolicies.id }).from(slaPolicies).where(and(eq(slaPolicies.id, parsed.slaPolicyId), eq(slaPolicies.isActive, true)))).length) {
         res.status(400).json({ message: "SLA policy not found" });
         return;
       }
@@ -1914,11 +1935,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [current] = await tx.select().from(incidents).where(eq(incidents.id, req.params.id)).for("update");
         if (!current) return undefined;
         const next = { ...current, ...parsed };
+        let timerUpdates: { responseDueAt?: Date; resolveDueAt?: Date } = {};
+        if (next.slaPolicyId !== current.slaPolicyId || next.priority !== current.priority) {
+          const [policy] = next.slaPolicyId
+            ? await tx.select().from(slaPolicies).where(and(eq(slaPolicies.id, next.slaPolicyId), eq(slaPolicies.isActive, true))).limit(1)
+            : [];
+          const openedAt = current.createdAt ?? new Date();
+          if (policy) {
+            timerUpdates = {
+              responseDueAt: new Date(openedAt.getTime() + policy.responseHours * 3600000),
+              resolveDueAt: new Date(openedAt.getTime() + policy.resolutionHours * 3600000),
+            };
+          } else {
+            const priorities: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
+            const targets = await computeTicketSlaDates(priorities[next.priority], openedAt, "incident", next.category);
+            timerUpdates = { responseDueAt: targets.slaResponseDueAt, resolveDueAt: targets.slaResolutionDueAt };
+          }
+        }
         if (["Resolved", "Closed"].includes(current.status) &&
             (!next.category?.trim() || !next.resolutionCode?.trim() || !next.resolutionNotes?.trim())) {
           throw new IncidentTransitionError(400, "Resolved or closed incidents must retain their category, resolution code, and resolution notes.");
         }
-        const [updated] = await tx.update(incidents).set({ ...parsed, updatedAt: new Date() })
+        const [updated] = await tx.update(incidents).set({ ...parsed, ...timerUpdates, updatedAt: new Date() })
           .where(eq(incidents.id, req.params.id)).returning();
         if (!updated) return undefined;
         await tx.insert(incidentActivities).values({
@@ -2367,7 +2405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   async function canManageAllTickets(userId: string): Promise<boolean> {
     const perms = await storage.getUserPermissions(userId);
-    return perms.includes("ticket_manage") || perms.includes("ticket_view_all");
+    return perms.includes("system_admin") || perms.includes("ticket_manage") || perms.includes("ticket_view_all");
   }
 
   async function canViewAllItsmRecords(userId: string): Promise<boolean> {
@@ -3749,7 +3787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Asset Attachments
-  const supportedAttachmentExtensions = new Set(["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "conf", "ini", "txt"]);
+  const supportedAttachmentExtensions = new Set(["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "conf", "ini", "txt", "log"]);
   const diskUpload = multer({
     storage: multer.diskStorage({
       destination: (_req, _file, cb) => cb(null, 'server/uploads/'),
@@ -3763,7 +3801,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fileFilter: (_req, file, cb) => {
       const extension = file.originalname.split(".").pop()?.toLowerCase() ?? "";
       if (!supportedAttachmentExtensions.has(extension)) {
-        return cb(new Error("Supported attachments: PDF, DOCX, XLSX, PNG, JPG, CONF, INI, and TXT"));
+        return cb(new Error("Supported attachments: PDF, DOCX, XLSX, PNG, JPG, CONF, INI, TXT, and LOG"));
       }
       cb(null, true);
     },
@@ -10436,17 +10474,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Service Catalog ──────────────────────────────────────────────────────
+  async function canReadEmployeeCatalogItem(user: Express.User, item: { category: string; consumableId?: string | null }) {
+    if (!item.consumableId && !/^(hardware|equipment|asset)$/i.test(item.category.trim())) return true;
+    return Boolean(user.employeeId) || await canManageAllTickets(user.id);
+  }
+
   app.get("/api/catalog/items", requireAuth, async (req, res) => {
     try {
       const activeOnly = req.query.activeOnly === "true";
-      res.json(await storage.getCatalogItems(activeOnly));
+      const items = await storage.getCatalogItems(activeOnly);
+      const canReadHardware = Boolean(req.user!.employeeId) || await canManageAllTickets(req.user!.id);
+      res.json(canReadHardware ? items : items.filter(item => !item.consumableId && !/^(hardware|equipment|asset)$/i.test(item.category.trim())));
     } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog items"); }
   });
 
   app.get("/api/catalog/items/:id", requireAuth, async (req, res) => {
     try {
       const item = await storage.getCatalogItem(req.params.id);
-      if (!item) return res.status(404).json({ message: "Item not found" });
+      if (!item || !await canReadEmployeeCatalogItem(req.user!, item)) return res.status(404).json({ message: "Item not found" });
       res.json(item);
     } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog item"); }
   });
@@ -10492,6 +10537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       const item = await storage.getCatalogItem(req.params.id);
       if (!item || !item.isActive) return res.status(404).json({ message: "Catalog item not found" });
+      if (!await canReadEmployeeCatalogItem(user, item)) return res.status(403).json({ message: "Hardware requests require a linked employee account." });
       const ticket = await storage.createTicket({
         title: `Service Request: ${item.name}`,
         description: req.body.description || `User requested: ${item.name}`,

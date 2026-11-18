@@ -127,7 +127,7 @@ export default function PortalPage() {
   const custodyQuery = useQuery<CustodyReceipt[]>({
     queryKey: ["/api/my/asset-handovers"],
     queryFn: async () => (await apiRequest("GET", "/api/my/asset-handovers")).json(),
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id && user.employeeId),
   });
   const acknowledgeMutation = useMutation({
     mutationFn: async (receipt: CustodyReceipt) => (await apiRequest("POST", `/api/my/asset-handovers/${receipt.id}/acknowledge`, { confirmed: true })).json(),
@@ -233,7 +233,7 @@ export default function PortalPage() {
 
       <section className="mt-11 overflow-hidden rounded-[24px] border border-[#d6e2de] bg-[#fffdfa] shadow-[0_10px_38px_rgba(35,73,70,.045)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4ebe7] px-5 py-5 sm:px-7">
-          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Activity className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#7a908c]">Your workspace</p><h2 className="text-xl font-semibold tracking-[-.03em]">Recent activity</h2></div></div>
+          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Activity className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#7a908c]">Your workspace</p><h2 className="text-xl font-semibold tracking-[-.03em]">My Tickets</h2></div></div>
           <div className="flex items-center gap-2 text-xs text-[#80918e]"><span className="h-1.5 w-1.5 rounded-full bg-[#6c9c7f]" /> Personal requests and work</div>
         </div>
         {activityLoading ? <div className="space-y-3 p-6" aria-label="Loading activity">{[0, 1, 2].map(index => <div key={index} className="h-12 animate-pulse rounded-xl bg-[#f0f4f1]" />)}</div>

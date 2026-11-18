@@ -102,6 +102,8 @@ function isReadMethod(method: string): boolean {
 
 function isTicketApiAllowed(path: string, method: string): boolean {
   const upperMethod = method.toUpperCase();
+  if (path === "/portal/incidents/options") return isReadMethod(upperMethod);
+  if (/^\/incidents\/[^/]+\/comments$/.test(path)) return upperMethod === "POST";
   if (path === "/service-catalog/options" || /^\/service-catalog\/items(?:\/[^/]+)?$/.test(path)) return isReadMethod(upperMethod);
   if (/^\/service-catalog\/items\/[^/]+\/request$/.test(path)) return upperMethod === "POST";
   if (/^\/service-requests\/[^/]+\/catalog-approval$/.test(path)) return isReadMethod(upperMethod);
@@ -135,7 +137,7 @@ const IT_AGENT_API_PREFIXES = [
 ];
 
 const MANAGER_API_PREFIXES = [
-  ...IT_AGENT_API_PREFIXES, "/changes", "/applications", "/servers",
+  ...IT_AGENT_API_PREFIXES, "/incident-catalog", "/changes", "/applications", "/servers",
   "/purchase-orders", "/budgets", "/contracts", "/employees", "/vendors",
   "/vendor-quotations", "/purchase-invoices", "/purchase-returns",
   "/reports/procurement-finance",

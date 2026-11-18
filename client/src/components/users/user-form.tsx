@@ -60,7 +60,7 @@ interface UserFormProps {
 export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
   const { toast } = useToast();
   const isEdit = !!user;
-  const [employeeLinkManuallySet, setEmployeeLinkManuallySet] = useState(false);
+  const [employeeLinkManuallySet, setEmployeeLinkManuallySet] = useState(Boolean(user?.employeeId));
   const [autoLinkedEmployeeId, setAutoLinkedEmployeeId] = useState<string | null>(null);
 
   // Fetch roles for assignment
@@ -255,7 +255,6 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Linked Employee</FormLabel>
-              <FormControl>
                 <SearchableCombobox
                   ariaLabel="Linked Employee"
                   value={field.value ?? ""}
@@ -274,7 +273,6 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
                     })),
                   ]}
                 />
-              </FormControl>
               <p className="text-xs text-muted-foreground">Linking an employee enables employee-specific assets and offboarding context.</p>
               <FormMessage />
             </FormItem>

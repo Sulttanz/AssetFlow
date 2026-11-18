@@ -15,6 +15,7 @@ import { ServiceRequestDialog } from "@/components/service-catalog/service-reque
 import { CatalogItem, CatalogOptions, checkedResponse } from "@/components/service-catalog/types";
 import { isPersonaApiAllowed } from "@shared/personas";
 import { IncidentCatalogManager } from "@/components/service-catalog/incident-catalog-manager";
+import { getStandardRoleKey } from "@shared/role-catalog";
 
 type TabValue = "services" | "manage" | "approvals" | "incident-types";
 
@@ -36,8 +37,8 @@ export default function ServiceCatalog() {
   const options = optionsQuery.data;
   const canManage = Boolean(options?.canManage);
   const canApprove = Boolean(options?.canApprove);
-  const canManageIncidents = Boolean(user?.permissions?.includes("ticket_manage") || user?.permissions?.includes("system_admin") ||
-    user?.roles?.some(role => ["system administrator", "it manager"].includes(role.name.trim().toLowerCase())));
+  const canManageIncidents = Boolean(user?.permissions?.includes("system_admin") ||
+    user?.roles?.some(role => ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? "")));
   const canRequest = isPersonaApiAllowed(user?.roles?.map(role => role.name) ?? [], user?.permissions ?? [], "/service-catalog/items/item/request", "POST");
   const itemsQuery = useQuery<CatalogItem[]>({
     queryKey: ["/api/service-catalog/items", user?.id, Boolean(options?.canManage)],

@@ -77,7 +77,7 @@ export const catalogRequestHandler = handle(async (req, res, user) => {
     const [item] = await tx.select().from(serviceCatalogItems).where(eq(serviceCatalogItems.id, req.params.id)).for("share");
     if (!item || item.status !== "Active") throw new CatalogError(404, "Active catalog service not found");
     const [legacy] = await tx.select({ fulfillmentTeam: catalogItems.fulfillmentTeam, consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id));
-    if (!user.employeeId && !canManageServiceCatalog(user) && (isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }) || item.category.toLowerCase() === "infrastructure"))
+    if (!user.employeeId && !canManageServiceCatalog(user) && isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }))
       throw new CatalogError(404, "This service is available only to linked employees");
     const values = validateCatalogValues(item.customFieldsSchema, input.fieldValues);
     const requesterId = input.requesterId ?? user.id;
@@ -130,14 +130,14 @@ export function registerServiceCatalogRoutes(app: Express, requireAuth: RequestH
     const rows = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
       .from(serviceCatalogItems).innerJoin(catalogItems, eq(catalogItems.id, serviceCatalogItems.id))
       .where(includeInactive ? undefined : eq(serviceCatalogItems.status, "Active")).orderBy(serviceCatalogItems.category, serviceCatalogItems.title);
-    res.json(user.employeeId || canManageServiceCatalog(user) ? rows : rows.filter(item => !isEmployeeOnlyService(item) && item.category.toLowerCase() !== "infrastructure"));
+    res.json(user.employeeId || canManageServiceCatalog(user) ? rows : rows.filter(item => !isEmployeeOnlyService(item)));
   }));
   app.get("/api/service-catalog/items/:id", requireAuth, handle(async (req, res, user) => {
     const [item] = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
       .from(serviceCatalogItems).innerJoin(catalogItems, eq(catalogItems.id, serviceCatalogItems.id)).where(eq(serviceCatalogItems.id, req.params.id));
     const [legacy] = item ? await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id)) : [];
     if (!item || (item.status !== "Active" && !canManageServiceCatalog(user)) ||
-        (!user.employeeId && !canManageServiceCatalog(user) && (isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }) || item.category.toLowerCase() === "infrastructure")))
+        (!user.employeeId && !canManageServiceCatalog(user) && isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId })))
       throw new CatalogError(404, "Service not found");
     res.json(item);
   }));

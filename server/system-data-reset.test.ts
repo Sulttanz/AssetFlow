@@ -24,6 +24,10 @@ describe("System data reset policy", () => {
     const business = new Set<string>(RESET_BUSINESS_TABLES);
     for (const table of tables.filter(table => !business.has(getTableName(table)))) {
       for (const fk of getTableConfig(table).foreignKeys) {
+        if (getTableName(table) === "users" && getTableName(fk.reference().foreignTable) === "employees") {
+          expect(fk.onDelete).toBe("set null");
+          continue;
+        }
         expect(business.has(getTableName(fk.reference().foreignTable)), `${getTableName(table)} must not depend on reset data`).toBe(false);
       }
     }
@@ -188,9 +192,11 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
 
     // Seed EVERY business table, including real cross-module RESTRICT FKs.
     const employee = await seed(s.employees, { firstName: "Fixture", lastName: "Employee", email: "employee@example.test", position: "Analyst" });
+    await db.update(s.users).set({ employeeId: employee }).where(eq(s.users.id, otherId));
     await seed(s.employeeAccessRights, { employeeId: employee, applicationName: "Fixture", privilegeLevel: "Viewer", businessJustification: "Integration fixture" });
     await seed(s.employeeOffboardingClearances, { employeeId: employee, offboardingDate: "2026-10-22", clearanceType: "physical_asset_return", status: "verified", signedBy: adminId });
     const project = await seed(s.projects, { name: "Fixture project" });
+    await seed(s.incidentCatalogItems, { name: "Fixture incident template", category: "Network", projectId: project });
     await seed(s.serviceContracts, {
       id: 1,
       contractNumber: "CNT-RESET",
@@ -459,6 +465,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       `SELECT article_id FROM "${schema}".kb_article_versions WHERE article_id = $1`,
       [systemGuideId],
     )).rows.some((row: { article_id: string }) => row.article_id === systemGuideId)).toBe(true);
+    // The deleted employee is detached, but identity, roles, and permissions survive.
+    protectedSnapshot.users = protectedSnapshot.users.map(row => ({ ...(row as object), employee_id: null }));
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
     expect((await setupPool.query(`SELECT * FROM "${schema}"."_onprem_migrations"`)).rows).toEqual([{ name: "retained-migration" }]);
     const [audit] = await db.select().from(s.auditLogs);

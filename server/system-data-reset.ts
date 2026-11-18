@@ -31,10 +31,13 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
       "kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings",
     ]);
     const tables = sql.join(
-      RESET_BUSINESS_TABLES.filter(name => !systemGuideTables.has(name)).map(name => sql.identifier(name)),
+      RESET_BUSINESS_TABLES.filter(name => !systemGuideTables.has(name) && name !== "employees").map(name => sql.identifier(name)),
       sql`, `,
     );
     await tx.execute(sql`TRUNCATE TABLE ${tables} CONTINUE IDENTITY RESTRICT`);
+    // Users are protected identity records. DELETE honors ON DELETE SET NULL
+    // on their optional employee link; TRUNCATE cannot honor that FK action.
+    await tx.delete(schema.employees);
     // Preserve repository-owned system guides and their governed history while
     // removing custom Knowledge Base content as part of the business reset.
     await tx.execute(sql`

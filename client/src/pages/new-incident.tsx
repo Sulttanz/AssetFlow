@@ -88,7 +88,7 @@ export default function NewIncidentPage() {
     setImpact(selectedCatalog.defaultImpact);
     setAssignmentGroup(selectedCatalog.defaultAssignmentGroup ?? "");
   }, [staffIntake, incidentCatalogItemId]);
-  const selectedGroup = options.data?.managedAssignmentGroups.find(group => group.name === assignmentGroup);
+  const selectedGroup = options.data?.managedAssignmentGroups?.find(group => group.name === assignmentGroup);
   const groupMembers = useQuery<{ id: string; name: string }[]>({
     queryKey: ["/api/assignment-groups", selectedGroup?.id, "members"],
     queryFn: async () => (await apiRequest("GET", `/api/assignment-groups/${selectedGroup!.id}/members`)).json(),
@@ -138,7 +138,7 @@ export default function NewIncidentPage() {
       setValidationError("Choose a project assigned to your account before submitting.");
       return;
     }
-    if (!incidentCatalogItemId) {
+    if (!staffIntake && !incidentCatalogItemId) {
       setValidationError("Choose an incident type from the catalog.");
       return;
     }
@@ -182,13 +182,15 @@ export default function NewIncidentPage() {
               {(options.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
             </select>
           </Field>}
-          <Field label="Incident type" hint={selectedCatalog ? `Default routing: ${selectedCatalog.defaultPriority}, ${selectedCatalog.defaultAssignmentGroup ?? "unassigned group"}.` : "Choose the closest service or issue category."}>
-            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required>
+          <Field label="Incident type" hint={selectedCatalog
+            ? staffIntake ? `Default routing: ${selectedCatalog.defaultPriority}, ${selectedCatalog.defaultAssignmentGroup ?? "unassigned group"}.` : selectedCatalog.description ?? undefined
+            : "Choose the closest service or issue category."}>
+            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required={!staffIntake}>
               <option value="">Select an incident type</option>
               {visibleIncidentCatalog.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category}</option>)}
             </select>
           </Field>
-          <Field label="Incident title">
+          <Field label={staffIntake ? "Incident title" : "Subject"}>
             <Input required maxLength={180} value={title} onChange={event => setTitle(event.target.value)} placeholder="For example, finance team cannot access shared drive" className={inputClass} />
           </Field>
           <Field label="What is happening?" hint="Include affected services or people, when it began, and any steps already tried.">
@@ -218,7 +220,7 @@ export default function NewIncidentPage() {
             </select>
           </Field>}
           <Field label="Attachments (optional)" hint="Add screenshots or relevant files (PDF, Word, Excel, images, or text/config files; up to 20 MB each).">
-            <Input type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt" className={inputClass} onChange={event => setAttachments(Array.from(event.target.files ?? []))} />
+            <Input type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt,.log" className={inputClass} onChange={event => setAttachments(Array.from(event.target.files ?? []))} />
             {attachments.length > 0 && <span className="text-xs text-muted-foreground">{attachments.map(file => file.name).join(", ")}</span>}
           </Field>
         </CardContent>
@@ -233,7 +235,7 @@ export default function NewIncidentPage() {
               : <>
                 <Field label={staffIntake ? "Project (optional)" : "Project"} hint={!staffIntake && options.data?.projects.length === 1 ? "This is the only project assigned to your account." : undefined}>
                   <select className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
-                    {staffIntake && <option value="">No project</option>}{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                    <option value="">{staffIntake ? "No project" : "Select your project"}</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
                 </Field>
                 {!staffIntake && options.data?.projects.length === 0 && <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account, so project-scoped incident intake is unavailable. Contact your project manager to be added to a project.</p>}

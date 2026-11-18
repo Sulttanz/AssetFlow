@@ -50,7 +50,7 @@ function deriveTicketPriority(impact?: string | null, urgency?: string | null, f
   return fallback ?? "medium";
 }
 
-async function computeTicketSlaDates(
+export async function computeTicketSlaDates(
   priority: string,
   from: Date,
   ticketType?: string | null,
@@ -2824,6 +2824,9 @@ export class MemStorage implements IStorage {
   async clearAllData(actor: SystemDataResetActor): Promise<boolean> {
     this.assets.clear();
     this.employees.clear();
+    for (const [id, user] of Array.from(this.users.entries())) {
+      if (user.employeeId) this.users.set(id, { ...user, employeeId: null });
+    }
     this.assignments.clear();
     this.vendors.clear();
     this.purchaseOrders.clear();

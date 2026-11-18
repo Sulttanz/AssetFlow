@@ -130,12 +130,15 @@ describe("incident operations mutation state", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Save assignment" }) as HTMLButtonElement).disabled).toBe(false));
 
     fireEvent.change(screen.getByLabelText("Incident / resolution category"), { target: { value: "Connectivity" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save workflow details" }));
+    fireEvent.change(screen.getByLabelText("Priority"), { target: { value: "P1" } });
+    fireEvent.change(screen.getByLabelText("Urgency"), { target: { value: "high" } });
+    fireEvent.change(screen.getByLabelText("Impact"), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save triage & workflow details" }));
     await waitFor(() => expect(requests.some(({ url, method, body }) =>
       url === "/api/incidents/incident-1" && method === "PATCH" &&
-      JSON.stringify(body) === JSON.stringify({ category: "Connectivity", resolutionCode: null, resolutionNotes: null }),
+      JSON.stringify(body) === JSON.stringify({ category: "Connectivity", resolutionCode: null, resolutionNotes: null, priority: "P1", urgency: "high", impact: "high", slaPolicyId: null }),
     )).toBe(true));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Save workflow details" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save triage & workflow details" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText("Resolution code"), { target: { value: "Solved (Permanent Fix)" } });
     fireEvent.change(screen.getByLabelText("Resolution / closure note"), { target: { value: "VPN service restored and verified." } });
     fireEvent.click(screen.getByRole("button", { name: "Resolved" }));
@@ -233,6 +236,6 @@ describe("incident operations mutation state", () => {
     renderPage();
     fireEvent.click((await screen.findByText("INC-2026-0001")).closest("tr")!);
     expect(screen.getByRole("button", { name: "Save assignment" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save workflow details" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save triage & workflow details" })).toBeTruthy();
   });
 });
