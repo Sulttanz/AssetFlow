@@ -14,7 +14,7 @@
     "test:dropdown-integrity": "node --import tsx scripts/test-dropdown-integrity.mjs",
     "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "test:tailwind-selector-parser": "node scripts/check-tailwind-selector-parser.mjs",
-    "audit:security": "npm audit --audit-level=moderate",
+    "audit:security": "npm audit --omit=dev --audit-level=high",
     "build": "npm run audit:security && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --define:process.env.BUILD_TIMESTAMP=\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\"",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
@@ -103,7 +103,6 @@
     "tailwind-merge": "^2.6.0",
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
-    "vitest": "^4.1.12",
     "wouter": "^3.3.5",
     "ws": "^8.22.0",
     "zod": "^4.6.7",
@@ -130,7 +129,8 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
-    "vite": "^6.4.5"
+    "vite": "^6.4.5",
+    "vitest": "^4.1.12"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

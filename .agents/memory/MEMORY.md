@@ -1,4 +1,5 @@
 - [Tier 1 security fixes](tier1-security-fixes.md) — session store (connect-pg-simple via Neon pool), rate limiting, path traversal, cascade restrict, logging cleanup.
+- [Build security gate](build-security-policy.md) — production builds block high/critical runtime advisories; dev-only advisories remain outside the publishing gate.
 - [Account session locking](account-session-locking.md) — coordinate session creation and account deactivation with the same per-user PostgreSQL advisory lock.
 - [PO delete protection pattern](po-delete-protection.md) — deletion of records with derived/dependent data should block by default, offer admin unlink-not-delete override with explicit confirmation.
 - [drizzle-kit push interactive prompt](drizzle-push-interactive-prompt.md) — hangs on unique-constraint prompt even with --force; rename the DB constraint to match Drizzle's expected name to fix.
