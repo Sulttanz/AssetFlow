@@ -430,7 +430,9 @@ describe("CAB route notifications across signed-in sessions", () => {
     expect(current.changes[0].approvals).toMatchObject([{ id: aliceApproval.id, approverId: "alice", decision: "pending" }]);
     expect((await view(bob)).alerts.filter(a => a.type === "cab")).toEqual([]);
 
-    expect((await request(path, manager, "POST", { approverId: "alice" })).status).toBe(409);
+    const duplicate = await request(path, manager, "POST", { approverId: "alice" });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toMatchObject({ code: "CAB_APPROVER_DUPLICATE" });
     expect(aliceStream.count).toBe(1);
     expect(bobStream.count).toBe(1);
     expect(notify).toHaveBeenCalledTimes(1);
