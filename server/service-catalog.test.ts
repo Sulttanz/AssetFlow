@@ -9,7 +9,7 @@ import { isPersonaApiAllowed, isPersonaPageAllowed } from "@shared/personas";
 import { assertAdditiveMigration } from "./startup-migrations";
 
 const mock = vi.hoisted(() => {
-  const state = { role: "end_user", selects: [] as any[][], filters: [] as any[], inserts: [] as any[], updates: [] as any[] };
+  const state = { role: "end_user", employeeId: "employee-1" as string | null, selects: [] as any[][], filters: [] as any[], inserts: [] as any[], updates: [] as any[] };
   const query = (rows: any[]) => {
     const q: any = {
       from: () => q, innerJoin: () => q, leftJoin: () => q, orderBy: () => q, for: () => q,
@@ -38,6 +38,7 @@ vi.mock("./db", () => ({ db: mock.db }));
 vi.mock("./storage", () => ({ storage: {
   getUserRoles: async () => [{ name: mock.state.role }],
   getUserPermissions: async () => mock.state.role === "admin" ? ["system_admin"] : [],
+  getUser: async () => ({ employeeId: mock.state.employeeId }),
 } }));
 import { catalogMutationError, registerServiceCatalogRoutes } from "./service-catalog";
 
@@ -124,7 +125,7 @@ describe("catalog HTTP workflow", () => {
     base = `http://127.0.0.1:${(server.address() as any).port}`;
   });
   afterAll(async () => { await new Promise<void>(resolve => server.close(() => resolve())); });
-  beforeEach(() => { vi.clearAllMocks(); Object.assign(mock.state, { role: "end_user", selects: [], filters: [], inserts: [], updates: [] }); });
+  beforeEach(() => { vi.clearAllMocks(); Object.assign(mock.state, { role: "end_user", employeeId: "employee-1", selects: [], filters: [], inserts: [], updates: [] }); });
   const request = (path: string, method = "GET", body?: unknown) => fetch(`${base}${path}`, {
     method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
   });
@@ -132,6 +133,23 @@ describe("catalog HTTP workflow", () => {
     mock.state.selects.push([]);
     expect((await request("/api/service-catalog/items?includeInactive=true")).status).toBe(200);
     expect(new PgDialect().sqlToQuery(mock.state.filters[0]).params).toContain("Active");
+  });
+  it("hides hardware inventory services from accounts not linked to an employee", async () => {
+    mock.state.employeeId = null;
+    mock.state.selects.push([
+      { ...item, category: "Software", consumableId: null },
+      { ...item, id: "hardware-item", title: "Laptop", category: "Hardware", consumableId: "stock-1" },
+    ]);
+    const response = await request("/api/service-catalog/items");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([expect.objectContaining({ category: "Software" })]);
+  });
+  it("does not allow a direct request for an employee-only hardware catalog item", async () => {
+    mock.state.employeeId = null;
+    mock.state.selects.push([{ ...item, category: "Hardware" }], [{ consumableId: null }]);
+    const response = await request("/api/service-catalog/items/item-1/request", "POST", { fieldValues: answers });
+    expect(response.status).toBe(404);
+    expect(mock.state.inserts).toHaveLength(0);
   });
   it("creates one real request plus pending approval, activity, audit, and schema snapshot in one transaction", async () => {
     mock.state.selects.push([item], [{ fulfillmentTeam: "IT" }]);

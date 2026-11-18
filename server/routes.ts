@@ -23,7 +23,8 @@ import {
   insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
-  incidents, incidentActivities, serviceRequestActivities, projects, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
+  incidents, incidentActivities, incidentCatalogItems, insertIncidentCatalogItemSchema, serviceRequestActivities,
+  projects, projectManagers, projectTeamMembers, projectTasks, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoiceMatchLines, purchaseInvoicePayments,
@@ -760,6 +761,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/users/employee-options", requireAuth, requireAnyPermission("user_view", "user_create", "user_update", "system_admin"), async (_req, res) => {
+    try {
+      const rows = await db.select({
+        id: employees.id,
+        employeeId: employees.employeeId,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+        email: employees.email,
+      }).from(employees).where(eq(employees.status, "active")).orderBy(asc(employees.lastName), asc(employees.firstName));
+      res.json(rows);
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load employee linking options");
+    }
+  });
+
   app.get("/api/users/:id", requireAuth, requirePermission('user_view'), async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
@@ -777,6 +793,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/users", requireAuth, requirePermission('user_create'), async (req, res) => {
     try {
       const validatedData = insertUserSchema.parse(req.body);
+      if (validatedData.employeeId) {
+        const [linkedEmployee] = await db.select({ id: employees.id, status: employees.status })
+          .from(employees).where(eq(employees.id, validatedData.employeeId)).limit(1);
+        if (!linkedEmployee || linkedEmployee.status !== "active") {
+          return res.status(400).json({ message: "Choose an active employee for this user, or leave the account unlinked." });
+        }
+      }
       
       // Hash password before storing
       const hashedPassword = await hashPassword(validatedData.password);
@@ -803,6 +826,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/users/:id", requireAuth, requirePermission('user_update'), async (req, res) => {
     try {
       const validatedData = insertUserSchema.partial().parse(req.body);
+      if (validatedData.employeeId) {
+        const [linkedEmployee] = await db.select({ id: employees.id, status: employees.status })
+          .from(employees).where(eq(employees.id, validatedData.employeeId)).limit(1);
+        if (!linkedEmployee || linkedEmployee.status !== "active") {
+          return res.status(400).json({ message: "Choose an active employee for this user, or unlink the account." });
+        }
+      }
       
       // Get old user for audit log
       const oldUser = await storage.getUser(req.params.id);
@@ -1346,6 +1376,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ITSM TICKETING ROUTES
   // --------------------
 
+  const getProjectsAssignedToUser = async (userId: string) => {
+    if (!await isFeatureEnabled("project_management")) return [];
+    return db.select({ id: projects.id, name: projects.name }).from(projects)
+      .leftJoin(projectManagers, eq(projectManagers.projectId, projects.id))
+      .leftJoin(projectTeamMembers, eq(projectTeamMembers.projectId, projects.id))
+      .leftJoin(projectTasks, and(eq(projectTasks.projectId, projects.id), eq(projectTasks.assigneeId, userId)))
+      .where(and(
+        eq(projects.isActive, true),
+        or(
+          eq(projectManagers.userId, userId),
+          eq(projectTeamMembers.userId, userId),
+          eq(projectTasks.assigneeId, userId),
+        ),
+      ))
+      .groupBy(projects.id, projects.name)
+      .orderBy(asc(projects.name));
+  };
+
+  app.get("/api/incident-catalog", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const includeInactive = req.query.includeInactive === "true";
+      const [rows, projectRows] = await Promise.all([
+        db.select().from(incidentCatalogItems)
+          .where(includeInactive ? undefined : eq(incidentCatalogItems.isActive, true))
+          .orderBy(asc(incidentCatalogItems.name)),
+        isFeatureEnabled("project_management")
+          .then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects) : []),
+      ]);
+      const projectNames = new Map(projectRows.map(project => [project.id, project.name]));
+      res.json(rows.map(row => ({ ...row, scope: row.projectId ? "project" : "global", projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null })));
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch incident catalog");
+    }
+  });
+
+  const validateIncidentCatalogProject = async (projectId: string | null | undefined, res: any) => {
+    if (!projectId) return true;
+    if (!await isFeatureEnabled("project_management")) {
+      sendFeatureNotEnabled(res, "project_management");
+      return false;
+    }
+    const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).limit(1);
+    if (!project) {
+      res.status(400).json({ message: "The selected project does not exist." });
+      return false;
+    }
+    return true;
+  };
+
+  app.post("/api/incident-catalog", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const input = insertIncidentCatalogItemSchema.parse(req.body);
+      if (!await validateIncidentCatalogProject(input.projectId, res)) return;
+      const [item] = await db.insert(incidentCatalogItems).values({
+        ...input,
+        projectId: input.projectId ?? null,
+        defaultAssignmentGroup: input.defaultAssignmentGroup || null,
+        createdBy: req.user.id,
+      }).returning();
+      await logAudit(req.user.id, "CREATE", "incident_catalog_items", item.id, item.name, null, item, req);
+      res.status(201).json(item);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident catalog item", errors: error.issues });
+      if (error?.code === "23505") return res.status(409).json({ message: "An incident catalog item with this name already exists in that scope." });
+      respondWithApiError(res, error, "Failed to create incident catalog item");
+    }
+  });
+
+  app.put("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const input = insertIncidentCatalogItemSchema.partial().parse(req.body);
+      if (input.projectId !== undefined && !await validateIncidentCatalogProject(input.projectId, res)) return;
+      const [existing] = await db.select().from(incidentCatalogItems).where(eq(incidentCatalogItems.id, req.params.id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Incident catalog item not found." });
+      const [item] = await db.update(incidentCatalogItems).set({
+        ...input,
+        ...(input.defaultAssignmentGroup !== undefined ? { defaultAssignmentGroup: input.defaultAssignmentGroup || null } : {}),
+        updatedAt: new Date(),
+      }).where(eq(incidentCatalogItems.id, existing.id)).returning();
+      await logAudit(req.user.id, "UPDATE", "incident_catalog_items", item.id, item.name, existing, item, req);
+      res.json(item);
+    } catch (error: any) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid incident catalog item", errors: error.issues });
+      if (error?.code === "23505") return res.status(409).json({ message: "An incident catalog item with this name already exists in that scope." });
+      respondWithApiError(res, error, "Failed to update incident catalog item");
+    }
+  });
+
+  app.delete("/api/incident-catalog/:id", requireAuth, requireModule("itsm"), requirePermission("ticket_manage"), async (req: any, res) => {
+    try {
+      const [existing] = await db.select().from(incidentCatalogItems).where(eq(incidentCatalogItems.id, req.params.id)).limit(1);
+      if (!existing) return res.status(404).json({ message: "Incident catalog item not found." });
+      // Deactivate rather than erase a template referenced by historical incidents.
+      const [item] = await db.update(incidentCatalogItems)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(incidentCatalogItems.id, existing.id)).returning();
+      await logAudit(req.user.id, "UPDATE", "incident_catalog_items", item.id, item.name, existing, item, req);
+      res.json({ success: true, item });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to deactivate incident catalog item");
+    }
+  });
+
+  app.get("/api/portal/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const userId = req.user.id as string;
+      const assignedProjects = await getProjectsAssignedToUser(userId);
+      const requestedProjectId = typeof req.query.projectId === "string" ? req.query.projectId : "";
+      const allowedProjectId = assignedProjects.some(project => project.id === requestedProjectId)
+        ? requestedProjectId
+        : (!requestedProjectId && assignedProjects.length === 1 ? assignedProjects[0].id : "");
+      const catalogConditions = [eq(incidentCatalogItems.isActive, true), isNull(incidentCatalogItems.projectId)];
+      if (allowedProjectId) catalogConditions.push(eq(incidentCatalogItems.projectId, allowedProjectId));
+      const catalog = await db.select({
+        id: incidentCatalogItems.id,
+        name: incidentCatalogItems.name,
+        description: incidentCatalogItems.description,
+        category: incidentCatalogItems.category,
+        icon: incidentCatalogItems.icon,
+        projectId: incidentCatalogItems.projectId,
+        defaultImpact: incidentCatalogItems.defaultImpact,
+        defaultUrgency: incidentCatalogItems.defaultUrgency,
+        defaultPriority: incidentCatalogItems.defaultPriority,
+        defaultAssignmentGroup: incidentCatalogItems.defaultAssignmentGroup,
+      }).from(incidentCatalogItems).where(and(...catalogConditions)).orderBy(asc(incidentCatalogItems.name));
+      let assignedAssets: { id: string; name: string; assetTag: string | null; serialNumber: string | null }[] = [];
+      if (req.user.employeeId && await isFeatureEnabled("asset_management")) {
+        assignedAssets = await db.select({
+          id: assets.id,
+          name: assets.name,
+          assetTag: assets.assetTag,
+          serialNumber: assets.serialNumber,
+        }).from(assets)
+          .innerJoin(assignments, eq(assignments.assetId, assets.id))
+          .where(and(eq(assignments.employeeId, req.user.employeeId), isNull(assignments.returnedDate)))
+          .orderBy(asc(assets.name));
+      }
+      res.json({
+        projects: assignedProjects,
+        selectedProjectId: assignedProjects.length === 1 ? assignedProjects[0].id : allowedProjectId,
+        catalog,
+        assignedAssets,
+        linkedEmployee: Boolean(req.user.employeeId),
+      });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load incident intake options");
+    }
+  });
+
   app.get("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const rows = await storage.getIncidents();
@@ -1386,8 +1565,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/incidents/options", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const canManageTickets = await canManageAllTickets(req.user.id);
-      const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows, managedAssignmentGroups] = await Promise.all([
-        isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)) : []),
+      const canViewAll = await canViewAllItsmRecords(req.user.id);
+      const [projectRows, userRows, policyRows, incidentRows, requestRows, requesterRows, managedAssignmentGroups, incidentCatalogRows] = await Promise.all([
+        canManageTickets
+          ? isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.isActive, true)).orderBy(asc(projects.name)) : [])
+          : getProjectsAssignedToUser(req.user.id),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, roleName: roles.name })
           .from(users).innerJoin(userRoles, eq(userRoles.userId, users.id)).innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
         db.select({ id: slaPolicies.id, name: slaPolicies.name, priority: slaPolicies.priority, ticketType: slaPolicies.ticketType }).from(slaPolicies).where(eq(slaPolicies.isActive, true)),
@@ -1397,6 +1579,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         canManageTickets
           ? db.select({ id: assignmentGroups.id, name: assignmentGroups.name }).from(assignmentGroups)
             .where(eq(assignmentGroups.active, true)).orderBy(asc(assignmentGroups.name))
+          : Promise.resolve([]),
+        canManageTickets
+          ? db.select().from(incidentCatalogItems).where(eq(incidentCatalogItems.isActive, true)).orderBy(asc(incidentCatalogItems.name))
           : Promise.resolve([]),
       ]);
       const staffRoleKeys = new Set(["it_agent", "it_manager", "system_admin"]);
@@ -1409,9 +1594,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         projects: projectRows,
         users: canManageTickets ? Array.from(eligibleUsers.values()) : [],
-        requesterUsers: await canViewAllItsmRecords(req.user.id)
+        requesterUsers: canViewAll
           ? requesterRows.map(person => ({ id: person.id, name: [person.firstName, person.lastName].filter(Boolean).join(" ") || person.username, email: person.email }))
           : [],
+        incidentCatalog: incidentCatalogRows,
         assignmentGroups: canManageTickets
           ? Array.from(new Set([...managedAssignmentGroups.map(group => group.name), ...incidentRows, ...requestRows].map(row => typeof row === "string" ? row.trim() : row.assignmentGroup?.trim()).filter((group): group is string => Boolean(group))))
           : [],
@@ -1470,13 +1656,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/incidents/:id/comments", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      const canViewAll = await canViewAllItsmRecords(req.user.id);
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !canViewAll) {
+        return res.status(403).json({ message: "You cannot comment on this incident." });
+      }
+      const input = z.object({ message: z.string().trim().min(1).max(4000) }).parse(req.body);
+      const [activity] = await db.insert(incidentActivities).values({
+        incidentId: incident.id,
+        actorId: req.user.id,
+        action: "Comment",
+        details: input.message,
+      }).returning();
+      res.status(201).json(activity);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Enter a comment of up to 4,000 characters.", errors: error.issues });
+      respondWithApiError(res, error, "Failed to add incident comment");
+    }
+  });
+
   app.post("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
       const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
+      const canManageIntake = await canManageAllTickets(req.user.id);
       const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
+      let projectId = typeof req.body.projectId === "string" && req.body.projectId ? req.body.projectId : null;
+      if (!canManageIntake) {
+        const assignedProjects = await getProjectsAssignedToUser(req.user.id);
+        if (assignedProjects.length === 0) {
+          return res.status(403).json({ message: "No project is assigned to your account. Contact your project manager before reporting a project incident." });
+        }
+        if (!projectId && assignedProjects.length === 1) projectId = assignedProjects[0].id;
+        if (!projectId || !assignedProjects.some(project => project.id === projectId)) {
+          return res.status(403).json({ message: "Select a project assigned to your account." });
+        }
+      }
+      const catalogId = typeof req.body.incidentCatalogItemId === "string" ? req.body.incidentCatalogItemId : null;
+      let selectedIncidentCatalog: typeof incidentCatalogItems.$inferSelect | undefined;
+      if (catalogId) {
+        [selectedIncidentCatalog] = await db.select().from(incidentCatalogItems)
+          .where(and(eq(incidentCatalogItems.id, catalogId), eq(incidentCatalogItems.isActive, true))).limit(1);
+        if (!selectedIncidentCatalog) return res.status(400).json({ message: "Choose an active incident type." });
+        if (selectedIncidentCatalog.projectId && selectedIncidentCatalog.projectId !== projectId) {
+          return res.status(403).json({ message: "That incident type is not available for the selected project." });
+        }
+      } else if (!canManageIntake) {
+        return res.status(400).json({ message: "Choose an incident type from the catalog." });
+      }
+
+      let assetId = typeof req.body.assetId === "string" && req.body.assetId ? req.body.assetId : null;
+      if (!canManageIntake && assetId) {
+        if (!req.user.employeeId || !await isFeatureEnabled("asset_management")) {
+          return res.status(403).json({ message: "This account is not linked to an employee with assigned assets." });
+        }
+        const [assignedAsset] = await db.select({ id: assets.id }).from(assets)
+          .innerJoin(assignments, eq(assignments.assetId, assets.id))
+          .where(and(
+            eq(assets.id, assetId),
+            eq(assignments.employeeId, req.user.employeeId),
+            isNull(assignments.returnedDate),
+          )).limit(1);
+        if (!assignedAsset) return res.status(400).json({ message: "Select equipment currently assigned to your employee record." });
+      }
       const parsed = insertIncidentSchema.parse({
         ...req.body,
+        projectId,
+        incidentCatalogItemId: selectedIncidentCatalog?.id ?? null,
+        category: selectedIncidentCatalog?.category ?? req.body.category,
+        priority: canManageIntake ? req.body.priority ?? selectedIncidentCatalog?.defaultPriority : selectedIncidentCatalog?.defaultPriority,
+        urgency: canManageIntake ? req.body.urgency ?? selectedIncidentCatalog?.defaultUrgency : selectedIncidentCatalog?.defaultUrgency,
+        impact: canManageIntake ? req.body.impact ?? selectedIncidentCatalog?.defaultImpact : selectedIncidentCatalog?.defaultImpact,
+        assignmentGroup: canManageIntake ? req.body.assignmentGroup ?? selectedIncidentCatalog?.defaultAssignmentGroup : selectedIncidentCatalog?.defaultAssignmentGroup,
+        assigneeId: canManageIntake ? req.body.assigneeId ?? null : null,
+        slaPolicyId: canManageIntake ? req.body.slaPolicyId ?? null : null,
+        assetId,
         creatorId: req.user.id,
         requesterId,
         contractId: null,
@@ -3847,6 +4104,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.download(attachment.filePath, attachment.originalName);
     } catch (error) {
       respondWithApiError(res, error, "Failed to download service request attachment");
+    }
+  });
+
+  app.get("/api/incidents/:id/attachments", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.incidentId, incident.id));
+      res.json(rows.map(({ filePath: _filePath, ...row }) => row));
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch incident attachments");
+    }
+  });
+
+  app.post("/api/incidents/:id/attachments", requireAuth, requireModule("itsm"), async (req: any, res, next) => {
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      next();
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to authorize incident attachment upload");
+    }
+  }, diskUpload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      const values = insertTicketAttachmentSchema.parse({
+        ticketId: null,
+        incidentId: incident.id,
+        serviceRequestId: null,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        fileType: req.file.mimetype,
+        fileSize: req.file.size,
+        filePath: req.file.path,
+        description: null,
+        uploadedBy: req.user.id,
+      });
+      const [row] = await db.insert(ticketAttachments).values(values).returning();
+      await db.insert(incidentActivities).values({
+        incidentId: incident.id,
+        actorId: req.user.id,
+        action: "Attachment uploaded",
+        details: req.file.originalname,
+      });
+      const { filePath: _filePath, ...safeRow } = row;
+      res.status(201).json(safeRow);
+    } catch (error) {
+      if (req.file?.path) {
+        const fs = await import("fs");
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid attachment data", errors: error.issues });
+      respondWithApiError(res, error, "Failed to upload incident attachment");
+    }
+  });
+
+  app.get("/api/incidents/:id/attachments/:attachId", requireAuth, requireModule("itsm"), async (req: any, res) => {
+    try {
+      const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
+      if (!incident) return res.status(404).json({ message: "Incident not found" });
+      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+      const [attachment] = await db.select().from(ticketAttachments).where(and(
+        eq(ticketAttachments.id, req.params.attachId),
+        eq(ticketAttachments.incidentId, incident.id),
+      )).limit(1);
+      if (!attachment) return res.status(404).json({ message: "Attachment not found" });
+      res.download(attachment.filePath, attachment.originalName);
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to download incident attachment");
     }
   });
 

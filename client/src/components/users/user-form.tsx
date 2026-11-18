@@ -1,11 +1,12 @@
 import { useForm } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableCombobox } from "@/components/ui/searchable-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -59,6 +60,8 @@ interface UserFormProps {
 export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
   const { toast } = useToast();
   const isEdit = !!user;
+  const [employeeLinkManuallySet, setEmployeeLinkManuallySet] = useState(false);
+  const [autoLinkedEmployeeId, setAutoLinkedEmployeeId] = useState<string | null>(null);
 
   // Fetch roles for assignment
   const { data: roles = [] } = useQuery<Role[]>({
@@ -70,12 +73,16 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
     queryKey: ["/api/users", user?.id, "roles"],
     enabled: !!user?.id,
   });
+  const { data: employeeOptions = [] } = useQuery<{ id: string; employeeId: string | null; firstName: string; lastName: string; email: string | null }[]>({
+    queryKey: ["/api/users/employee-options"],
+  });
 
   const form = useForm<FormData>({
     resolver: zodResolver(isEdit ? editFormSchema : createFormSchema),
     defaultValues: {
       username: user?.username || "",
       email: user?.email || "",
+      employeeId: user?.employeeId ?? null,
       firstName: user?.firstName || "",
       lastName: user?.lastName || "",
       password: "",
@@ -84,6 +91,21 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       selectedRoles: [],
     },
   });
+
+  const emailValue = form.watch("email");
+  useEffect(() => {
+    if (employeeLinkManuallySet) return;
+    const match = emailValue?.trim()
+      ? employeeOptions.find(employee => employee.email?.trim().toLowerCase() === emailValue.trim().toLowerCase())
+      : undefined;
+    if (match) {
+      form.setValue("employeeId", match.id, { shouldDirty: true });
+      setAutoLinkedEmployeeId(match.id);
+    } else if (autoLinkedEmployeeId && form.getValues("employeeId") === autoLinkedEmployeeId) {
+      form.setValue("employeeId", null, { shouldDirty: true });
+      setAutoLinkedEmployeeId(null);
+    }
+  }, [emailValue, employeeOptions, employeeLinkManuallySet, autoLinkedEmployeeId, form]);
 
   // Sync role assignments when user roles data loads
   useEffect(() => {
@@ -226,6 +248,38 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="employeeId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Linked Employee</FormLabel>
+              <FormControl>
+                <SearchableCombobox
+                  ariaLabel="Linked Employee"
+                  value={field.value ?? ""}
+                  onChange={value => {
+                    setEmployeeLinkManuallySet(true);
+                    field.onChange(value || null);
+                  }}
+                  placeholder="None — External / Project User"
+                  searchPlaceholder="Search employee name, ID, or email…"
+                  options={[
+                    { value: "", label: "None — External / Project User" },
+                    ...employeeOptions.map(employee => ({
+                      value: employee.id,
+                      label: `${employee.firstName} ${employee.lastName}`,
+                      description: [employee.employeeId, employee.email].filter(Boolean).join(" · "),
+                    })),
+                  ]}
+                />
+              </FormControl>
+              <p className="text-xs text-muted-foreground">Linking an employee enables employee-specific assets and offboarding context.</p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <div className="grid grid-cols-2 gap-4">
           <FormField

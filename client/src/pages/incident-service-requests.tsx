@@ -88,6 +88,10 @@ export function IncidentsPage() {
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [incidentAssignmentGroup, setIncidentAssignmentGroup] = useState("");
   const [incidentAssigneeId, setIncidentAssigneeId] = useState("");
+  const [triagePriority, setTriagePriority] = useState("P3");
+  const [triageUrgency, setTriageUrgency] = useState("medium");
+  const [triageImpact, setTriageImpact] = useState("medium");
+  const [triageSlaPolicyId, setTriageSlaPolicyId] = useState("");
   const { user } = useAuth();
   const { toast } = useToast();
   const canManageIncidents = !!user?.permissions?.some(permission => permission === "ticket_manage" || permission === "system_admin");
@@ -161,6 +165,11 @@ export function IncidentsPage() {
   const { data: activity = [] } = useQuery<{ id: string; action: string; details: string | null; createdAt: string; actorName: string | null }[]>({
     queryKey: ["/api/incidents", selectedId, "activity"], queryFn: getQueryFn({ on401: "throw" }), enabled: Boolean(selectedId),
   });
+  const { data: incidentAttachments = [], isLoading: incidentAttachmentsLoading } = useQuery<{ id: string; originalName: string; fileSize: number | null; fileType: string | null }[]>({
+    queryKey: ["/api/incidents", selectedId, "attachments"],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: Boolean(selectedId),
+  });
   const updateAssignment = useMutation({
     mutationFn: async (payload: { id: string; assignmentGroup: string; assigneeId: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}/assignment`, { assignmentGroup: payload.assignmentGroup || null, assigneeId: payload.assigneeId || null })).json(),
@@ -186,11 +195,15 @@ export function IncidentsPage() {
     onError: (error: Error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
   });
   const updateDetails = useMutation({
-    mutationFn: async (payload: { id: string; category: string; resolutionCode: string; resolutionNotes: string }) =>
+    mutationFn: async (payload: { id: string; category: string; resolutionCode: string; resolutionNotes: string; priority: string; urgency: string; impact: string; slaPolicyId: string }) =>
       (await apiRequest("PATCH", `/api/incidents/${payload.id}`, {
         category: payload.category.trim() || null,
         resolutionCode: payload.resolutionCode.trim() || null,
         resolutionNotes: payload.resolutionNotes.trim() || null,
+        priority: payload.priority,
+        urgency: payload.urgency,
+        impact: payload.impact,
+        slaPolicyId: payload.slaPolicyId || null,
       })).json(),
     onSuccess: async (_result, payload) => {
       await Promise.all([
@@ -238,7 +251,7 @@ export function IncidentsPage() {
           const row = incident as Incident & { projectName?: string; creatorName?: string; assigneeName?: string; assignmentGroup?: string | null; assigneeId?: string | null; assignedToId?: string | null };
           const due = row.resolveDueAt ? new Date(row.resolveDueAt) : null;
           const overdue = Boolean(due && due.getTime() < Date.now() && !["Resolved", "Closed"].includes(row.status));
-            return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCategory(row.category ?? ""); setResolutionCode(row.resolutionCode ?? ""); setResolutionNotes((row as any).resolutionNotes ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); }}>
+            return <TableRow key={row.id} className="cursor-pointer" onClick={() => { setSelectedId(row.id); setResolutionCategory(row.category ?? ""); setResolutionCode(row.resolutionCode ?? ""); setResolutionNotes((row as any).resolutionNotes ?? ""); setIncidentAssignmentGroup(row.assignmentGroup ?? ""); setIncidentAssigneeId(row.assigneeId ?? row.assignedToId ?? ""); setTriagePriority(row.priority); setTriageUrgency(row.urgency ?? "medium"); setTriageImpact(row.impact ?? "medium"); setTriageSlaPolicyId(row.slaPolicyId ?? ""); }}>
             <TableCell><div className="font-mono text-xs text-muted-foreground">{row.incidentNumber}</div><div className="mt-1 font-medium">{row.title}</div></TableCell>
             <TableCell><Badge className={row.priority === "P1" ? "border-red-200 bg-red-100 text-red-800" : row.priority === "P2" ? "border-orange-200 bg-orange-100 text-orange-800" : row.priority === "P3" ? "border-amber-200 bg-amber-100 text-amber-800" : "border-blue-200 bg-blue-100 text-blue-800"}>{row.priority}</Badge></TableCell>
             <TableCell><Badge variant="outline">{row.status}</Badge></TableCell><TableCell>{row.projectName ?? "—"}</TableCell><TableCell>{row.assignmentGroup ?? "Unassigned"}</TableCell><TableCell>{row.assigneeName ?? "Unassigned"}</TableCell>
@@ -255,9 +268,15 @@ export function IncidentsPage() {
               <label className="grid gap-1 text-sm">Assigned engineer<select className="h-10 rounded-md border bg-background px-3 text-sm" value={incidentAssigneeId} onChange={event => setIncidentAssigneeId(event.target.value)} disabled={incidentGroupMembers.isLoading && Boolean(selectedIncidentGroup)}><option value="">{incidentGroupMembers.isLoading ? "Loading group members…" : "Unassigned"}</option>{incidentAssigneeOptions.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
                 <Button className="w-full" variant="outline" onClick={() => updateAssignment.mutate({ id: selected.id, assignmentGroup: incidentAssignmentGroup, assigneeId: incidentAssigneeId })} disabled={incidentMutationPending}>{updateAssignment.isPending ? "Saving assignment…" : "Save assignment"}</Button>
             </section>
-              <section className="grid gap-3"><h3 className="font-semibold">Workflow</h3><label className="grid gap-1 text-sm">Incident / resolution category<Input value={resolutionCategory} onChange={e => setResolutionCategory(e.target.value)} placeholder="e.g. Hardware, Network, Access" /></label><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
+               <section className="grid gap-3"><h3 className="font-semibold">Triage & SLA</h3><div className="grid gap-3 sm:grid-cols-2">
+                 <label className="grid gap-1 text-sm">Priority<select className="h-10 rounded-md border bg-background px-3 text-sm" value={triagePriority} onChange={event => setTriagePriority(event.target.value)}>{["P1", "P2", "P3", "P4"].map(value => <option key={value}>{value}</option>)}</select></label>
+                 <label className="grid gap-1 text-sm">Urgency<select className="h-10 rounded-md border bg-background px-3 text-sm" value={triageUrgency} onChange={event => setTriageUrgency(event.target.value)}>{["high", "medium", "low"].map(value => <option key={value}>{value}</option>)}</select></label>
+                 <label className="grid gap-1 text-sm">Impact<select className="h-10 rounded-md border bg-background px-3 text-sm" value={triageImpact} onChange={event => setTriageImpact(event.target.value)}>{["high", "medium", "low"].map(value => <option key={value}>{value}</option>)}</select></label>
+                 <label className="grid gap-1 text-sm">SLA policy<select className="h-10 rounded-md border bg-background px-3 text-sm" value={triageSlaPolicyId} onChange={event => setTriageSlaPolicyId(event.target.value)}><option value="">Standard baseline</option>{(options?.slaPolicies ?? []).map(policy => <option key={policy.id} value={policy.id}>{policy.name} · {policy.priority}</option>)}</select></label>
+               </div>
+               <label className="grid gap-1 text-sm">Incident / resolution category<Input value={resolutionCategory} onChange={e => setResolutionCategory(e.target.value)} placeholder="e.g. Hardware, Network, Access" /></label><label className="grid gap-1 text-sm">Resolution code<select className="h-10 rounded-md border bg-background px-3 text-sm" value={resolutionCode} onChange={e => setResolutionCode(e.target.value)}><option value="">Select resolution code</option>{["Solved (Permanent Fix)", "Workaround Applied", "Cancelled", "False Alarm", "Vendor Escalation", "No Fault Found", "Duplicate", "Other"].map(code => <option key={code}>{code}</option>)}</select></label>
                <label className="grid gap-1 text-sm">Resolution / closure note<Textarea value={resolutionNotes} onChange={e => setResolutionNotes(e.target.value)} placeholder="Record the outcome and reason for resolving or closing this incident." /></label>
-                 <Button className="w-full" variant="outline" onClick={() => updateDetails.mutate({ id: selected.id, category: resolutionCategory, resolutionCode, resolutionNotes })} disabled={incidentMutationPending}>{updateDetails.isPending ? "Saving details…" : "Save workflow details"}</Button>
+                  <Button className="w-full" variant="outline" onClick={() => updateDetails.mutate({ id: selected.id, category: resolutionCategory, resolutionCode, resolutionNotes, priority: triagePriority, urgency: triageUrgency, impact: triageImpact, slaPolicyId: triageSlaPolicyId })} disabled={incidentMutationPending}>{updateDetails.isPending ? "Saving details…" : "Save triage & workflow details"}</Button>
                 {(() => {
                   const state = selected.status.toLowerCase().replaceAll("_", " ");
                   const normalized = state === "open" ? "New" : state === "in progress" ? "In Progress" : state === "new" ? "New" : state === "pending" ? "Pending" : state === "resolved" ? "Resolved" : state === "closed" ? "Closed" : "";
@@ -274,6 +293,7 @@ export function IncidentsPage() {
             </section>
           </>}
           {canManageKnowledge(user) && <TicketKnowledgeLinks ticketType="incidents" ticketId={selected.id} />}
+           <section><h3 className="font-semibold">Attachments</h3>{incidentAttachmentsLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading attachments…</p> : incidentAttachments.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No files attached.</p> : <ul className="mt-2 space-y-2">{incidentAttachments.map(file => <li key={file.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"><span className="min-w-0 truncate">{file.originalName}</span><a className="shrink-0 text-primary underline" href={`/api/incidents/${selected.id}/attachments/${file.id}`}>Download</a></li>)}</ul>}</section>
           <section><h3 className="font-semibold">Activity</h3><div className="mt-3 space-y-3 border-l pl-4">{activity.length === 0 ? <p className="text-sm text-muted-foreground">No activity recorded yet.</p> : activity.map(entry => <div key={entry.id} className="relative"><span className="absolute -left-[21px] top-1 h-2 w-2 rounded-full bg-primary" /><p className="text-sm font-medium">{entry.action}</p><p className="text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "System"} · {appFormatDateTime(entry.createdAt)}</p></div>)}</div></section>
         </div>
       </>}

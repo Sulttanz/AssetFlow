@@ -188,7 +188,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "My Assets",
       moduleKey: "asset_management",
       items: [
-        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", permission: ["my_assets_view", "system_admin"] },
+        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", permission: ["my_assets_view", "system_admin"], visible: Boolean(user?.employeeId) },
       ],
     },
     {

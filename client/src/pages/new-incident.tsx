@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, CircleAlert, ClipboardCheck, LifeBuoy, RefreshCw } from "lucide-react";
@@ -6,13 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 type IncidentOptions = {
   projects: { id: string; name: string }[];
+  selectedProjectId?: string;
+  catalog?: { id: string; name: string; description: string | null; category: string; projectId: string | null; defaultPriority: string; defaultImpact: string; defaultUrgency: string; defaultAssignmentGroup: string | null }[];
+  incidentCatalog?: { id: string; name: string; description: string | null; category: string; projectId: string | null; defaultPriority: string; defaultImpact: string; defaultUrgency: string; defaultAssignmentGroup: string | null }[];
+  assignedAssets?: { id: string; name: string; assetTag: string | null; serialNumber: string | null }[];
+  linkedEmployee?: boolean;
   users: { id: string; name: string }[];
   managedAssignmentGroups: { id: number; name: string }[];
   requesterUsers?: { id: string; name: string; email: string }[];
@@ -49,6 +54,9 @@ export default function NewIncidentPage() {
   const [urgency, setUrgency] = useState("medium");
   const [impact, setImpact] = useState("medium");
   const [projectId, setProjectId] = useState("");
+  const [incidentCatalogItemId, setIncidentCatalogItemId] = useState("");
+  const [assetId, setAssetId] = useState("");
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [slaPolicyId, setSlaPolicyId] = useState("");
   const [assignmentGroup, setAssignmentGroup] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
@@ -56,9 +64,30 @@ export default function NewIncidentPage() {
   const [requestedForSearch, setRequestedForSearch] = useState("");
   const [validationError, setValidationError] = useState("");
   const options = useQuery<IncidentOptions>({
-    queryKey: ["/api/incidents/options"],
-    queryFn: getQueryFn({ on401: "throw" }),
+    queryKey: [staffIntake ? "/api/incidents/options" : "/api/portal/incidents/options", user?.id, projectId],
+    queryFn: async () => {
+      const path = staffIntake
+        ? "/api/incidents/options"
+        : `/api/portal/incidents/options${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`;
+      const response = await fetch(path, { credentials: "include" });
+      if (!response.ok) throw new Error(`Could not load incident options (${response.status})`);
+      return response.json();
+    },
+    enabled: Boolean(user?.id),
   });
+  useEffect(() => {
+    if (!staffIntake && options.data?.selectedProjectId && !projectId) setProjectId(options.data.selectedProjectId);
+  }, [staffIntake, options.data?.selectedProjectId, projectId]);
+  const incidentCatalog = staffIntake ? options.data?.incidentCatalog ?? [] : options.data?.catalog ?? [];
+  const selectedCatalog = incidentCatalog.find(item => item.id === incidentCatalogItemId);
+  const visibleIncidentCatalog = incidentCatalog.filter(item => !item.projectId || item.projectId === projectId);
+  useEffect(() => {
+    if (!staffIntake || !selectedCatalog) return;
+    setPriority(selectedCatalog.defaultPriority as typeof priority);
+    setUrgency(selectedCatalog.defaultUrgency);
+    setImpact(selectedCatalog.defaultImpact);
+    setAssignmentGroup(selectedCatalog.defaultAssignmentGroup ?? "");
+  }, [staffIntake, incidentCatalogItemId]);
   const selectedGroup = options.data?.managedAssignmentGroups.find(group => group.name === assignmentGroup);
   const groupMembers = useQuery<{ id: string; name: string }[]>({
     queryKey: ["/api/assignment-groups", selectedGroup?.id, "members"],
@@ -70,11 +99,28 @@ export default function NewIncidentPage() {
     mutationFn: async (payload: {
       title: string; description: string; priority: "P1" | "P2" | "P3" | "P4";
       urgency: string; impact: string; projectId: string | null; slaPolicyId: string | null; assignmentGroup: string | null;
-      requesterId?: string; assigneeId?: string | null;
+      requesterId?: string; assigneeId?: string | null; incidentCatalogItemId?: string | null; assetId?: string | null;
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
-    onSuccess: async () => {
+    onSuccess: async (incident: { id: string; incidentNumber?: string }) => {
+      const uploadErrors: string[] = [];
+      for (const file of attachments) {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const response = await fetch(`/api/incidents/${incident.id}/attachments`, { method: "POST", body: formData, credentials: "include" });
+          if (!response.ok) uploadErrors.push(file.name);
+        } catch {
+          uploadErrors.push(file.name);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
-      toast({ title: "Incident submitted", description: "Your support team can now triage the issue." });
+      toast({
+        title: "Incident submitted",
+        description: uploadErrors.length
+          ? `${incident.incidentNumber ?? "Incident"} was created, but these files could not be uploaded: ${uploadErrors.join(", ")}. You can add them from My Tickets.`
+          : `${incident.incidentNumber ?? "Incident"} was recorded. Your support team can now triage the issue.`,
+        variant: uploadErrors.length ? "destructive" : "default",
+      });
       navigate("/portal");
     },
     onError: (error: Error) => toast({ title: "Incident could not be submitted", description: error.message, variant: "destructive" }),
@@ -88,6 +134,14 @@ export default function NewIncidentPage() {
       setValidationError("Add an incident title and a description with more than whitespace.");
       return;
     }
+    if (!staffIntake && !projectId) {
+      setValidationError("Choose a project assigned to your account before submitting.");
+      return;
+    }
+    if (!incidentCatalogItemId) {
+      setValidationError("Choose an incident type from the catalog.");
+      return;
+    }
     setValidationError("");
     createIncident.mutate({
       title: cleanTitle,
@@ -98,6 +152,8 @@ export default function NewIncidentPage() {
       projectId: projectId || null,
       slaPolicyId: slaPolicyId || null,
       assignmentGroup: assignmentGroup.trim() || null,
+      incidentCatalogItemId,
+      assetId: assetId || null,
       ...(staffIntake ? { assigneeId: assigneeId || null } : {}),
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
@@ -126,13 +182,19 @@ export default function NewIncidentPage() {
               {(options.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
             </select>
           </Field>}
+          <Field label="Incident type" hint={selectedCatalog ? `Default routing: ${selectedCatalog.defaultPriority}, ${selectedCatalog.defaultAssignmentGroup ?? "unassigned group"}.` : "Choose the closest service or issue category."}>
+            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required>
+              <option value="">Select an incident type</option>
+              {visibleIncidentCatalog.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category}</option>)}
+            </select>
+          </Field>
           <Field label="Incident title">
             <Input required maxLength={180} value={title} onChange={event => setTitle(event.target.value)} placeholder="For example, finance team cannot access shared drive" className={inputClass} />
           </Field>
           <Field label="What is happening?" hint="Include affected services or people, when it began, and any steps already tried.">
             <Textarea required rows={6} maxLength={8000} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the symptoms and their effect on your work." className={textAreaClass} />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-3">
+          {staffIntake && <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Priority">
               <select className={selectClass} value={priority} onChange={event => setPriority(event.target.value as typeof priority)}>
                 <option value="P1">P1 · Critical</option><option value="P2">P2 · High</option><option value="P3">P3 · Moderate</option><option value="P4">P4 · Low</option>
@@ -148,7 +210,17 @@ export default function NewIncidentPage() {
                 <option value="high">High · many users or service</option><option value="medium">Medium · team or function</option><option value="low">Low · individual</option>
               </select>
             </Field>
-          </div>
+          </div>}
+          {!staffIntake && options.data?.linkedEmployee && (options.data.assignedAssets?.length ?? 0) > 0 && <Field label="Affected device (optional)">
+            <select className={selectClass} value={assetId} onChange={event => setAssetId(event.target.value)}>
+              <option value="">No specific device</option>
+              {options.data?.assignedAssets?.map(asset => <option key={asset.id} value={asset.id}>{asset.name}{asset.assetTag ? ` · ${asset.assetTag}` : ""}{asset.serialNumber ? ` · ${asset.serialNumber}` : ""}</option>)}
+            </select>
+          </Field>}
+          <Field label="Attachments (optional)" hint="Add screenshots or relevant files (PDF, Word, Excel, images, or text/config files; up to 20 MB each).">
+            <Input type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt" className={inputClass} onChange={event => setAttachments(Array.from(event.target.files ?? []))} />
+            {attachments.length > 0 && <span className="text-xs text-muted-foreground">{attachments.map(file => file.name).join(", ")}</span>}
+          </Field>
         </CardContent>
       </Card>
 
@@ -157,34 +229,31 @@ export default function NewIncidentPage() {
           <CardContent className="grid gap-5 p-5">
             <div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#6f8982]">Routing context</p><h2 className="mt-1 font-semibold text-[#244847]">Help us direct the work</h2></div>
             {options.isLoading ? <div role="status" aria-label="Loading routing options" className="space-y-3"><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /></div>
-              : options.isError ? <div className="rounded-xl border border-[#e7c9bd] bg-[#fff8f4] p-3 text-sm text-[#815543]" role="alert"><p>Routing options could not load. You can still report this without a project or SLA.</p><Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg" onClick={() => void options.refetch()}><RefreshCw className="mr-2 h-3.5 w-3.5" />Retry</Button></div>
+              : options.isError ? <div className="rounded-xl border border-[#e7c9bd] bg-[#fff8f4] p-3 text-sm text-[#815543]" role="alert"><p>Incident options could not load. Retry before submitting so the correct project scope and routing are applied.</p><Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg" onClick={() => void options.refetch()}><RefreshCw className="mr-2 h-3.5 w-3.5" />Retry</Button></div>
               : <>
-                <Field label="Project (optional)">
-                  <select className={selectClass} value={projectId} onChange={event => setProjectId(event.target.value)}>
-                    <option value="">No project</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                <Field label={staffIntake ? "Project (optional)" : "Project"} hint={!staffIntake && options.data?.projects.length === 1 ? "This is the only project assigned to your account." : undefined}>
+                  <select className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
+                    {staffIntake && <option value="">No project</option>}{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
                 </Field>
-                <Field label="Assignment group (optional)" hint="Use a known team name if this issue already has a clear owner.">
-                  {staffIntake ? (
-                    <select className={selectClass} value={assignmentGroup} onChange={event => { setAssignmentGroup(event.target.value); setAssigneeId(""); }}>
-                      <option value="">Unassigned group</option>
-                      {(options.data?.managedAssignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}
-                    </select>
-                  ) : (
-                    <Input value={assignmentGroup} onChange={event => setAssignmentGroup(event.target.value)} maxLength={120} placeholder="For example, Network Services" className={inputClass} />
-                  )}
-                </Field>
+                {!staffIntake && options.data?.projects.length === 0 && <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account, so project-scoped incident intake is unavailable. Contact your project manager to be added to a project.</p>}
+                {staffIntake && <Field label="Assignment group (optional)" hint="Choose a fulfillment team for initial routing.">
+                  <select className={selectClass} value={assignmentGroup} onChange={event => { setAssignmentGroup(event.target.value); setAssigneeId(""); }}>
+                    <option value="">Unassigned group</option>
+                    {(options.data?.managedAssignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}
+                  </select>
+                </Field>}
                 {staffIntake && <Field label="Assigned engineer (optional)" hint={selectedGroup ? `Choose an active member of ${selectedGroup.name}.` : "Choose any available IT engineer, or leave the incident unassigned."}>
                   <select className={selectClass} value={assigneeId} onChange={event => setAssigneeId(event.target.value)} disabled={groupMembers.isLoading}>
                     <option value="">{groupMembers.isLoading ? "Loading group members…" : "Unassigned"}</option>
                     {availableEngineers.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
                   </select>
                 </Field>}
-                <Field label="SLA policy (optional)">
+                {staffIntake && <Field label="SLA policy (optional)">
                   <select className={selectClass} value={slaPolicyId} onChange={event => setSlaPolicyId(event.target.value)}>
                     <option value="">Use default policy</option>{(options.data?.slaPolicies ?? []).map(policy => <option key={policy.id} value={policy.id}>{policy.name} · {policy.priority}</option>)}
                   </select>
-                </Field>
+                </Field>}
               </>}
             <div className="rounded-xl border border-[#d8e5df] bg-white/70 p-3.5 text-xs leading-5 text-[#718681]">
               <div className="mb-1.5 flex items-center gap-2 font-semibold text-[#3f6963]"><ClipboardCheck className="h-4 w-4" /> What happens next</div>
@@ -195,7 +264,7 @@ export default function NewIncidentPage() {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
           {createIncident.isError && <p role="alert" className="text-sm text-destructive">Submission failed. Your details are still here; review the error and try again.</p>}
           {validationError && <p role="alert" className="text-sm text-destructive">{validationError}</p>}
-          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending}>
+          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending || options.isLoading || (!staffIntake && (options.data?.projects.length ?? 0) === 0)}>
             {createIncident.isPending ? "Submitting incident…" : "Submit incident"}
           </Button>
           <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white">

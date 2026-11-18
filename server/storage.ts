@@ -1926,6 +1926,7 @@ export class MemStorage implements IStorage {
       priority: input.priority ?? "P3",
       status: input.status ?? "New",
       category: input.category ?? null,
+      incidentCatalogItemId: input.incidentCatalogItemId ?? null,
       creatorId: input.creatorId ?? null,
       projectId: input.projectId ?? null,
       contractId: input.contractId ?? null,
@@ -2224,6 +2225,7 @@ export class MemStorage implements IStorage {
     const newUser: User = { 
       ...user, 
       id,
+      employeeId: user.employeeId ?? null,
       createdAt: new Date(),
       isActive: user.isActive ?? true,
       lastLogin: null,

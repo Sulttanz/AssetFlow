@@ -171,6 +171,7 @@ describe.runIf(enabled)("Service Contract & SLA end-to-end verification", () => 
         title: `Contract SLA verification ${suffix}`,
       });
       await db.insert(s.projectManagers).values({ projectId, userId: managerId, isPrimary: true });
+      await db.insert(s.projectTeamMembers).values({ projectId, userId: actorId });
 
       const [systemPermission] = await db.select().from(s.permissions)
         .where(eq(s.permissions.name, "system_admin")).limit(1);

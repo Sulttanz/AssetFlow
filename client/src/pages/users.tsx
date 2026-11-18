@@ -13,7 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import Header from "@/components/layout/header";
 import UserForm from "@/components/users/user-form";
-import { Eye, Edit, Trash2, Users, UserPlus, Shield } from "lucide-react";
+import { Eye, Edit, Trash2, Users, UserPlus, Shield, Link2, UserRoundX } from "lucide-react";
 import type { UserWithDetails } from "@shared/schema";
 import { getRoleDisplayName } from "@shared/role-catalog";
 import {
@@ -37,6 +37,9 @@ export default function UsersPage() {
 
   const { data: users, isLoading } = useQuery<UserWithDetails[]>({
     queryKey: ["/api/users"],
+  });
+  const { data: employeeOptions = [] } = useQuery<{ id: string; employeeId: string | null; firstName: string; lastName: string }[]>({
+    queryKey: ["/api/users/employee-options"],
   });
 
   const deleteUserMutation = useMutation({
@@ -194,6 +197,7 @@ export default function UsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Username</TableHead>
                   <TableHead>Email</TableHead>
+                  <TableHead>Employee Link</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Roles</TableHead>
                   <TableHead>Created</TableHead>
@@ -210,6 +214,14 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell data-testid={`text-username-${user.id}`}>{user.username}</TableCell>
                     <TableCell data-testid={`text-email-${user.id}`}>{user.email}</TableCell>
+                    <TableCell data-testid={`employee-link-${user.id}`}>
+                      {user.employeeId
+                        ? (() => {
+                            const employee = employeeOptions.find(item => item.id === user.employeeId);
+                            return <Badge variant="outline" className="gap-1.5 whitespace-nowrap"><Link2 className="h-3 w-3" />{employee ? `${employee.firstName} ${employee.lastName}${employee.employeeId ? ` · ${employee.employeeId}` : ""}` : `Employee · ${user.employeeId}`}</Badge>;
+                          })()
+                        : <Badge variant="secondary" className="gap-1.5 whitespace-nowrap"><UserRoundX className="h-3 w-3" />External / Project User</Badge>}
+                    </TableCell>
                     <TableCell data-testid={`status-${user.id}`}>{getStatusBadge(user.isActive ? "active" : "inactive")}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1" data-testid={`roles-${user.id}`}>
@@ -258,7 +270,7 @@ export default function UsersPage() {
                 ))}
                 {(!filteredUsers || filteredUsers.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       {searchQuery ? "No users found matching your search." : "No users found. Add your first user to get started."}
                     </TableCell>
                   </TableRow>

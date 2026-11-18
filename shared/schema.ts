@@ -1069,6 +1069,7 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
+  employeeId: varchar("employee_id").references(() => employees.id, { onDelete: "set null" }),
   password: text("password").notNull(), // bcrypt hashed password
   firstName: text("first_name").notNull(),
   lastName: text("last_name").notNull(),
@@ -2324,7 +2325,8 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
   assignments: many(assignments),
 }));
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
+  employee: one(employees, { fields: [users.employeeId], references: [employees.id] }),
   assignmentGroupMemberships: many(assignmentGroupMembers),
 }));
 
@@ -2692,6 +2694,53 @@ export const serviceCatalogItems = pgTable("service_catalog_items", {
 ]);
 export type ServiceCatalogItem = typeof serviceCatalogItems.$inferSelect;
 
+// Incident catalog presets keep end-user intake simple while letting agents
+// define default triage and routing values centrally.
+export const incidentCatalogItems = pgTable("incident_catalog_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(),
+  icon: text("icon"),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  defaultImpact: text("default_impact").notNull().default("medium"),
+  defaultUrgency: text("default_urgency").notNull().default("medium"),
+  defaultPriority: text("default_priority").notNull().default("P3"),
+  defaultAssignmentGroup: text("default_assignment_group"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, table => [
+  index("incident_catalog_items_project_active_idx").on(table.projectId, table.isActive),
+  uniqueIndex("incident_catalog_items_global_name_ci_uq")
+    .on(sql`lower(btrim(${table.name}))`).where(sql`${table.projectId} IS NULL`),
+  uniqueIndex("incident_catalog_items_project_name_ci_uq")
+    .on(table.projectId, sql`lower(btrim(${table.name}))`).where(sql`${table.projectId} IS NOT NULL`),
+  check("incident_catalog_items_impact_check", sql`${table.defaultImpact} IN ('low', 'medium', 'high')`),
+  check("incident_catalog_items_urgency_check", sql`${table.defaultUrgency} IN ('low', 'medium', 'high')`),
+  check("incident_catalog_items_priority_check", sql`${table.defaultPriority} IN ('P1', 'P2', 'P3', 'P4')`),
+]);
+export const insertIncidentCatalogItemSchema = createInsertSchema(incidentCatalogItems).omit({
+  id: true,
+  createdBy: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().trim().min(2).max(160),
+  description: z.string().max(4000).nullable().optional(),
+  category: z.string().trim().min(1).max(120),
+  icon: z.string().max(80).nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  defaultImpact: z.enum(["low", "medium", "high"]),
+  defaultUrgency: z.enum(["low", "medium", "high"]),
+  defaultPriority: z.enum(["P1", "P2", "P3", "P4"]),
+  defaultAssignmentGroup: z.string().trim().max(120).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type IncidentCatalogItem = typeof incidentCatalogItems.$inferSelect;
+export type InsertIncidentCatalogItem = z.infer<typeof insertIncidentCatalogItemSchema>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Change Management
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2760,6 +2809,7 @@ export const incidents = pgTable("incidents", {
   priority: text("priority").notNull().default("P3"),
   status: text("status").notNull().default("New"),
   category: text("category"),
+  incidentCatalogItemId: varchar("incident_catalog_item_id").references(() => incidentCatalogItems.id, { onDelete: "set null" }),
   creatorId: varchar("creator_id").references(() => users.id, { onDelete: "set null" }),
   projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
   contractId: integer("contract_id").references(() => serviceContracts.id, { onDelete: "set null" }),
@@ -2786,12 +2836,22 @@ export const incidents = pgTable("incidents", {
   index("incidents_project_id_idx").on(table.projectId),
   index("incidents_contract_id_idx").on(table.contractId),
   index("incidents_creator_id_idx").on(table.creatorId),
+  index("incidents_catalog_item_idx").on(table.incidentCatalogItemId),
 ]);
+
+export const incidentCatalogItemsRelations = relations(incidentCatalogItems, ({ one, many }) => ({
+  project: one(projects, { fields: [incidentCatalogItems.projectId], references: [projects.id] }),
+  incidents: many(incidents),
+}));
 
 export const incidentsRelations = relations(incidents, ({ one }) => ({
   serviceContract: one(serviceContracts, {
     fields: [incidents.contractId],
     references: [serviceContracts.id],
+  }),
+  catalogItem: one(incidentCatalogItems, {
+    fields: [incidents.incidentCatalogItemId],
+    references: [incidentCatalogItems.id],
   }),
 }));
 

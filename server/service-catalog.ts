@@ -16,15 +16,22 @@ import { storage } from "./storage";
 import { personaRolesForUser } from "@shared/personas";
 export { catalogMutationError } from "@shared/service-catalog";
 
-type Viewer = { id: string; roles: { name: string }[]; permissions: string[] };
+type Viewer = { id: string; employeeId: string | null; roles: { name: string }[]; permissions: string[] };
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 class CatalogError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 export async function loadCatalogViewer(req: Request): Promise<Viewer> {
   if (!req.user?.id) throw new CatalogError(401, "Authentication required");
-  const [roles, permissions] = await Promise.all([storage.getUserRoles(req.user.id), storage.getUserPermissions(req.user.id)]);
-  return { id: req.user.id, roles, permissions };
+  const [roles, permissions, account] = await Promise.all([
+    storage.getUserRoles(req.user.id),
+    storage.getUserPermissions(req.user.id),
+    storage.getUser(req.user.id),
+  ]);
+  return { id: req.user.id, employeeId: account?.employeeId ?? null, roles, permissions };
+}
+function isEmployeeOnlyService(item: { category: string; consumableId?: string | null }) {
+  return Boolean(item.consumableId) || /^(hardware|equipment|asset)$/i.test(item.category.trim());
 }
 function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<void>): RequestHandler {
   return async (req, res) => {
@@ -69,6 +76,9 @@ export const catalogRequestHandler = handle(async (req, res, user) => {
   const result = await db.transaction(async tx => {
     const [item] = await tx.select().from(serviceCatalogItems).where(eq(serviceCatalogItems.id, req.params.id)).for("share");
     if (!item || item.status !== "Active") throw new CatalogError(404, "Active catalog service not found");
+    const [legacy] = await tx.select({ fulfillmentTeam: catalogItems.fulfillmentTeam, consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id));
+    if (!user.employeeId && !canManageServiceCatalog(user) && (isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }) || item.category.toLowerCase() === "infrastructure"))
+      throw new CatalogError(404, "This service is available only to linked employees");
     const values = validateCatalogValues(item.customFieldsSchema, input.fieldValues);
     const requesterId = input.requesterId ?? user.id;
     if (requesterId !== user.id) {
@@ -79,7 +89,6 @@ export const catalogRequestHandler = handle(async (req, res, user) => {
     }
     if (input.projectId && !(await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, input.projectId))).length)
       throw new CatalogError(400, "Project not found");
-    const [legacy] = await tx.select({ fulfillmentTeam: catalogItems.fulfillmentTeam }).from(catalogItems).where(eq(catalogItems.id, item.id));
     const dueAt = new Date(Date.now() + item.slaHours * 3600000);
     const [request] = await tx.insert(serviceRequests).values({
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
@@ -118,14 +127,18 @@ export function registerServiceCatalogRoutes(app: Express, requireAuth: RequestH
   }));
   app.get("/api/service-catalog/items", requireAuth, handle(async (req, res, user) => {
     const includeInactive = req.query.includeInactive === "true" && canManageServiceCatalog(user);
-    res.json(await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
+    const rows = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
       .from(serviceCatalogItems).innerJoin(catalogItems, eq(catalogItems.id, serviceCatalogItems.id))
-      .where(includeInactive ? undefined : eq(serviceCatalogItems.status, "Active")).orderBy(serviceCatalogItems.category, serviceCatalogItems.title));
+      .where(includeInactive ? undefined : eq(serviceCatalogItems.status, "Active")).orderBy(serviceCatalogItems.category, serviceCatalogItems.title);
+    res.json(user.employeeId || canManageServiceCatalog(user) ? rows : rows.filter(item => !isEmployeeOnlyService(item) && item.category.toLowerCase() !== "infrastructure"));
   }));
   app.get("/api/service-catalog/items/:id", requireAuth, handle(async (req, res, user) => {
     const [item] = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
       .from(serviceCatalogItems).innerJoin(catalogItems, eq(catalogItems.id, serviceCatalogItems.id)).where(eq(serviceCatalogItems.id, req.params.id));
-    if (!item || (item.status !== "Active" && !canManageServiceCatalog(user))) throw new CatalogError(404, "Service not found");
+    const [legacy] = item ? await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id)) : [];
+    if (!item || (item.status !== "Active" && !canManageServiceCatalog(user)) ||
+        (!user.employeeId && !canManageServiceCatalog(user) && (isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }) || item.category.toLowerCase() === "infrastructure")))
+      throw new CatalogError(404, "Service not found");
     res.json(item);
   }));
   for (const method of ["post", "put"] as const) {

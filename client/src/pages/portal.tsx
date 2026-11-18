@@ -12,7 +12,8 @@ import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { checkedResponse } from "@/components/service-catalog/types";
 import { formatDateTimeMinute } from "@/lib/date-utils";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type CatalogItem = {
   id: string; title: string; description?: string | null; category?: string;
@@ -56,6 +57,9 @@ export default function PortalPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [articleId, setArticleId] = useState<string | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [incidentComment, setIncidentComment] = useState("");
+  const [incidentDetailError, setIncidentDetailError] = useState("");
   const [receiptToAcknowledge, setReceiptToAcknowledge] = useState<CustodyReceipt | null>(null);
   const queryTerm = search.trim();
   const kbQuery = useQuery<Article[]>({
@@ -72,6 +76,49 @@ export default function PortalPage() {
     refetchInterval: 30_000,
   });
   const incidentsQuery = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
+  const incidentDetailQuery = useQuery<Incident & { description?: string; priority?: string; category?: string; projectName?: string | null }>({
+    queryKey: ["/api/incidents", selectedIncidentId],
+    queryFn: async () => checkedResponse<Incident & { description?: string; priority?: string; category?: string; projectName?: string | null }>(await apiRequest("GET", `/api/incidents/${selectedIncidentId}`)),
+    enabled: Boolean(selectedIncidentId),
+  });
+  const incidentActivityQuery = useQuery<{ id: string; action: string; details: string | null; actorName: string | null; createdAt: string }[]>({
+    queryKey: ["/api/incidents", selectedIncidentId, "activity"],
+    queryFn: async () => checkedResponse(await apiRequest("GET", `/api/incidents/${selectedIncidentId}/activity`)),
+    enabled: Boolean(selectedIncidentId),
+  });
+  const incidentAttachmentsQuery = useQuery<{ id: string; originalName: string; fileSize: number | null; fileType: string | null }[]>({
+    queryKey: ["/api/incidents", selectedIncidentId, "attachments"],
+    queryFn: async () => checkedResponse(await apiRequest("GET", `/api/incidents/${selectedIncidentId}/attachments`)),
+    enabled: Boolean(selectedIncidentId),
+  });
+  const addIncidentComment = useMutation({
+    mutationFn: async () => checkedResponse(await apiRequest("POST", `/api/incidents/${selectedIncidentId}/comments`, { message: incidentComment.trim() })),
+    onSuccess: async () => {
+      setIncidentComment("");
+      await queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedIncidentId, "activity"] });
+    },
+    onError: (error: Error) => setIncidentDetailError(error.message),
+  });
+  const uploadIncidentAttachments = useMutation({
+    mutationFn: async (files: File[]) => {
+      const failures: string[] = [];
+      for (const file of files) {
+        const data = new FormData();
+        data.append("file", file);
+        const response = await fetch(`/api/incidents/${selectedIncidentId}/attachments`, { method: "POST", body: data, credentials: "include" });
+        if (!response.ok) failures.push(file.name);
+      }
+      if (failures.length) throw new Error(`Could not upload: ${failures.join(", ")}`);
+    },
+    onSuccess: async () => {
+      setIncidentDetailError("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedIncidentId, "attachments"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents", selectedIncidentId, "activity"] }),
+      ]);
+    },
+    onError: (error: Error) => setIncidentDetailError(error.message),
+  });
   const requestsQuery = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
   const changesQuery = useQuery<{ changes: Change[]; total: number; page: number; pageSize: number }>({
     queryKey: ["/api/changes?page=1&pageSize=100"],
@@ -90,7 +137,8 @@ export default function PortalPage() {
     },
   });
 
-  const catalog = (catalogQuery.data ?? []).filter(item => item.status === "Active");
+  const catalog = (catalogQuery.data ?? []).filter(item => item.status === "Active" &&
+    (user?.employeeId || !/hardware|equipment|device|asset/i.test(`${item.category} ${item.title}`)));
   const matchingCatalog = useMemo(() => {
     if (!queryTerm) return [];
     const term = queryTerm.toLowerCase();
@@ -133,39 +181,24 @@ export default function PortalPage() {
         </div>
       </section>
 
-      <section className="mt-8 overflow-hidden rounded-[24px] border border-[#d4e2de] bg-[#fffdfa] shadow-[0_10px_38px_rgba(35,73,70,.045)]">
+      {user?.employeeId && <section className="mt-8 overflow-hidden rounded-[24px] border border-[#d4e2de] bg-[#fffdfa] shadow-[0_10px_38px_rgba(35,73,70,.045)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4ebe7] px-5 py-5 sm:px-7">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Laptop className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#7a908c]">Equipment in your care</p><h2 className="text-xl font-semibold tracking-[-.03em]">My Assigned Assets</h2></div></div>
           <span className="rounded-full border border-[#d7e5dd] bg-[#f3f8f4] px-3 py-1.5 text-xs font-medium text-[#55766c]">{custodyQuery.data?.length ?? 0} active receipt{custodyQuery.data?.length === 1 ? "" : "s"}</span>
         </div>
-        {custodyQuery.isLoading ? <div className="space-y-3 p-5 sm:p-7" aria-label="Loading assigned assets">{[0,1].map(item => <div key={item} className="h-24 animate-pulse rounded-2xl bg-[#eff4f0]" />)}</div>
+        {custodyQuery.isLoading ? <div className="space-y-3 p-5 sm:p-7" aria-label="Loading assigned assets">{[0, 1].map(item => <div key={item} className="h-24 animate-pulse rounded-2xl bg-[#eff4f0]" />)}</div>
           : custodyQuery.isError ? <div className="px-6 py-12 text-center"><p className="font-semibold">Your custody receipts could not load</p><p className="mt-1 text-sm text-[#7c908d]">Try again in a moment.</p><Button variant="outline" className="mt-4 rounded-full" onClick={() => void custodyQuery.refetch()}>Try again</Button></div>
             : !custodyQuery.data?.length ? <div className="px-6 py-12 text-center"><div className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-[#edf4ef] text-[#64847b]"><Laptop className="h-5 w-5" /></div><h3 className="mt-3 font-semibold">No active custody receipts</h3><p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-[#7a8e8b]">Equipment assigned to you will appear here with its handover details and acknowledgement status.</p></div>
               : <div className="divide-y divide-[#edf1ee]">{custodyQuery.data.map(receipt => <article key={receipt.id} className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-                <div className="flex min-w-0 items-start gap-4">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#edf4ef] text-[#477a70]"><Laptop className="h-5 w-5" /></div>
-                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold tracking-[-.02em]">{receipt.assetName}</h3><span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${receipt.acknowledged ? "border-[#c7dfd2] bg-[#eaf5ee] text-[#3f7658]" : "border-[#ecdcb9] bg-[#fbf5e8] text-[#8a6a32]"}`}>{receipt.acknowledged ? "Acknowledged" : "Action needed"}</span></div>
-                    <p className="mt-1 font-mono text-xs text-[#69827b]">{receipt.assetTag} <span className="font-sans">· {receipt.assetType}</span></p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#81938e]"><span>Receipt {receipt.handoverNumber}</span><span>{dateLabel(receipt.handoverDate)}</span><span>{receipt.condition} condition</span></div>
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-                  {receipt.acknowledged ? <span className="inline-flex items-center gap-1.5 text-xs text-[#648174]"><Check className="h-3.5 w-3.5" /> Confirmed{receipt.acknowledgedAt ? ` · ${formatDateTimeMinute(receipt.acknowledgedAt)}` : ""}</span>
-                    : <Button size="sm" onClick={() => setReceiptToAcknowledge(receipt)} className="rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]">Review & acknowledge <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>}
-                </div>
-                <div className="w-full rounded-xl border border-[#e7ede9] bg-[#fafcf9] p-3 text-xs leading-5 text-[#6f8580] sm:hidden">
-                  <span className="font-semibold text-[#526f68]">Serial number:</span> {receipt.serialNumber || "Not recorded"}<br />
-                  <span className="font-semibold text-[#526f68]">Accessories:</span> {receipt.includedAccessories?.length ? receipt.includedAccessories.join(", ") : "None listed"}
-                  {receipt.notes && <><br /><span className="font-semibold text-[#526f68]">Notes:</span> {receipt.notes}</>}
-                </div>
-                <div className="hidden max-w-[290px] text-right text-xs leading-5 text-[#81938e] sm:block"><p>Serial <span className="font-mono text-[#59756e]">{receipt.serialNumber || "Not recorded"}</span></p><p className="truncate">{receipt.includedAccessories?.length ? receipt.includedAccessories.join(", ") : "No accessories listed"}</p></div>
+                <div className="flex min-w-0 items-start gap-4"><div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#edf4ef] text-[#477a70]"><Laptop className="h-5 w-5" /></div><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold tracking-[-.02em]">{receipt.assetName}</h3><span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${receipt.acknowledged ? "border-[#c7dfd2] bg-[#eaf5ee] text-[#3f7658]" : "border-[#ecdcb9] bg-[#fbf5e8] text-[#8a6a32]"}`}>{receipt.acknowledged ? "Acknowledged" : "Action needed"}</span></div><p className="mt-1 font-mono text-xs text-[#69827b]">{receipt.assetTag} <span className="font-sans">· {receipt.assetType}</span></p><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#81938e]"><span>Receipt {receipt.handoverNumber}</span><span>{dateLabel(receipt.handoverDate)}</span><span>{receipt.condition} condition</span></div></div></div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{receipt.acknowledged ? <span className="inline-flex items-center gap-1.5 text-xs text-[#648174]"><Check className="h-3.5 w-3.5" />Confirmed{receipt.acknowledgedAt ? ` · ${formatDateTimeMinute(receipt.acknowledgedAt)}` : ""}</span> : <Button size="sm" onClick={() => setReceiptToAcknowledge(receipt)} className="rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]">Review & acknowledge <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>}</div>
               </article>)}</div>}
-      </section>
+      </section>}
 
       <section className="mt-9 rounded-[26px] border border-[#d4e2de] bg-[#fffdfa] p-4 shadow-[0_18px_55px_rgba(35,73,70,.07)] sm:p-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
           <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#68827f]">Search support</p><h2 className="mt-1 text-xl font-semibold tracking-[-.03em]">What can we help you find?</h2></div>
-          <span className="text-xs text-[#879896]">Search articles and services together</span>
+          <span className="text-xs text-[#879896]">Search articles and available services together</span>
         </div>
         <div className="relative">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#71908d]" />
@@ -177,12 +210,12 @@ export default function PortalPage() {
             {(kbQuery.data ?? []).slice(0, 4).map(article => <button key={article.id} onClick={() => setArticleId(article.id)} className="group flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left hover:bg-[#f0f6f3]"><span><span className="block text-sm font-semibold text-[#294a4a]">{article.title}</span><span className="mt-1 line-clamp-2 block text-xs leading-5 text-[#738785]">{article.summary ?? article.excerpt ?? "Open this article for more information."}</span></span><ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[#9aadaa] transition-transform group-hover:translate-x-0.5" /></button>)}
             <Link href="/knowledge-base" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Browse all articles <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
-          <SearchResults title="Services and equipment" icon={<Laptop className="h-4 w-4" />} loading={catalogQuery.isLoading} error={catalogQuery.isError} retry={() => void catalogQuery.refetch()} empty={!catalogQuery.isLoading && !catalogQuery.isError && matchingCatalog.length === 0} emptyLabel="No catalog items match this search.">
+          <SearchResults title={user?.employeeId ? "Services and equipment" : "Services"} icon={<Laptop className="h-4 w-4" />} loading={catalogQuery.isLoading} error={catalogQuery.isError} retry={() => void catalogQuery.refetch()} empty={!catalogQuery.isLoading && !catalogQuery.isError && matchingCatalog.length === 0} emptyLabel="No catalog items match this search.">
              {matchingCatalog.map(item => <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-3 hover:bg-[#f0f6f3]"><span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#294a4a]">{item.title}</span><span className="mt-1 block truncate text-xs text-[#738785]">{item.description || item.category || "Available service"}</span></span><Button asChild size="sm" className="shrink-0 rounded-full bg-[#285f5d] px-4 hover:bg-[#1f514f]"><Link href={`/service-catalog?item=${encodeURIComponent(item.id)}`}>Request <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button></div>)}
              <Link href="/service-catalog" className="mt-2 inline-flex items-center gap-1 px-3 text-xs font-semibold text-[#397571] hover:underline">Browse all services <ArrowRight className="h-3.5 w-3.5" /></Link>
           </SearchResults>
         </div>}
-        {!queryTerm && <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#809391]"><span>Popular:</span>{["VPN access", "password reset", "new equipment"].map(term => <button key={term} className="rounded-full border border-[#dce7e2] bg-white px-2.5 py-1 text-[#54716e] hover:border-[#9ebdb4] hover:bg-[#f1f7f3]" onClick={() => setSearch(term)}>{term}</button>)}</div>}
+         {!queryTerm && <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#809391]"><span>Popular:</span>{["VPN access", "password reset", ...(user?.employeeId ? ["new equipment"] : [])].map(term => <button key={term} className="rounded-full border border-[#dce7e2] bg-white px-2.5 py-1 text-[#54716e] hover:border-[#9ebdb4] hover:bg-[#f1f7f3]" onClick={() => setSearch(term)}>{term}</button>)}</div>}
       </section>
 
       <section className="mt-10">
@@ -208,7 +241,11 @@ export default function PortalPage() {
            : rows.length === 0 ? <div className="px-6 py-14 text-center"><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#edf4ef] text-[#64847b]"><FileText className="h-5 w-5" /></div><h3 className="mt-4 font-semibold">Nothing here just yet</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#7a8e8b]">When you report an issue or submit a request, you can follow it here.</p><Button asChild className="mt-5 rounded-full bg-[#285f5d] hover:bg-[#1f514f]"><Link href="/incidents/new">Report an incident <ArrowRight className="ml-2 h-4 w-4" /></Link></Button></div>
           : <div className="overflow-x-auto"><Table><TableHeader><TableRow className="border-[#e6ece9] hover:bg-transparent"><TableHead className="pl-6 text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Ticket ID</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Title</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Type</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Status</TableHead><TableHead className="text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Submitted</TableHead><TableHead className="pr-6 text-[11px] font-semibold uppercase tracking-[.11em] text-[#839592]">Target date</TableHead></TableRow></TableHeader><TableBody>
             {rows.map(row => <TableRow key={`${row.type}-${row.id}`} className="border-[#edf1ee]">
-              <TableCell className="whitespace-nowrap pl-6 font-mono text-xs font-semibold text-[#56716e]">{row.ticket || "—"}</TableCell>
+              <TableCell className="whitespace-nowrap pl-6 font-mono text-xs font-semibold text-[#56716e]">
+                {row.type === "Incident"
+                  ? <button type="button" className="rounded underline-offset-4 hover:text-[#285f5d] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#327a78]" onClick={() => { setIncidentDetailError(""); setSelectedIncidentId(row.id); }}>{row.ticket || "Open"}</button>
+                  : row.ticket || "—"}
+              </TableCell>
               <TableCell className="min-w-[200px] font-medium text-[#2b4848]">{row.title}</TableCell>
               <TableCell><span className="inline-flex items-center gap-2 text-sm text-[#708481]"><span className={`h-1.5 w-1.5 rounded-full ${row.type === "Incident" ? "bg-[#c47a60]" : row.type === "Change" ? "bg-[#b5944d]" : "bg-[#639388]"}`} />{row.type}</span></TableCell>
               <TableCell><StatusPill status={row.status} /></TableCell><TableCell className="whitespace-nowrap text-sm text-[#768985]">{dateLabel(row.createdAt)}</TableCell><TableCell className="whitespace-nowrap pr-6 text-sm text-[#768985]">{dateLabel(row.target)}</TableCell>
@@ -219,7 +256,28 @@ export default function PortalPage() {
       <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-[#8a9b97]"><span>Workplace Support · Here when you need us.</span><Link href="/knowledge-base" className="inline-flex items-center gap-1 hover:text-[#397571]">Help articles <ArrowRight className="h-3 w-3" /></Link></footer>
     </div>
 
-    <ArticleDetailDialog articleId={articleId} open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }} />
+     <ArticleDetailDialog articleId={articleId} open={Boolean(articleId)} onOpenChange={open => { if (!open) setArticleId(null); }} />
+     <Dialog open={Boolean(selectedIncidentId)} onOpenChange={open => { if (!open) { setSelectedIncidentId(null); setIncidentComment(""); setIncidentDetailError(""); } }}>
+       <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
+         <DialogHeader>
+           <DialogTitle>{incidentDetailQuery.data?.title ?? "Incident details"}</DialogTitle>
+           <DialogDescription>{incidentDetailQuery.data?.incidentNumber ?? "Loading incident"} · {incidentDetailQuery.data?.status ?? "—"}{incidentDetailQuery.data?.priority ? ` · ${incidentDetailQuery.data.priority}` : ""}</DialogDescription>
+         </DialogHeader>
+         {incidentDetailQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading incident details…</p>
+           : incidentDetailQuery.isError ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">Incident details could not be loaded. Close this dialog and try again.</div>
+             : incidentDetailQuery.data && <div className="space-y-5">
+               <section className="rounded-lg border bg-muted/20 p-4"><div className="mb-2 flex flex-wrap items-center gap-2"><StatusPill status={incidentDetailQuery.data.status} />{incidentDetailQuery.data.priority && <Badge variant="outline">{incidentDetailQuery.data.priority}</Badge>}{incidentDetailQuery.data.projectName && <Badge variant="outline">{incidentDetailQuery.data.projectName}</Badge>}</div><p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{incidentDetailQuery.data.description || "No additional description."}</p><p className="mt-3 text-xs text-muted-foreground">Opened {dateLabel(incidentDetailQuery.data.createdAt)}</p></section>
+               <section><h3 className="text-sm font-semibold">Status and activity</h3>{incidentActivityQuery.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading activity…</p> : (incidentActivityQuery.data ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No updates yet.</p> : <div className="mt-2 max-h-48 space-y-3 overflow-y-auto border-l pl-4">{(incidentActivityQuery.data ?? []).map(entry => <div key={entry.id}><p className="text-sm font-medium">{entry.action}</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "Support"} · {entry.createdAt ? formatDateTimeMinute(entry.createdAt) : ""}</p></div>)}</div>}</section>
+               <section><h3 className="text-sm font-semibold">Attachments</h3>{incidentAttachmentsQuery.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading files…</p> : (incidentAttachmentsQuery.data ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No attachments yet.</p> : <ul className="mt-2 space-y-2">{(incidentAttachmentsQuery.data ?? []).map(file => <li key={file.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm"><span className="min-w-0 truncate">{file.originalName}</span><a className="shrink-0 text-primary underline" href={`/api/incidents/${selectedIncidentId}/attachments/${file.id}`}>Download</a></li>)}</ul>}</section>
+               <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (incidentComment.trim()) addIncidentComment.mutate(); }}>
+                 <label className="grid gap-2 text-sm font-medium">Add a comment<Textarea value={incidentComment} onChange={event => setIncidentComment(event.target.value)} maxLength={4000} placeholder="Add information for the support team…" /></label>
+                 <div className="grid gap-2 sm:grid-cols-[1fr_auto]"><Input type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt" onChange={event => { const files = Array.from(event.target.files ?? []); if (files.length) uploadIncidentAttachments.mutate(files); event.target.value = ""; }} aria-label="Upload incident attachments" /><Button type="submit" disabled={!incidentComment.trim() || addIncidentComment.isPending}>{addIncidentComment.isPending ? "Posting…" : "Post comment"}</Button></div>
+                 {(incidentDetailError || uploadIncidentAttachments.isError) && <p role="alert" className="text-sm text-destructive">{incidentDetailError || (uploadIncidentAttachments.error as Error)?.message}</p>}
+               </form>
+             </div>}
+         <DialogFooter><Button type="button" variant="outline" onClick={() => setSelectedIncidentId(null)}>Close</Button></DialogFooter>
+       </DialogContent>
+     </Dialog>
     <Dialog open={Boolean(receiptToAcknowledge)} onOpenChange={open => { if (!open) setReceiptToAcknowledge(null); }}>
       <DialogContent aria-describedby={undefined} className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
         <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#6d8982]">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Review this handover</DialogTitle></DialogHeader>
