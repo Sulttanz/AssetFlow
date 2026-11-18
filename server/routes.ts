@@ -1699,18 +1699,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/incidents", requireAuth, requireModule("itsm"), async (req: any, res) => {
     try {
-      const canCreateForOthers = await canViewAllItsmRecords(req.user.id);
-      const canManageIntake = await canManageAllTickets(req.user.id);
-      const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
+      const intakePermissions = await storage.getUserPermissions(req.user.id);
+      const canManageIntake = intakePermissions.some(permission => ["system_admin", "ticket_manage"].includes(permission));
+      const requesterId = canManageIntake ? req.body.requesterId || req.user.id : req.user.id;
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
       let projectId = typeof req.body.projectId === "string" && req.body.projectId ? req.body.projectId : null;
       if (!canManageIntake) {
         const assignedProjects = await getProjectsAssignedToUser(req.user.id);
-        if (assignedProjects.length === 0) {
+        if (assignedProjects.length === 0 && !req.user.employeeId) {
           return res.status(403).json({ message: "No project is assigned to your account. Contact your project manager before reporting a project incident." });
         }
         if (!projectId && assignedProjects.length === 1) projectId = assignedProjects[0].id;
-        if (!projectId || !assignedProjects.some(project => project.id === projectId)) {
+        if ((assignedProjects.length > 0 && !projectId) || (projectId && !assignedProjects.some(project => project.id === projectId))) {
           return res.status(403).json({ message: "Select a project assigned to your account." });
         }
       }
@@ -1779,7 +1779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let slaPolicyId = contractContext.applyContractSla
         ? contractContext.slaPolicyId
         : parsed.slaPolicyId ?? null;
-      if (contractContext.isWarrantyExpired && !slaPolicyId) {
+      if (!slaPolicyId) {
         const priorityMap: Record<string, string> = { P1: "critical", P2: "high", P3: "medium", P4: "low" };
         const policies = await db.select().from(slaPolicies).where(and(
           eq(slaPolicies.priority, priorityMap[parsed.priority ?? "P3"] ?? "medium"),

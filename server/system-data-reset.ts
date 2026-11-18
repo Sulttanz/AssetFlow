@@ -6,6 +6,7 @@ import {
   type SystemDataResetActor,
 } from "@shared/system-data-reset";
 import { db } from "./db";
+import { seedDefaultCatalogsInTransaction } from "./default-catalogs";
 
 export function assertSystemDataResetCoverage() {
   const declared = Object.values(schema).filter(value => is(value, PgTable)).map(table => getTableName(table));
@@ -53,6 +54,9 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
       WHERE article_id IN (SELECT id FROM kb_articles WHERE is_system_guide = false)
     `);
     await tx.execute(sql`DELETE FROM kb_articles WHERE is_system_guide = false`);
+    // Re-create built-in catalogs before commit: no request can observe an empty
+    // catalog after reset, and a seed failure rolls the whole reset back.
+    await seedDefaultCatalogsInTransaction(tx);
     // If this audit write fails, PostgreSQL rolls the entire reset back.
     await tx.insert(schema.auditLogs).values(systemDataResetAudit(actor));
   });

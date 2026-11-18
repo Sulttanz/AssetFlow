@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 
 type IncidentOptions = {
   projects: { id: string; name: string }[];
@@ -47,7 +46,7 @@ export default function NewIncidentPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const staffIntake = canAccessItsmWorkbench(user);
+  const staffIntake = Boolean(user?.permissions?.some(permission => ["system_admin", "ticket_manage"].includes(permission)));
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"P1" | "P2" | "P3" | "P4">("P3");
@@ -97,8 +96,8 @@ export default function NewIncidentPage() {
   const availableEngineers = selectedGroup ? groupMembers.data ?? [] : options.data?.users ?? [];
   const createIncident = useMutation({
     mutationFn: async (payload: {
-      title: string; description: string; priority: "P1" | "P2" | "P3" | "P4";
-      urgency: string; impact: string; projectId: string | null; slaPolicyId: string | null; assignmentGroup: string | null;
+      title: string; description: string; priority?: "P1" | "P2" | "P3" | "P4";
+      urgency?: string; impact?: string; projectId: string | null; slaPolicyId?: string | null; assignmentGroup?: string | null;
       requesterId?: string; assigneeId?: string | null; incidentCatalogItemId?: string | null; assetId?: string | null;
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
     onSuccess: async (incident: { id: string; incidentNumber?: string }) => {
@@ -134,7 +133,7 @@ export default function NewIncidentPage() {
       setValidationError("Add an incident title and a description with more than whitespace.");
       return;
     }
-    if (!staffIntake && !projectId) {
+    if (!staffIntake && !projectId && (options.data?.projects.length ?? 0) > 0) {
       setValidationError("Choose a project assigned to your account before submitting.");
       return;
     }
@@ -146,15 +145,10 @@ export default function NewIncidentPage() {
     createIncident.mutate({
       title: cleanTitle,
       description: cleanDescription,
-      priority,
-      urgency,
-      impact,
       projectId: projectId || null,
-      slaPolicyId: slaPolicyId || null,
-      assignmentGroup: assignmentGroup.trim() || null,
       incidentCatalogItemId,
       assetId: assetId || null,
-      ...(staffIntake ? { assigneeId: assigneeId || null } : {}),
+      ...(staffIntake ? { priority, urgency, impact, slaPolicyId: slaPolicyId || null, assignmentGroup: assignmentGroup.trim() || null, assigneeId: assigneeId || null } : {}),
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
@@ -233,12 +227,15 @@ export default function NewIncidentPage() {
             {options.isLoading ? <div role="status" aria-label="Loading routing options" className="space-y-3"><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /></div>
               : options.isError ? <div className="rounded-xl border border-[#e7c9bd] bg-[#fff8f4] p-3 text-sm text-[#815543]" role="alert"><p>Incident options could not load. Retry before submitting so the correct project scope and routing are applied.</p><Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg" onClick={() => void options.refetch()}><RefreshCw className="mr-2 h-3.5 w-3.5" />Retry</Button></div>
               : <>
-                <Field label={staffIntake ? "Project (optional)" : "Project"} hint={!staffIntake && options.data?.projects.length === 1 ? "This is the only project assigned to your account." : undefined}>
+                {(staffIntake || (options.data?.projects.length ?? 0) >= 2) && <Field label={staffIntake ? "Project (optional)" : "Project"}>
                   <select className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
                     <option value="">{staffIntake ? "No project" : "Select your project"}</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
-                </Field>
-                {!staffIntake && options.data?.projects.length === 0 && <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account, so project-scoped incident intake is unavailable. Contact your project manager to be added to a project.</p>}
+                </Field>}
+                {!staffIntake && options.data?.projects.length === 1 && <p className="text-sm">Project: <strong>{options.data.projects[0].name}</strong> · automatically selected</p>}
+                {!staffIntake && options.data?.projects.length === 0 && (options.data.linkedEmployee
+                  ? <p className="text-sm">Internal company incident · no project required.</p>
+                  : <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account. Contact your project manager before reporting a project incident.</p>)}
                 {staffIntake && <Field label="Assignment group (optional)" hint="Choose a fulfillment team for initial routing.">
                   <select className={selectClass} value={assignmentGroup} onChange={event => { setAssignmentGroup(event.target.value); setAssigneeId(""); }}>
                     <option value="">Unassigned group</option>
@@ -266,7 +263,7 @@ export default function NewIncidentPage() {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
           {createIncident.isError && <p role="alert" className="text-sm text-destructive">Submission failed. Your details are still here; review the error and try again.</p>}
           {validationError && <p role="alert" className="text-sm text-destructive">{validationError}</p>}
-          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending || options.isLoading || (!staffIntake && (options.data?.projects.length ?? 0) === 0)}>
+          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending || options.isLoading || options.isError || (!staffIntake && !options.data?.linkedEmployee && (options.data?.projects.length ?? 0) === 0)}>
             {createIncident.isPending ? "Submitting incident…" : "Submit incident"}
           </Button>
           <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white">

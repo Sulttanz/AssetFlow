@@ -1,5 +1,6 @@
 import { formatDateDisplay as appFormatDate, formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,7 @@ function userLabel(u?: { username: string; firstName: string; lastName: string }
 }
 
 export default function Tickets({ viewMode = "management" }: { viewMode?: "management" | "assigned" | "requests" }) {
+  const [, navigate] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -354,7 +356,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
               ? "Check request status, reopen unresolved issues, or cancel requests you no longer need"
               : "Manage, assign, and track all incidents and service requests"
         }
-        onAddClick={isAssignedView ? undefined : () => setIsFormOpen(true)}
+        onAddClick={isAssignedView ? undefined : () => canManage ? setIsFormOpen(true) : navigate("/incidents/new")}
         addButtonText={isAssignedView ? undefined : isRequestsView ? "New Request" : "New Ticket"}
         showAddButton={!isAssignedView && (isRequestsView || canManage)}
       />
@@ -559,7 +561,7 @@ export default function Tickets({ viewMode = "management" }: { viewMode?: "manag
       </main>
 
       {/* Create Ticket Dialog */}
-      <Dialog open={!isAssignedView && isFormOpen} onOpenChange={setIsFormOpen}>
+      <Dialog open={canManage && !isAssignedView && isFormOpen} onOpenChange={setIsFormOpen}>
       <DialogContent aria-describedby={undefined} className="max-w-lg w-[calc(100vw-1rem)] max-h-[calc(100dvh-1rem)] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>New Ticket</DialogTitle>

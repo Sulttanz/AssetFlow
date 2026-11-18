@@ -97,6 +97,9 @@ app.use((req, res, next) => {
     // applied. The runner uses its own ledger and excludes workspace history.
     console.log("🗃️  Applying on-prem database migrations...");
     await runStartupMigrations();
+    const { ensureDefaultCatalogs } = await import("./default-catalogs");
+    await ensureDefaultCatalogs();
+    console.log("Default service and incident catalogs are ready.");
     const { syncSystemManualArticles } = await import("./knowledge-manual-sync");
     const manualSync = await syncSystemManualArticles();
     console.log(

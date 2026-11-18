@@ -440,6 +440,7 @@ export default function SystemSettings() {
                   <AlertDialogDescription>
                     This permanently deletes business data across every module, including migration and previous audit history.
                     Accounts, roles, permissions, settings, sessions, and reference directories are preserved.
+                    Built-in service request and incident catalogs are automatically restored before the reset completes.
                     A new audit record will identify this operation. This action cannot be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>

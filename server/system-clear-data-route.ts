@@ -40,12 +40,13 @@ export function registerSystemClearDataRoute(
       });
       if (!success) return void respondWithApiError(res, new Error("Clear data operation returned false"), "Failed to clear system data; no changes were committed");
       res.json({
-        message: "Business data cleared successfully. User accounts, authorization, system settings, reference data and system guides were preserved.",
+        message: "Business data cleared successfully. User accounts, authorization, settings and system guides were preserved; default service and incident catalogs were restored.",
         clearedAt: new Date().toISOString(),
         clearedBy: user.username,
         clearedTables: RESET_BUSINESS_TABLES,
         preservedTables: RESET_PROTECTED_TABLES,
         preservedSystemGuideRecords: true,
+        defaultCatalogsRestored: true,
         auditLogRefreshed: true,
       });
     } catch (error) {

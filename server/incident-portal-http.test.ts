@@ -20,6 +20,8 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
   const suffix = randomUUID();
   const actorId = randomUUID();
   const outsiderId = randomUUID();
+  const employeeId = randomUUID();
+  const internalPolicyId = randomUUID();
   const projectIds = [randomUUID(), randomUUID()];
   const catalogIds = [randomUUID(), randomUUID(), randomUUID()];
   const incidentIds: string[] = [];
@@ -82,10 +84,12 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
         await db.delete(s.incidents).where(inArray(s.incidents.id, incidentIds));
       }
       await db.delete(s.incidentCatalogItems).where(inArray(s.incidentCatalogItems.id, catalogIds));
+      await db.delete(s.slaPolicies).where(eq(s.slaPolicies.id, internalPolicyId));
       await db.delete(s.projects).where(inArray(s.projects.id, projectIds));
       await db.delete(s.auditLogs).where(inArray(s.auditLogs.userId, [actorId, outsiderId]));
       await db.delete(s.userRoles).where(inArray(s.userRoles.userId, [actorId, outsiderId]));
       await db.delete(s.users).where(inArray(s.users.id, [actorId, outsiderId]));
+      await db.delete(s.employees).where(eq(s.employees.id, employeeId));
     } finally {
       if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
       await pool.end();
@@ -135,5 +139,35 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("VPN connection failed");
     expect((await request(`/api/incidents/${created.body.id}/attachments`, "GET", undefined, outsiderCookie)).status).toBe(403);
+  });
+
+  it("allows a linked employee with no projects to submit an internal incident using catalog defaults", async () => {
+    await db.insert(s.employees).values({
+      id: employeeId, employeeId: `INT-${suffix}`, firstName: "Internal", lastName: "Employee", position: "Analyst",
+    });
+    await db.update(s.users).set({ employeeId }).where(eq(s.users.id, outsiderId));
+    await db.insert(s.slaPolicies).values({
+      id: internalPolicyId, name: `Internal baseline ${suffix}`, ticketType: "incident", category: "Network",
+      priority: "high", responseHours: 1, resolutionHours: 4,
+    });
+    const options = await request("/api/portal/incidents/options", "GET", undefined, outsiderCookie);
+    expect(options.body.projects).toEqual([]);
+    expect(options.body.linkedEmployee).toBe(true);
+    const created = await request("/api/incidents", "POST", {
+      title: "Internal employee email failure", description: "Outlook cannot connect",
+      incidentCatalogItemId: catalogIds[0],
+      priority: "P1", urgency: "low", impact: "low", assignmentGroup: "Spoofed",
+      assigneeId: actorId, slaPolicyId: randomUUID(),
+    }, outsiderCookie);
+    expect(created.status).toBe(201);
+    incidentIds.push(created.body.id);
+    expect(created.body).toMatchObject({
+      projectId: null, priority: "P2", impact: "high", urgency: "medium",
+      assignmentGroup: "Service Desk", assigneeId: null,
+      slaPolicyId: internalPolicyId,
+    });
+    expect((await request("/api/incidents", "POST", {
+      title: "Unauthorized project", description: "Not a member", projectId: projectIds[1], incidentCatalogItemId: catalogIds[0],
+    }, outsiderCookie)).status).toBe(403);
   });
 });

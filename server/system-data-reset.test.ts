@@ -13,6 +13,7 @@ import * as s from "@shared/schema";
 import { RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES } from "@shared/system-data-reset";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
+import { DEFAULT_INCIDENT_CATALOG, DEFAULT_SERVICE_CATALOG, seedDefaultCatalogsInTransaction } from "./default-catalogs";
 
 describe("System data reset policy", () => {
   it("explicitly classifies every schema table and never wipes a protected table", () => {
@@ -453,8 +454,18 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       preservedSystemGuideRecords: true,
     });
     for (const [name, rows] of Object.entries(await snapshot(RESET_BUSINESS_TABLES))) {
-      expect(rows.length, name).toBe(name === "audit_logs" ? 1 : guidesBeforeReset[name]?.length ?? 0);
+      const defaults: Record<string, number> = {
+        catalog_items: DEFAULT_SERVICE_CATALOG.length,
+        service_catalog_items: DEFAULT_SERVICE_CATALOG.length,
+        incident_catalog_items: DEFAULT_INCIDENT_CATALOG.length,
+        assignment_groups: 5,
+      };
+      expect(rows.length, name).toBe(defaults[name] ?? (name === "audit_logs" ? 1 : guidesBeforeReset[name]?.length ?? 0));
     }
+    expect((await db.select().from(s.incidentCatalogItems)).map(item => item.name).sort())
+      .toEqual(DEFAULT_INCIDENT_CATALOG.map(item => item.name).sort());
+    expect((await db.select().from(s.serviceCatalogItems)).map(item => item.title).sort())
+      .toEqual(DEFAULT_SERVICE_CATALOG.map(item => item.name).sort());
     expect(await snapshotSystemGuides()).toEqual(guidesBeforeReset);
     const retainedGuide = await setupPool.query(
       `SELECT id, is_system_guide FROM "${schema}".kb_articles WHERE id = $1`,
@@ -481,5 +492,12 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     expect((await request({ confirmPassword: password })).status).toBe(200);
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
     expect(await db.select().from(s.auditLogs)).toHaveLength(1);
+    expect(await db.select().from(s.serviceCatalogItems)).toHaveLength(DEFAULT_SERVICE_CATALOG.length);
+    expect(await db.select().from(s.incidentCatalogItems)).toHaveLength(DEFAULT_INCIDENT_CATALOG.length);
+    const seededSnapshot = await snapshot(["catalog_items", "service_catalog_items", "incident_catalog_items", "assignment_groups"]);
+    await db.transaction(seedDefaultCatalogsInTransaction);
+    await db.transaction(seedDefaultCatalogsInTransaction);
+    expect(await snapshot(["catalog_items", "service_catalog_items", "incident_catalog_items", "assignment_groups"]))
+      .toEqual(seededSnapshot);
   });
 });
