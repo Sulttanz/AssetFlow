@@ -41,6 +41,7 @@ export default function Departments() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<DepartmentWithDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [managerOpen, setManagerOpen] = useState(false);
 
   // Fetch departments
   const { data: departments = [], isLoading } = useQuery<DepartmentWithDetails[]>({
@@ -169,13 +170,11 @@ export default function Departments() {
     updateMutation.mutate({ id: editingDepartment.id, data: cleanData });
   };
 
-  const DepartmentForm = ({ form, onSubmit, submitText }: {
+  const renderDepartmentForm = ({ form, onSubmit, submitText }: {
     form: any;
     onSubmit: (data: DepartmentFormData) => void;
     submitText: string;
   }) => {
-    const [managerOpen, setManagerOpen] = useState(false);
-
     return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -358,11 +357,11 @@ export default function Departments() {
                   Add a new department to your organization
                 </DialogDescription>
               </DialogHeader>
-              <DepartmentForm 
-                form={createForm} 
-                onSubmit={handleCreate} 
-                submitText="Create Department" 
-              />
+              {renderDepartmentForm({
+                form: createForm,
+                onSubmit: handleCreate,
+                submitText: "Create Department",
+              })}
             </DialogContent>
           </Dialog>
         </div>
@@ -494,11 +493,11 @@ export default function Departments() {
                 Update department information
               </DialogDescription>
             </DialogHeader>
-            <DepartmentForm 
-              form={editForm} 
-              onSubmit={handleUpdate} 
-              submitText="Update Department" 
-            />
+            {renderDepartmentForm({
+              form: editForm,
+              onSubmit: handleUpdate,
+              submitText: "Update Department",
+            })}
           </DialogContent>
         </Dialog>
       </div>

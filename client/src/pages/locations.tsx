@@ -165,7 +165,7 @@ export default function Locations() {
     updateMutation.mutate({ id: editingLocation.id, data: cleanData });
   };
 
-  const LocationForm = ({ form, onSubmit, submitText }: {
+  const renderLocationForm = ({ form, onSubmit, submitText }: {
     form: any;
     onSubmit: (data: LocationFormData) => void;
     submitText: string;
@@ -341,11 +341,11 @@ export default function Locations() {
                   Add a new location to your organization
                 </DialogDescription>
               </DialogHeader>
-              <LocationForm 
-                form={createForm} 
-                onSubmit={handleCreate} 
-                submitText="Create Location" 
-              />
+              {renderLocationForm({
+                form: createForm,
+                onSubmit: handleCreate,
+                submitText: "Create Location",
+              })}
             </DialogContent>
           </Dialog>
         </div>
@@ -475,11 +475,11 @@ export default function Locations() {
                 Update location information
               </DialogDescription>
             </DialogHeader>
-            <LocationForm 
-              form={editForm} 
-              onSubmit={handleUpdate} 
-              submitText="Update Location" 
-            />
+            {renderLocationForm({
+              form: editForm,
+              onSubmit: handleUpdate,
+              submitText: "Update Location",
+            })}
           </DialogContent>
         </Dialog>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { checkedResponse } from "./types";
 
 type ItemPayload = Omit<CatalogItem, "id" | "createdAt" | "updatedAt">;
 type StockOption = { id: string; name: string; modelPartNumber?: string | null; quantityInStock?: number | null };
+type CatalogFieldDraft = CatalogField & { uiId: string };
 const fieldTypes: CatalogField["type"][] = ["text", "textarea", "select", "date", "number", "checkbox"];
 const blankField = (): CatalogField => ({ key: "", label: "", type: "text", required: false });
 
@@ -52,9 +53,14 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [approverRole, setApproverRole] = useState<"Manager" | "IT Director" | "">("");
   const [status, setStatus] = useState<"Active" | "Inactive">("Active");
-  const [fields, setFields] = useState<CatalogField[]>([]);
+  const [fields, setFields] = useState<CatalogFieldDraft[]>([]);
+  const nextFieldId = useRef(0);
   const [errors, setErrors] = useState<string[]>([]);
   const { user } = useAuth();
+  const createFieldDraft = (field: CatalogField): CatalogFieldDraft => ({
+    ...field,
+    uiId: `catalog-field-${nextFieldId.current++}`,
+  });
   const stockQuery = useQuery<StockOption[]>({
     queryKey: ["/api/consumables", user?.id, "catalog-editor"],
     queryFn: async () => checkedResponse<StockOption[]>(await apiRequest("GET", "/api/consumables")),
@@ -65,7 +71,11 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
     setDescription(item?.description ?? ""); setIcon(item?.icon ?? ""); setFulfillmentTeam(item?.fulfillmentTeam ?? "");
     setConsumableId(item?.consumableId ?? ""); setSlaHours(item?.slaHours == null ? "" : String(item.slaHours));
     setRequiresApproval(item?.requiresApproval ?? false); setApproverRole(item?.approverRole ?? "");
-    setStatus(item?.status ?? "Active"); setFields(item?.customFieldsSchema?.map(field => ({ ...field, options: field.options ? [...field.options] : undefined })) ?? []);
+    setStatus(item?.status ?? "Active");
+    setFields(item?.customFieldsSchema?.map(field => createFieldDraft({
+      ...field,
+      options: field.options ? [...field.options] : undefined,
+    })) ?? []);
     setErrors([]);
   }, [item, open, options.categories]);
 
@@ -92,7 +102,12 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
     onSave({ title: title.trim(), category, description: description.trim() || null, icon: icon.trim() || null,
       slaHours: slaHours ? Number(slaHours) : null, requiresApproval, approverRole: requiresApproval ? approverRole as "Manager" | "IT Director" : null,
       fulfillmentTeam: fulfillmentTeam.trim() || null, consumableId: consumableId || null,
-      customFieldsSchema: fields.map(field => ({ ...field, key: field.key.trim(), label: field.label.trim(), options: field.type === "select" ? (field.options ?? []).map(option => option.trim()).filter(Boolean) : undefined })),
+      customFieldsSchema: fields.map(({ uiId: _uiId, ...field }) => ({
+        ...field,
+        key: field.key.trim(),
+        label: field.label.trim(),
+        options: field.type === "select" ? (field.options ?? []).map(option => option.trim()).filter(Boolean) : undefined,
+      })),
       status });
   }
   function updateField(index: number, patch: Partial<CatalogField>) {
@@ -133,9 +148,9 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
           {requiresApproval && <label className="mt-3 grid max-w-sm gap-1.5 text-sm font-medium">Approver role<Select value={approverRole} onValueChange={value => setApproverRole(value as "Manager" | "IT Director")}><SelectTrigger><SelectValue placeholder="Choose approver role" /></SelectTrigger><SelectContent><SelectItem value="Manager">Manager</SelectItem><SelectItem value="IT Director">IT Director</SelectItem></SelectContent></Select></label>}
         </section>
         <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Request form</h3><p className="text-xs text-muted-foreground">Ordered fields appear to the requester. Keys are stable data names.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setFields(current => [...current, blankField()])}><Plus className="mr-1.5 h-4 w-4" />Add field</Button></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Request form</h3><p className="text-xs text-muted-foreground">Ordered fields appear to the requester. Keys are stable data names.</p></div><Button type="button" variant="outline" size="sm" onClick={() => setFields(current => [...current, createFieldDraft(blankField())])}><Plus className="mr-1.5 h-4 w-4" />Add field</Button></div>
           {fields.length === 0 && <p className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">No extra questions. Add only what fulfillment requires.</p>}
-          {fields.map((field, index) => <div key={`${index}-${field.key}`} className="rounded-xl border p-3 sm:p-4">
+          {fields.map((field, index) => <div key={field.uiId} className="rounded-xl border p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between"><span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question {index + 1}</span><div className="flex gap-1"><Button type="button" variant="ghost" size="icon" aria-label="Move field up" onClick={() => moveField(index, -1)} disabled={index === 0}><ArrowUp className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" aria-label="Move field down" onClick={() => moveField(index, 1)} disabled={index === fields.length - 1}><ArrowDown className="h-4 w-4" /></Button><Button type="button" variant="ghost" size="icon" aria-label="Remove field" onClick={() => setFields(current => current.filter((_, fieldIndex) => fieldIndex !== index))}><X className="h-4 w-4" /></Button></div></div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1 text-xs font-medium">Field key<Input value={field.key} onChange={event => updateField(index, { key: event.target.value })} placeholder="device_model" /></label>

@@ -872,7 +872,7 @@ export default function Changes() {
   const isWorking = workflowMutation.isPending || assignMutation.isPending;
 
   // Workflow action buttons based on status
-  function WorkflowActions({ change }: { change: ChangeWithDetails }) {
+  function renderWorkflowActions(change: ChangeWithDetails) {
     if (!isAdmin && !isChangeManager) return null;
     const id = change.id;
     const noCabApprovers = !!change.cabRequired && (change.approvals?.length ?? 0) === 0;
@@ -1172,7 +1172,7 @@ export default function Changes() {
           </DialogHeader>
 
           {/* Workflow action bar */}
-          {currentChange && <div className="rounded-lg border bg-muted/30 p-3">{<WorkflowActions change={currentChange} />}</div>}
+          {currentChange && <div className="rounded-lg border bg-muted/30 p-3">{renderWorkflowActions(currentChange)}</div>}
 
           <Tabs value={detailTab} onValueChange={setDetailTab}>
             <TabsList className="mb-2">

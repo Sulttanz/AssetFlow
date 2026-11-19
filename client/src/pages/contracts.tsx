@@ -155,7 +155,7 @@ export default function ContractsPage() {
   const expiringCount = contracts.filter(c => c.status !== "expired" && isExpiringSoon(c.endDate)).length;
   const renewalDueCount = contracts.filter(c => isRenewalDue((c as any).renewalDate)).length;
 
-  const ContractFormFields = ({ form }: { form: any }) => (
+  const renderContractFormFields = (form: any) => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <FormField
         control={form.control}
@@ -403,7 +403,7 @@ export default function ContractsPage() {
               </DialogHeader>
               <Form {...createForm}>
                 <form onSubmit={createForm.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
-                  <ContractFormFields form={createForm} />
+                  {renderContractFormFields(createForm)}
                   <div className="flex justify-end space-x-2">
                     <Button type="submit">Create Contract</Button>
                   </div>
@@ -542,7 +542,7 @@ export default function ContractsPage() {
                       </DialogHeader>
                       <Form {...editForm}>
                         <form onSubmit={editForm.handleSubmit((data) => updateMutation.mutate({ id: contract.id, data }))} className="space-y-4">
-                          <ContractFormFields form={editForm} />
+                          {renderContractFormFields(editForm)}
                           <div className="flex justify-end space-x-2">
                             <Button type="submit">Update Contract</Button>
                           </div>
