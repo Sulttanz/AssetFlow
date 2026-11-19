@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDateDisplay } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getPersonaRoleKeys } from "@shared/personas";
+import NetworkTopologyMap from "@/components/network-topology-map";
 
 type Zone = { id: string; name: string; code: string; cidr: string | null; securityLevel: string; description: string | null; isActive: boolean };
 type Device = { id: string; name: string; deviceType: string; hostname: string | null; managementIp: string | null; manufacturer: string | null; model: string | null; serialNumber: string | null; firmwareVersion: string | null; zoneId: string | null; zoneName: string | null; status: string; notes: string | null };
@@ -42,6 +43,7 @@ export default function NetworkTopologyPage() {
   const canManage = !!user?.permissions?.includes("asset_update") || roleKeys.some(role => ["it_agent", "it_manager", "admin", "system_admin"].includes(role)) || !!user?.permissions?.includes("system_admin");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("devices");
+  const [selectedTopologyDeviceId, setSelectedTopologyDeviceId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ kind: DialogKind; id?: string } | null>(null);
   const [form, setForm] = useState<FormState>(blankForm);
 
@@ -182,10 +184,10 @@ export default function NetworkTopologyPage() {
         <Metric icon={<Shield className="h-4 w-4" />} label="Reviews due in 30 days" value={reviewDueSoon} tone={reviewDueSoon ? "amber" : "green"} />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {activeTab !== "topology" && <div className="flex flex-wrap items-center justify-between gap-3">
         <Input className="max-w-sm" aria-label="Search network records" placeholder="Search device, IP, zone, rule, or justification…" value={search} onChange={event => setSearch(event.target.value)} />
         <span className="text-xs text-muted-foreground">Rule reviews and topology changes are recorded in the audit log.</span>
-      </div>
+      </div>}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex h-auto flex-wrap justify-start">
@@ -205,7 +207,22 @@ export default function NetworkTopologyPage() {
           </TableBody></Table>
         </DataPanel></TabsContent>
 
-        <TabsContent value="topology"><DataPanel loading={loading} empty={!filteredLinks.length} emptyText="No device connections are mapped yet.">
+        <TabsContent value="topology">
+          <div className="mt-4">
+            {zonesLoading || devicesLoading || linksLoading
+              ? <div className="flex h-64 items-center justify-center rounded-lg border bg-card text-muted-foreground"><LoaderCircle className="mr-2 h-4 w-4 animate-spin" />Loading topology…</div>
+              : <NetworkTopologyMap
+                zones={zones}
+                devices={devices}
+                links={links}
+                search={search}
+                onSearchChange={setSearch}
+                selectedDeviceId={selectedTopologyDeviceId}
+                onSelectDevice={setSelectedTopologyDeviceId}
+              />}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">Rule reviews and topology changes are recorded in the audit log.</p>
+          <DataPanel loading={loading} empty={!filteredLinks.length} emptyText="No device connections are mapped yet.">
           <Table><TableHeader><TableRow><TableHead>Source</TableHead><TableHead>Connection</TableHead><TableHead>Target</TableHead><TableHead>Interfaces</TableHead><TableHead>Notes</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
             {filteredLinks.map(link => <TableRow key={link.id}>
               <TableCell><div className="font-medium">{link.sourceName}</div><div className="text-xs text-muted-foreground">{link.sourceHostname || "—"}</div></TableCell>
@@ -216,7 +233,8 @@ export default function NetworkTopologyPage() {
               <TableCell className="text-right">{canManage && <Button size="icon" variant="ghost" aria-label="Remove connection" onClick={() => removeLink.mutate(link.id)} disabled={removeLink.isPending}><Trash2 className="h-4 w-4" /></Button>}</TableCell>
             </TableRow>)}
           </TableBody></Table>
-        </DataPanel></TabsContent>
+          </DataPanel>
+        </TabsContent>
 
         <TabsContent value="zones"><DataPanel loading={loading} empty={!filteredZones.length} emptyText="No network zones defined.">
           <Table><TableHeader><TableRow><TableHead>Zone</TableHead><TableHead>Code</TableHead><TableHead>Address range</TableHead><TableHead>Security</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>
