@@ -474,7 +474,10 @@ describe("change report page", () => {
     expect(snapshotParams.get("scheduledStartFrom")).toBe("2026-10-01");
     expect(snapshotParams.get("scheduledStartTo")).toBe("2026-10-03");
 
-    if (exportType === "Excel") expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
+    if (exportType === "Excel") {
+      expect(vi.mocked(exportToExcel).mock.calls[0][0]).toHaveLength(251);
+      expect(vi.mocked(exportToExcel).mock.calls[0][2]).toBe("changes-report");
+    }
     if (exportType === "Excel") {
       expect(vi.mocked(exportToExcel).mock.calls[0][3]).toEqual([
         { label: "Search change #, title...", value: "Export batch" },
@@ -487,6 +490,8 @@ describe("change report page", () => {
     }
     if (exportType === "PDF") {
       expect(vi.mocked(exportToPDF).mock.calls[0][0]).toHaveLength(251);
+      expect(vi.mocked(exportToPDF).mock.calls[0][2]).toBe("Change Management Report");
+      expect(vi.mocked(exportToPDF).mock.calls[0][3]).toBe("changes-report");
       expect(vi.mocked(exportToPDF).mock.calls[0][5]).toEqual([
         { label: "Search change #, title...", value: "Export batch" },
         { label: "Status", value: "Completed" },
@@ -528,9 +533,24 @@ describe("change report page", () => {
       expect(vi.mocked(exportToExcel).mock.calls[0][3]).toEqual([]);
       expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.key)).toEqual(expectedKeys);
       expect(vi.mocked(exportToExcel).mock.calls[0][1].map(column => column.header)).toEqual(expectedLabels);
+      expect(vi.mocked(exportToExcel).mock.calls[0][2]).toBe("changes-report");
+      expect(vi.mocked(exportToExcel).mock.calls[0][0][0]).toEqual({
+        changeNumber: "CHG-9",
+        type: "normal",
+        title: "Report change 9",
+        status: "requested",
+        risk: "low",
+        requestedBy: "N/A",
+        affectedServices: "None",
+        affectedAssets: "None",
+        createdAt: formatDate(history[8].createdAt),
+        approvals: "None",
+      });
     } else if (exportType === "PDF") {
       await waitFor(() => expect(exportToPDF).toHaveBeenCalledOnce());
       expect(vi.mocked(exportToPDF).mock.calls[0][5]).toEqual([]);
+      expect(vi.mocked(exportToPDF).mock.calls[0][2]).toBe("Change Management Report");
+      expect(vi.mocked(exportToPDF).mock.calls[0][3]).toBe("changes-report");
       expect(vi.mocked(exportToPDF).mock.calls[0][1]).toEqual(expectedLabels);
       expect(vi.mocked(exportToPDF).mock.calls[0][0][0]).toEqual([
         "CHG-9", "normal", "Report change 9", "requested", "low", "N/A",

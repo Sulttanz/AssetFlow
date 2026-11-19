@@ -52,3 +52,4 @@
 - [Assignment group compatibility](assignment-group-compatibility.md) — retain legacy queue labels while applying membership restrictions to managed groups.
 - [Change asset impact links](change-asset-impact-links.md) — keep registered asset targets separate from application/server CI links and include relationship context in change exposure summaries.
 - [Incident portal scope](incident-portal-scope.md) — external project users have no employee hardware options; portal intake follows assigned projects and catalog defaults, with staff-only triage.
+- [Report export test boundaries](report-export-test-boundaries.md) — test client export payloads and PDF table inputs deterministically; verify XLSX serialization at the server workbook layer.
