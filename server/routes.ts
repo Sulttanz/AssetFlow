@@ -24,7 +24,7 @@ import {
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, incidentCatalogItems, insertIncidentCatalogItemSchema, serviceRequestActivities,
-  projects, projectManagers, projectTeamMembers, projectTasks, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, roles, userRoles, vendors,
+  projects, projectManagers, projectTeamMembers, projectTasks, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, serviceCatalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
   vendorQuotations, vendorQuotationItems, purchaseInvoices, purchaseInvoiceItems, purchaseInvoiceMatchLines, purchaseInvoicePayments,
@@ -806,6 +806,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/users/:id/projects", requireAuth, requirePermission("user_view"), async (req, res) => {
+    try {
+      if (!await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
+      const memberships = await db.select({
+        id: projects.id,
+        name: projects.name,
+        title: projects.title,
+      }).from(projectTeamMembers)
+        .innerJoin(projects, eq(projects.id, projectTeamMembers.projectId))
+        .where(eq(projectTeamMembers.userId, req.params.id))
+        .orderBy(asc(projects.name));
+      res.json({ projectIds: memberships.map(project => project.id), projects: memberships });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to fetch user project assignments");
+    }
+  });
+
+  app.put("/api/users/:id/projects", requireAuth, requireModule("project_management"), requirePermission("user_update"), async (req, res) => {
+    try {
+      const input = z.object({ projectIds: z.array(z.string().uuid()).max(500) }).strict().parse(req.body);
+      const target = await storage.getUser(req.params.id);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const requestedIds = Array.from(new Set(input.projectIds));
+      const activeProjects = requestedIds.length
+        ? await db.select({ id: projects.id }).from(projects)
+          .where(and(inArray(projects.id, requestedIds), eq(projects.isActive, true)))
+        : [];
+      if (activeProjects.length !== requestedIds.length) {
+        return res.status(400).json({ message: "Every assigned project must exist and be active." });
+      }
+      const currentRows = await db.select({
+        projectId: projectTeamMembers.projectId,
+        roleTitle: projectTeamMembers.roleTitle,
+      }).from(projectTeamMembers).where(eq(projectTeamMembers.userId, req.params.id));
+      const currentIds = new Set(currentRows.map(row => row.projectId));
+      const requestedSet = new Set(requestedIds);
+      await db.transaction(async tx => {
+        for (const row of currentRows) {
+          if (!requestedSet.has(row.projectId)) {
+            await tx.delete(projectTeamMembers).where(and(
+              eq(projectTeamMembers.projectId, row.projectId),
+              eq(projectTeamMembers.userId, req.params.id),
+            ));
+          }
+        }
+        for (const projectId of requestedIds) {
+          if (!currentIds.has(projectId)) {
+            await tx.insert(projectTeamMembers).values({
+              projectId,
+              userId: req.params.id,
+              roleTitle: "Team Member",
+            }).onConflictDoNothing();
+          }
+        }
+      });
+      await logAudit(req.user?.id, "UPDATE", "project_team_members", req.params.id,
+        `Project assignments for ${target.username}`,
+        { projectIds: Array.from(currentIds) }, { projectIds: requestedIds }, req);
+      res.json({ projectIds: requestedIds });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Provide a list of valid project IDs.", errors: error.issues });
+      respondWithApiError(res, error, "Failed to update user project assignments");
+    }
+  });
+
   app.get("/api/users/:id", requireAuth, requirePermission('user_view'), async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
@@ -1530,10 +1595,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id as string;
       const assignedProjects = await getProjectsAssignedToUser(userId);
       const requestedProjectId = typeof req.query.projectId === "string" ? req.query.projectId : "";
+      const globalScopeRequested = req.query.scope === "global";
       if (requestedProjectId && !assignedProjects.some(project => project.id === requestedProjectId)) {
         return res.status(403).json({ message: "Select a project assigned to your account." });
       }
-      const allowedProjectId = assignedProjects.some(project => project.id === requestedProjectId)
+      const allowedProjectId = globalScopeRequested ? "" : assignedProjects.some(project => project.id === requestedProjectId)
         ? requestedProjectId
         : (!requestedProjectId && assignedProjects.length === 1 ? assignedProjects[0].id : "");
       const catalogScope = allowedProjectId
@@ -1565,7 +1631,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({
         projects: assignedProjects,
-        selectedProjectId: assignedProjects.length === 1 ? assignedProjects[0].id : allowedProjectId,
+        selectedProjectId: globalScopeRequested ? "" : assignedProjects.length === 1 ? assignedProjects[0].id : allowedProjectId,
         catalog,
         assignedAssets,
         linkedEmployee: Boolean(req.user.employeeId),
@@ -1579,7 +1645,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getIncidents();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
-      const visibleRows = canViewAll ? rows : rows.filter(row => row.creatorId === req.user.id || row.requesterId === req.user.id);
+      const assignedProjectIds = canViewAll || !await isFeatureEnabled("project_management")
+        ? new Set<string>()
+        : new Set((await getProjectsAssignedToUser(req.user.id)).map(project => project.id));
+      const visibleRows = canViewAll ? rows : rows.filter(row =>
+        row.creatorId === req.user.id || row.requesterId === req.user.id ||
+        Boolean(row.projectId && assignedProjectIds.has(row.projectId)),
+      );
       const [projectRows, userRows, employeeRows] = await Promise.all([
         isFeatureEnabled("project_management").then(enabled => enabled ? db.select({ id: projects.id, name: projects.name }).from(projects) : []),
         db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName, email: users.email }).from(users),
@@ -1678,7 +1750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadIncidentRecord(req.user.id, incident))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(incident);
@@ -1691,7 +1763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const incident = (await storage.getIncidents()).find(row => row.id === req.params.id);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadIncidentRecord(req.user.id, incident))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const rows = await db.select({
@@ -1710,8 +1782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      const canViewAll = await canViewAllItsmRecords(req.user.id);
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !canViewAll) {
+      if (!(await canReadIncidentRecord(req.user.id, incident))) {
         return res.status(403).json({ message: "You cannot comment on this incident." });
       }
       const input = z.object({ message: z.string().trim().min(1).max(4000) }).parse(req.body);
@@ -1737,11 +1808,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let projectId = typeof req.body.projectId === "string" && req.body.projectId ? req.body.projectId : null;
       if (!canManageIntake) {
         const assignedProjects = await getProjectsAssignedToUser(req.user.id);
-        if (assignedProjects.length === 0 && !req.user.employeeId) {
-          return res.status(403).json({ message: "No project is assigned to your account. Contact your project manager before reporting a project incident." });
+        const requestedScope = req.body.scope === "project" || projectId ? "project" : "global";
+        if (requestedScope === "global") {
+          if (assignedProjects.length > 0 && !req.user.employeeId) {
+            return res.status(403).json({ message: "Project users must submit incidents to one of their assigned projects." });
+          }
+          projectId = null;
+        } else if (!projectId && assignedProjects.length === 1) {
+          projectId = assignedProjects[0].id;
         }
-        if (!projectId && assignedProjects.length === 1) projectId = assignedProjects[0].id;
-        if ((assignedProjects.length > 0 && !projectId) || (projectId && !assignedProjects.some(project => project.id === projectId))) {
+        if ((requestedScope === "project" && assignedProjects.length > 0 && !projectId) ||
+            (projectId && !assignedProjects.some(project => project.id === projectId)) ||
+            (requestedScope === "project" && !projectId && assignedProjects.length === 0)) {
           return res.status(403).json({ message: "Select a project assigned to your account." });
         }
       }
@@ -2042,9 +2120,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const rows = await storage.getServiceRequests();
       const canViewAll = await canViewAllItsmRecords(req.user.id);
+      const assignedProjectIds = canViewAll || !await isFeatureEnabled("project_management")
+        ? new Set<string>()
+        : new Set((await getProjectsAssignedToUser(req.user.id)).map(project => project.id));
       const catalogViewer = await loadCatalogViewer(req);
       const canReviewCatalog = serviceApprovalRoles(catalogViewer).length > 0;
-      const visible = (canViewAll ? rows : rows.filter(row => row.requesterId === req.user.id))
+      const visible = (canViewAll ? rows : rows.filter(row =>
+        row.requesterId === req.user.id || Boolean(row.projectId && assignedProjectIds.has(row.projectId)),
+      ))
         .filter(row => !row.serviceCatalogItemId || row.fulfillmentStage !== "Pending Approval" ||
           row.requesterId === req.user.id || canReviewCatalog);
       const [projectRows, userRows, catalogRows, employeeRows] = await Promise.all([
@@ -2085,7 +2168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadServiceRequestRecord(req.user.id, request))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       res.json(request);
@@ -2152,7 +2235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadServiceRequestRecord(req.user.id, request))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const entries = await db.select({
@@ -2177,6 +2260,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requesterId = canCreateForOthers ? req.body.requesterId || req.user.id : req.user.id;
       if (!(await storage.getUser(requesterId))) return res.status(400).json({ message: "Requested-for user not found" });
       const parsed = insertServiceRequestSchema.parse({ ...req.body, serviceCatalogItemId: null, customFieldValues: {}, catalogSchemaSnapshot: [], creatorId: req.user.id, requesterId, fulfillmentStatus: "Submitted", fulfillmentStage: "Submitted" });
+      if (!canCreateForOthers) {
+        const assignedProjects = await getProjectsAssignedToUser(req.user.id);
+        if (parsed.projectId && !assignedProjects.some(project => project.id === parsed.projectId)) {
+          return res.status(403).json({ message: "Choose a project assigned to your account." });
+        }
+        if (!parsed.projectId && !req.user.employeeId && assignedProjects.length > 0) {
+          return res.status(403).json({ message: "Project users must submit requests to one of their assigned projects." });
+        }
+      }
       if (!Number.isFinite(parsed.cost ?? 0) || (parsed.cost ?? 0) < 0) return res.status(400).json({ message: "cost must be a non-negative number" });
       if (parsed.projectId && !await isFeatureEnabled("project_management")) return sendFeatureNotEnabled(res, "project_management");
       if (parsed.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, parsed.projectId))).length) {
@@ -2445,11 +2537,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       roles.some(role => ["system_admin", "it_manager", "it_agent"].includes(getStandardRoleKey(role.name) ?? ""));
   }
 
+  async function hasProjectAccess(userId: string, projectId: string | null | undefined): Promise<boolean> {
+    if (!projectId || !await isFeatureEnabled("project_management")) return false;
+    return (await getProjectsAssignedToUser(userId)).some(project => project.id === projectId);
+  }
+
+  async function canReadIncidentRecord(userId: string, incident: { creatorId?: string | null; requesterId?: string | null; projectId?: string | null }) {
+    return incident.creatorId === userId || incident.requesterId === userId ||
+      await canViewAllItsmRecords(userId) || await hasProjectAccess(userId, incident.projectId);
+  }
+
+  async function canReadServiceRequestRecord(userId: string, request: { requesterId?: string | null; projectId?: string | null }) {
+    return request.requesterId === userId || await canViewAllItsmRecords(userId) ||
+      await hasProjectAccess(userId, request.projectId);
+  }
+
   async function canReadChangeRecord(userId: string, changeId: string): Promise<boolean> {
     const change = await storage.getChange(changeId);
-    return Boolean(change && (
-      change.requestedById === userId || await canViewAllItsmRecords(userId)
-    ));
+    if (!change) return false;
+    if (change.requestedById === userId || await canViewAllItsmRecords(userId)) return true;
+    if (!change.projectId || !await isFeatureEnabled("project_management")) return false;
+    return (await getProjectsAssignedToUser(userId)).some(project => project.id === change.projectId);
   }
 
   async function canManageTicket(userId: string): Promise<boolean> {
@@ -4136,7 +4244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadServiceRequestRecord(req.user.id, request))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.serviceRequestId, request.id));
@@ -4150,7 +4258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (!(await canReadServiceRequestRecord(req.user.id, request)) && !(await canManageAllTickets(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       next();
@@ -4197,7 +4305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const request = (await storage.getServiceRequests()).find(row => row.id === req.params.id);
       if (!request) return res.status(404).json({ message: "Service request not found" });
-      if (request.requesterId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadServiceRequestRecord(req.user.id, request))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const [attachment] = await db.select().from(ticketAttachments).where(and(
@@ -4215,7 +4323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canViewAllItsmRecords(req.user.id))) {
+      if (!(await canReadIncidentRecord(req.user.id, incident))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       const rows = await db.select().from(ticketAttachments).where(eq(ticketAttachments.incidentId, incident.id));
@@ -4229,7 +4337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const [incident] = await db.select().from(incidents).where(eq(incidents.id, req.params.id)).limit(1);
       if (!incident) return res.status(404).json({ message: "Incident not found" });
-      if (incident.requesterId !== req.user.id && incident.creatorId !== req.user.id && !(await canManageAllTickets(req.user.id))) {
+      if (!(await canReadIncidentRecord(req.user.id, incident)) && !(await canManageAllTickets(req.user.id))) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
       next();
@@ -10550,7 +10658,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activeOnly = req.query.activeOnly === "true";
       const items = await storage.getCatalogItems(activeOnly);
       const canReadHardware = Boolean(req.user!.employeeId) || await canManageAllTickets(req.user!.id);
-      res.json(canReadHardware ? items : items.filter(item => !item.consumableId && !/^(hardware|equipment|asset)$/i.test(item.category.trim())));
+      let visibleItems = canReadHardware ? items : items.filter(item => !item.consumableId && !/^(hardware|equipment|asset)$/i.test(item.category.trim()));
+      const roleNames = (await storage.getUserRoles(req.user!.id)).map(role => role.name);
+      if (getPersonaRoleKeys(roleNames).includes("end_user")) {
+        const assignedIds = new Set((await getProjectsAssignedToUser(req.user!.id)).map(project => project.id));
+        const itemIds = visibleItems.map(item => item.id);
+        const projectScopes = itemIds.length
+          ? await db.select({ id: serviceCatalogItems.id, projectId: serviceCatalogItems.projectId })
+            .from(serviceCatalogItems).where(inArray(serviceCatalogItems.id, itemIds))
+          : [];
+        const scopeById = new Map(projectScopes.map(item => [item.id, item.projectId]));
+        visibleItems = visibleItems.filter(item => {
+          const projectId = scopeById.get(item.id);
+          return projectId === undefined || projectId === null || assignedIds.has(projectId);
+        });
+      }
+      res.json(visibleItems);
     } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog items"); }
   });
 
@@ -10558,6 +10681,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const item = await storage.getCatalogItem(req.params.id);
       if (!item || !await canReadEmployeeCatalogItem(req.user!, item)) return res.status(404).json({ message: "Item not found" });
+      const roleNames = (await storage.getUserRoles(req.user!.id)).map(role => role.name);
+      if (getPersonaRoleKeys(roleNames).includes("end_user")) {
+        const [scope] = await db.select({ projectId: serviceCatalogItems.projectId }).from(serviceCatalogItems)
+          .where(eq(serviceCatalogItems.id, item.id)).limit(1);
+        if (scope?.projectId && !await hasProjectAccess(req.user!.id, scope.projectId)) {
+          return res.status(404).json({ message: "Item not found" });
+        }
+      }
       res.json(item);
     } catch (error) { respondWithApiError(res, error, "Failed to fetch catalog item"); }
   });
@@ -11255,6 +11386,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = (req.user as any).id as string;
       const canViewAll = await canViewAllItsmRecords(userId);
+      const assignedProjectIds = canViewAll || !await isFeatureEnabled("project_management")
+        ? []
+        : (await getProjectsAssignedToUser(userId)).map(project => project.id);
       const page = Number(req.query.page);
       const pageSize = Number(req.query.pageSize);
       const search = req.query.search;
@@ -11269,12 +11403,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const result = await storage.getChangesPage({
         page, pageSize, search: search as string | undefined, type: type as string | undefined, status: status as string | undefined,
-        ...(!canViewAll ? { requestedById: userId } : {}),
+        ...(!canViewAll ? { requestedById: userId, projectIds: assignedProjectIds } : {}),
       });
       const impactSummaries = await getChangeImpactSummaries(result.changes.map(change => change.id));
+      const linkedTasks = result.changes.length
+        ? await db.select({
+          id: projectTasks.id,
+          changeRequestId: projectTasks.changeRequestId,
+          title: projectTasks.title,
+        }).from(projectTasks)
+          .where(inArray(projectTasks.changeRequestId, result.changes.map(change => change.id)))
+        : [];
+      const taskByChange = new Map(linkedTasks.map(task => [task.changeRequestId, task]));
       res.json({
         ...result,
-        changes: result.changes.map(change => ({ ...change, impactSummary: impactSummaries.get(change.id) })),
+        changes: result.changes.map(change => ({
+          ...change,
+          impactSummary: impactSummaries.get(change.id),
+          linkedProjectTask: taskByChange.get(change.id) ?? null,
+        })),
       });
     }
     catch (error) { respondWithApiError(res, error, "Failed to fetch changes"); }
@@ -11293,14 +11440,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const canManageChanges = (await storage.getUserPermissions(userId)).some(permission =>
         ["system_admin", "change_manage"].includes(permission),
       );
-      if (ch.requestedById !== userId && !(await canViewAllItsmRecords(userId)) && !canManageChanges) {
+      if (!(await canReadChangeRecord(userId, ch.id)) && !canManageChanges) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id) });
+      const [linkedProjectTask] = await db.select({
+        id: projectTasks.id,
+        title: projectTasks.title,
+      }).from(projectTasks).where(eq(projectTasks.changeRequestId, ch.id)).limit(1);
+      res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id), linkedProjectTask: linkedProjectTask ?? null });
     } catch (error) { respondWithApiError(res, error, "Failed to fetch change"); }
   });
 
-  app.post("/api/changes", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
+  app.post("/api/changes", requireAuth, requireModule("itsm"), async (req, res) => {
     try {
       const user = req.user as any;
       const body = { ...req.body };
@@ -11327,17 +11478,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (body.projectId && !(await db.select({ id: projects.id }).from(projects).where(eq(projects.id, body.projectId))).length) {
         return res.status(400).json({ message: "Project not found" });
       }
+      const [permissions, assignedProjects, assignedRoles] = await Promise.all([
+        storage.getUserPermissions(user.id),
+        body.projectId && await isFeatureEnabled("project_management") ? getProjectsAssignedToUser(user.id) : Promise.resolve([]),
+        storage.getUserRoles(user.id),
+      ]);
+      const roleKeys = assignedRoles.map(role => getStandardRoleKey(role.name) ?? role.name.toLowerCase().replace(/[\s-]+/g, "_"));
+      const endUser = roleKeys.includes("end_user");
+      const canManageChanges = permissions.some((permission: string) =>
+        ["system_admin", "change_manage"].includes(permission),
+      ) || await canViewAllItsmRecords(user.id);
+      const canManageProjects = permissions.includes("project_manage");
+      const projectMember = Boolean(body.projectId && assignedProjects.some(project => project.id === body.projectId));
+      if (endUser) {
+        if (!body.projectId || !projectMember) {
+          return res.status(403).json({ message: "Project Change Requests require a project assigned to your account." });
+        }
+      } else if (!canManageChanges && !canManageProjects && !projectMember) {
+        return res.status(403).json({ message: "Change creation is limited to authorized staff or users assigned to the selected project." });
+      }
       if (cmdbEnabled) await validateChangeCiTargets(db, targetApplicationIds, targetServerIds);
       if (assetManagementEnabled) await validateChangeAssetTargets(db, targetAssetIds);
-      // New changes always start as draft regardless of caller-supplied status
-      body.status = "draft";
+      // End-user project changes enter the review queue immediately; authorized
+      // staff retain the existing draft workflow.
+      const projectChangeSubmission = endUser && Boolean(body.projectId);
+      body.status = projectChangeSubmission ? "submitted" : "draft";
+      if (projectChangeSubmission) {
+        body.submittedAt = new Date();
+        body.cabRequired = true;
+      }
       // Compute authoritative cabRequired from type/risk on creation
       const typeTriggersCABOnCreate = ["normal", "emergency"].includes(body.type ?? "");
       const riskTriggersCABOnCreate = ["high", "critical"].includes(body.risk ?? "");
       if (typeTriggersCABOnCreate || riskTriggersCABOnCreate) {
         body.cabRequired = true;
       }
+      let projectChangeApproverIds: string[] = [];
+      if (projectChangeSubmission) {
+        const reviewerRows = await db.select({
+          userId: userRoles.userId,
+          roleName: roles.name,
+        }).from(userRoles)
+          .innerJoin(roles, eq(userRoles.roleId, roles.id))
+          .innerJoin(users, eq(userRoles.userId, users.id))
+          .where(eq(users.isActive, true));
+        projectChangeApproverIds = Array.from(new Set(reviewerRows
+          .filter(row => ["system_admin", "it_manager", "cab_member"].includes(getStandardRoleKey(row.roleName) ?? ""))
+          .map(row => row.userId)
+          .filter(id => id !== user.id)));
+        if (!projectChangeApproverIds.length) {
+          return res.status(503).json({ message: "No active project change approvers are configured. Contact an IT Manager or System Administrator." });
+        }
+      }
       const change = await storage.createChange({ ...body, requestedById: user.id });
+      if (projectChangeSubmission) {
+        try {
+          for (const approverId of projectChangeApproverIds) {
+            await storage.createChangeApproval({ changeId: change.id, approverId, decision: "pending" });
+          }
+        } catch (error) {
+          await storage.deleteChange(change.id);
+          throw error;
+        }
+      }
       if (cmdbEnabled || assetManagementEnabled) await db.transaction(async tx => {
         if (cmdbEnabled) await syncChangeCiLinks(tx, change.id, targetApplicationIds, targetServerIds);
         if (assetManagementEnabled) await syncChangeAssetLinks(tx, change.id, targetAssetIds);

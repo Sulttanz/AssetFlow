@@ -28,7 +28,7 @@ import {
   assets, employees, assignments, locations, departments, vendors, purchaseOrders, purchaseOrderItems, 
   budgets, maintenanceSchedules, maintenanceRecords, users, roles, permissions, userRoles, rolePermissions, systemSettings, auditLogs, settings, dropdownOptions, moduleSettings,
   contracts, assetBookings, assetDisposalRecords, assetAuditSessions, assetAuditItems, assetRelationships, assetRequests,
-  tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, incidents, serviceRequests, catalogItems, changes, changeApprovals,
+  tickets, ticketComments, slaPolicies, kbArticles, problems, problemIncidents, incidents, serviceRequests, catalogItems, changes, changeApprovals, projectTasks,
   TICKET_PRIORITY_MATRIX, TICKET_SLA_HOURS,
 } from "@shared/schema";
 import { advanceMaintenanceDueDate } from "@shared/maintenance-utils";
@@ -48,6 +48,27 @@ function deriveTicketPriority(impact?: string | null, urgency?: string | null, f
     return TICKET_PRIORITY_MATRIX[impact][urgency];
   }
   return fallback ?? "medium";
+}
+
+async function ensureApprovedProjectChangeTask(tx: any, changeId: string) {
+  const [change] = await tx.select({
+    id: changes.id,
+    projectId: changes.projectId,
+    title: changes.title,
+    changeNumber: changes.changeNumber,
+  }).from(changes).where(eq(changes.id, changeId));
+  if (!change?.projectId) return;
+  const [existing] = await tx.select({ id: projectTasks.id })
+    .from(projectTasks).where(eq(projectTasks.changeRequestId, changeId));
+  if (existing) return;
+  await tx.insert(projectTasks).values({
+    projectId: change.projectId,
+    changeRequestId: change.id,
+    title: `Implement approved change ${change.changeNumber}: ${change.title}`,
+    description: `Project task generated from approved Change Request ${change.changeNumber}.`,
+    status: "To Do",
+    priority: "Medium",
+  }).onConflictDoNothing();
 }
 
 export async function computeTicketSlaDates(
@@ -356,7 +377,7 @@ export interface IStorage {
 
   // Change Management
   getChanges(): Promise<ChangeWithDetails[]>;
-  getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
+  getChangesPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string; projectIds?: string[] }): Promise<{ changes: ChangeWithDetails[]; total: number }>;
   getChangeReportPage(options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string; changeIds?: string[] }): Promise<{ changes: ChangeReportRow[]; total: number }>;
   getChangeReportMatchingIds(options: { search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date }): Promise<string[]>;
   getChangeReportSummary(startOfMonth: Date): Promise<ChangeReportSummary>;
@@ -2751,7 +2772,7 @@ export class MemStorage implements IStorage {
 
   // Change Management (MemStorage stubs)
   async getChanges(): Promise<ChangeWithDetails[]> { return []; }
-  async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
+  async getChangesPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string; projectIds?: string[] }): Promise<{ changes: ChangeWithDetails[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportPage(_options: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date; cursorPaging?: boolean; cursorChangeNumber?: string; changeIds?: string[] }): Promise<{ changes: ChangeReportRow[]; total: number }> { return { changes: [], total: 0 }; }
   async getChangeReportMatchingIds(_options: { search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; scheduledStartFrom?: Date; scheduledStartToExclusive?: Date }): Promise<string[]> { return []; }
   async getChangeReportSummary(_startOfMonth: Date): Promise<ChangeReportSummary> {
@@ -4390,7 +4411,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(changes).orderBy(desc(changes.createdAt));
     return this.buildChangeDetails(rows);
   }
-  async getChangesPage({ page, pageSize, search, searchType, type, status, risk, requestedById }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
+  async getChangesPage({ page, pageSize, search, searchType, type, status, risk, requestedById, projectIds }: { page: number; pageSize: number; search?: string; searchType?: boolean; type?: string; status?: string; risk?: string; requestedById?: string; projectIds?: string[] }): Promise<{ changes: ChangeWithDetails[]; total: number }> {
     const term = search?.trim();
     // Escape LIKE metacharacters so search remains a literal title/number search.
     const pattern = term ? `%${term.replace(/[\\%_]/g, "\\$&")}%` : undefined;
@@ -4403,7 +4424,12 @@ export class DatabaseStorage implements IStorage {
       type ? eq(changes.type, type) : undefined,
       status ? eq(changes.status, status) : undefined,
       risk ? eq(changes.risk, risk) : undefined,
-      requestedById ? eq(changes.requestedById, requestedById) : undefined,
+      requestedById && projectIds
+        ? (projectIds.length
+          ? or(eq(changes.requestedById, requestedById), inArray(changes.projectId, projectIds))
+          : eq(changes.requestedById, requestedById))
+        : requestedById ? eq(changes.requestedById, requestedById)
+          : projectIds ? (projectIds.length ? inArray(changes.projectId, projectIds) : sql`false`) : undefined,
     ].filter((condition): condition is NonNullable<typeof condition> => !!condition);
     const where = conditions.length ? and(...conditions) : undefined;
     const [countRows, rows] = await Promise.all([
@@ -4754,6 +4780,7 @@ export class DatabaseStorage implements IStorage {
         .set({ ...guardedChange, updatedAt: new Date() })
         .where(eq(changes.id, id))
         .returning();
+      if (updated?.status === "approved") await ensureApprovedProjectChangeTask(tx, updated.id);
       return { change: updated, cabPending: false, cabReviewReset };
     });
   }
@@ -4909,6 +4936,7 @@ export class DatabaseStorage implements IStorage {
       } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
         await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
           .where(eq(changes.id, changeId));
+        await ensureApprovedProjectChangeTask(tx, changeId);
       }
       return approval;
     });
@@ -4953,6 +4981,7 @@ export class DatabaseStorage implements IStorage {
       } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
         await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
           .where(eq(changes.id, target.changeId));
+        await ensureApprovedProjectChangeTask(tx, target.changeId);
       }
       return removed;
     });

@@ -24,6 +24,7 @@ export const structuredCatalogInput = z.object({
   slaHours: z.number().int().min(1).max(8760),
   requiresApproval: z.boolean(),
   approverRole: z.enum(["Manager", "IT Director"]).nullable(),
+  projectId: z.string().uuid().nullable().optional(),
   customFieldsSchema: z.array(catalogFieldSchema).max(30),
   status: z.enum(["Active", "Inactive"]),
   consumableId: z.string().uuid().nullable().optional(),

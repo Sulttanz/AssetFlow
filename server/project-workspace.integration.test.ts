@@ -155,6 +155,40 @@ describe.runIf(enabled)("Project delivery governance in isolated PostgreSQL", ()
     expect((await request(url, "DELETE")).status).toBe(409);
   });
 
+  it("creates one linked project task after the project change receives its final approval", async () => {
+    const change = await storage.createChange({
+      changeNumber: `CHG-${randomUUID().slice(0, 8)}`,
+      title: "Apply approved project configuration",
+      description: "Test project change",
+      type: "normal",
+      status: "submitted",
+      priority: "medium",
+      risk: "low",
+      cabRequired: true,
+      projectId: project,
+      requestedById: member,
+    });
+    const approval = await storage.createChangeApproval({
+      changeId: change.id,
+      approverId: manager,
+      decision: "pending",
+    });
+    const result = await storage.updateChangeApproval(change.id, approval.id, "approved", "Approved for delivery");
+    expect(result?.decision).toBe("approved");
+
+    const linkedTasks = await db.select().from(s.projectTasks).where(eq(s.projectTasks.changeRequestId, change.id));
+    expect(linkedTasks).toHaveLength(1);
+    expect(linkedTasks[0]).toMatchObject({
+      projectId: project,
+      status: "To Do",
+      title: expect.stringContaining(change.changeNumber),
+    });
+
+    // Repeating the approval completion path cannot duplicate the task.
+    await storage.updateChangeWithCabStatusGuard(change.id, { status: "approved" });
+    expect(await db.select().from(s.projectTasks).where(eq(s.projectTasks.changeRequestId, change.id))).toHaveLength(1);
+  });
+
   it("stores versioned documents, protects downloads, and records audit entries", async () => {
     const body = new FormData();
     body.set("file", new Blob(["Approved project charter"], { type: "text/plain" }), "charter.txt");

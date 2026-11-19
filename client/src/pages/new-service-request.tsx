@@ -13,6 +13,7 @@ import { canAccessItsmWorkbench } from "@/lib/itsm-access";
 import { validateCatalogValues } from "@shared/service-catalog";
 import type { CatalogItem as StructuredCatalogItem } from "@/components/service-catalog/types";
 import { DynamicField } from "@/components/service-catalog/dynamic-fields";
+import { checkedResponse } from "@/components/service-catalog/types";
 
 type CatalogItem = {
   id: string;
@@ -23,6 +24,9 @@ type CatalogItem = {
   consumableId?: string | null;
   approvalRequired?: boolean;
   isActive?: boolean;
+  projectId?: string | null;
+  projectName?: string | null;
+  status?: string;
 };
 type RequestOptions = { projects: { id: string; name: string }[]; requesterUsers?: { id: string; name: string; email: string }[] };
 type CreatedRequest = { id: string; [key: string]: unknown };
@@ -56,6 +60,8 @@ export default function NewServiceRequestPage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const staffIntake = canAccessItsmWorkbench(user);
+  const roleNames = user?.roles?.map(role => role.name.toLowerCase().replace(/[\s-]+/g, "_")) ?? [];
+  const isEndUser = roleNames.includes("end_user");
   const initialCatalogId = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("catalogItemId") ?? "";
   const [catalogItemId, setCatalogItemId] = useState(initialCatalogId);
   const [fieldValues, setFieldValues] = useState<Record<string, string | number | boolean>>({});
@@ -73,13 +79,29 @@ export default function NewServiceRequestPage() {
   const [partialFailure, setPartialFailure] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const catalogQuery = useQuery<CatalogItem[]>({
-    queryKey: ["/api/catalog/items?activeOnly=true"],
-    queryFn: getQueryFn({ on401: "throw" }),
+    queryKey: ["/api/service-catalog/items", user?.id, "request-intake"],
+    queryFn: async () => {
+      const items = await checkedResponse<StructuredCatalogItem[]>(await apiRequest("GET", "/api/service-catalog/items"));
+      return items.map(item => ({
+        id: item.id,
+        name: item.title,
+        description: item.description,
+        category: item.category,
+        fulfillmentTeam: item.fulfillmentTeam,
+        consumableId: item.consumableId,
+        approvalRequired: item.requiresApproval,
+        isActive: item.status === "Active",
+        projectId: item.projectId,
+        projectName: item.projectName,
+        status: item.status,
+      }));
+    },
   });
   const optionsQuery = useQuery<RequestOptions>({
-    queryKey: ["/api/incidents/options"],
+    queryKey: [isEndUser ? "/api/portal/incidents/options" : "/api/incidents/options"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
+  const assignedProjects = optionsQuery.data?.projects ?? [];
   const catalogItems = (catalogQuery.data ?? []).filter(item => item.isActive !== false);
   const selectedItem = catalogItems.find(item => item.id === catalogItemId);
   const structuredItem = useQuery<StructuredCatalogItem>({
@@ -91,6 +113,13 @@ export default function NewServiceRequestPage() {
   useEffect(() => {
     if (selectedItem && !titleEdited && !title) setTitle(selectedItem.name);
   }, [selectedItem, title, titleEdited]);
+  useEffect(() => {
+    if (!isEndUser || user?.employeeId || projectId || assignedProjects.length !== 1) return;
+    setProjectId(assignedProjects[0].id);
+  }, [isEndUser, user?.employeeId, assignedProjects, projectId]);
+  useEffect(() => {
+    if (selectedItem?.projectId) setProjectId(selectedItem.projectId);
+  }, [selectedItem?.projectId]);
 
   const createRequest = useMutation({
     mutationFn: async (payload: RequestPayload) => {
@@ -151,6 +180,17 @@ export default function NewServiceRequestPage() {
     if (!Number.isFinite(numericCost) || numericCost < 0) {
       setPartialFailure("");
       toast({ title: "Check the estimated cost", description: "Enter a valid amount of zero or more.", variant: "destructive" });
+      return;
+    }
+    if (isEndUser && !user?.employeeId && assignedProjects.length > 0 &&
+        (!projectId || !assignedProjects.some(project => project.id === projectId))) {
+      setPartialFailure("");
+      toast({ title: "Choose an assigned project", description: "Project users must submit a request to one of their assigned projects.", variant: "destructive" });
+      return;
+    }
+    if (isEndUser && projectId && !assignedProjects.some(project => project.id === projectId)) {
+      setPartialFailure("");
+      toast({ title: "Invalid project", description: "Choose a project assigned to your account.", variant: "destructive" });
       return;
     }
     let submittedValues: Record<string, string | number | boolean> = {};
@@ -220,7 +260,7 @@ export default function NewServiceRequestPage() {
                 if (item && !titleEdited) setTitle(item.name);
               }}>
                 <option value="">General service request</option>
-                {catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}{item.approvalRequired ? " · approval required" : ""}</option>)}
+                {catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}{item.projectName ? ` · ${item.projectName}` : ""}{item.approvalRequired ? " · approval required" : ""}</option>)}
               </select>
               {catalogQuery.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading available services…</span>}
               {catalogQuery.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Catalog options could not load. You may still submit a general request. <button type="button" className="font-semibold underline" onClick={() => void catalogQuery.refetch()}>Retry</button></span>}
@@ -270,10 +310,13 @@ export default function NewServiceRequestPage() {
           <Card className="rounded-[22px] border-[#d8e4df] bg-[#edf4ef] shadow-none">
             <CardContent className="grid gap-5 p-5">
               <div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#6f8982]">Fulfillment planning</p><h2 className="mt-1 font-semibold text-[#244847]">A few useful details</h2></div>
-              <Field label="Project (optional)">
-                <select className={selectClass} value={projectId} onChange={event => setProjectId(event.target.value)}>
-                  <option value="">No project</option>{(optionsQuery.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-                </select>
+              <Field label={isEndUser && !user?.employeeId && assignedProjects.length ? "Assigned project" : "Project (optional)"}>
+                {selectedItem?.projectId
+                  ? <Input value={selectedItem.projectName ?? assignedProjects.find(project => project.id === selectedItem.projectId)?.name ?? "Assigned project"} readOnly className={inputClass} aria-label="Project" />
+                  : <select className={selectClass} value={projectId} required={isEndUser && !user?.employeeId && assignedProjects.length > 0} onChange={event => setProjectId(event.target.value)}>
+                    {(!isEndUser || user?.employeeId || assignedProjects.length === 0) && <option value="">Company-wide / No project</option>}
+                    {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                  </select>}
                 {optionsQuery.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading projects…</span>}
                 {optionsQuery.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Projects unavailable. <button type="button" className="font-semibold underline" onClick={() => void optionsQuery.refetch()}>Retry</button></span>}
               </Field>
@@ -293,7 +336,7 @@ export default function NewServiceRequestPage() {
             <p className="mt-2 text-xs">Avoid submitting the request again. Contact the service desk with the request identifier shown above.</p>
           </div>}
           {createRequest.isError && !partialFailure && <p role="alert" className="text-sm text-destructive">Submission failed. Your details are still here; review the error and try again.</p>}
-          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createRequest.isPending || Boolean(partialFailure)}>
+          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createRequest.isPending || Boolean(partialFailure) || (isEndUser && !user?.employeeId && assignedProjects.length > 0 && !projectId)}>
             {createRequest.isPending ? "Submitting request…" : partialFailure ? "Request created" : "Submit request"}
           </Button>
           <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white" disabled={createRequest.isPending}><Link href="/portal">Cancel</Link></Button>

@@ -13,11 +13,13 @@ import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 import { insertUserSchema, type User, type Role } from "@shared/schema";
 import { getRoleDisplayName } from "@shared/role-catalog";
+import { useModules } from "@/hooks/use-modules";
 import { z } from "zod";
 
 // Create separate schemas for create and edit operations
 const baseFormSchema = insertUserSchema.extend({
   selectedRoles: z.array(z.string()).optional(),
+  assignedProjectIds: z.array(z.string().uuid()).optional(),
 });
 
 const createFormSchema = baseFormSchema.extend({
@@ -59,9 +61,12 @@ interface UserFormProps {
 
 export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
   const { toast } = useToast();
+  const { isModuleEnabled } = useModules();
+  const projectsEnabled = isModuleEnabled("project_management");
   const isEdit = !!user;
   const [employeeLinkManuallySet, setEmployeeLinkManuallySet] = useState(Boolean(user?.employeeId));
   const [autoLinkedEmployeeId, setAutoLinkedEmployeeId] = useState<string | null>(null);
+  const [projectSearch, setProjectSearch] = useState("");
 
   // Fetch roles for assignment
   const { data: roles = [] } = useQuery<Role[]>({
@@ -76,6 +81,17 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
   const { data: employeeOptions = [] } = useQuery<{ id: string; employeeId: string | null; firstName: string; lastName: string; email: string | null }[]>({
     queryKey: ["/api/users/employee-options"],
   });
+  const { data: projects = [] } = useQuery<{ id: string; name?: string; title?: string }[]>({
+    queryKey: ["/api/projects", "user-form-options"],
+    queryFn: async () => (await apiRequest("GET", "/api/projects")).json(),
+    enabled: projectsEnabled,
+    staleTime: 60_000,
+  });
+  const { data: projectMembership } = useQuery<{ projectIds: string[] }>({
+    queryKey: ["/api/users", user?.id, "projects"],
+    queryFn: async () => (await apiRequest("GET", `/api/users/${user!.id}/projects`)).json(),
+    enabled: projectsEnabled && Boolean(user?.id),
+  });
 
   const form = useForm<FormData>({
     resolver: zodResolver(isEdit ? editFormSchema : createFormSchema),
@@ -89,6 +105,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       passwordConfirm: "",
       isActive: user?.isActive ?? true,
       selectedRoles: [],
+      assignedProjectIds: [],
     },
   });
 
@@ -113,13 +130,23 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       form.setValue("selectedRoles", userRoles.map(role => role.id));
     }
   }, [userRoles, form]);
+  useEffect(() => {
+    if (projectMembership) form.setValue("assignedProjectIds", projectMembership.projectIds, { shouldDirty: false });
+  }, [projectMembership, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const { passwordConfirm, selectedRoles = [], ...userData } = data;
+      const { passwordConfirm, selectedRoles = [], assignedProjectIds = [], ...userData } = data;
       const response = await apiRequest("POST", "/api/users", userData);
       const newUser = await response.json();
       const roleWarnings: string[] = [];
+      if (projectsEnabled) {
+        try {
+          await apiRequest("PUT", `/api/users/${newUser.id}/projects`, { projectIds: assignedProjectIds });
+        } catch (error) {
+          roleWarnings.push(error instanceof Error ? `Project assignments: ${error.message}` : "Project assignments could not be saved.");
+        }
+      }
       for (const roleId of selectedRoles) {
         try {
           await apiRequest("POST", `/api/users/${newUser.id}/roles`, { roleId });
@@ -133,6 +160,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/users"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/users", newUser.id, "roles"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users", newUser.id, "projects"] }),
       ]);
       toast(roleWarnings.length
         ? { title: "User created; role assignment incomplete", description: roleWarnings.join(" "), variant: "destructive" }
@@ -150,7 +178,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const { passwordConfirm, selectedRoles = [], ...userData } = data;
+      const { passwordConfirm, selectedRoles = [], assignedProjectIds = [], ...userData } = data;
       
       // Only include password if it's been provided and is not empty
       const updateData = userData.password && userData.password.trim() !== '' 
@@ -166,6 +194,13 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       const updatedUser = await response.json();
       const currentRoleIds = userRoles.map(role => role.id);
       const roleWarnings: string[] = [];
+      if (projectsEnabled) {
+        try {
+          await apiRequest("PUT", `/api/users/${user!.id}/projects`, { projectIds: assignedProjectIds });
+        } catch (error) {
+          roleWarnings.push(error instanceof Error ? `Project assignments: ${error.message}` : "Project assignments could not be saved.");
+        }
+      }
 
       // Remove roles that are no longer selected
       for (const roleId of currentRoleIds) {
@@ -194,6 +229,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/users"] }),
         queryClient.invalidateQueries({ queryKey: ["/api/users", user!.id, "roles"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/users", user!.id, "projects"] }),
       ]);
       toast(roleWarnings.length
         ? { title: "Profile saved; role assignment incomplete", description: roleWarnings.join(" "), variant: "destructive" }
@@ -278,6 +314,46 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
             </FormItem>
           )}
         />
+
+        {projectsEnabled && <FormField
+          control={form.control}
+          name="assignedProjectIds"
+          render={({ field }) => {
+            const selectedIds = field.value ?? [];
+            const term = projectSearch.trim().toLowerCase();
+            const visibleProjects = projects.filter(project =>
+              (project.title ?? project.name ?? "").toLowerCase().includes(term),
+            );
+            return <FormItem>
+              <FormLabel>Assigned Projects</FormLabel>
+              <Input
+                type="search"
+                aria-label="Search projects"
+                placeholder="Search project names…"
+                value={projectSearch}
+                onChange={event => setProjectSearch(event.target.value)}
+              />
+              <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-2" aria-label="Assigned Projects">
+                {projects.length === 0 && <p className="p-2 text-sm text-muted-foreground">No projects available.</p>}
+                {visibleProjects.map(project => {
+                  const checked = selectedIds.includes(project.id);
+                  return <label key={project.id} className="flex min-h-10 cursor-pointer items-center gap-2 rounded px-2 text-sm hover:bg-muted/50">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={value => field.onChange(value
+                        ? [...selectedIds, project.id]
+                        : selectedIds.filter(id => id !== project.id))}
+                    />
+                    <span className="truncate">{project.title || project.name || "Untitled project"}</span>
+                  </label>;
+                })}
+                {projects.length > 0 && visibleProjects.length === 0 && <p className="p-2 text-sm text-muted-foreground">No projects match your search.</p>}
+              </div>
+              <p className="text-xs text-muted-foreground">Select None or one or more projects. These assignments control project-scoped portal access.</p>
+              <FormMessage />
+            </FormItem>;
+          }}
+        />}
 
         <div className="grid grid-cols-2 gap-4">
           <FormField

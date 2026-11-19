@@ -1,11 +1,11 @@
 import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, getTableColumns, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditLogs, catalogItems, consumables, dropdownOptions, projects, serviceCatalogItems, serviceRequestActivities,
-  serviceRequests, serviceRequestsApprovals, users,
+  auditLogs, catalogItems, consumables, dropdownOptions, projects, projectManagers, projectTeamMembers, projectTasks,
+  serviceCatalogItems, serviceRequestActivities, serviceRequests, serviceRequestsApprovals, users,
 } from "@shared/schema";
 import {
   canManageServiceCatalog, catalogDecisionInput, catalogRequestInput, serviceApprovalRoles,
@@ -32,6 +32,19 @@ export async function loadCatalogViewer(req: Request): Promise<Viewer> {
 }
 function isEmployeeOnlyService(item: { category: string; consumableId?: string | null }) {
   return Boolean(item.consumableId) || /^(hardware|equipment|asset)$/i.test(item.category.trim());
+}
+async function assignedProjectsForUser(userId: string) {
+  const projectsForUser = await db.select({ id: projects.id, name: projects.name }).from(projects)
+    .leftJoin(projectManagers, eq(projectManagers.projectId, projects.id))
+    .leftJoin(projectTeamMembers, eq(projectTeamMembers.projectId, projects.id))
+    .leftJoin(projectTasks, and(eq(projectTasks.projectId, projects.id), eq(projectTasks.assigneeId, userId)))
+    .where(and(eq(projects.isActive, true), or(
+      eq(projectManagers.userId, userId),
+      eq(projectTeamMembers.userId, userId),
+      eq(projectTasks.assigneeId, userId),
+    )))
+    .orderBy(asc(projects.name));
+  return [...new Map(projectsForUser.map(project => [project.id, project])).values()];
 }
 function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<void>): RequestHandler {
   return async (req, res) => {
@@ -79,6 +92,22 @@ export const catalogRequestHandler = handle(async (req, res, user) => {
     const [legacy] = await tx.select({ fulfillmentTeam: catalogItems.fulfillmentTeam, consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id));
     if (!user.employeeId && !canManageServiceCatalog(user) && isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId }))
       throw new CatalogError(404, "This service is available only to linked employees");
+    const isEndUser = personaRolesForUser(user).includes("end_user");
+    const projectChoice = input.projectId ?? item.projectId;
+    const assignedProjects = isEndUser && (!user.employeeId || projectChoice)
+      ? await assignedProjectsForUser(user.id)
+      : [];
+    const assignedProjectIds = new Set(assignedProjects.map(project => project.id));
+    if (isEndUser && item.projectId && !assignedProjectIds.has(item.projectId))
+      throw new CatalogError(404, "This service is not available to your assigned projects");
+    const selectedProjectId = input.projectId ?? item.projectId ??
+      (!user.employeeId && assignedProjects.length === 1 ? assignedProjects[0].id : null);
+    if (isEndUser && selectedProjectId && !assignedProjectIds.has(selectedProjectId))
+      throw new CatalogError(403, "Choose a project assigned to your account");
+    if (isEndUser && !user.employeeId && assignedProjects.length > 0 && !selectedProjectId)
+      throw new CatalogError(400, "Select one of your assigned projects for this request");
+    if (item.projectId && selectedProjectId !== item.projectId)
+      throw new CatalogError(400, "This catalog service is scoped to a different project");
     const values = validateCatalogValues(item.customFieldsSchema, input.fieldValues);
     const requesterId = input.requesterId ?? user.id;
     if (requesterId !== user.id) {
@@ -87,14 +116,14 @@ export const catalogRequestHandler = handle(async (req, res, user) => {
       const [employee] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, requesterId), eq(users.isActive, true)));
       if (!employee) throw new CatalogError(400, "Requested-for user must be active");
     }
-    if (input.projectId && !(await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, input.projectId))).length)
+    if (selectedProjectId && !(await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, selectedProjectId))).length)
       throw new CatalogError(400, "Project not found");
     const dueAt = new Date(Date.now() + item.slaHours * 3600000);
     const [request] = await tx.insert(serviceRequests).values({
       requestNumber: `SR-${randomUUID().slice(0, 8).toUpperCase()}`,
       title: input.title ?? item.title, description: input.description || item.description || `Requested service: ${item.title}`,
       requesterId, creatorId: user.id, catalogItemId: item.id, serviceCatalogItemId: item.id,
-      projectId: input.projectId ?? null, cost: input.cost ?? 0, requestedQuantity: input.requestedQuantity ?? 1,
+      projectId: selectedProjectId, cost: input.cost ?? 0, requestedQuantity: input.requestedQuantity ?? 1,
       targetFulfillmentDate: input.targetFulfillmentDate ?? null,
       customFieldValues: values, catalogSchemaSnapshot: item.customFieldsSchema,
       approvalStatus: item.requiresApproval ? "pending" : "approved",
@@ -123,14 +152,31 @@ export function registerServiceCatalogRoutes(app: Express, requireAuth: RequestH
     const categories = await db.select({ value: dropdownOptions.value, label: dropdownOptions.label })
       .from(dropdownOptions).where(and(eq(dropdownOptions.category, "service_category"), eq(dropdownOptions.isActive, true)))
       .orderBy(dropdownOptions.displayOrder, dropdownOptions.label);
-    res.json({ canManage: canManageServiceCatalog(user), canApprove: serviceApprovalRoles(user).length > 0, categories });
+    const canManage = canManageServiceCatalog(user);
+    const availableProjects = canManage
+      ? await db.select({ id: projects.id, name: projects.name }).from(projects)
+        .where(eq(projects.isActive, true)).orderBy(asc(projects.name))
+      : [];
+    res.json({ canManage, canApprove: serviceApprovalRoles(user).length > 0, categories, projects: availableProjects });
   }));
   app.get("/api/service-catalog/items", requireAuth, handle(async (req, res, user) => {
     const includeInactive = req.query.includeInactive === "true" && canManageServiceCatalog(user);
     const rows = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
       .from(serviceCatalogItems).innerJoin(catalogItems, eq(catalogItems.id, serviceCatalogItems.id))
       .where(includeInactive ? undefined : eq(serviceCatalogItems.status, "Active")).orderBy(serviceCatalogItems.category, serviceCatalogItems.title);
-    res.json(user.employeeId || canManageServiceCatalog(user) ? rows : rows.filter(item => !isEmployeeOnlyService(item)));
+    let visibleRows = user.employeeId || canManageServiceCatalog(user)
+      ? rows
+      : rows.filter(item => !isEmployeeOnlyService(item));
+    if (personaRolesForUser(user).includes("end_user")) {
+      const assigned = new Set((await assignedProjectsForUser(user.id)).map(project => project.id));
+      visibleRows = visibleRows.filter(item => !item.projectId || assigned.has(item.projectId));
+    }
+    const projectRows = visibleRows.some(item => item.projectId)
+      ? await db.select({ id: projects.id, name: projects.name }).from(projects)
+        .where(inArray(projects.id, Array.from(new Set(visibleRows.flatMap(item => item.projectId ? [item.projectId] : [])))))
+      : [];
+    const projectNames = new Map(projectRows.map(project => [project.id, project.name]));
+    res.json(visibleRows.map(item => ({ ...item, projectName: item.projectId ? projectNames.get(item.projectId) ?? null : null })));
   }));
   app.get("/api/service-catalog/items/:id", requireAuth, handle(async (req, res, user) => {
     const [item] = await db.select({ ...getTableColumns(serviceCatalogItems), consumableId: catalogItems.consumableId, fulfillmentTeam: catalogItems.fulfillmentTeam })
@@ -138,6 +184,9 @@ export function registerServiceCatalogRoutes(app: Express, requireAuth: RequestH
     const [legacy] = item ? await db.select({ consumableId: catalogItems.consumableId }).from(catalogItems).where(eq(catalogItems.id, item.id)) : [];
     if (!item || (item.status !== "Active" && !canManageServiceCatalog(user)) ||
         (!user.employeeId && !canManageServiceCatalog(user) && isEmployeeOnlyService({ category: item.category, consumableId: legacy?.consumableId })))
+      throw new CatalogError(404, "Service not found");
+    if (personaRolesForUser(user).includes("end_user") && item.projectId &&
+        !(await assignedProjectsForUser(user.id)).some(project => project.id === item.projectId))
       throw new CatalogError(404, "Service not found");
     res.json(item);
   }));

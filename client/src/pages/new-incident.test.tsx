@@ -16,7 +16,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 function renderIntake(projects: { id: string; name: string }[], linkedEmployee = false, staff = false) {
   authState.user = staff
     ? { id: "agent-user", employeeId: null, username: "agent", roles: [{ name: "it_agent" }], permissions: ["ticket_manage"] }
-    : { id: "external-user", employeeId: null, username: "external", roles: [{ name: "end_user" }], permissions: [] };
+    : { id: "external-user", employeeId: linkedEmployee ? "employee-1" : null, username: "external", roles: [{ name: "end_user" }], permissions: [] };
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
     projects, selectedProjectId: projects.length === 1 ? projects[0].id : null,
     catalog: [{ id: "global", name: "VPN connection", description: "Report a VPN issue", category: "Network", projectId: null }],
@@ -50,7 +50,16 @@ describe("simplified project incident intake", () => {
     renderIntake([], true);
     expect(await screen.findByText(/Internal company incident/)).toBeTruthy();
     expect(screen.queryByLabelText(/^Project/)).toBeNull();
-    expect((screen.getByRole("button", { name: /Submit incident/i }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect((screen.getByRole("button", { name: /Submit incident/i }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it("lets a linked employee with an assigned project choose company-wide or project scope", async () => {
+    renderIntake([{ id: "project-1", name: "Operations Upgrade" }], true);
+    const scope = await screen.findByLabelText("Incident scope") as HTMLSelectElement;
+    expect(scope.value).toBe("project");
+    expect(await screen.findByText(/automatically selected/)).toBeTruthy();
+    expect(screen.queryByLabelText(/^Project/)).toBeNull();
+    await waitFor(() => expect((screen.getByRole("button", { name: /Submit incident/i }) as HTMLButtonElement).disabled).toBe(false));
   });
 
   it("shows a project picker only when multiple projects are assigned", async () => {
@@ -67,10 +76,11 @@ describe("simplified project incident intake", () => {
     }
   });
 
-  it("explains why a user with no project cannot submit", async () => {
+  it("allows an unlinked user with no projects to submit a global incident", async () => {
     renderIntake([]);
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("No projects are assigned"));
+    expect(await screen.findByText(/Internal company incident/)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
     const submit = screen.getByRole("button", { name: /Submit incident/i }) as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    await waitFor(() => expect(submit.disabled).toBe(false));
   });
 });

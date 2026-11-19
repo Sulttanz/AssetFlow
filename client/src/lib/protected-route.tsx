@@ -62,7 +62,7 @@ export function ProtectedRoute({
 
   const roleNames = user.roles?.map(role => role.name) ?? [];
   const permissions = user.permissions ?? [];
-  if (!isPersonaPageAllowed(roleNames, permissions, path, user.employeeId)) {
+  if (!isPersonaPageAllowed(roleNames, permissions, path, user.employeeId, user.assignedProjectIds ?? [])) {
     return <Route path={path}><Redirect to={getPersonaHomePath(roleNames, permissions)} /></Route>;
   }
 

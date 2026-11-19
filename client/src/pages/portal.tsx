@@ -22,6 +22,14 @@ type CatalogItem = {
 type Article = { id: string; title: string; summary?: string | null; content?: string | null; excerpt?: string | null; category?: string | null; updatedAt?: string | null };
 type Incident = { id: string; incidentNumber: string; title: string; status: string; creatorId?: string | null; requesterId?: string | null; createdAt?: string | null; responseDueAt?: string | null; resolveDueAt?: string | null };
 type ServiceRequest = { id: string; requestNumber: string; title: string; requesterId: string; fulfillmentStage?: string | null; fulfillmentStatus?: string | null; approvalStatus?: string | null; createdAt?: string | null; targetFulfillmentDate?: string | null };
+type ProjectChange = { id: string; changeNumber: string; title: string; status: string; createdAt?: string | null; scheduledEnd?: string | null };
+type ChangePage = { changes: ProjectChange[]; total: number };
+type ProjectChangeDetail = ProjectChange & {
+  description?: string | null;
+  projectId?: string | null;
+  scheduledStart?: string | null;
+  linkedProjectTask?: { id: string; title: string } | null;
+};
 type ActivityRow = { id: string; ticket: string; title: string; type: string; status: string; createdAt?: string | null; target?: string | null };
 type CustodyReceipt = {
   id: string; handoverNumber: string; type: string; employeeId: string; employeeNumber: string; employeeName: string;
@@ -57,6 +65,7 @@ export default function PortalPage() {
   const [search, setSearch] = useState("");
   const [articleId, setArticleId] = useState<string | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
   const [incidentComment, setIncidentComment] = useState("");
   const [incidentDetailError, setIncidentDetailError] = useState("");
   const [receiptToAcknowledge, setReceiptToAcknowledge] = useState<CustodyReceipt | null>(null);
@@ -119,6 +128,16 @@ export default function PortalPage() {
     onError: (error: Error) => setIncidentDetailError(error.message),
   });
   const requestsQuery = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
+  const changesQuery = useQuery<ChangePage>({
+    queryKey: ["/api/changes", "portal"],
+    queryFn: async () => checkedResponse<ChangePage>(await apiRequest("GET", "/api/changes?page=1&pageSize=100")),
+    enabled: Boolean(user?.id && user.assignedProjectIds?.length),
+  });
+  const changeDetailQuery = useQuery<ProjectChangeDetail>({
+    queryKey: ["/api/changes", selectedChangeId],
+    queryFn: async () => checkedResponse<ProjectChangeDetail>(await apiRequest("GET", `/api/changes/${selectedChangeId}`)),
+    enabled: Boolean(selectedChangeId),
+  });
   const custodyQuery = useQuery<CustodyReceipt[]>({
     queryKey: ["/api/my/asset-handovers"],
     queryFn: async () => (await apiRequest("GET", "/api/my/asset-handovers")).json(),
@@ -140,14 +159,15 @@ export default function PortalPage() {
     return catalog.filter(item => `${item.title} ${item.description ?? ""} ${item.category ?? ""}`.toLowerCase().includes(term)).slice(0, 4);
   }, [catalog, queryTerm]);
   const rows: ActivityRow[] = useMemo(() => [
-    ...(incidentsQuery.data ?? []).filter(row => row.creatorId === user?.id || row.requesterId === user?.id).map(row => ({ id: row.id, ticket: row.incidentNumber, title: row.title, type: "Incident", status: row.status, createdAt: row.createdAt, target: row.resolveDueAt ?? row.responseDueAt })),
-    ...(requestsQuery.data ?? []).filter(row => row.requesterId === user?.id).map(row => ({ id: row.id, ticket: row.requestNumber, title: row.title, type: "Service request", status: row.fulfillmentStage ?? row.fulfillmentStatus ?? row.approvalStatus ?? "Submitted", createdAt: row.createdAt, target: row.targetFulfillmentDate })),
-  ].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()), [incidentsQuery.data, requestsQuery.data, user?.id]);
+    ...(incidentsQuery.data ?? []).map(row => ({ id: row.id, ticket: row.incidentNumber, title: row.title, type: "Incident", status: row.status, createdAt: row.createdAt, target: row.resolveDueAt ?? row.responseDueAt })),
+    ...(requestsQuery.data ?? []).map(row => ({ id: row.id, ticket: row.requestNumber, title: row.title, type: "Service request", status: row.fulfillmentStage ?? row.fulfillmentStatus ?? row.approvalStatus ?? "Submitted", createdAt: row.createdAt, target: row.targetFulfillmentDate })),
+    ...(changesQuery.data?.changes ?? []).map(row => ({ id: row.id, ticket: row.changeNumber, title: row.title, type: "Change", status: row.status, createdAt: row.createdAt, target: row.scheduledEnd })),
+  ].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()), [incidentsQuery.data, requestsQuery.data, changesQuery.data]);
 
   const firstName = user?.firstName || user?.username?.split(/[._-]/)[0] || "there";
-  const activityLoading = incidentsQuery.isLoading || requestsQuery.isLoading;
-  const activityError = incidentsQuery.isError || requestsQuery.isError;
-  const refetchActivity = () => { void incidentsQuery.refetch(); void requestsQuery.refetch(); };
+  const activityLoading = incidentsQuery.isLoading || requestsQuery.isLoading || (Boolean(user?.assignedProjectIds?.length) && changesQuery.isLoading);
+  const activityError = incidentsQuery.isError || requestsQuery.isError || (Boolean(user?.assignedProjectIds?.length) && changesQuery.isError);
+  const refetchActivity = () => { void incidentsQuery.refetch(); void requestsQuery.refetch(); void changesQuery.refetch(); };
 
   return <main className="min-h-[100dvh] bg-[#f2f7f5] text-[#193638]">
     <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden" aria-hidden="true">
@@ -222,6 +242,7 @@ export default function PortalPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <ActionTile icon={<ShieldAlert />} title="Report an incident" description="Something is broken or disrupting your work." href="/incidents/new" accent="coral" />
           <ActionTile icon={<Wrench />} title="Request a service" description="Ask for equipment, access, or IT help." href="/service-requests/new" accent="teal" />
+          {!!user?.assignedProjectIds?.length && <ActionTile icon={<FileText />} title="Project change request" description="Propose a change to one of your assigned projects." href="/changes/new" accent="gold" />}
           <Link href="/knowledge-base" className="group flex min-h-[142px] flex-col justify-between rounded-[20px] border border-[#d8e3df] bg-[#f9fbf9] p-5 transition-transform hover:-translate-y-0.5 hover:border-[#b7cec5] hover:bg-white">
             <div className="flex items-start justify-between"><span className="grid h-10 w-10 place-items-center rounded-[13px] bg-[#e7eee5] text-[#55755b]"><BookOpen className="h-5 w-5" /></span><ArrowRight className="h-4 w-4 text-[#9bab9f] transition-transform group-hover:translate-x-1" /></div>
             <div><h3 className="text-base font-semibold tracking-[-.02em]">Browse knowledge base</h3><p className="mt-1 text-sm leading-5 text-[#768987]">Find step-by-step answers and guidance.</p></div>
@@ -242,6 +263,8 @@ export default function PortalPage() {
               <TableCell className="whitespace-nowrap pl-6 font-mono text-xs font-semibold text-[#56716e]">
                 {row.type === "Incident"
                   ? <button type="button" className="rounded underline-offset-4 hover:text-[#285f5d] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#327a78]" onClick={() => { setIncidentDetailError(""); setSelectedIncidentId(row.id); }}>{row.ticket || "Open"}</button>
+                  : row.type === "Change"
+                    ? <button type="button" className="rounded underline-offset-4 hover:text-[#285f5d] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#327a78]" onClick={() => setSelectedChangeId(row.id)}>{row.ticket || "Open"}</button>
                   : row.ticket || "—"}
               </TableCell>
               <TableCell className="min-w-[200px] font-medium text-[#2b4848]">{row.title}</TableCell>
@@ -249,7 +272,7 @@ export default function PortalPage() {
               <TableCell><StatusPill status={row.status} /></TableCell><TableCell className="whitespace-nowrap text-sm text-[#768985]">{dateLabel(row.createdAt)}</TableCell><TableCell className="whitespace-nowrap pr-6 text-sm text-[#768985]">{dateLabel(row.target)}</TableCell>
             </TableRow>)}
           </TableBody></Table></div>}
-        <div className="flex items-center justify-between border-t border-[#e8eeeb] bg-[#fbfcfa] px-5 py-3 text-xs text-[#899a97] sm:px-7"><span>{rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"} · newest first` : "Only your own submitted items appear here"}</span><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> Updated just now</span></div>
+        <div className="flex items-center justify-between border-t border-[#e8eeeb] bg-[#fbfcfa] px-5 py-3 text-xs text-[#899a97] sm:px-7"><span>{rows.length ? `${rows.length} item${rows.length === 1 ? "" : "s"} · newest first` : "Your requests and assigned-project work appear here"}</span><span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> Updated just now</span></div>
       </section>
       <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 px-1 text-xs text-[#8a9b97]"><span>Workplace Support · Here when you need us.</span><Link href="/knowledge-base" className="inline-flex items-center gap-1 hover:text-[#397571]">Help articles <ArrowRight className="h-3 w-3" /></Link></footer>
     </div>
@@ -276,6 +299,31 @@ export default function PortalPage() {
          <DialogFooter><Button type="button" variant="outline" onClick={() => setSelectedIncidentId(null)}>Close</Button></DialogFooter>
        </DialogContent>
      </Dialog>
+      <Dialog open={Boolean(selectedChangeId)} onOpenChange={open => { if (!open) setSelectedChangeId(null); }}>
+        <DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{changeDetailQuery.data?.title ?? "Project change request"}</DialogTitle>
+            <DialogDescription>{changeDetailQuery.data?.changeNumber ?? "Loading request"} · {changeDetailQuery.data?.status ?? "—"}</DialogDescription>
+          </DialogHeader>
+          {changeDetailQuery.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading change request…</p>
+            : changeDetailQuery.isError ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">This request is no longer available to your account.</p>
+              : changeDetailQuery.data && <div className="space-y-4">
+                <div className="rounded-lg border bg-muted/20 p-4">
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{changeDetailQuery.data.description || "No additional details provided."}</p>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    {changeDetailQuery.data.scheduledStart && <span>Start {dateLabel(changeDetailQuery.data.scheduledStart)}</span>}
+                    {changeDetailQuery.data.scheduledEnd && <span>Target {dateLabel(changeDetailQuery.data.scheduledEnd)}</span>}
+                  </div>
+                </div>
+                {changeDetailQuery.data.linkedProjectTask && <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Linked project task</p>
+                  <p className="mt-1 text-sm font-medium">{changeDetailQuery.data.linkedProjectTask.title}</p>
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">{changeDetailQuery.data.linkedProjectTask.id}</p>
+                </div>}
+              </div>}
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setSelectedChangeId(null)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     <Dialog open={Boolean(receiptToAcknowledge)} onOpenChange={open => { if (!open) setReceiptToAcknowledge(null); }}>
       <DialogContent aria-describedby={undefined} className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
         <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#6d8982]">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Review this handover</DialogTitle></DialogHeader>

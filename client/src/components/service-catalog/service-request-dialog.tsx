@@ -33,27 +33,38 @@ function fieldValuesValid(fields: CatalogField[], values: Record<string, string 
 export function ServiceRequestDialog({ item, onClose }: { item: CatalogItem | null; onClose: () => void }) {
   const { user } = useAuth();
   const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [values, setValues] = useState<Record<string, string | number | boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<RequestResult | null>(null);
   const fields = item?.customFieldsSchema ?? [];
+  const assignedProjects = user?.assignedProjects ?? [];
+  const isEndUser = user?.roles?.some(role => role.name.toLowerCase().replace(/[\s-]+/g, "_") === "end_user") ?? false;
   useEffect(() => {
     setDescription("");
+    setProjectId(item?.projectId ?? (!user?.employeeId && assignedProjects.length === 1 ? assignedProjects[0].id : ""));
     setValues({});
     setErrors({});
     setResult(null);
-  }, [item?.id]);
+  }, [item?.id, item?.projectId, user?.employeeId, user?.assignedProjectIds?.join(",")]);
 
   const submit = useMutation({
     mutationFn: async () => {
       if (!item) throw new Error("Choose an active service to continue.");
+      if (isEndUser && !user?.employeeId && assignedProjects.length > 0 && !projectId) {
+        throw new Error("Choose one of your assigned projects for this request.");
+      }
       const fieldErrors = fieldValuesValid(fields, values);
       setErrors(fieldErrors);
       if (Object.keys(fieldErrors).length) throw new Error("Complete the required fields before submitting.");
       const fieldValues = Object.fromEntries(fields
         .filter(field => values[field.key] !== undefined && values[field.key] !== "")
         .map(field => [field.key, field.type === "number" ? Number(values[field.key]) : values[field.key]]));
-      return checkedResponse<RequestResult>(await apiRequest("POST", `/api/service-catalog/items/${item.id}/request`, { description: description.trim() || undefined, fieldValues }));
+      return checkedResponse<RequestResult>(await apiRequest("POST", `/api/service-catalog/items/${item.id}/request`, {
+        description: description.trim() || undefined,
+        fieldValues,
+        projectId: item.projectId ?? (projectId || null),
+      }));
     },
     onSuccess: async response => {
       setResult(response);
@@ -85,12 +96,26 @@ export function ServiceRequestDialog({ item, onClose }: { item: CatalogItem | nu
         <div className="flex flex-wrap gap-2 border-y py-3">
           {item?.requiresApproval && <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900"><ShieldCheck className="h-3.5 w-3.5" /> {item.approverRole} approval before work begins</span>}
           {item?.slaHours != null && <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-900"><Clock3 className="h-3.5 w-3.5" /> {item.slaHours}h service target</span>}
+          {item?.projectId && <span className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800">Project: {item.projectName ?? "Assigned project"}</span>}
         </div>
         <form className="grid gap-4" onSubmit={event => { event.preventDefault(); submit.mutate(); }}>
+          {!item?.projectId && isEndUser && assignedProjects.length > 0 && <label className="grid gap-1.5 text-sm font-medium">
+            Request scope
+            <select
+              className="min-h-11 rounded-md border bg-background px-3"
+              value={projectId}
+              required={!user?.employeeId}
+              onChange={event => setProjectId(event.target.value)}
+            >
+              {user?.employeeId && <option value="">Company-wide / no project</option>}
+              {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <span className="text-xs font-normal text-muted-foreground">Only your assigned projects are available.</span>
+          </label>}
           {fields.map(field => <DynamicField key={field.key} field={field} value={values[field.key]} error={errors[field.key]} onChange={value => updateField(field, value)} />)}
           <label className="grid gap-1.5 text-sm font-medium">Additional context <span className="text-xs font-normal text-muted-foreground">Optional</span><Textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="Share anything else the fulfillment team should know." /></label>
           {submit.isError && <p role="alert" className="text-sm text-destructive">{submit.error.message}</p>}
-          <DialogFooter><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={submit.isPending}>{submit.isPending ? "Submitting…" : "Submit request"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={submit.isPending || (isEndUser && !user?.employeeId && assignedProjects.length > 0 && !projectId)}>{submit.isPending ? "Submitting…" : "Submit request"}</Button></DialogFooter>
         </form>
       </>}
     </DialogContent>

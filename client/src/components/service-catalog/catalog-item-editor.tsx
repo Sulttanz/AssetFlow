@@ -45,6 +45,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
 }) {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState("");
   const [fulfillmentTeam, setFulfillmentTeam] = useState("");
@@ -68,6 +69,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
   });
   useEffect(() => {
     setTitle(item?.title ?? ""); setCategory(item?.category ?? options.categories[0]?.value ?? "");
+    setProjectId(item?.projectId ?? "");
     setDescription(item?.description ?? ""); setIcon(item?.icon ?? ""); setFulfillmentTeam(item?.fulfillmentTeam ?? "");
     setConsumableId(item?.consumableId ?? ""); setSlaHours(item?.slaHours == null ? "" : String(item.slaHours));
     setRequiresApproval(item?.requiresApproval ?? false); setApproverRole(item?.approverRole ?? "");
@@ -102,6 +104,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
     onSave({ title: title.trim(), category, description: description.trim() || null, icon: icon.trim() || null,
       slaHours: slaHours ? Number(slaHours) : null, requiresApproval, approverRole: requiresApproval ? approverRole as "Manager" | "IT Director" : null,
       fulfillmentTeam: fulfillmentTeam.trim() || null, consumableId: consumableId || null,
+      projectId: projectId || null,
       customFieldsSchema: fields.map(({ uiId: _uiId, ...field }) => ({
         ...field,
         key: field.key.trim(),
@@ -124,6 +127,7 @@ export function CatalogItemEditor({ open, item, options, onClose, onSave, saving
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Service title<Input value={title} onChange={event => setTitle(event.target.value)} /></label>
           <label className="grid gap-1.5 text-sm font-medium">Category<Select value={category} onValueChange={setCategory}><SelectTrigger><SelectValue placeholder="Choose a category" /></SelectTrigger><SelectContent>{options.categories.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></label>
+          <label className="grid gap-1.5 text-sm font-medium">Project scope<Select value={projectId || "__global__"} onValueChange={value => setProjectId(value === "__global__" ? "" : value)}><SelectTrigger><SelectValue placeholder="Company-wide" /></SelectTrigger><SelectContent><SelectItem value="__global__">Company-wide</SelectItem>{(options.projects ?? []).map(project => <SelectItem key={project.id} value={project.id}>{project.name}</SelectItem>)}</SelectContent></Select><span className="text-xs font-normal text-muted-foreground">Optional. Project-scoped services are visible only to assigned project members.</span></label>
           <label className="grid gap-1.5 text-sm font-medium">Icon name <span className="text-xs font-normal text-muted-foreground">Optional display hint</span><Input value={icon} onChange={event => setIcon(event.target.value)} placeholder="laptop" /></label>
           <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Description<Textarea value={description} onChange={event => setDescription(event.target.value)} rows={3} /></label>
           <label className="grid gap-1.5 text-sm font-medium">Fulfillment team<Input value={fulfillmentTeam} onChange={event => setFulfillmentTeam(event.target.value)} placeholder="e.g. Endpoint Services" /></label>

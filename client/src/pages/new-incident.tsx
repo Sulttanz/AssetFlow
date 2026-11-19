@@ -52,6 +52,7 @@ export default function NewIncidentPage() {
   const [urgency, setUrgency] = useState("medium");
   const [impact, setImpact] = useState("medium");
   const [projectId, setProjectId] = useState("");
+  const [projectScope, setProjectScope] = useState<"global" | "project">("project");
   const [incidentCatalogItemId, setIncidentCatalogItemId] = useState("");
   const [assetId, setAssetId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -60,11 +61,14 @@ export default function NewIncidentPage() {
   const [requestedForSearch, setRequestedForSearch] = useState("");
   const [validationError, setValidationError] = useState("");
   const options = useQuery<IncidentOptions>({
-    queryKey: [staffIntake ? "/api/incidents/options" : "/api/portal/incidents/options", user?.id, projectId],
+    queryKey: [staffIntake ? "/api/incidents/options" : "/api/portal/incidents/options", user?.id, projectId, projectScope],
     queryFn: async () => {
       const path = staffIntake
         ? "/api/incidents/options"
-        : `/api/portal/incidents/options${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`;
+        : `/api/portal/incidents/options?${new URLSearchParams({
+            ...(projectId && projectScope === "project" ? { projectId } : {}),
+            ...(projectScope === "global" ? { scope: "global" } : {}),
+          }).toString()}`;
       const response = await fetch(path, { credentials: "include" });
       if (!response.ok) throw new Error(`Could not load incident options (${response.status})`);
       return response.json();
@@ -72,8 +76,15 @@ export default function NewIncidentPage() {
     enabled: Boolean(user?.id),
   });
   useEffect(() => {
-    if (!staffIntake && options.data?.selectedProjectId && !projectId) setProjectId(options.data.selectedProjectId);
-  }, [staffIntake, options.data?.selectedProjectId, projectId]);
+    if (staffIntake || !options.data) return;
+    const assignedProjects = options.data.projects ?? [];
+    if (assignedProjects.length === 0) {
+      setProjectScope("global");
+      setProjectId("");
+    } else if (projectScope === "project" && !projectId && options.data.selectedProjectId) {
+      setProjectId(options.data.selectedProjectId);
+    }
+  }, [staffIntake, options.data, projectId, projectScope]);
   const incidentCatalog = staffIntake ? options.data?.incidentCatalog ?? [] : options.data?.catalog ?? [];
   const selectedCatalog = incidentCatalog.find(item => item.id === incidentCatalogItemId);
   const visibleIncidentCatalog = incidentCatalog.filter(item => !item.projectId || item.projectId === projectId);
@@ -88,7 +99,7 @@ export default function NewIncidentPage() {
     mutationFn: async (payload: {
       title: string; description: string; priority?: "P1" | "P2" | "P3" | "P4";
       urgency?: string; impact?: string; projectId: string | null; slaPolicyId?: string | null; assignmentGroup?: string | null;
-      requesterId?: string; assigneeId?: string | null; incidentCatalogItemId?: string | null; assetId?: string | null;
+      requesterId?: string; assigneeId?: string | null; incidentCatalogItemId?: string | null; assetId?: string | null; scope?: "global" | "project";
     }) => (await apiRequest("POST", "/api/incidents", payload)).json(),
     onSuccess: async (incident: { id: string; incidentNumber?: string }) => {
       const uploadErrors: string[] = [];
@@ -123,8 +134,13 @@ export default function NewIncidentPage() {
       setValidationError("Add an incident title and a description with more than whitespace.");
       return;
     }
-    if (!staffIntake && !projectId && (options.data?.projects.length ?? 0) > 0) {
+    const assignedProjects = options.data?.projects ?? [];
+    if (!staffIntake && projectScope === "project" && !projectId && assignedProjects.length > 0) {
       setValidationError("Choose a project assigned to your account before submitting.");
+      return;
+    }
+    if (!staffIntake && projectScope === "global" && !user?.employeeId && assignedProjects.length > 0) {
+      setValidationError("Project users must submit incidents to one of their assigned projects.");
       return;
     }
     if (!incidentCatalogItemId) {
@@ -135,7 +151,8 @@ export default function NewIncidentPage() {
     createIncident.mutate({
       title: cleanTitle,
       description: cleanDescription,
-      projectId: projectId || null,
+      projectId: staffIntake || projectScope === "project" ? projectId || null : null,
+      ...(!staffIntake ? { scope: projectScope } : {}),
       incidentCatalogItemId,
       assetId: assetId || null,
       ...(staffIntake ? { priority, urgency, impact, assignmentGroup: assignmentGroup.trim() || null } : {}),
@@ -198,15 +215,24 @@ export default function NewIncidentPage() {
             {options.isLoading ? <div role="status" aria-label="Loading routing options" className="space-y-3"><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /><div className="h-10 animate-pulse rounded-xl bg-[#dce9e2]" /></div>
               : options.isError ? <div className="rounded-xl border border-[#e7c9bd] bg-[#fff8f4] p-3 text-sm text-[#815543]" role="alert"><p>Incident options could not load. Retry before submitting so the correct project scope and routing are applied.</p><Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg" onClick={() => void options.refetch()}><RefreshCw className="mr-2 h-3.5 w-3.5" />Retry</Button></div>
               : <>
-                {(staffIntake || (options.data?.projects.length ?? 0) >= 2) && <Field label={staffIntake ? "Project (optional)" : "Project"}>
+                {!staffIntake && options.data?.linkedEmployee && options.data.projects.length > 0 && <Field label="Incident scope">
+                  <select className={selectClass} value={projectScope} onChange={event => {
+                    const nextScope = event.target.value as "global" | "project";
+                    setProjectScope(nextScope);
+                    setProjectId(nextScope === "project" && options.data?.projects.length === 1 ? options.data.projects[0].id : "");
+                    setIncidentCatalogItemId("");
+                  }}>
+                    <option value="global">Company-wide incident</option>
+                    <option value="project">Assigned project incident</option>
+                  </select>
+                </Field>}
+                {(staffIntake || (projectScope === "project" && (options.data?.projects.length ?? 0) >= 2)) && <Field label={staffIntake ? "Project (optional)" : "Project"}>
                   <select className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
                     <option value="">{staffIntake ? "No project" : "Select your project"}</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
                 </Field>}
-                {!staffIntake && options.data?.projects.length === 1 && <p className="text-sm">Project: <strong>{options.data.projects[0].name}</strong> · automatically selected</p>}
-                {!staffIntake && options.data?.projects.length === 0 && (options.data.linkedEmployee
-                  ? <p className="text-sm">Internal company incident · no project required.</p>
-                  : <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account. Contact your project manager before reporting a project incident.</p>)}
+                {!staffIntake && projectScope === "project" && options.data?.projects.length === 1 && <p className="text-sm">Project: <strong>{options.data.projects[0].name}</strong> · automatically selected</p>}
+                {!staffIntake && options.data?.projects.length === 0 && <p className="text-sm">Internal company incident · no project required.</p>}
               </>}
             <div className="rounded-xl border border-[#d8e5df] bg-white/70 p-3.5 text-xs leading-5 text-[#718681]">
               <div className="mb-1.5 flex items-center gap-2 font-semibold text-[#3f6963]"><ClipboardCheck className="h-4 w-4" /> What happens next</div>
@@ -217,7 +243,7 @@ export default function NewIncidentPage() {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
           {createIncident.isError && <p role="alert" className="text-sm text-destructive">Submission failed. Your details are still here; review the error and try again.</p>}
           {validationError && <p role="alert" className="text-sm text-destructive">{validationError}</p>}
-          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending || options.isLoading || options.isError || (!staffIntake && !options.data?.linkedEmployee && (options.data?.projects.length ?? 0) === 0)}>
+          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createIncident.isPending || options.isLoading || options.isError || (!staffIntake && projectScope === "project" && !projectId && (options.data?.projects.length ?? 0) > 0)}>
             {createIncident.isPending ? "Submitting incident…" : "Submit incident"}
           </Button>
           <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white">

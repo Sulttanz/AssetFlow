@@ -174,6 +174,39 @@ export const projectAssets = pgTable("project_assets", {
   index("project_assets_asset_project_idx").on(table.assetId, table.projectId),
 ]);
 
+// ITSM change requests are defined before project tasks so their optional
+// cross-module relationship can be represented as a real SET NULL foreign key.
+export const changes = pgTable("changes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  changeNumber: text("change_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default("normal"),
+  status: text("status").notNull().default("draft"),
+  priority: text("priority").notNull().default("medium"),
+  risk: text("risk").default("low"),
+  impact: text("impact"),
+  rollbackPlan: text("rollback_plan"),
+  implementationPlan: text("implementation_plan"),
+  testPlan: text("test_plan"),
+  scheduledStart: timestamp("scheduled_start"),
+  scheduledEnd: timestamp("scheduled_end"),
+  actualStart: timestamp("actual_start"),
+  actualEnd: timestamp("actual_end"),
+  assignedAt: timestamp("assigned_at"),
+  submittedAt: timestamp("submitted_at"),
+  approvedAt: timestamp("approved_at"),
+  cabRequired: boolean("cab_required").default(false),
+  cabReviewVersion: integer("cab_review_version").notNull().default(1),
+  cabScheduledFor: timestamp("cab_scheduled_for"),
+  requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
+  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
 export const projectTasks = pgTable("project_tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
@@ -182,6 +215,7 @@ export const projectTasks = pgTable("project_tasks", {
   status: varchar("status", { length: 50 }).notNull().default("Backlog"),
   priority: varchar("priority", { length: 20 }).notNull().default("Medium"),
   assigneeId: varchar("assignee_id").references(() => users.id, { onDelete: "set null" }),
+  changeRequestId: varchar("change_request_id").references(() => changes.id, { onDelete: "set null" }),
   estimatedHours: decimal("estimated_hours", { precision: 6, scale: 2 }).notNull().default("0.00"),
   loggedHours: decimal("logged_hours", { precision: 6, scale: 2 }).notNull().default("0.00"),
   dueDate: timestamp("due_date", { withTimezone: true }),
@@ -194,6 +228,7 @@ export const projectTasks = pgTable("project_tasks", {
   check("project_tasks_logged_hours_check", sql`${table.loggedHours} >= 0`),
   index("project_tasks_project_status_order_idx").on(table.projectId, table.status, table.sortOrder),
   index("project_tasks_assignee_project_idx").on(table.assigneeId, table.projectId),
+  uniqueIndex("project_tasks_change_request_uq").on(table.changeRequestId).where(sql`${table.changeRequestId} IS NOT NULL`),
 ]);
 
 export const projectRisks = pgTable("project_risks", {
@@ -2326,6 +2361,8 @@ export type Setting = typeof settings.$inferSelect;
 export type UserWithDetails = User & {
   roles?: Role[];
   permissions?: string[]; // Array of permission names
+  assignedProjectIds?: string[];
+  assignedProjects?: { id: string; name: string }[];
 };
 
 export type RoleWithDetails = Role & {
@@ -2705,6 +2742,7 @@ export const serviceCatalogItems = pgTable("service_catalog_items", {
   id: varchar("id").primaryKey().references(() => catalogItems.id, { onDelete: "restrict" }),
   title: text("title").notNull(),
   category: text("category").notNull(),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
   description: text("description"),
   defaultPriority: text("default_priority").notNull().default("P3"),
   defaultImpact: text("default_impact").notNull().default("low"),
@@ -2719,6 +2757,7 @@ export const serviceCatalogItems = pgTable("service_catalog_items", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, table => [
   index("service_catalog_items_status_category_idx").on(table.status, table.category),
+  index("service_catalog_items_project_status_idx").on(table.projectId, table.status),
   check("service_catalog_items_valid_status", sql`${table.status} IN ('Active', 'Inactive')`),
   check("service_catalog_items_positive_sla", sql`${table.slaHours} > 0`),
   check("service_catalog_items_approver_check", sql`NOT ${table.requiresApproval} OR ${table.approverRole} IN ('Manager', 'IT Director') AND ${table.approverRole} IS NOT NULL`),
@@ -2775,37 +2814,6 @@ export type InsertIncidentCatalogItem = z.infer<typeof insertIncidentCatalogItem
 // ─────────────────────────────────────────────────────────────────────────────
 // Change Management
 // ─────────────────────────────────────────────────────────────────────────────
-export const changes = pgTable("changes", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  changeNumber: text("change_number").notNull().unique(),
-  title: text("title").notNull(),
-  description: text("description"),
-  type: text("type").notNull().default("normal"),     // standard | normal | emergency
-  status: text("status").notNull().default("draft"),  // draft | submitted | approved | rejected | in_progress | completed | cancelled
-  priority: text("priority").notNull().default("medium"),
-  risk: text("risk").default("low"),                  // low | medium | high | critical
-  impact: text("impact"),
-  rollbackPlan: text("rollback_plan"),
-  implementationPlan: text("implementation_plan"),
-  testPlan: text("test_plan"),
-  scheduledStart: timestamp("scheduled_start"),
-  scheduledEnd: timestamp("scheduled_end"),
-  actualStart: timestamp("actual_start"),
-  actualEnd: timestamp("actual_end"),
-  assignedAt: timestamp("assigned_at"),
-  submittedAt: timestamp("submitted_at"),
-  approvedAt: timestamp("approved_at"),
-  cabRequired: boolean("cab_required").default(false),
-  cabReviewVersion: integer("cab_review_version").notNull().default(1),
-  cabScheduledFor: timestamp("cab_scheduled_for"),
-  requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
-  assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
-  departmentId: varchar("department_id").references(() => departments.id, { onDelete: "set null" }),
-  projectId: varchar("project_id").references(() => projects.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").default(sql`now()`),
-  updatedAt: timestamp("updated_at").default(sql`now()`),
-});
-
 export const changeBlackouts = pgTable("change_blackouts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),

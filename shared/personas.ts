@@ -5,6 +5,7 @@ import { getStandardRoleKey } from "./role-catalog";
 export type PersonaUserLike = {
   id?: string;
   employeeId?: string | null;
+  assignedProjectIds?: readonly string[] | null;
   roles?: Array<{ name: string }> | null;
   permissions?: readonly string[] | null;
 };
@@ -83,6 +84,7 @@ export function isPersonaPageAllowed(
   permissions: readonly string[],
   requestedPath: string,
   employeeId?: string | null,
+  assignedProjectIds: readonly string[] = [],
 ): boolean {
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/knowledge-base") return true;
@@ -96,6 +98,7 @@ export function isPersonaPageAllowed(
   return personas.some(persona => {
     if (persona === "end_user") {
       if (path === "/my-assets") return Boolean(employeeId);
+      if (path === "/changes/new") return assignedProjectIds.length > 0;
       return ["/portal", "/service-catalog", "/incidents/new", "/service-requests/new"]
         .includes(path);
     }
@@ -202,7 +205,9 @@ export function isPersonaApiAllowed(
   if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
   return personas.some(persona => {
     if (persona === "end_user") {
-      return (Boolean(employeeId) && (
+      const projectChangeAccess = matchesPath(apiPath, "/changes") &&
+        (isReadMethod(upperMethod) || (apiPath === "/changes" && upperMethod === "POST"));
+      return projectChangeAccess || (Boolean(employeeId) && (
         (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
         (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
         (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST")

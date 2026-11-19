@@ -20,7 +20,9 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
   const suffix = randomUUID();
   const actorId = randomUUID();
   const outsiderId = randomUUID();
-  const employeeId = randomUUID();
+  const linkedNoProjectId = randomUUID();
+  const linkedProjectId = randomUUID();
+  const employeeIds = [randomUUID(), randomUUID()];
   const internalPolicyId = randomUUID();
   const projectIds = [randomUUID(), randomUUID()];
   const catalogIds = [randomUUID(), randomUUID(), randomUUID()];
@@ -29,6 +31,8 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
   let base = "";
   let cookie = "";
   let outsiderCookie = "";
+  let linkedNoProjectCookie = "";
+  let linkedProjectCookie = "";
 
   async function request(path: string, method = "GET", body?: unknown, sessionCookie = cookie) {
     const response = await fetch(`${base}${path}`, {
@@ -47,23 +51,36 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     const password = randomUUID();
     const hash = await hashPassword(password);
-    await db.insert(s.users).values([actorId, outsiderId].map(id => ({
+    await db.insert(s.employees).values(employeeIds.map((id, index) => ({
+      id,
+      employeeId: `PORTAL-${suffix}-${index}`,
+      firstName: "Linked",
+      lastName: `Portal ${index}`,
+      position: "Test User",
+    })));
+    await db.insert(s.users).values([
+      { id: actorId, employeeId: null },
+      { id: outsiderId, employeeId: null },
+      { id: linkedNoProjectId, employeeId: employeeIds[0] },
+      { id: linkedProjectId, employeeId: employeeIds[1] },
+    ].map(({ id, employeeId }) => ({
       id, username: `portal-${id}`, email: `portal-${id}@example.test`,
-      password: hash, firstName: "Portal", lastName: suffix, employeeId: null,
+      password: hash, firstName: "Portal", lastName: suffix, employeeId,
     })));
     // Exercise real end-user persona middleware, not a custom role bypass.
     const [role] = await db.select().from(s.roles).where(eq(s.roles.name, "end_user")).limit(1);
     if (!role) throw new Error("Standard end_user role was not initialized");
-    await db.insert(s.userRoles).values([actorId, outsiderId].map(userId => ({ userId, roleId: role.id })));
+    await db.insert(s.userRoles).values([actorId, outsiderId, linkedNoProjectId, linkedProjectId].map(userId => ({ userId, roleId: role.id })));
     await db.insert(s.projects).values(projectIds.map(id => ({ id, name: `Portal project ${id}`, title: `Portal project ${id}` })));
     await db.insert(s.projectTeamMembers).values({ projectId: projectIds[0], userId: actorId });
+    await db.insert(s.projectTeamMembers).values({ projectId: projectIds[1], userId: linkedProjectId });
     await db.insert(s.incidentCatalogItems).values(catalogIds.map((id, index) => ({
       id, name: `Portal type ${id}`, category: "Network",
       projectId: index === 0 ? null : projectIds[index - 1],
       defaultPriority: "P2", defaultImpact: "high", defaultUrgency: "medium",
       defaultAssignmentGroup: "Service Desk",
     })));
-    for (const id of [actorId, outsiderId]) {
+    for (const id of [actorId, outsiderId, linkedNoProjectId, linkedProjectId]) {
       const response = await fetch(`${base}/api/login`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ username: `portal-${id}`, password }),
@@ -71,7 +88,9 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
       expect(response.status).toBe(200);
       const sessionCookie = response.headers.get("set-cookie")?.split(";")[0] ?? "";
       if (id === actorId) cookie = sessionCookie;
-      else outsiderCookie = sessionCookie;
+      else if (id === outsiderId) outsiderCookie = sessionCookie;
+      else if (id === linkedNoProjectId) linkedNoProjectCookie = sessionCookie;
+      else linkedProjectCookie = sessionCookie;
     }
   }, 60000);
 
@@ -86,10 +105,10 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
       await db.delete(s.incidentCatalogItems).where(inArray(s.incidentCatalogItems.id, catalogIds));
       await db.delete(s.slaPolicies).where(eq(s.slaPolicies.id, internalPolicyId));
       await db.delete(s.projects).where(inArray(s.projects.id, projectIds));
-      await db.delete(s.auditLogs).where(inArray(s.auditLogs.userId, [actorId, outsiderId]));
-      await db.delete(s.userRoles).where(inArray(s.userRoles.userId, [actorId, outsiderId]));
-      await db.delete(s.users).where(inArray(s.users.id, [actorId, outsiderId]));
-      await db.delete(s.employees).where(eq(s.employees.id, employeeId));
+      await db.delete(s.auditLogs).where(inArray(s.auditLogs.userId, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
+      await db.delete(s.userRoles).where(inArray(s.userRoles.userId, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
+      await db.delete(s.users).where(inArray(s.users.id, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
+      await db.delete(s.employees).where(inArray(s.employees.id, employeeIds));
     } finally {
       if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
       await pool.end();
@@ -139,6 +158,57 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("VPN connection failed");
     expect((await request(`/api/incidents/${created.body.id}/attachments`, "GET", undefined, outsiderCookie)).status).toBe(403);
+  });
+
+  it("accepts global incidents for linked employees and unlinked users without projects", async () => {
+    for (const sessionCookie of [outsiderCookie, linkedNoProjectCookie]) {
+      const created = await request("/api/incidents", "POST", {
+        title: `Global incident ${suffix}`,
+        description: "Company-wide service issue",
+        projectId: null,
+        incidentCatalogItemId: catalogIds[0],
+      }, sessionCookie);
+      expect(created.status).toBe(201);
+      incidentIds.push(created.body.id);
+      expect(created.body.projectId).toBeNull();
+    }
+  });
+
+  it("scopes linked project employees and external project users to their assigned projects", async () => {
+    const globalLinked = await request("/api/incidents", "POST", {
+      title: `Linked global incident ${suffix}`,
+      description: "Internal-wide issue",
+      scope: "global",
+      projectId: null,
+      incidentCatalogItemId: catalogIds[0],
+    }, linkedProjectCookie);
+    expect(globalLinked.status).toBe(201);
+    incidentIds.push(globalLinked.body.id);
+
+    const linkedProject = await request("/api/incidents", "POST", {
+      title: `Linked project incident ${suffix}`,
+      description: "Project issue",
+      scope: "project",
+      projectId: projectIds[1],
+      incidentCatalogItemId: catalogIds[2],
+    }, linkedProjectCookie);
+    expect(linkedProject.status).toBe(201);
+    incidentIds.push(linkedProject.body.id);
+
+    const externalProject = await request("/api/incidents", "POST", {
+      title: `External project incident ${suffix}`,
+      description: "External project issue",
+      projectId: projectIds[0],
+      incidentCatalogItemId: catalogIds[1],
+    });
+    expect(externalProject.status).toBe(201);
+    incidentIds.push(externalProject.body.id);
+    expect((await request("/api/incidents", "POST", {
+      title: `External global incident ${suffix}`,
+      description: "Project users must select their project",
+      projectId: null,
+      incidentCatalogItemId: catalogIds[0],
+    })).status).toBe(403);
   });
 
   it("allows a linked employee with no projects to submit an internal incident using catalog defaults", async () => {

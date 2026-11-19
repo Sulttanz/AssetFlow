@@ -139,8 +139,11 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
     expect(screen.queryByRole("button", { name: "My Assets" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "IT Service Management" })).toBeNull();
     fireEvent.click(button("Employee Support"));
     expect(screen.getByRole("link", { name: "Employee Self Service" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Service Catalog" })).toBeTruthy();
+    expect(document.querySelectorAll('nav a[href="/service-catalog"]')).toHaveLength(1);
     expect(screen.queryByRole("link", { name: "Incident Tracker" })).toBeNull();
     cleanup();
 
@@ -148,6 +151,14 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     fireEvent.click(button("My Assets"));
     expect(screen.getByRole("link", { name: "My Assigned Assets" })).toBeTruthy();
+    cleanup();
+
+    state.user = { ...user("end_user"), assignedProjectIds: ["project-1"] } as UserWithDetails;
+    render(<Sidebar />);
+    expect(screen.queryByRole("button", { name: "IT Service Management" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "My Assigned Assets" })).toBeNull();
+    fireEvent.click(button("Employee Support"));
+    expect(document.querySelectorAll('nav a[href="/service-catalog"]')).toHaveLength(1);
     cleanup();
 
     state.user = user("asset_manager", ["asset_view", "vendor_create"]);
@@ -165,6 +176,19 @@ describe("Enterprise sidebar navigation", () => {
     expect(screen.getByRole("link", { name: "Changes" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Change Tracker" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Servers" })).toBeNull();
+  });
+
+  it.each([390, 768])("keeps End User navigation consistent at %ipx", viewportWidth => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: viewportWidth });
+    state.user = { ...user("end_user"), assignedProjectIds: ["project-1"] } as UserWithDetails;
+    render(<Sidebar />);
+    expect(screen.queryByTestId("section-toggle-it-service-management")).toBeNull();
+    fireEvent.click(button("Employee Support"));
+    expect(screen.getByRole("link", { name: "Service Catalog" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "My Assigned Assets" })).toBeNull();
+    cleanup();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
   });
 
   it("nests the exact four report categories and opens the active report category", () => {

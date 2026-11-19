@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, CalendarClock, ClipboardList, RefreshCw, ShieldCheck } from "lucide-react";
@@ -10,6 +10,7 @@ import { CalendarDateField } from "@/components/ui/calendar-date-field";
 import { ChangeImpactSelector } from "@/components/cmdb/change-impact-selector";
 import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 type ChangeOptions = { projects: { id: string; name: string }[] };
 type ChangeType = "standard" | "normal" | "emergency";
@@ -26,6 +27,9 @@ function Field({ label, children, hint }: { label: string; children: React.React
 export default function NewChangePage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const roleNames = user?.roles?.map(role => role.name.toLowerCase().replace(/[\s-]+/g, "_")) ?? [];
+  const isEndUser = roleNames.includes("end_user");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<ChangeType>("normal");
@@ -43,9 +47,13 @@ export default function NewChangePage() {
   const [targetAssetIds, setTargetAssetIds] = useState<string[]>([]);
   const [validationError, setValidationError] = useState("");
   const options = useQuery<ChangeOptions>({
-    queryKey: ["/api/incidents/options"],
+    queryKey: [isEndUser ? "/api/portal/incidents/options" : "/api/incidents/options"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
+  const assignedProjects = isEndUser ? (options.data?.projects ?? []) : (options.data?.projects ?? []);
+  useEffect(() => {
+    if (isEndUser && assignedProjects.length === 1 && !projectId) setProjectId(assignedProjects[0].id);
+  }, [isEndUser, assignedProjects, projectId]);
   const createChange = useMutation({
     mutationFn: async (payload: {
       title: string; description: string; type: ChangeType; priority: Rating; risk: Rating; impact: string;
@@ -54,8 +62,11 @@ export default function NewChangePage() {
     }) => (await apiRequest("POST", "/api/changes", payload)).json(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/changes"] });
-      toast({ title: "Change draft created", description: "The proposal is saved as a draft for review in the change workbench." });
-      navigate("/changes");
+      toast({
+        title: isEndUser ? "Project change request submitted" : "Change draft created",
+        description: isEndUser ? "The request is awaiting IT Manager / CAB review." : "The proposal is saved as a draft for review in the change workbench.",
+      });
+      navigate(isEndUser ? "/portal" : "/changes");
     },
     onError: (error: Error) => toast({ title: "Change could not be created", description: error.message, variant: "destructive" }),
   });
@@ -74,6 +85,10 @@ export default function NewChangePage() {
     }
     if (scheduledEnd < scheduledStart) {
       setValidationError("The end date must be on or after the start date.");
+      return;
+    }
+    if (isEndUser && (!projectId || !assignedProjects.some(project => project.id === projectId))) {
+      setValidationError("Select a project assigned to your account.");
       return;
     }
     setValidationError("");
@@ -99,11 +114,11 @@ export default function NewChangePage() {
 
   return <main className="min-h-[100dvh] bg-[#f2f7f5] px-4 py-6 text-[#193638] sm:px-7 sm:py-9">
     <div className="mx-auto max-w-5xl">
-      <Link href="/changes" className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]"><ArrowLeft className="h-4 w-4" /> Back to changes</Link>
+      <Link href={isEndUser ? "/portal" : "/changes"} className="inline-flex items-center gap-2 rounded-lg text-sm font-medium text-[#55716e] outline-none transition-colors hover:text-[#285f5d] focus-visible:ring-2 focus-visible:ring-[#327a78]"><ArrowLeft className="h-4 w-4" /> {isEndUser ? "Back to portal" : "Back to changes"}</Link>
       <header className="mb-7 mt-7 border-b border-[#d9e5e1] pb-6 sm:mt-9">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#eadab5] bg-[#fbf5e8] px-3 py-1.5 text-xs font-semibold uppercase tracking-[.13em] text-[#80642d]"><CalendarClock className="h-3.5 w-3.5" /> Change proposal</div>
-        <h1 className="font-display text-3xl font-semibold tracking-[-.045em] text-[#183c3d] sm:text-4xl">Propose a change</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#647c79] sm:text-base">Document the impact, implementation, and recovery approach. This creates a draft; it does not schedule or authorize the change.</p>
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#eadab5] bg-[#fbf5e8] px-3 py-1.5 text-xs font-semibold uppercase tracking-[.13em] text-[#80642d]"><CalendarClock className="h-3.5 w-3.5" /> {isEndUser ? "Project change request" : "Change proposal"}</div>
+        <h1 className="font-display text-3xl font-semibold tracking-[-.045em] text-[#183c3d] sm:text-4xl">{isEndUser ? "Submit a project change request" : "Propose a change"}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#647c79] sm:text-base">{isEndUser ? "Describe the requested project change. An IT Manager or CAB member must review it before work begins." : "Document the impact, implementation, and recovery approach. This creates a draft; it does not schedule or authorize the change."}</p>
       </header>
 
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_310px]">
@@ -131,7 +146,7 @@ export default function NewChangePage() {
             </CardContent>
           </Card>
 
-          <ChangeImpactSelector
+          {!isEndUser && <ChangeImpactSelector
             applicationIds={targetApplicationIds}
             serverIds={targetServerIds}
             assetIds={targetAssetIds}
@@ -140,7 +155,7 @@ export default function NewChangePage() {
               setTargetServerIds(selection.serverIds);
               setTargetAssetIds(selection.assetIds);
             }}
-          />
+          />}
 
           <Card className="rounded-[22px] border-[#d8e4df] bg-[#fffdfa] shadow-[0_12px_35px_rgba(35,73,70,.05)]">
             <CardContent className="grid gap-5 p-5 sm:p-7">
@@ -168,26 +183,29 @@ export default function NewChangePage() {
               <Field label="Scheduled end" hint="Must be on or after the start date.">
                 <CalendarDateField required min={scheduledStart || undefined} value={scheduledEnd} onChange={event => setScheduledEnd(event.target.value)} className={inputClass} />
               </Field>
-              <Field label="Project (optional)">
-                <select className={selectClass} value={projectId} onChange={event => setProjectId(event.target.value)}>
-                  <option value="">No project</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-                </select>
+              <Field label={isEndUser ? "Assigned project" : "Project (optional)"}>
+                {isEndUser && assignedProjects.length === 1
+                  ? <Input value={assignedProjects[0].name} readOnly aria-label="Assigned project" className={inputClass} />
+                  : <select className={selectClass} value={projectId} required={isEndUser} onChange={event => setProjectId(event.target.value)}>
+                    {!isEndUser && <option value="">No project</option>}
+                    {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                  </select>}
                 {options.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading projects…</span>}
-                {options.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Project options could not load. You can still create a proposal without a project. <button type="button" className="font-semibold underline" onClick={() => void options.refetch()}>Retry</button></span>}
+                {options.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Project options could not load. <button type="button" className="font-semibold underline" onClick={() => void options.refetch()}>Retry</button></span>}
               </Field>
               <div className="rounded-xl border border-[#d8e5df] bg-white/70 p-3.5 text-xs leading-5 text-[#718681]">
                 <div className="mb-1.5 flex items-center gap-2 font-semibold text-[#3f6963]"><ShieldCheck className="h-4 w-4" /> Draft, not authorization</div>
-                Creating this proposal saves it as a draft. Required reviews and approvals happen in the change workbench.
+                {isEndUser ? "This request is sent for review. Work cannot begin until required approvals are complete." : "Creating this proposal saves it as a draft. Required reviews and approvals happen in the change workbench."}
               </div>
             </CardContent>
           </Card>
           {scheduledStart && scheduledEnd && scheduledEnd < scheduledStart && <p role="alert" className="text-sm text-destructive">The end date must be on or after the start date.</p>}
           {validationError && <p role="alert" className="text-sm text-destructive">{validationError}</p>}
           {createChange.isError && <p role="alert" className="text-sm text-destructive">The proposal could not be saved. Your details are still here; review the error and try again.</p>}
-          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createChange.isPending || Boolean(scheduledStart && scheduledEnd && scheduledEnd < scheduledStart)}>
-            {createChange.isPending ? "Saving draft…" : "Create change draft"}
+          <Button type="submit" className="h-11 rounded-xl bg-[#285f5d] text-white hover:bg-[#1f514f]" disabled={createChange.isPending || options.isLoading || (isEndUser && (!projectId || !assignedProjects.some(project => project.id === projectId))) || Boolean(scheduledStart && scheduledEnd && scheduledEnd < scheduledStart)}>
+            {createChange.isPending ? "Submitting…" : isEndUser ? "Submit for review" : "Create change draft"}
           </Button>
-          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white"><Link href="/portal">Cancel</Link></Button>
+          <Button asChild type="button" variant="outline" className="h-11 rounded-xl border-[#d5e1dc] bg-white"><Link href={isEndUser ? "/portal" : "/changes"}>Cancel</Link></Button>
         </aside>
       </form>
     </div>

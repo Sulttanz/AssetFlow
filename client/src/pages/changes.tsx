@@ -54,6 +54,8 @@ interface ChangeStage {
 }
 interface ChangeWithDetails {
   id: string; changeNumber: string; title: string; description: string | null;
+  projectId?: string | null;
+  linkedProjectTask?: { id: string; title: string } | null;
   type: string; status: string; priority: string; risk: string | null; impact: string | null;
   rollbackPlan: string | null; implementationPlan: string | null; testPlan: string | null;
   scheduledStart: string | null; scheduledEnd: string | null;
@@ -1198,6 +1200,12 @@ export default function Changes() {
                 <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Description</p>
                 <p className="text-sm">{currentChange?.description || "No description provided."}</p>
               </div>
+              {currentChange?.linkedProjectTask && <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">Linked Project Task</p>
+                <p className="mt-1 text-sm font-medium">{currentChange.linkedProjectTask.title}</p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{currentChange.linkedProjectTask.id}</p>
+                {currentChange.projectId && <Link className="mt-2 inline-block text-sm font-medium text-blue-700 underline" href={`/projects/${currentChange.projectId}`}>Open project workspace</Link>}
+              </div>}
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Impact</p>
                 <p className="text-sm">{currentChange?.impact || "—"}</p>

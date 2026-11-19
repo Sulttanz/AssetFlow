@@ -164,7 +164,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     items: category.items.filter(item =>
       (!item.moduleKey || isModuleEnabled(item.moduleKey)) &&
       hasPermission(item.permission) &&
-      (!personaScoped || isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId)),
+      (!personaScoped || isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId, user?.assignedProjectIds ?? [])),
     ),
   })).filter(category =>
     (!category.moduleKey || isModuleEnabled(category.moduleKey)) &&
@@ -287,7 +287,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
         { name: "Problems", href: "/problems", icon: AlertTriangle, current: location === "/problems" },
         { name: "Changes", href: "/changes", icon: GitMerge, current: location === "/changes" },
         { name: "Change Tracker", href: "/changes/tracker", icon: GitBranch, current: location === "/changes/tracker" },
-        { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog" },
       ]
     },
     {
@@ -360,8 +359,6 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const navigationSections = sectionDefinitions.map(section => ({
     ...section,
     items: section.items.map((item: any) => {
-      const duplicateSelfServiceLink = ["/service-catalog", "/knowledge-base"].includes(item.href) &&
-        ((section.title === "Employee Support" && isItsmStaff) || (section.title === "IT Service Management" && !isItsmStaff));
       const submenu = item.submenu?.map((sub: any) => item.hasSubmenu
         ? {
           ...sub,
@@ -372,10 +369,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       return {
         ...item,
         submenu,
-        current: !duplicateSelfServiceLink && (item.href === activeHref || submenu?.some((sub: any) => sub.current)),
+        current: item.href === activeHref || submenu?.some((sub: any) => sub.current),
       };
     }),
-  }));
+  })).filter(section => !(personaRoles.includes("end_user") && section.title === "IT Service Management"));
   const overviewExpandedByDefault = isSystemAdministrator(user) ||
     personaRoles.includes("it_manager") || roleNames.some(name => getStandardRoleKey(name) === "it_manager");
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
@@ -403,10 +400,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     if (item.name === "Approval Queue") return Boolean(catalogAccess?.canApprove);
     if (!personaScoped && !isDemoViewer(roleNames)) return true;
     if (item.hasSubmenu) {
-      return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId) ||
+      return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId, user?.assignedProjectIds ?? []) ||
         item.submenu?.some((category: any) => category.items.length > 0);
     }
-    return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId);
+    return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId, user?.assignedProjectIds ?? []);
   };
 
   return (

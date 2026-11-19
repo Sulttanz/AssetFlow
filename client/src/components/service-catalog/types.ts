@@ -12,6 +12,8 @@ export type CatalogItem = {
   id: string;
   title: string;
   category: string;
+  projectId?: string | null;
+  projectName?: string | null;
   description: string | null;
   icon: string | null;
   slaHours: number | null;
@@ -29,6 +31,7 @@ export type CatalogOptions = {
   canManage: boolean;
   canApprove: boolean;
   categories: { value: string; label: string }[];
+  projects?: { id: string; name: string }[];
 };
 
 export async function catalogJson<T>(url: string, init?: RequestInit): Promise<T> {

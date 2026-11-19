@@ -181,8 +181,33 @@ export function setupAuth(app: Express) {
       const user = req.user as SelectUser;
       const roles = await storage.getUserRoles(user.id);
       const permissions = await storage.getUserPermissions(user.id);
+      let assignedProjects: Array<{ id: string; name: string }> = [];
+      try {
+        const projectResult = await pool.query<{ id: string; name: string }>(
+          `SELECT DISTINCT p.id, p.name
+           FROM projects p
+           LEFT JOIN project_managers pm ON pm.project_id = p.id
+           LEFT JOIN project_team_members ptm ON ptm.project_id = p.id
+           LEFT JOIN project_tasks task ON task.project_id = p.id AND task.assignee_id = $1
+           WHERE p.is_active = true
+             AND (pm.user_id = $1 OR ptm.user_id = $1 OR task.assignee_id = $1)
+           ORDER BY p.name`,
+          [user.id],
+        );
+        assignedProjects = projectResult.rows;
+      } catch (error) {
+        // Project scope is optional to authenticate. This keeps core sign-in
+        // available when Project Management is disabled or its schema is absent.
+        console.warn("Optional project assignments were unavailable for the signed-in user.", error);
+      }
       const { password, ...safeUser } = user;
-      res.json({ ...safeUser, roles, permissions });
+      res.json({
+        ...safeUser,
+        roles,
+        permissions,
+        assignedProjectIds: assignedProjects.map(project => project.id),
+        assignedProjects,
+      });
     } catch (error) {
       respondWithApiError(res, error, "Failed to fetch user data");
     }

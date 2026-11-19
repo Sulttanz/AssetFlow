@@ -41,4 +41,29 @@ describe("Dashboard landing and navigation destinations", () => {
     expect(dashboardWorkspace(user("asset_manager", ["asset_view", "inventory_view", "assignment_create", "my_assets_view"], "emp-2")).links.map(link => link.href)).toContain("/assets");
     expect(dashboardWorkspace(user("cab_member", ["change_view_all", "change_approve"])).links.map(link => link.href)).toEqual(["/changes", "/changes/tracker", "/portal", "/service-catalog"]);
   });
+
+  it("enforces the four End User project personas", () => {
+    type Persona = { employeeId: string | null; assignedProjectIds: string[] };
+    const linkedNoProjects: Persona = { employeeId: "emp-1", assignedProjectIds: [] };
+    const linkedWithProject = { employeeId: "emp-2", assignedProjectIds: ["project-1"] };
+    const externalWithProject = { employeeId: null, assignedProjectIds: ["project-2"] };
+    const unlinkedNoProjects = { employeeId: null, assignedProjectIds: [] };
+    const allowed = (persona: Persona, path: string) =>
+      isPersonaPageAllowed(["end_user"], [], path, persona.employeeId, persona.assignedProjectIds);
+
+    for (const path of ["/portal", "/incidents/new", "/service-requests/new", "/service-catalog", "/knowledge-base"]) {
+      expect(allowed(linkedNoProjects, path)).toBe(true);
+      expect(allowed(unlinkedNoProjects, path)).toBe(true);
+    }
+    expect(allowed(linkedNoProjects, "/my-assets")).toBe(true);
+    expect(allowed(linkedNoProjects, "/changes/new")).toBe(false);
+    expect(allowed(linkedWithProject, "/my-assets")).toBe(true);
+    expect(allowed(linkedWithProject, "/changes/new")).toBe(true);
+    expect(allowed(externalWithProject, "/my-assets")).toBe(false);
+    expect(allowed(externalWithProject, "/changes/new")).toBe(true);
+    expect(allowed(unlinkedNoProjects, "/my-assets")).toBe(false);
+    expect(allowed(unlinkedNoProjects, "/changes/new")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/changes", "POST")).toBe(true);
+    expect(isPersonaApiAllowed(["end_user"], [], "/changes/one", "PUT")).toBe(false);
+  });
 });

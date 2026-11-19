@@ -104,7 +104,7 @@ export default function ReportsDashboard() {
     .filter(category => (!category.moduleKey || isModuleEnabled(category.moduleKey)) && hasAnyPermission(permissions, category.permissions))
     .map(category => ({ ...category, items: category.items.filter(item =>
       hasAnyPermission(permissions, item.permissions) &&
-      isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId),
+      isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId, user?.assignedProjectIds ?? []),
     ) }))
     .filter(category => category.items.length > 0), [isModuleEnabled, permissions, roleNames, user?.employeeId]);
 

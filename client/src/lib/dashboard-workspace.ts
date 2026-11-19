@@ -97,7 +97,7 @@ export function dashboardWorkspace(user: UserWithDetails) {
   return {
     description,
     links: links.filter(link =>
-      isPersonaPageAllowed(roleNames, user.permissions ?? [], link.href, user.employeeId) &&
+      isPersonaPageAllowed(roleNames, user.permissions ?? [], link.href, user.employeeId, user.assignedProjectIds ?? []) &&
       (!link.permission || link.permission.some(permission => user.permissions?.includes(permission))),
     ),
   };
