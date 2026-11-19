@@ -5,12 +5,14 @@ import { dashboardWorkspace } from "./dashboard-workspace";
 import type { UserWithDetails } from "@shared/schema";
 
 describe("Dashboard landing and navigation destinations", () => {
-  it("uses Dashboard as the landing for every persona without granting executive API access", () => {
-    for (const role of ["admin", "it_manager", "cab_member", "it_agent", "auditor", "end_user", "custom"]) {
+  it("routes End Users to Employee Self Service and other personas to Dashboard", () => {
+    expect(getPersonaHomePath(["end_user"], [])).toBe("/portal");
+    expect(isPersonaPageAllowed(["end_user"], [], "/dashboard")).toBe(false);
+    for (const role of ["admin", "system_admin", "it_manager", "cab_member", "it_agent", "auditor", "asset_manager", "read_only_user", "custom"]) {
       expect(getPersonaHomePath([role], [])).toBe("/dashboard");
       expect(isPersonaPageAllowed([role], [], "/dashboard")).toBe(true);
     }
-    for (const role of ["it_agent", "auditor", "end_user"]) {
+    for (const role of ["it_agent", "auditor", "end_user", "cab_member"]) {
       expect(isPersonaApiAllowed([role], [], "/dashboard/executive", "GET")).toBe(false);
     }
     expect(isPersonaPageAllowed(["it_manager"], [], "/kpis")).toBe(true);
@@ -29,12 +31,14 @@ describe("Dashboard landing and navigation destinations", () => {
     expect(activeNavigationHref("/service-catalog", "?tab=catalog", hrefs)).toBe("/service-catalog");
   });
   it("builds role-appropriate dashboard links rather than redirecting agents to a lower-level page", () => {
-    const user = (name: string, permissions: string[] = []) => ({ roles: [{ name }], permissions } as UserWithDetails);
+    const user = (name: string, permissions: string[] = [], employeeId?: string) => ({ roles: [{ name }], permissions, employeeId } as UserWithDetails);
     expect(dashboardWorkspace(user("it_agent")).links.map(link => link.href)).toContain("/incidents/tracker");
-    expect(dashboardWorkspace(user("end_user", ["my_assets_view"])).links.map(link => link.href)).toEqual(["/portal", "/service-catalog", "/my-assets", "/knowledge-base"]);
+    expect(dashboardWorkspace(user("end_user", ["my_assets_view"], "emp-1")).links.map(link => link.href)).toEqual(["/portal", "/service-catalog", "/my-assets", "/knowledge-base"]);
     const auditorLinks = dashboardWorkspace(user("auditor", ["audit_view", "access_governance_view"])).links.map(link => link.href);
     expect(auditorLinks).toContain("/access-governance");
     expect(auditorLinks).not.toContain("/incidents/tracker");
     expect(dashboardWorkspace(user("end_user")).links.some(link => link.href === "/my-assets")).toBe(false);
+    expect(dashboardWorkspace(user("asset_manager", ["asset_view", "inventory_view", "assignment_create", "my_assets_view"], "emp-2")).links.map(link => link.href)).toContain("/assets");
+    expect(dashboardWorkspace(user("cab_member", ["change_view_all", "change_approve"])).links.map(link => link.href)).toEqual(["/changes", "/changes/tracker", "/portal", "/service-catalog"]);
   });
 });

@@ -22,11 +22,17 @@ const user = (name: string, permissions: string[] = []) => ({
 afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); state.query.mockClear(); });
 
 describe("Post-login Dashboard landing", () => {
-  it.each(["admin", "it_manager", "cab_member", "it_agent", "auditor", "end_user"])("lands %s users at /dashboard after authentication", role => {
+  it.each(["admin", "system_admin", "it_manager", "cab_member", "it_agent", "auditor"])("lands %s users at /dashboard after authentication", role => {
     window.history.replaceState({}, "", "/auth");
     state.user = user(role);
     render(<AuthPage />);
     expect(window.location.pathname).toBe("/dashboard");
+  });
+  it("lands End Users on the Employee Self Service Portal", () => {
+    window.history.replaceState({}, "", "/auth");
+    state.user = user("end_user");
+    render(<AuthPage />);
+    expect(window.location.pathname).toBe("/portal");
   });
   it.each(["it_agent", "auditor", "end_user"])("keeps %s on Dashboard without requesting executive analytics", role => {
     window.history.replaceState({}, "", "/dashboard");

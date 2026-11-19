@@ -102,8 +102,11 @@ export default function ReportsDashboard() {
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const categories = useMemo(() => reportCategories
     .filter(category => (!category.moduleKey || isModuleEnabled(category.moduleKey)) && hasAnyPermission(permissions, category.permissions))
-    .map(category => ({ ...category, items: category.items.filter(item => hasAnyPermission(permissions, item.permissions) && isPersonaPageAllowed(roleNames, permissions, item.href)) }))
-    .filter(category => category.items.length > 0), [isModuleEnabled, permissions, roleNames]);
+    .map(category => ({ ...category, items: category.items.filter(item =>
+      hasAnyPermission(permissions, item.permissions) &&
+      isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId),
+    ) }))
+    .filter(category => category.items.length > 0), [isModuleEnabled, permissions, roleNames, user?.employeeId]);
 
   const toggleCategory = (key: string) => {
     setExpandedCategories(current => {

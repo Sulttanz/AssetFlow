@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { getPersonaHomePath } from "@shared/personas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -91,7 +92,10 @@ export default function AuthPage() {
     defaultValues: { username: "", password: "" },
   });
 
-  if (user) return <Redirect to="/dashboard" />;
+  if (user) return <Redirect to={getPersonaHomePath(
+    user.roles?.map(role => role.name) ?? [],
+    user.permissions ?? [],
+  )} />;
 
   if (systemStatus && !systemStatus.initialized) return <Redirect to="/initialize" />;
 

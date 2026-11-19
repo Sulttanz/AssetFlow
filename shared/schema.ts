@@ -1113,11 +1113,14 @@ export type AssignmentGroupMember = typeof assignmentGroupMembers.$inferSelect;
 // Persona role names are stored as canonical lower-snake-case keys; custom role
 // names remain supported and are kept separate from the standard role catalog.
 export const PERSONA_ROLE_KEYS = [
+  "system_admin",
   "end_user",
   "it_agent",
   "cab_member",
   "it_manager",
   "auditor",
+  "asset_manager",
+  "read_only_user",
 ] as const;
 export type PersonaRoleKey = (typeof PERSONA_ROLE_KEYS)[number];
 

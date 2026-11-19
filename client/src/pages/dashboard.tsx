@@ -150,7 +150,7 @@ export default function Dashboard() {
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const personaRoles = getPersonaRoleKeys(roleNames);
   const isExecutiveViewer = isSystemAdministrator(user) || isDemoViewer(roleNames) ||
-    personaRoles.some(role => role === "it_manager" || role === "cab_member");
+    personaRoles.includes("it_manager");
   const { data, isLoading, isError, refetch, isFetching } = useQuery<ExecutiveDashboard>({
     queryKey: ["/api/dashboard/executive"],
     enabled: isExecutiveViewer && !isAuthLoading && !isModulesLoading,

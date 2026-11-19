@@ -20,7 +20,6 @@ type IncidentOptions = {
   users: { id: string; name: string }[];
   managedAssignmentGroups: { id: number; name: string }[];
   requesterUsers?: { id: string; name: string; email: string }[];
-  slaPolicies: { id: string; name: string; priority: string }[];
 };
 
 const inputClass = "h-11 rounded-xl border-[#d8e2e2] bg-white/80 px-3.5 text-sm shadow-none placeholder:text-[#829496] focus-visible:ring-[#327a78]";
@@ -56,9 +55,7 @@ export default function NewIncidentPage() {
   const [incidentCatalogItemId, setIncidentCatalogItemId] = useState("");
   const [assetId, setAssetId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [slaPolicyId, setSlaPolicyId] = useState("");
   const [assignmentGroup, setAssignmentGroup] = useState("");
-  const [assigneeId, setAssigneeId] = useState("");
   const [requestedForId, setRequestedForId] = useState("");
   const [requestedForSearch, setRequestedForSearch] = useState("");
   const [validationError, setValidationError] = useState("");
@@ -87,13 +84,6 @@ export default function NewIncidentPage() {
     setImpact(selectedCatalog.defaultImpact);
     setAssignmentGroup(selectedCatalog.defaultAssignmentGroup ?? "");
   }, [staffIntake, incidentCatalogItemId]);
-  const selectedGroup = options.data?.managedAssignmentGroups?.find(group => group.name === assignmentGroup);
-  const groupMembers = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/assignment-groups", selectedGroup?.id, "members"],
-    queryFn: async () => (await apiRequest("GET", `/api/assignment-groups/${selectedGroup!.id}/members`)).json(),
-    enabled: staffIntake && Boolean(selectedGroup?.id),
-  });
-  const availableEngineers = selectedGroup ? groupMembers.data ?? [] : options.data?.users ?? [];
   const createIncident = useMutation({
     mutationFn: async (payload: {
       title: string; description: string; priority?: "P1" | "P2" | "P3" | "P4";
@@ -137,7 +127,7 @@ export default function NewIncidentPage() {
       setValidationError("Choose a project assigned to your account before submitting.");
       return;
     }
-    if (!staffIntake && !incidentCatalogItemId) {
+    if (!incidentCatalogItemId) {
       setValidationError("Choose an incident type from the catalog.");
       return;
     }
@@ -148,7 +138,7 @@ export default function NewIncidentPage() {
       projectId: projectId || null,
       incidentCatalogItemId,
       assetId: assetId || null,
-      ...(staffIntake ? { priority, urgency, impact, slaPolicyId: slaPolicyId || null, assignmentGroup: assignmentGroup.trim() || null, assigneeId: assigneeId || null } : {}),
+      ...(staffIntake ? { priority, urgency, impact, assignmentGroup: assignmentGroup.trim() || null } : {}),
       ...(staffIntake && requestedForId ? { requesterId: requestedForId } : {}),
     });
   }
@@ -176,10 +166,8 @@ export default function NewIncidentPage() {
               {(options.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
             </select>
           </Field>}
-          <Field label="Incident type" hint={selectedCatalog
-            ? staffIntake ? `Default routing: ${selectedCatalog.defaultPriority}, ${selectedCatalog.defaultAssignmentGroup ?? "unassigned group"}.` : selectedCatalog.description ?? undefined
-            : "Choose the closest service or issue category."}>
-            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required={!staffIntake}>
+          <Field label="Incident type" hint={selectedCatalog?.description ?? "Choose the closest service or issue category."}>
+            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required>
               <option value="">Select an incident type</option>
               {visibleIncidentCatalog.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category}</option>)}
             </select>
@@ -190,23 +178,6 @@ export default function NewIncidentPage() {
           <Field label="What is happening?" hint="Include affected services or people, when it began, and any steps already tried.">
             <Textarea required rows={6} maxLength={8000} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the symptoms and their effect on your work." className={textAreaClass} />
           </Field>
-          {staffIntake && <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Priority">
-              <select className={selectClass} value={priority} onChange={event => setPriority(event.target.value as typeof priority)}>
-                <option value="P1">P1 · Critical</option><option value="P2">P2 · High</option><option value="P3">P3 · Moderate</option><option value="P4">P4 · Low</option>
-              </select>
-            </Field>
-            <Field label="Urgency">
-              <select className={selectClass} value={urgency} onChange={event => setUrgency(event.target.value)}>
-                <option value="high">High · work blocked</option><option value="medium">Medium · work impaired</option><option value="low">Low · workaround available</option>
-              </select>
-            </Field>
-            <Field label="Impact">
-              <select className={selectClass} value={impact} onChange={event => setImpact(event.target.value)}>
-                <option value="high">High · many users or service</option><option value="medium">Medium · team or function</option><option value="low">Low · individual</option>
-              </select>
-            </Field>
-          </div>}
           {!staffIntake && options.data?.linkedEmployee && (options.data.assignedAssets?.length ?? 0) > 0 && <Field label="Affected device (optional)">
             <select className={selectClass} value={assetId} onChange={event => setAssetId(event.target.value)}>
               <option value="">No specific device</option>
@@ -236,23 +207,6 @@ export default function NewIncidentPage() {
                 {!staffIntake && options.data?.projects.length === 0 && (options.data.linkedEmployee
                   ? <p className="text-sm">Internal company incident · no project required.</p>
                   : <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">No projects are assigned to your account. Contact your project manager before reporting a project incident.</p>)}
-                {staffIntake && <Field label="Assignment group (optional)" hint="Choose a fulfillment team for initial routing.">
-                  <select className={selectClass} value={assignmentGroup} onChange={event => { setAssignmentGroup(event.target.value); setAssigneeId(""); }}>
-                    <option value="">Unassigned group</option>
-                    {(options.data?.managedAssignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}
-                  </select>
-                </Field>}
-                {staffIntake && <Field label="Assigned engineer (optional)" hint={selectedGroup ? `Choose an active member of ${selectedGroup.name}.` : "Choose any available IT engineer, or leave the incident unassigned."}>
-                  <select className={selectClass} value={assigneeId} onChange={event => setAssigneeId(event.target.value)} disabled={groupMembers.isLoading}>
-                    <option value="">{groupMembers.isLoading ? "Loading group members…" : "Unassigned"}</option>
-                    {availableEngineers.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
-                  </select>
-                </Field>}
-                {staffIntake && <Field label="SLA policy (optional)">
-                  <select className={selectClass} value={slaPolicyId} onChange={event => setSlaPolicyId(event.target.value)}>
-                    <option value="">Use default policy</option>{(options.data?.slaPolicies ?? []).map(policy => <option key={policy.id} value={policy.id}>{policy.name} · {policy.priority}</option>)}
-                  </select>
-                </Field>}
               </>}
             <div className="rounded-xl border border-[#d8e5df] bg-white/70 p-3.5 text-xs leading-5 text-[#718681]">
               <div className="mb-1.5 flex items-center gap-2 font-semibold text-[#3f6963]"><ClipboardCheck className="h-4 w-4" /> What happens next</div>

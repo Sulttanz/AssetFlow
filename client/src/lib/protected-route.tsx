@@ -3,7 +3,7 @@ import { useModules } from "@/hooks/use-modules";
 import { Loader2, PackageX } from "lucide-react";
 import { Redirect, Route } from "wouter";
 import { canAccessItsmWorkbench } from "@/lib/itsm-access";
-import { getPersonaHomePath, isPersonaPageAllowed } from "@shared/personas";
+import { getPersonaHomePath, getPersonaRoleKeys, isPersonaPageAllowed } from "@shared/personas";
 
 export function ProtectedRoute({
   path,
@@ -62,8 +62,14 @@ export function ProtectedRoute({
 
   const roleNames = user.roles?.map(role => role.name) ?? [];
   const permissions = user.permissions ?? [];
-  if (!isPersonaPageAllowed(roleNames, permissions, path)) {
+  if (!isPersonaPageAllowed(roleNames, permissions, path, user.employeeId)) {
     return <Route path={path}><Redirect to={getPersonaHomePath(roleNames, permissions)} /></Route>;
+  }
+
+  if (allowLinkedEmployee &&
+    getPersonaRoleKeys(roleNames).includes("end_user") &&
+    !user.employeeId) {
+    return <Route path={path}><Redirect to="/portal" /></Route>;
   }
 
   if (requiresItsmWorkbench && !canAccessItsmWorkbench(user)) {

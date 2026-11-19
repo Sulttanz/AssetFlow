@@ -5,6 +5,7 @@ import type { IncidentCatalogItem } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { checkedResponse } from "@/components/service-catalog/types";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,8 @@ type IncidentOptions = { projects: { id: string; name: string }[]; managedAssign
 
 export function IncidentCatalogManager() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManage = Boolean(user?.permissions?.includes("incident_catalog_manage") || user?.permissions?.includes("system_admin"));
   const [editing, setEditing] = useState<IncidentCatalogItem | null>(null);
   const [draft, setDraft] = useState<CatalogForm>(blank);
   const [open, setOpen] = useState(false);
@@ -95,7 +98,7 @@ export function IncidentCatalogManager() {
   return <section className="space-y-4">
     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
       <div><h2 className="text-xl font-semibold">Incident templates</h2><p className="text-sm text-muted-foreground">Set global or project-specific intake choices and their default triage routing.</p></div>
-      <Button onClick={beginCreate}><Plus className="mr-2 h-4 w-4" />New incident template</Button>
+      {canManage && <Button onClick={beginCreate}><Plus className="mr-2 h-4 w-4" />New incident template</Button>}
     </div>
     {itemsQuery.isLoading ? <div className="h-24 animate-pulse rounded-xl bg-muted" /> : itemsQuery.isError ? <Card><CardContent className="p-6 text-sm text-destructive">Incident templates could not be loaded.</CardContent></Card> : !itemsQuery.data?.length ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No incident templates have been configured yet.</CardContent></Card> : <div className="grid gap-3">
       {itemsQuery.data.map(item => <Card key={item.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -104,14 +107,14 @@ export function IncidentCatalogManager() {
           <p className="mt-1 text-sm text-muted-foreground">{item.description || item.category}</p>
           <p className="mt-2 text-xs text-muted-foreground">{item.category} · {item.defaultPriority} · Impact {item.defaultImpact} / Urgency {item.defaultUrgency}{item.defaultAssignmentGroup ? ` · ${item.defaultAssignmentGroup}` : ""}</p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        {canManage && <div className="flex shrink-0 gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => beginEdit(item)}><Edit2 className="mr-1.5 h-4 w-4" />Edit</Button>
           {item.isActive && <Button type="button" variant="outline" size="sm" onClick={() => deactivate.mutate(item.id)} disabled={deactivate.isPending} aria-label={`Deactivate ${item.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
-        </div>
+        </div>}
       </CardContent></Card>)}
     </div>}
 
-    <Dialog open={open} onOpenChange={next => { setOpen(next); if (!next) setEditing(null); }}>
+    {canManage && <Dialog open={open} onOpenChange={next => { setOpen(next); if (!next) setEditing(null); }}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>{editing ? "Edit incident template" : "New incident template"}</DialogTitle><DialogDescription>End users see only active types available globally or for their assigned project.</DialogDescription></DialogHeader>
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
@@ -131,6 +134,6 @@ export function IncidentCatalogManager() {
           <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={save.isPending || !draft.name.trim()}>{save.isPending ? "Saving…" : "Save incident template"}</Button></div>
         </form>
       </DialogContent>
-    </Dialog>
+    </Dialog>}
   </section>;
 }

@@ -6,7 +6,7 @@ import { installOverlayInteractionRecovery } from "./lib/overlay-interaction-rec
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from "@/hooks/use-auth";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import NotFound from "@/pages/not-found";
 import AuthPage from "@/pages/auth-page";
@@ -96,7 +96,11 @@ const NewServiceRequestPage = lazy(() => import("@/pages/new-service-request"));
 const NewChangePage = lazy(() => import("@/pages/new-change"));
 
 function HomeRedirect() {
-  return <Redirect to={getPersonaHomePath()} />;
+  const { user } = useAuth();
+  return <Redirect to={getPersonaHomePath(
+    user?.roles?.map(role => role.name) ?? [],
+    user?.permissions ?? [],
+  )} />;
 }
 
 function Router() {

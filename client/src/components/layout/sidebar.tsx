@@ -73,7 +73,13 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const { data: catalogAccess } = useQuery<{ canManage: boolean; canApprove: boolean }>({
     queryKey: ["/api/service-catalog/options", user?.id],
     queryFn: async () => (await apiRequest("GET", "/api/service-catalog/options")).json(),
-    enabled: Boolean(user?.id) && isPersonaApiAllowed(user?.roles?.map(role => role.name) ?? [], user?.permissions ?? [], "/service-catalog/options", "GET"),
+    enabled: Boolean(user?.id) && isPersonaApiAllowed(
+      user?.roles?.map(role => role.name) ?? [],
+      user?.permissions ?? [],
+      "/service-catalog/options",
+      "GET",
+      user?.employeeId,
+    ),
   });
   const roleNames = user?.roles?.map(role => role.name) ?? [];
   const permissions = user?.permissions ?? [];
@@ -158,7 +164,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     items: category.items.filter(item =>
       (!item.moduleKey || isModuleEnabled(item.moduleKey)) &&
       hasPermission(item.permission) &&
-      (!personaScoped || isPersonaPageAllowed(roleNames, permissions, item.href)),
+      (!personaScoped || isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId)),
     ),
   })).filter(category =>
     (!category.moduleKey || isModuleEnabled(category.moduleKey)) &&
@@ -172,15 +178,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       items: [
         { name: "Dashboard", href: "/dashboard", icon: BarChart3, current: location === "/" || location === "/dashboard" },
         { name: "Knowledge Base / System Manual", href: "/knowledge-base", icon: BookOpen, current: location === "/knowledge-base" },
-        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isItsmStaff, moduleKey: "itsm" },
+        { name: "KPI Dashboard", href: "/kpis", icon: Gauge, current: location === "/kpis", visible: isSystemAdministrator(user) || personaRoles.includes("it_manager"), moduleKey: "itsm" },
       ]
     },
     {
       title: "Employee Support",
       moduleKey: "itsm",
       items: [
-        { name: personaRoles.includes("end_user") ? "My Tickets" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
-        { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.includes("end_user") },
+        { name: personaRoles.includes("end_user") ? "Employee Self Service" : "Self-Service Portal", href: "/portal", icon: LifeBuoy, current: location === "/portal" },
+        { name: "Service Catalog", href: "/service-catalog", icon: ShoppingCart, current: location === "/service-catalog", visible: !personaScoped || personaRoles.some(role => ["end_user", "it_agent", "asset_manager", "it_manager", "cab_member"].includes(role)) },
         { name: "Approval Queue", href: "/service-catalog?tab=approvals", icon: ClipboardCheck, current: location.startsWith("/service-catalog") && location.includes("tab=approvals"), visible: Boolean(catalogAccess?.canApprove) },
       ]
     },
@@ -188,7 +194,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "My Assets",
       moduleKey: "asset_management",
       items: [
-        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", visible: Boolean(user?.employeeId || user?.permissions?.some(permission => ["my_assets_view", "system_admin"].includes(permission))) },
+        {
+          name: "My Assigned Assets",
+          href: "/my-assets",
+          icon: Laptop,
+          current: location === "/my-assets",
+          visible: personaRoles.includes("end_user")
+            ? Boolean(user?.employeeId)
+            : Boolean(user?.employeeId || user?.permissions?.some(permission => ["my_assets_view", "system_admin"].includes(permission))),
+        },
       ],
     },
     {
@@ -266,7 +280,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Incidents", href: "/incidents", icon: Ticket, current: location === "/incidents" },
-        { name: "Incident Catalog", href: "/incident-catalog", icon: ShieldAlert, current: location === "/incident-catalog", visible: isSystemAdministrator(user) || personaRoles.includes("it_manager") || roleNames.some(name => getStandardRoleKey(name) === "it_manager") },
+        { name: "Incident Catalog", href: "/incident-catalog", icon: ShieldAlert, current: location === "/incident-catalog", visible: isSystemAdministrator(user) || personaRoles.includes("it_manager") || personaRoles.includes("it_agent") || roleNames.some(name => getStandardRoleKey(name) === "it_manager") },
         { name: "Incident Tracker", href: "/incidents/tracker", icon: AlertTriangle, current: location === "/incidents/tracker" },
         { name: "Service Requests", href: "/service-requests", icon: ClipboardList, current: location === "/service-requests" },
         { name: "Request Tracker", href: "/service-requests/tracker", icon: ClipboardCheck, current: location === "/service-requests/tracker" },
@@ -389,10 +403,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
     if (item.name === "Approval Queue") return Boolean(catalogAccess?.canApprove);
     if (!personaScoped && !isDemoViewer(roleNames)) return true;
     if (item.hasSubmenu) {
-      return isPersonaPageAllowed(roleNames, permissions, item.href) ||
+      return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId) ||
         item.submenu?.some((category: any) => category.items.length > 0);
     }
-    return isPersonaPageAllowed(roleNames, permissions, item.href);
+    return isPersonaPageAllowed(roleNames, permissions, item.href, user?.employeeId);
   };
 
   return (

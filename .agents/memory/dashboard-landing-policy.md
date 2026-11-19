@@ -1,10 +1,10 @@
 ---
-name: Common Dashboard landing
-description: A common post-login destination must not broaden executive analytics permissions.
+name: Persona-specific landing pages
+description: End Users start in self-service; staff, managers, and auditors use role-filtered Dashboard workspaces.
 ---
 
-All post-login navigation should land at `/dashboard`, not at a portal, tracker, Changes or Access Governance page. Keep the dashboard content appropriate to the user's persona.
+Post-login End Users land at `/portal`. System Administrators, IT Agents, Asset Managers, CAB Members, IT Managers, auditors, and read-only users land at `/dashboard`, where workspace cards and APIs are scoped to their persona. Show My Assets only to users linked to an employee record.
 
-**Why:** The user explicitly requested Dashboard as the default landing before production. That navigation preference is not permission to expose executive analytics to agents, employees or auditors.
+**Why:** The user explicitly requested this persona split to keep employee self-service separate from staff operations while restricting custody data for unlinked external users.
 
-**How to apply:** New personas should get suitable dashboard content and permitted links at the common URL. Do not restore lower-level persona redirects or enable executive API requests for non-executive users.
+**How to apply:** When changing role navigation, keep `/portal` as the End User landing page and `/dashboard` for other standard roles. Never infer executive-data access from the shared Dashboard URL; gate links and API reads independently, and require an employee link for personal asset custody.

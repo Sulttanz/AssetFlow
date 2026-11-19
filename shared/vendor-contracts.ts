@@ -86,10 +86,12 @@ export function vendorPermissions(user: PersonaUserLike) {
   const admin = isSystemAdministrator(user);
   const roles = personaRolesForUser(user);
   const manager = admin || roles.includes("it_manager");
+  const assetManager = roles.includes("asset_manager");
   return {
-    canRead: manager || roles.includes("cab_member") || user.permissions?.some(p => ["vendor_view", "vendor_create", "vendor_update", "finance_view"].includes(p)) === true,
+    canRead: manager || roles.includes("cab_member") || roles.includes("it_agent") || assetManager ||
+      user.permissions?.some(p => ["vendor_view", "vendor_create", "vendor_update", "finance_view"].includes(p)) === true,
     canCreateVendor: manager || user.permissions?.includes("vendor_create") === true,
     canUpdateVendor: manager || user.permissions?.includes("vendor_update") === true,
-    canManageContracts: manager,
+    canManageContracts: manager || assetManager,
   };
 }

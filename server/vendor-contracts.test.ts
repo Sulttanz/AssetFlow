@@ -142,11 +142,17 @@ describe("vendor contract lifecycle and data contracts", () => {
     expect(normalizeVendorContacts({ contactPerson: "Legacy", phone: "123", isActive: "true" }))
       .toMatchObject({ primaryContactName: "Legacy", primaryContactPhone: "123", status: "active" });
   });
-  it("keeps manager write, CAB read and employee deny boundaries", () => {
+  it("keeps vendor administration with asset managers and denies it to CAB and employees", () => {
     expect(vendorPermissions({ roles: [{ name: "it_manager" }] }).canManageContracts).toBe(true);
     expect(vendorPermissions({ roles: [{ name: "cab_member" }] }).canManageContracts).toBe(false);
-    expect(isPersonaPageAllowed(["cab_member"], [], "/vendors")).toBe(true);
-    expect(isPersonaApiAllowed(["cab_member"], [], "/vendor-contracts", "GET")).toBe(true);
+    expect(vendorPermissions({ roles: [{ name: "asset_manager" }] }).canManageContracts).toBe(true);
+    expect(vendorPermissions({ roles: [{ name: "it_agent" }] }).canRead).toBe(true);
+    expect(isPersonaPageAllowed(["asset_manager"], [], "/vendors")).toBe(true);
+    expect(isPersonaApiAllowed(["asset_manager"], [], "/vendor-contracts", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["it_agent"], [], "/vendor-contracts", "GET")).toBe(true);
+    expect(isPersonaApiAllowed(["it_agent"], [], "/vendor-contracts", "POST")).toBe(false);
+    expect(isPersonaPageAllowed(["cab_member"], [], "/vendors")).toBe(false);
+    expect(isPersonaApiAllowed(["cab_member"], [], "/vendor-contracts", "GET")).toBe(false);
     expect(isPersonaApiAllowed(["cab_member"], [], "/vendor-contracts/x", "PUT")).toBe(false);
     expect(isPersonaApiAllowed(["end_user"], [], "/vendor-management/options", "GET")).toBe(false);
   });

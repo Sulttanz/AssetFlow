@@ -120,7 +120,8 @@ describe("Enterprise sidebar navigation", () => {
   it("shows Incident Catalog to managers and My Assets to linked employees", () => {
     expect(isPersonaPageAllowed(["it_manager"], [], "/incident-catalog")).toBe(true);
     expect(isPersonaPageAllowed(["end_user"], [], "/incident-catalog")).toBe(false);
-    expect(isPersonaPageAllowed(["end_user"], [], "/my-assets")).toBe(true);
+    expect(isPersonaPageAllowed(["end_user"], [], "/my-assets")).toBe(false);
+    expect(isPersonaPageAllowed(["end_user"], [], "/my-assets", "employee-linked")).toBe(true);
     state.user = user("it_manager");
     render(<Sidebar />);
     fireEvent.click(button("IT Service Management"));
@@ -131,6 +132,39 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     fireEvent.click(button("My Assets"));
     expect(screen.getByRole("link", { name: "My Assigned Assets" })).toBeTruthy();
+  });
+
+  it("shows persona-specific sidebar workspaces and keeps unlinked End Users out of internal assets", () => {
+    state.user = user("end_user", ["my_assets_view"]);
+    render(<Sidebar />);
+    expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "My Assets" })).toBeNull();
+    fireEvent.click(button("Employee Support"));
+    expect(screen.getByRole("link", { name: "Employee Self Service" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Incident Tracker" })).toBeNull();
+    cleanup();
+
+    state.user = { ...user("end_user", ["my_assets_view"]), employeeId: "employee-linked" } as UserWithDetails;
+    render(<Sidebar />);
+    fireEvent.click(button("My Assets"));
+    expect(screen.getByRole("link", { name: "My Assigned Assets" })).toBeTruthy();
+    cleanup();
+
+    state.user = user("asset_manager", ["asset_view", "vendor_create"]);
+    render(<Sidebar />);
+    fireEvent.click(button("Asset Management"));
+    expect(screen.getByRole("link", { name: "Assets" })).toBeTruthy();
+    fireEvent.click(button("Vendors Management"));
+    expect(screen.getByRole("link", { name: "Vendors Management" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Purchase Orders" })).toBeNull();
+    cleanup();
+
+    state.user = user("cab_member", ["change_view_all", "change_approve"]);
+    render(<Sidebar />);
+    fireEvent.click(button("IT Service Management"));
+    expect(screen.getByRole("link", { name: "Changes" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Change Tracker" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Servers" })).toBeNull();
   });
 
   it("nests the exact four report categories and opens the active report category", () => {
@@ -183,7 +217,7 @@ describe("Enterprise sidebar navigation", () => {
     unmount();
     state.user = user("end_user", ["my_assets_view"]);
     render(<Sidebar />);
-    expect(screen.getByRole("link", { name: "Dashboard" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
     expect(screen.queryByRole("button", { name: "System" })).toBeNull();
     expect(screen.queryByRole("button", { name: "CMDB & Infrastructure" })).toBeNull();
     expect(screen.queryByRole("link", { name: "KPI Dashboard" })).toBeNull();

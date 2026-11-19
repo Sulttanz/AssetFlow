@@ -111,9 +111,25 @@ describe("asset handover contracts and access policy", () => {
     expect(insertAssetHandoverSchema.safeParse({ ...handoverInput, includedAccessories: Array(31).fill("Cable") }).success).toBe(false);
     expect(isPersonaPageAllowed(["it_agent"], [], "/asset-handovers")).toBe(true);
     expect(isPersonaApiAllowed(["end_user"], [], "/asset-handovers", "GET")).toBe(false);
-    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers", "GET")).toBe(true);
-    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/id/acknowledge", "POST")).toBe(true);
-    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/id/acknowledge", "DELETE")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers", "GET")).toBe(false);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers", "GET", "employee-1")).toBe(true);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/id/acknowledge", "POST", "employee-1")).toBe(true);
+    expect(isPersonaApiAllowed(["end_user"], [], "/my/asset-handovers/id/acknowledge", "DELETE", "employee-1")).toBe(false);
+  });
+
+  it("blocks personal custody access without a linked employee and scopes linked receipts by employee ID", async () => {
+    let response = await request("/api/my/asset-handovers");
+    expect(response.status).toBe(403);
+
+    mock.state.user = { id: "user-1", email: "alex@example.test", employeeId };
+    mock.state.selects.push([]);
+    response = await request("/api/my/asset-handovers");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([]);
+
+    mock.state.user = { id: "user-1", email: "alex@example.test" };
+    response = await request("/api/my/asset-handovers/handover-id/acknowledge", "POST", { confirmed: true });
+    expect(response.status).toBe(403);
   });
 
   it("ships an additive migration with a durable receipt record, check constraints, and dropdown seeds", async () => {

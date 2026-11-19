@@ -244,7 +244,6 @@ export function registerAssetHandoverRoutes(app: Express) {
         issuedByName: sql<string | null>`concat_ws(' ', ${users.firstName}, ${users.lastName})`,
         assignmentReturnedDate: assignments.returnedDate,
       }).from(assetHandovers)
-        .innerJoin(employees, eq(employees.id, assetHandovers.employeeId))
         .innerJoin(assets, eq(assets.id, assetHandovers.assetId))
         .innerJoin(assignments, eq(assignments.id, assetHandovers.assignmentId))
         .leftJoin(users, eq(users.id, assetHandovers.issuedByUserId))
@@ -419,8 +418,8 @@ export function registerAssetHandoverRoutes(app: Express) {
 
   app.get("/api/my/asset-handovers", requireAuth, requirePermission("my_assets_view"), async (req: any, res) => {
     try {
-      const email = String(req.user?.email ?? "").trim().toLowerCase();
-      if (!email) return res.json([]);
+      const employeeId = req.user?.employeeId;
+      if (!employeeId) return res.status(403).json({ message: "Link this account to an employee profile to view custody receipts." });
       const rows = await db.select({
         id: assetHandovers.id,
         handoverNumber: assetHandovers.handoverNumber,
@@ -445,7 +444,7 @@ export function registerAssetHandoverRoutes(app: Express) {
         .innerJoin(assignments, eq(assignments.id, assetHandovers.assignmentId))
         .leftJoin(users, eq(users.id, assetHandovers.issuedByUserId))
         .where(and(
-          sql`lower(${employees.email}) = ${email}`,
+          eq(assetHandovers.employeeId, employeeId),
           isNull(assignments.returnedDate),
           or(
             eq(assetHandovers.type, "Issue / Assignment"),
@@ -464,14 +463,14 @@ export function registerAssetHandoverRoutes(app: Express) {
     try {
       const confirmation = z.object({ confirmed: z.literal(true) }).safeParse(req.body);
       if (!confirmation.success) return res.status(400).json({ message: "Confirm that you received this asset before signing" });
-      const email = String(req.user?.email ?? "").trim().toLowerCase();
-      if (!email) return res.status(403).json({ message: "No employee record is linked to this account" });
+      const employeeId = req.user?.employeeId;
+      if (!employeeId) return res.status(403).json({ message: "No employee record is linked to this account" });
       const [employee] = await db.select({
         id: employees.id,
         firstName: employees.firstName,
         lastName: employees.lastName,
       }).from(employees)
-        .where(sql`lower(${employees.email}) = ${email}`)
+        .where(eq(employees.id, employeeId))
         .limit(1);
       if (!employee) return res.status(403).json({ message: "No employee record is linked to this account" });
       const result = await db.transaction(async tx => {

@@ -15,6 +15,9 @@ vi.mock("@tanstack/react-query", async importOriginal => ({
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: { roles: [{ name: "it_manager" }], permissions: ["incident_catalog_manage"] } }),
+}));
 
 const originalInnerWidth = window.innerWidth;
 afterEach(() => {

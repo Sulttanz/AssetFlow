@@ -4,26 +4,50 @@ import { getStandardRoleKey } from "./role-catalog";
 
 export type PersonaUserLike = {
   id?: string;
+  employeeId?: string | null;
   roles?: Array<{ name: string }> | null;
   permissions?: readonly string[] | null;
 };
 
-const IT_AGENT_PAGE_PREFIXES = [
-  "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
+const ITAM_PAGE_PREFIXES = [
+  "/dashboard", "/assets", "/my-assets", "/consumables", "/inventory", "/assignments",
   "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
-  "/incidents", "/service-requests", "/problems", "/knowledge-base", "/my-assets",
-  "/service-catalog", "/network-topology", "/backup-schedules", "/reports/tickets", "/reports/problems",
-  "/reports/hardware-lifecycle", "/reports/consumables-stock", "/reports/itsm-mttr", "/reports/itsm-sla",
+  "/service-contracts", "/locations", "/departments", "/vendors",
+  "/reports", "/reports/hardware-lifecycle", "/reports/consumables-stock",
+];
+
+const IT_AGENT_PAGE_PREFIXES = [
+  ...ITAM_PAGE_PREFIXES, "/portal", "/incidents", "/service-requests", "/incidents/new",
+  "/service-requests/new", "/incidents/tracker", "/service-requests/tracker",
+  "/problems", "/knowledge-base", "/service-catalog", "/incident-catalog",
+  "/changes", "/changes/new", "/changes/tracker",
+  "/reports", "/reports/tickets", "/reports/problems", "/reports/itsm-mttr", "/reports/itsm-sla",
 ];
 
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
   "/incident-catalog",
-  "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
+  "/changes", "/applications", "/servers", "/network-topology", "/backup-schedules", "/purchase-orders", "/budgets",
   "/procure-to-pay", "/finance/quotations", "/finance/purchase-orders", "/finance/invoices",
   "/finance/returns", "/finance/budgets", "/finance/contracts", "/finance/tax-settings", "/reports/procurement-finance",
-  "/contracts", "/employees", "/vendors", "/locations", "/departments", "/kpis", "/projects", "/migration", "/import",
-  "/reports/project-variance", "/reports/project-velocity", "/reports/risk-heatmap", "/reports/itsm-cab",
+  "/contracts", "/employees", "/access-governance", "/vendors", "/locations", "/departments", "/kpis", "/projects",
+  "/reports", "/migration", "/import", "/reports/project-variance", "/reports/project-velocity",
+  "/reports/risk-heatmap", "/reports/itsm-cab", "/reports/enterprise-operations",
+];
+
+const ASSET_MANAGER_PAGE_PREFIXES = [
+  ...ITAM_PAGE_PREFIXES,
+  "/portal", "/incidents/new", "/service-requests/new", "/service-catalog", "/knowledge-base",
+];
+
+const CAB_MEMBER_PAGE_PREFIXES = [
+  "/dashboard", "/portal", "/changes", "/changes/tracker", "/service-catalog",
+  "/incidents/new", "/service-requests/new", "/knowledge-base",
+];
+
+const AUDITOR_PAGE_PREFIXES = [
+  "/dashboard", "/assets", "/access-governance", "/audit-logs", "/network-topology",
+  "/backup-schedules", "/knowledge-base", "/reports/hardware-lifecycle", "/reports/consumables-stock",
 ];
 
 function matchesPath(path: string, prefix: string): boolean {
@@ -47,8 +71,10 @@ export function personaRolesForUser(user: PersonaUserLike | null | undefined): P
 }
 
 export function getPersonaHomePath(roleNames: readonly string[] = [], permissions: readonly string[] = []): string {
-  // A shared landing URL does not grant executive API access. The dashboard
-  // renders the appropriate workspace for the authenticated persona.
+  const personas = getPersonaRoleKeys(roleNames);
+  if (personas.length === 1 && personas[0] === "end_user") return "/portal";
+  // Other roles keep the common Dashboard landing page; its content and links
+  // remain filtered by the same persona policy.
   return "/dashboard";
 }
 
@@ -56,48 +82,48 @@ export function isPersonaPageAllowed(
   roleNames: readonly string[],
   permissions: readonly string[],
   requestedPath: string,
+  employeeId?: string | null,
 ): boolean {
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/knowledge-base") return true;
-  if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
-  // Access to the personal asset register is separately guarded by the linked
-  // employee check (or my_assets_view permission) in ProtectedRoute.
-  if (path === "/my-assets") return true;
-  if (["/reports", "/reports/personnel", "/reports/employee-directory", "/reports/workload-heatmap", "/reports/account-activity"].includes(path)) return true;
+  const readOnlyMutationPath = /\/(?:new|create|edit|manage)(?:\/|$)/i.test(path);
+  if (isDemoViewer(roleNames)) return !readOnlyMutationPath && isDemoPageAllowed(requestedPath);
   if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
 
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
-  if (path === "/" || path === "/dashboard") return true;
 
   return personas.some(persona => {
     if (persona === "end_user") {
-      return ["/portal", "/service-catalog", "/my-assets", "/incidents", "/service-requests", "/knowledge-base"]
-        .some(prefix => matchesPath(path, prefix));
+      if (path === "/my-assets") return Boolean(employeeId);
+      return ["/portal", "/service-catalog", "/incidents/new", "/service-requests/new"]
+        .includes(path);
     }
     if (persona === "it_agent") {
       return IT_AGENT_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
+    }
+    if (persona === "asset_manager") {
+      return ASSET_MANAGER_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
     }
     if (persona === "it_manager") {
       return MANAGER_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
     }
     if (persona === "cab_member") {
-      if (matchesPath(path, "/changes/new")) return false;
-      return [
-        "/dashboard", "/changes", "/applications", "/servers", "/network-topology", "/purchase-orders",
-        "/budgets", "/contracts", "/employees", "/service-catalog", "/vendors", "/reports/itsm-cab",
-        "/procure-to-pay", "/finance/quotations", "/finance/purchase-orders", "/finance/invoices",
-        "/finance/returns", "/finance/budgets", "/finance/contracts", "/finance/tax-settings", "/reports/procurement-finance",
-      ].some(prefix => matchesPath(path, prefix));
+      if (path === "/changes/new") return false;
+      return CAB_MEMBER_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
     }
-    return ["/assets", "/access-governance", "/audit-logs", "/network-topology", "/backup-schedules", "/knowledge-base", "/reports/hardware-lifecycle", "/reports/consumables-stock"]
+    if (persona === "auditor" || persona === "read_only_user") {
+      if (readOnlyMutationPath) return false;
+      return AUDITOR_PAGE_PREFIXES.some(prefix => matchesPath(path, prefix));
+    }
+    return ["/dashboard"]
       .some(prefix => matchesPath(path, prefix));
   });
 }
 
 const COMMON_API_PREFIXES = [
   "/user", "/module-settings", "/modules", "/alerts", "/notifications",
-  "/system/status", "/system/modules", "/dropdowns/options",
+  "/system/status", "/system/version", "/system/modules", "/module-status", "/dropdowns",
 ];
 
 function isReadMethod(method: string): boolean {
@@ -118,7 +144,6 @@ function isTicketApiAllowed(path: string, method: string): boolean {
   if (["/incidents/options", "/service-requests/options", "/catalog", "/knowledge-base", "/kb", "/kb-articles"].some(prefix => matchesPath(path, prefix))) {
     return isReadMethod(upperMethod);
   }
-  if (path === "/changes") return isReadMethod(upperMethod);
   const root = ["/incidents", "/service-requests"].find(prefix => matchesPath(path, prefix));
   if (root) {
     const detail = new RegExp(`^${root}/(?!events$|projects$|options$)[^/]+$`).test(path);
@@ -137,15 +162,27 @@ const IT_AGENT_API_PREFIXES = [
   "/maintenance-schedules", "/maintenance-records", "/asset-bookings", "/asset-handovers",
   "/asset-disposal", "/asset-requests", "/asset-audits", "/consumables",
   "/warehouses", "/inventory", "/vendors", "/locations", "/departments",
-  "/network-topology", "/backup-schedules",
+  "/assignment-groups",
+];
+
+const ASSET_MANAGER_API_PREFIXES = [
+  "/assets", "/assignments", "/maintenance", "/maintenance-schedules", "/maintenance-records",
+  "/asset-bookings", "/asset-handovers", "/asset-disposal", "/asset-requests", "/asset-audits",
+  "/consumables", "/warehouses", "/inventory", "/vendors", "/locations", "/departments",
+  "/contracts", "/service-contracts", "/reports/hardware-lifecycle", "/reports/consumables-stock",
+  "/reports/asset-summary", "/reports/lifecycle", "/reports/assignments", "/reports/maintenance",
+  "/reports/warranties", "/reports/vendor-analysis", "/vendor-management", "/vendor-contracts",
 ];
 
 const MANAGER_API_PREFIXES = [
   ...IT_AGENT_API_PREFIXES, "/incident-catalog", "/changes", "/applications", "/servers",
+  "/network-topology", "/backup-schedules",
   "/purchase-orders", "/budgets", "/contracts", "/employees", "/vendors",
   "/vendor-quotations", "/purchase-invoices", "/purchase-returns",
-  "/reports/procurement-finance",
-  "/locations", "/departments", "/vendor-management", "/vendor-contracts", "/projects", "/data-migrations", "/import",
+  "/reports/procurement-finance", "/reports/tickets", "/reports/problems", "/reports/changes",
+  "/reports/enterprise-operations", "/reports/itsm-mttr", "/reports/itsm-sla", "/reports/itsm-cab",
+  "/reports/project-variance", "/reports/project-velocity", "/reports/risk-heatmap",
+  "/locations", "/departments", "/vendor-management", "/vendor-contracts", "/projects",
 ];
 
 export function isPersonaApiAllowed(
@@ -153,6 +190,7 @@ export function isPersonaApiAllowed(
   permissions: readonly string[],
   path: string,
   method: string,
+  employeeId?: string | null,
 ): boolean {
   if (isDemoViewer(roleNames)) return isDemoApiAllowed(path, method);
   if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
@@ -164,43 +202,82 @@ export function isPersonaApiAllowed(
   if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
   return personas.some(persona => {
     if (persona === "end_user") {
-      return (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+      return (Boolean(employeeId) && (
+        (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
         (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
-        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST") ||
-        (apiPath === "/consumables" && isReadMethod(upperMethod)) ||
-        isTicketApiAllowed(apiPath, upperMethod);
+        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST")
+      )) || isTicketApiAllowed(apiPath, upperMethod);
     }
     if (persona === "it_agent") {
       if (apiPath === "/employees" && isReadMethod(upperMethod)) return true;
+      if (apiPath === "/users" || apiPath === "/users/employee-options") return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/assignment-groups")) return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/contracts") || matchesPath(apiPath, "/service-contracts")) return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/vendor-management") || matchesPath(apiPath, "/vendor-contracts")) return isReadMethod(upperMethod);
+      if (Boolean(employeeId) && (
+        (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+        (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
+        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST")
+      )) return true;
+      if (matchesPath(apiPath, "/reports")) return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/incident-catalog")) return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/service-catalog")) return isReadMethod(upperMethod) ||
+        /^\/service-catalog\/items\/[^/]+\/request$/.test(apiPath) && upperMethod === "POST";
+      if (matchesPath(apiPath, "/changes")) {
+        if (isReadMethod(upperMethod)) return true;
+        return upperMethod !== "DELETE" && (
+          apiPath === "/changes" ||
+          /^\/changes\/[^/]+(?:\/(?:assign|submit|start|complete|cancel|stages\/init|stages\/[^/]+))?$/.test(apiPath)
+        );
+      }
       if (apiPath === "/my/asset-handovers") return isReadMethod(upperMethod);
       if (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath)) return upperMethod === "POST";
       return IT_AGENT_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
+    if (persona === "asset_manager") {
+      if (apiPath === "/users" || apiPath === "/users/employee-options") return isReadMethod(upperMethod);
+      if (apiPath === "/employees") return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/reports")) return isReadMethod(upperMethod);
+      if (Boolean(employeeId) && (
+        (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+        (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
+        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST")
+      )) return true;
+      if (matchesPath(apiPath, "/service-catalog")) return isTicketApiAllowed(apiPath, upperMethod);
+      return isTicketApiAllowed(apiPath, upperMethod) ||
+        ASSET_MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
+    }
     if (persona === "it_manager") {
-      if (apiPath === "/my/asset-handovers") return isReadMethod(upperMethod);
-      if (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath)) return upperMethod === "POST";
-      return (apiPath === "/kpis" && isReadMethod(upperMethod)) || apiPath === "/dashboard/executive" ||
-        (apiPath === "/cmdb" || matchesPath(apiPath, "/cmdb")) ||
+      if (apiPath === "/users" || apiPath === "/users/employee-options") return isReadMethod(upperMethod);
+      if (Boolean(employeeId) && (
+        (apiPath === "/my/assets" && isReadMethod(upperMethod)) ||
+        (apiPath === "/my/asset-handovers" && isReadMethod(upperMethod)) ||
+        (/^\/my\/asset-handovers\/[^/]+\/acknowledge$/.test(apiPath) && upperMethod === "POST")
+      )) return true;
+      if (matchesPath(apiPath, "/reports")) return isReadMethod(upperMethod);
+      return (apiPath === "/kpis" && isReadMethod(upperMethod)) ||
+        (apiPath === "/dashboard/executive" && isReadMethod(upperMethod)) ||
+        (matchesPath(apiPath, "/cmdb") && isReadMethod(upperMethod)) ||
         MANAGER_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix));
     }
     if (persona === "cab_member") {
-      if (matchesPath(apiPath, "/network-topology")) return isReadMethod(upperMethod);
-      if (["/vendor-management", "/vendor-contracts"].some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
-      if (["/service-catalog/options", "/service-catalog/items"].includes(apiPath)) return isReadMethod(upperMethod);
+      if (apiPath === "/users" || apiPath === "/users/employee-options") return isReadMethod(upperMethod);
+      if (isTicketApiAllowed(apiPath, upperMethod)) return true;
       if (apiPath === "/service-catalog/approvals") return isReadMethod(upperMethod);
       if (/^\/service-catalog\/approvals\/[^/]+\/decision$/.test(apiPath)) return upperMethod === "POST";
-      return apiPath === "/dashboard/executive" || [
-        "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
-        "/contracts", "/employees", "/cmdb",
-        "/vendor-quotations", "/purchase-invoices", "/purchase-returns",
-        "/reports/procurement-finance",
-      ].some(prefix => matchesPath(apiPath, prefix));
+      if (/^\/service-requests\/[^/]+\/catalog-approval$/.test(apiPath)) return isReadMethod(upperMethod);
+      if (matchesPath(apiPath, "/changes") && isReadMethod(upperMethod)) return true;
+      if (apiPath === "/cmdb/change-options") return isReadMethod(upperMethod);
+      return /^\/changes\/[^/]+\/approvals\/[^/]+$/.test(apiPath) && upperMethod === "PUT";
     }
-    if (!isReadMethod(upperMethod)) return false;
-    if (apiPath === "/access-governance" || apiPath === "/access-governance/catalog" || apiPath === "/audit-logs") return true;
-    if (matchesPath(apiPath, "/network-topology") || matchesPath(apiPath, "/backup-schedules")) return true;
-    if (matchesPath(apiPath, "/kb/articles") || matchesPath(apiPath, "/kb/search")) return true;
-    if (apiPath === "/employees") return true;
-    return apiPath === "/assets" || /^\/assets\/[^/]+$/.test(apiPath);
+    if (persona === "auditor" || persona === "read_only_user") {
+      if (!isReadMethod(upperMethod)) return false;
+      if (apiPath === "/access-governance" || matchesPath(apiPath, "/access-governance/catalog") || apiPath === "/audit-logs") return true;
+      if (matchesPath(apiPath, "/network-topology") || matchesPath(apiPath, "/backup-schedules")) return true;
+      if (matchesPath(apiPath, "/kb/articles") || matchesPath(apiPath, "/kb/search") || apiPath === "/kb/options") return true;
+      if (apiPath === "/employees") return true;
+      return apiPath === "/assets" || /^\/assets\/[^/]+$/.test(apiPath);
+    }
+    return apiPath === "/dashboard" && isReadMethod(upperMethod);
   });
 }

@@ -3,18 +3,28 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NewIncidentPage from "./new-incident";
 
+const authState = vi.hoisted(() => ({ user: {
+  id: "external-user", employeeId: null, username: "external", roles: [{ name: "end_user" }], permissions: [],
+} as any }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { id: "external-user", employeeId: null, username: "external", roles: [{ name: "end_user" }], permissions: [] } }),
+  useAuth: () => ({ user: authState.user }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-function renderIntake(projects: { id: string; name: string }[], linkedEmployee = false) {
+function renderIntake(projects: { id: string; name: string }[], linkedEmployee = false, staff = false) {
+  authState.user = staff
+    ? { id: "agent-user", employeeId: null, username: "agent", roles: [{ name: "it_agent" }], permissions: ["ticket_manage"] }
+    : { id: "external-user", employeeId: null, username: "external", roles: [{ name: "end_user" }], permissions: [] };
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
     projects, selectedProjectId: projects.length === 1 ? projects[0].id : null,
     catalog: [{ id: "global", name: "VPN connection", description: "Report a VPN issue", category: "Network", projectId: null }],
+    incidentCatalog: [{ id: "global", name: "VPN connection", description: "Report a VPN issue", category: "Network", projectId: null, defaultPriority: "P2", defaultImpact: "high", defaultUrgency: "medium", defaultAssignmentGroup: "Network Operations" }],
     assignedAssets: [], linkedEmployee,
+    users: [{ id: "agent-1", name: "Agent One" }],
+    managedAssignmentGroups: [{ id: 1, name: "Network Operations" }],
+    slaPolicies: [{ id: "sla-1", name: "P2 Standard", priority: "P2" }],
   }), { status: 200, headers: { "content-type": "application/json" } })));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   render(<QueryClientProvider client={client}><NewIncidentPage /></QueryClientProvider>);
@@ -47,6 +57,14 @@ describe("simplified project incident intake", () => {
     renderIntake([{ id: "one", name: "First" }, { id: "two", name: "Second" }]);
     const picker = await screen.findByLabelText("Project") as HTMLSelectElement;
     expect(Array.from(picker.options).map(option => option.value)).toEqual(["", "one", "two"]);
+  });
+
+  it("keeps technical routing fields out of the staff intake form too", async () => {
+    renderIntake([], false, true);
+    await screen.findByLabelText(/Incident type/);
+    for (const field of ["Priority", "Urgency", "Impact", "Assignment group", "Assigned engineer", "SLA policy"]) {
+      expect(screen.queryByLabelText(new RegExp(field, "i"))).toBeNull();
+    }
   });
 
   it("explains why a user with no project cannot submit", async () => {

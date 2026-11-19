@@ -2,7 +2,7 @@ import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Activity, ArrowDownRight, ArrowRight, BookOpen, Check, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
+import { Activity, ArrowRight, BookOpen, Check, ChevronRight, CircleHelp, Clock3, FileText, Headphones, Laptop, LifeBuoy, Search, ShieldAlert, Sparkles, Wrench, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,6 @@ type CatalogItem = {
 type Article = { id: string; title: string; summary?: string | null; content?: string | null; excerpt?: string | null; category?: string | null; updatedAt?: string | null };
 type Incident = { id: string; incidentNumber: string; title: string; status: string; creatorId?: string | null; requesterId?: string | null; createdAt?: string | null; responseDueAt?: string | null; resolveDueAt?: string | null };
 type ServiceRequest = { id: string; requestNumber: string; title: string; requesterId: string; fulfillmentStage?: string | null; fulfillmentStatus?: string | null; approvalStatus?: string | null; createdAt?: string | null; targetFulfillmentDate?: string | null };
-type Change = { id: string; changeNumber: string; title: string; status: string; createdAt?: string | null; scheduledStart?: string | null; requestedById?: string | null };
 type ActivityRow = { id: string; ticket: string; title: string; type: string; status: string; createdAt?: string | null; target?: string | null };
 type CustodyReceipt = {
   id: string; handoverNumber: string; type: string; employeeId: string; employeeNumber: string; employeeName: string;
@@ -76,9 +75,9 @@ export default function PortalPage() {
     refetchInterval: 30_000,
   });
   const incidentsQuery = useQuery<Incident[]>({ queryKey: ["/api/incidents"], queryFn: getQueryFn({ on401: "throw" }) });
-  const incidentDetailQuery = useQuery<Incident & { description?: string; priority?: string; category?: string; projectName?: string | null }>({
+  const incidentDetailQuery = useQuery<Incident & { description?: string; projectName?: string | null }>({
     queryKey: ["/api/incidents", selectedIncidentId],
-    queryFn: async () => checkedResponse<Incident & { description?: string; priority?: string; category?: string; projectName?: string | null }>(await apiRequest("GET", `/api/incidents/${selectedIncidentId}`)),
+    queryFn: async () => checkedResponse<Incident & { description?: string; projectName?: string | null }>(await apiRequest("GET", `/api/incidents/${selectedIncidentId}`)),
     enabled: Boolean(selectedIncidentId),
   });
   const incidentActivityQuery = useQuery<{ id: string; action: string; details: string | null; actorName: string | null; createdAt: string }[]>({
@@ -120,10 +119,6 @@ export default function PortalPage() {
     onError: (error: Error) => setIncidentDetailError(error.message),
   });
   const requestsQuery = useQuery<ServiceRequest[]>({ queryKey: ["/api/service-requests"], queryFn: getQueryFn({ on401: "throw" }) });
-  const changesQuery = useQuery<{ changes: Change[]; total: number; page: number; pageSize: number }>({
-    queryKey: ["/api/changes?page=1&pageSize=100"],
-    queryFn: getQueryFn({ on401: "throw" }),
-  });
   const custodyQuery = useQuery<CustodyReceipt[]>({
     queryKey: ["/api/my/asset-handovers"],
     queryFn: async () => (await apiRequest("GET", "/api/my/asset-handovers")).json(),
@@ -147,13 +142,12 @@ export default function PortalPage() {
   const rows: ActivityRow[] = useMemo(() => [
     ...(incidentsQuery.data ?? []).filter(row => row.creatorId === user?.id || row.requesterId === user?.id).map(row => ({ id: row.id, ticket: row.incidentNumber, title: row.title, type: "Incident", status: row.status, createdAt: row.createdAt, target: row.resolveDueAt ?? row.responseDueAt })),
     ...(requestsQuery.data ?? []).filter(row => row.requesterId === user?.id).map(row => ({ id: row.id, ticket: row.requestNumber, title: row.title, type: "Service request", status: row.fulfillmentStage ?? row.fulfillmentStatus ?? row.approvalStatus ?? "Submitted", createdAt: row.createdAt, target: row.targetFulfillmentDate })),
-    ...(changesQuery.data?.changes ?? []).filter(row => row.requestedById === user?.id).map(row => ({ id: row.id, ticket: row.changeNumber, title: row.title, type: "Change", status: row.status, createdAt: row.createdAt, target: row.scheduledStart })),
-  ].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()), [incidentsQuery.data, requestsQuery.data, changesQuery.data, user?.id]);
+  ].sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime()), [incidentsQuery.data, requestsQuery.data, user?.id]);
 
   const firstName = user?.firstName || user?.username?.split(/[._-]/)[0] || "there";
-  const activityLoading = incidentsQuery.isLoading || requestsQuery.isLoading || changesQuery.isLoading;
-  const activityError = incidentsQuery.isError || requestsQuery.isError || changesQuery.isError;
-  const refetchActivity = () => { void incidentsQuery.refetch(); void requestsQuery.refetch(); void changesQuery.refetch(); };
+  const activityLoading = incidentsQuery.isLoading || requestsQuery.isLoading;
+  const activityError = incidentsQuery.isError || requestsQuery.isError;
+  const refetchActivity = () => { void incidentsQuery.refetch(); void requestsQuery.refetch(); };
 
   return <main className="min-h-[100dvh] bg-[#f2f7f5] text-[#193638]">
     <div className="pointer-events-none fixed inset-0 -z-0 overflow-hidden" aria-hidden="true">
@@ -228,7 +222,6 @@ export default function PortalPage() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <ActionTile icon={<ShieldAlert />} title="Report an incident" description="Something is broken or disrupting your work." href="/incidents/new" accent="coral" />
           <ActionTile icon={<Wrench />} title="Request a service" description="Ask for equipment, access, or IT help." href="/service-requests/new" accent="teal" />
-          <ActionTile icon={<ArrowDownRight />} title="Propose a change" description="Plan a controlled change to a service." href="/changes/new" accent="gold" />
           <Link href="/knowledge-base" className="group flex min-h-[142px] flex-col justify-between rounded-[20px] border border-[#d8e3df] bg-[#f9fbf9] p-5 transition-transform hover:-translate-y-0.5 hover:border-[#b7cec5] hover:bg-white">
             <div className="flex items-start justify-between"><span className="grid h-10 w-10 place-items-center rounded-[13px] bg-[#e7eee5] text-[#55755b]"><BookOpen className="h-5 w-5" /></span><ArrowRight className="h-4 w-4 text-[#9bab9f] transition-transform group-hover:translate-x-1" /></div>
             <div><h3 className="text-base font-semibold tracking-[-.02em]">Browse knowledge base</h3><p className="mt-1 text-sm leading-5 text-[#768987]">Find step-by-step answers and guidance.</p></div>
@@ -266,12 +259,12 @@ export default function PortalPage() {
        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
          <DialogHeader>
            <DialogTitle>{incidentDetailQuery.data?.title ?? "Incident details"}</DialogTitle>
-           <DialogDescription>{incidentDetailQuery.data?.incidentNumber ?? "Loading incident"} · {incidentDetailQuery.data?.status ?? "—"}{incidentDetailQuery.data?.priority ? ` · ${incidentDetailQuery.data.priority}` : ""}</DialogDescription>
+            <DialogDescription>{incidentDetailQuery.data?.incidentNumber ?? "Loading incident"} · {incidentDetailQuery.data?.status ?? "—"}</DialogDescription>
          </DialogHeader>
          {incidentDetailQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading incident details…</p>
            : incidentDetailQuery.isError ? <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">Incident details could not be loaded. Close this dialog and try again.</div>
              : incidentDetailQuery.data && <div className="space-y-5">
-               <section className="rounded-lg border bg-muted/20 p-4"><div className="mb-2 flex flex-wrap items-center gap-2"><StatusPill status={incidentDetailQuery.data.status} />{incidentDetailQuery.data.priority && <Badge variant="outline">{incidentDetailQuery.data.priority}</Badge>}{incidentDetailQuery.data.projectName && <Badge variant="outline">{incidentDetailQuery.data.projectName}</Badge>}</div><p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{incidentDetailQuery.data.description || "No additional description."}</p><p className="mt-3 text-xs text-muted-foreground">Opened {dateLabel(incidentDetailQuery.data.createdAt)}</p></section>
+                <section className="rounded-lg border bg-muted/20 p-4"><div className="mb-2 flex flex-wrap items-center gap-2"><StatusPill status={incidentDetailQuery.data.status} />{incidentDetailQuery.data.projectName && <Badge variant="outline">{incidentDetailQuery.data.projectName}</Badge>}</div><p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{incidentDetailQuery.data.description || "No additional description."}</p><p className="mt-3 text-xs text-muted-foreground">Opened {dateLabel(incidentDetailQuery.data.createdAt)}</p></section>
                <section><h3 className="text-sm font-semibold">Status and activity</h3>{incidentActivityQuery.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading activity…</p> : (incidentActivityQuery.data ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No updates yet.</p> : <div className="mt-2 max-h-48 space-y-3 overflow-y-auto border-l pl-4">{(incidentActivityQuery.data ?? []).map(entry => <div key={entry.id}><p className="text-sm font-medium">{entry.action}</p><p className="whitespace-pre-wrap text-sm text-muted-foreground">{entry.details}</p><p className="text-xs text-muted-foreground">{entry.actorName ?? "Support"} · {entry.createdAt ? formatDateTimeMinute(entry.createdAt) : ""}</p></div>)}</div>}</section>
                <section><h3 className="text-sm font-semibold">Attachments</h3>{incidentAttachmentsQuery.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading files…</p> : (incidentAttachmentsQuery.data ?? []).length === 0 ? <p className="mt-2 text-sm text-muted-foreground">No attachments yet.</p> : <ul className="mt-2 space-y-2">{(incidentAttachmentsQuery.data ?? []).map(file => <li key={file.id} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm"><span className="min-w-0 truncate">{file.originalName}</span><a className="shrink-0 text-primary underline" href={`/api/incidents/${selectedIncidentId}/attachments/${file.id}`}>Download</a></li>)}</ul>}</section>
                <form className="space-y-3" onSubmit={event => { event.preventDefault(); if (incidentComment.trim()) addIncidentComment.mutate(); }}>

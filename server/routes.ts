@@ -511,32 +511,46 @@ const PERSONA_PERMISSION_DEFINITIONS = [
   { name: "change_view_all", description: "View all change requests and CAB impact summaries", resource: "changes", action: "view" },
   { name: "change_approve", description: "Approve or reject assigned change requests", resource: "changes", action: "approve" },
   { name: "change_manage", description: "Manage change requests and CAB assignments", resource: "changes", action: "manage" },
+  { name: "incident_catalog_manage", description: "Manage approved incident intake templates", resource: "incident_catalog", action: "manage" },
   { name: "project_view", description: "View project plans, members, milestones, and linked assets", resource: "projects", action: "view" },
   { name: "project_manage", description: "Create and update project plans, assignments, milestones, and linked assets", resource: "projects", action: "manage" },
 ] as const;
 
-const PERSONA_ROLE_PERMISSIONS = {
+const PERSONA_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
+  system_admin: [],
   end_user: ["my_assets_view"],
   it_agent: [
-    "asset_view", "asset_create", "asset_update", "asset_delete",
+    "asset_view", "my_assets_view", "asset_create", "asset_update", "asset_delete",
     "assignment_create", "assignment_update", "assignment_return",
     "maintenance_create", "maintenance_update", "maintenance_delete",
-    "ticket_view_all", "ticket_manage", "user_view",
+    "ticket_view_all", "ticket_manage", "user_view", "change_view_all", "change_manage",
   ],
-  cab_member: [
-    "change_view_all", "change_approve", "cmdb_view", "finance_view", "offboarding_approve",
-  ],
+  cab_member: ["change_view_all", "change_approve"],
   it_manager: [
-    "asset_view", "asset_create", "asset_update", "asset_delete",
+    "asset_view", "my_assets_view", "asset_create", "asset_update", "asset_delete",
     "assignment_create", "assignment_update", "assignment_return",
     "maintenance_create", "maintenance_update", "maintenance_delete",
     "ticket_view_all", "ticket_manage", "user_view", "employee_update", "offboarding_approve",
     "change_view_all", "change_approve", "change_manage", "cmdb_view", "finance_view",
+    "incident_catalog_manage",
     "purchase_order_create", "purchase_order_update", "purchase_order_delete",
     "budget_create", "budget_update", "budget_delete",
-    "project_view", "project_manage",
+    "project_view", "project_manage", "vendor_create", "vendor_update", "vendor_delete",
+    "location_create", "location_update", "location_delete",
+    "department_create", "department_update", "department_delete",
+    "employee_create", "asset_view", "compliance_view",
   ],
-  auditor: ["asset_view", "access_governance_view", "audit_view"],
+  asset_manager: [
+    "asset_view", "asset_create", "asset_update", "asset_delete", "compliance_view", "my_assets_view",
+    "assignment_create", "assignment_update", "assignment_delete", "assignment_return",
+    "maintenance_create", "maintenance_update", "maintenance_delete",
+    "vendor_create", "vendor_update", "vendor_delete",
+    "location_create", "location_update", "location_delete",
+    "department_create", "department_update", "department_delete",
+    "user_view",
+  ],
+  auditor: ["asset_view", "access_governance_view", "audit_view", "compliance_view"],
+  read_only_user: ["asset_view", "access_governance_view", "audit_view", "compliance_view"],
 } as const;
 
 async function ensurePersonaRoles() {
@@ -586,12 +600,21 @@ async function ensurePersonaRoles() {
       }
 
       const granted = new Set((role.permissions || []).map(permission => permission.name));
+      const shouldSynchronizeStandardRole = Boolean(
+        personaKey && !isAdmin && getStandardRoleKey(role.name) === personaKey,
+      );
       await Promise.all(Array.from(desiredNames).map(async permissionName => {
         const permission = permissionByName.get(permissionName);
         if (permission && !granted.has(permissionName)) {
           await storage.assignRolePermission(role.id, permission.id);
         }
       }));
+      if (shouldSynchronizeStandardRole) {
+        const obsoletePermissionIds = (role.permissions || [])
+          .filter(permission => !desiredNames.has(permission.name))
+          .map(permission => permission.id);
+        await Promise.all(obsoletePermissionIds.map(permissionId => storage.removeRolePermission(role.id, permissionId)));
+      }
     }
   } catch (error) {
     console.error("Failed to ensure persona roles and permissions:", error);
@@ -648,11 +671,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
     const personaGuardedPaths = [
       "/access-governance", "/applications", "/servers", "/audit-logs", "/my/assets", "/my/asset-handovers", "/dashboard/executive",
-      "/cmdb", "/consumables", "/data-migrations", "/import",
+      "/cmdb", "/consumables", "/data-migrations", "/import", "/users", "/roles", "/permissions",
+      "/system-settings", "/system/update-check", "/system/seed-itsm", "/system/clear-data",
+      "/settings", "/dropdowns", "/sla-policies", "/admin",
     ];
-    const requiresPersonaCheck = moduleKey !== undefined ||
+    const requiresRouteGuard = moduleKey !== undefined ||
       personaGuardedPaths.some(prefix => apiPath === prefix || apiPath.startsWith(`${prefix}/`));
-    if (!requiresPersonaCheck) return next();
+    // For authenticated standard personas, check every API request. This makes
+    // the persona matrix a backstop even for endpoints that were added without
+    // a module-specific permission middleware.
+    if (!requiresRouteGuard && !(req as any).isAuthenticated?.()) return next();
     return requireAuth(req, res, () => {
       void (async () => {
         try {
@@ -663,7 +691,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             storage.getUserPermissions(userId),
           ]);
           const roleNames = userRoles.map(role => role.name);
-          if (!isPersonaApiAllowed(roleNames, userPermissions, apiPath, req.method)) {
+          const hasStandardPersona = getPersonaRoleKeys(roleNames).length > 0 || isDemoViewer(roleNames);
+          if ((requiresRouteGuard || hasStandardPersona) &&
+            !isPersonaApiAllowed(roleNames, userPermissions, apiPath, req.method, (req.user as any)?.employeeId)) {
             return res.status(403).json({ error: "This persona is not allowed to access this API" });
           }
           return next();
@@ -1399,7 +1429,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [permissions, roleRows] = await Promise.all([
         storage.getUserPermissions(req.user!.id), storage.getUserRoles(req.user!.id),
       ]);
-      if (permissions.includes("system_admin") || roleRows.some(role => ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? ""))) {
+      if (permissions.includes("system_admin") || permissions.includes("incident_catalog_manage") ||
+        roleRows.some(role => ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? ""))) {
         next();
         return;
       }
@@ -1409,7 +1440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  app.get("/api/incident-catalog", requireAuth, requireModule("itsm"), requireIncidentCatalogManager, async (req: any, res) => {
+  app.get("/api/incident-catalog", requireAuth, requireModule("itsm"), requireAnyPermission("ticket_view_all", "incident_catalog_manage", "system_admin"), async (req: any, res) => {
     try {
       const includeInactive = req.query.includeInactive === "true";
       const [rows, projectRows] = await Promise.all([
@@ -3370,6 +3401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { name: 'change_view_all', description: 'View all change requests and CAB impact summaries', resource: 'changes', action: 'view' },
         { name: 'change_approve', description: 'Approve or reject assigned change requests', resource: 'changes', action: 'approve' },
         { name: 'change_manage', description: 'Manage change requests and CAB assignments', resource: 'changes', action: 'manage' },
+        { name: 'incident_catalog_manage', description: 'Manage approved incident intake templates', resource: 'incident_catalog', action: 'manage' },
       ];
 
       // Create all permissions
@@ -3535,6 +3567,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Assets routes - all require authentication
   app.get("/api/my/assets", requireAuth, async (req: any, res) => {
     try {
+      const linkedPersonaRoles = getPersonaRoleKeys(
+        (await storage.getUserRoles(req.user.id)).map(role => role.name),
+      );
+      if (linkedPersonaRoles.includes("end_user") && !req.user?.employeeId) {
+        return res.status(403).json({ message: "Link this account to an employee profile before viewing internal asset custody." });
+      }
       const hasAssetViewPermission = req.user?.permissions?.includes("my_assets_view") ||
         req.user?.permissions?.includes("system_admin");
       if (!hasAssetViewPermission && !req.user?.employeeId) {
