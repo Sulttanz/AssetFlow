@@ -9,7 +9,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const migrationDirectory = path.join(projectRoot, "migrations");
 const migrationLockId = 24761005;
 const missingSchemaErrorCodes = new Set(["42P01", "42703"]);
-const concurrentIndexMigrationName = "20261018_cab_assignment_history_lookup_idx.sql";
+const legacyConcurrentIndexMigrationName = "20261018_cab_assignment_history_lookup_idx.sql";
 
 function quoteSchemaIdentifier(identifier) {
   if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(identifier)) {
@@ -35,31 +35,30 @@ function quoteIdentifier(identifier) {
 }
 
 function getConcurrentIndexMigration(sql, name) {
-  if (name !== concurrentIndexMigrationName) return null;
+  const optedIntoConcurrentIndex = sql
+    .split(/\r?\n/)
+    .some((line) => /^\s*--\s*replit:\s*concurrent-index\s*$/i.test(line));
+  if (name !== legacyConcurrentIndexMigrationName && !optedIntoConcurrentIndex) return null;
 
-  // This migration is already checksum-recorded in existing workspaces. Keep
-  // its original SQL and checksum while opting its index build out of a tx.
+  // The legacy migration is already checksum-recorded in existing workspaces.
+  // New migrations opt in with a `-- replit: concurrent-index` comment.
   const executableSql = sql
     .split(/\r?\n/)
     .filter((line) => !line.trim().startsWith("--"))
     .join("\n")
     .trim();
   const match = executableSql.match(
-    /^CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_]*)\s*\(\s*([a-z_][a-z0-9_]*)\s*,\s*([a-z_][a-z0-9_]*)\s*\)\s*;?$/i,
+    /^CREATE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_]*)\s*\(\s*([a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)\s*\)\s*;?$/i,
   );
-  if (!match ||
-      match[1] !== "change_approvals_change_original_approver_idx" ||
-      match[2] !== "change_approvals" ||
-      match[3] !== "change_id" ||
-      match[4] !== "original_approver_id") {
+  if (!match) {
     throw new Error(
-      `Migration ${name} no longer matches the concurrent-index definition supported by the development runner.`,
+      `Migration ${name} opts into concurrent-index execution but is not a supported simple CREATE INDEX statement.`,
     );
   }
   return {
-    indexName: match[1],
-    tableName: match[2],
-    columns: [match[3], match[4]],
+    indexName: match[1].toLowerCase(),
+    tableName: match[2].toLowerCase(),
+    columns: match[3].split(",").map((column) => column.trim().toLowerCase()),
     sql: executableSql.replace(/^CREATE\s+INDEX\s+/i, "CREATE INDEX CONCURRENTLY "),
   };
 }

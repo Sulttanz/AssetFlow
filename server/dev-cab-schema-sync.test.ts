@@ -146,6 +146,55 @@ describe("development SQL migration sync", () => {
       "changed after it was recorded",
     );
   });
+
+  it("runs explicitly selected index migrations concurrently without changing their checksum", async () => {
+    const migrationSql = [
+      "-- replit: concurrent-index",
+      "CREATE INDEX IF NOT EXISTS sample_history_idx",
+      "  ON sample_history (account_id, event_id, created_at);",
+    ].join("\n");
+    const migrationName = "003_sample_history_idx.sql";
+    const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+    const client = fakeClient();
+
+    const result = await applyDevSqlMigrations(client, { directory });
+
+    expect(result).toEqual({
+      applied: [migrationName],
+      alreadyApplied: [],
+      deferred: null,
+    });
+    const indexBuild = client.query.mock.calls.find(([sql]) =>
+      sql.includes("CREATE INDEX CONCURRENTLY"),
+    );
+    expect(indexBuild?.[0]).toBe(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS sample_history_idx\n  ON sample_history (account_id, event_id, created_at);",
+    );
+    expect(client.ledger.get(migrationName)).toBe(
+      createHash("sha256").update(migrationSql).digest("hex"),
+    );
+    expect(client.query.mock.calls.findIndex(([sql]) =>
+      sql.includes("CREATE INDEX CONCURRENTLY"),
+    )).toBeLessThan(client.query.mock.calls.findIndex(([sql]) => sql === "BEGIN"));
+  });
+
+  it("keeps unmarked index migrations transactional", async () => {
+    const directory = await createMigrationDirectory({
+      "001_regular_index.sql":
+        "CREATE INDEX IF NOT EXISTS regular_idx ON regular_table (account_id);",
+    });
+    const client = fakeClient();
+
+    await applyDevSqlMigrations(client, { directory });
+
+    expect(client.query.mock.calls.some(([sql]) =>
+      sql.includes("CREATE INDEX CONCURRENTLY"),
+    )).toBe(false);
+    expect(client.query.mock.calls.some(([sql]) =>
+      sql === "CREATE INDEX IF NOT EXISTS regular_idx ON regular_table (account_id);",
+    )).toBe(true);
+    expect(client.query.mock.calls.some(([sql]) => sql === "BEGIN")).toBe(true);
+  });
 });
 
 describe("development SQL migration sync against PostgreSQL", () => {
@@ -767,8 +816,14 @@ describe("development SQL migration sync against PostgreSQL", () => {
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 4 });
       const schemaName = `cab_concurrent_idx_${randomUUID().replaceAll("-", "")}`;
       const quotedSchema = `"${schemaName}"`;
-      const migrationName = "20261018_cab_assignment_history_lookup_idx.sql";
-      const migrationSql = await readFile(path.resolve("migrations", migrationName), "utf8");
+      const migrationName = "001_test_cab_assignment_history_lookup_idx.sql";
+      const migrationSql = [
+        "-- replit: concurrent-index",
+        await readFile(
+          path.resolve("migrations/20261018_cab_assignment_history_lookup_idx.sql"),
+          "utf8",
+        ),
+      ].join("\n");
       const migrationChecksum = createHash("sha256").update(migrationSql).digest("hex");
       const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
       let migrationClient: Awaited<ReturnType<typeof pool.connect>> | undefined;
@@ -855,6 +910,13 @@ describe("development SQL migration sync against PostgreSQL", () => {
           [schemaName],
         );
         expect(interruptedIndex?.indisvalid).toBe(false);
+        const { rows: [unrecordedMigration] } = await observerClient.query(
+          `SELECT migration_name
+           FROM "${schemaName}".sql_migrations
+           WHERE migration_name = $1`,
+          [migrationName],
+        );
+        expect(unrecordedMigration).toBeUndefined();
 
         await lockClient.query("COMMIT");
         writerLockOpen = false;
