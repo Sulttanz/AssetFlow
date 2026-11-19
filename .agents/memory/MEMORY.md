@@ -50,6 +50,7 @@
 - [Module licensing boundary](module-licensing-boundary.md) — one complete schema; disabled modules hide UI, block APIs, skip optional reads, and preserve existing links.
 - [Reports hub policy](reports-hub-policy.md) — the hub and sidebar share four report domains; keep metrics and tables on dedicated report pages.
 - [Assignment group compatibility](assignment-group-compatibility.md) — retain legacy queue labels while applying membership restrictions to managed groups.
+- [Governance HTTP authorization tests](governance-http-auth-tests.md) — seed persisted user roles and permissions to test route access through the real storage path.
 - [Change asset impact links](change-asset-impact-links.md) — keep registered asset targets separate from application/server CI links and include relationship context in change exposure summaries.
 - [Incident portal scope](incident-portal-scope.md) — external project users have no employee hardware options; portal intake follows assigned projects and catalog defaults, with staff-only triage.
 - [Report export test boundaries](report-export-test-boundaries.md) — test client export payloads and PDF table inputs deterministically; verify XLSX serialization at the server workbook layer.

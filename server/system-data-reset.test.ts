@@ -310,7 +310,11 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     const rule = await seed(s.firewallRules, { name: "Fixture rule", firewallDeviceId: firewall, sourceZoneId: zone, action: "allow", businessJustification: "Required for integration fixture" });
     await seed(s.firewallRuleReviews, { firewallRuleId: rule, outcome: "approved", notes: "Fixture review notes" });
     const backup = await seed(s.backupSchedules, { name: "Fixture backup", serverId: infrastructure, frequency: "daily", retentionDays: 30, destination: "Fixture vault" });
-    await seed(s.backupJobRuns, { scheduleId: backup, status: "success", startedAt: new Date(), notes: "Fixture backup evidence", evidenceReference: "fixture://backup" });
+    const backupRun = await seed(s.backupJobRuns, { scheduleId: backup, status: "success", startedAt: new Date(), notes: "Fixture backup evidence", evidenceReference: "fixture://backup" });
+    await seed(s.backupEvidenceAttachments, {
+      jobRunId: backupRun, version: 1, originalName: "backup-evidence.pdf", fileName: "fixture.pdf",
+      fileType: "application/pdf", fileSize: 8, filePath: "/fixture/backup-evidence.pdf", uploadedBy: adminId,
+    });
     await seed(s.backupRestoreTests, { scheduleId: backup, outcome: "passed", notes: "Fixture restore evidence", evidenceReference: "fixture://restore" });
     await seed(s.itComponentComplianceReviews, { componentType: "asset", componentId: asset, findings: "Fixture finding", remediationNotes: "Fixture remediation" });
     const [assignmentGroup] = await db.insert(s.assignmentGroups)

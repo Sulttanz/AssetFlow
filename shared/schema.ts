@@ -1499,6 +1499,31 @@ export const backupRestoreTests = pgTable("backup_restore_tests", {
 ]);
 export type BackupRestoreTest = typeof backupRestoreTests.$inferSelect;
 
+export const backupEvidenceAttachments = pgTable("backup_evidence_attachments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobRunId: varchar("job_run_id").references(() => backupJobRuns.id, { onDelete: "restrict" }),
+  restoreTestId: varchar("restore_test_id").references(() => backupRestoreTests.id, { onDelete: "restrict" }),
+  version: integer("version").notNull().default(1),
+  originalName: text("original_name").notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  filePath: text("file_path").notNull(),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  uploadedAt: timestamp("uploaded_at").notNull().default(sql`now()`),
+}, table => [
+  check("backup_evidence_attachments_one_parent_check", sql`num_nonnulls(${table.jobRunId}, ${table.restoreTestId}) = 1`),
+  check("backup_evidence_attachments_version_check", sql`${table.version} >= 1`),
+  check("backup_evidence_attachments_size_check", sql`${table.fileSize} > 0`),
+  uniqueIndex("backup_evidence_job_run_name_version_uq")
+    .on(table.jobRunId, sql`lower(btrim(${table.originalName}))`, table.version),
+  uniqueIndex("backup_evidence_restore_test_name_version_uq")
+    .on(table.restoreTestId, sql`lower(btrim(${table.originalName}))`, table.version),
+  index("backup_evidence_job_run_uploaded_idx").on(table.jobRunId, table.uploadedAt),
+  index("backup_evidence_restore_test_uploaded_idx").on(table.restoreTestId, table.uploadedAt),
+]);
+export type BackupEvidenceAttachment = typeof backupEvidenceAttachments.$inferSelect;
+
 // Dropdown Options - Manage all dropdown values
 export const dropdownOptions = pgTable("dropdown_options", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -18,8 +18,12 @@ import { formatDateDisplay, formatDateTime } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getPersonaRoleKeys } from "@shared/personas";
 
-type Job = { id: string; scheduleId: string; status: string; startedAt: string; completedAt: string | null; dataSizeMb: number | null; restorePoint: string | null; evidenceReference: string | null; notes: string; targetName: string; scheduleName?: string };
-type RestoreTest = { id: string; scheduleId: string; outcome: string; testedAt: string; recoveryPoint: string | null; measuredRtoMinutes: number | null; measuredRpoMinutes: number | null; evidenceReference: string | null; notes: string; targetName: string; scheduleName?: string };
+type EvidenceAttachment = {
+  id: string; originalName: string; fileType: string; fileSize: number; version: number;
+  uploadedAt: string; uploadedByName: string | null; jobRunId: string | null; restoreTestId: string | null;
+};
+type Job = { id: string; scheduleId: string; status: string; startedAt: string; completedAt: string | null; dataSizeMb: number | null; restorePoint: string | null; evidenceReference: string | null; notes: string; targetName: string; scheduleName?: string; evidence: EvidenceAttachment[] };
+type RestoreTest = { id: string; scheduleId: string; outcome: string; testedAt: string; recoveryPoint: string | null; measuredRtoMinutes: number | null; measuredRpoMinutes: number | null; evidenceReference: string | null; notes: string; targetName: string; scheduleName?: string; evidence: EvidenceAttachment[] };
 type Schedule = {
   id: string; name: string; serverId: string | null; applicationId: string | null; targetName: string; targetType: string;
   backupType: string; frequency: string; customFrequency: string | null; retentionDays: number; retentionPolicy: string | null;
@@ -118,6 +122,31 @@ export default function BackupSchedulesPage() {
     },
     onError: (error: Error) => toast({ title: "Could not save backup record", description: error.message, variant: "destructive" }),
   });
+  const evidenceMutation = useMutation({
+    mutationFn: async ({ kind, recordId, file }: { kind: "runs" | "restore-tests"; recordId: string; file: File }) => {
+      const body = new FormData();
+      body.append("file", file);
+      const response = await fetch(`/api/backup-schedules/${kind}/${recordId}/evidence`, {
+        method: "POST", body, credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.message || "Could not upload evidence file.");
+      }
+      return response.json();
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/backup-schedules/runs"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/backup-schedules/restore-tests"] }),
+      ]);
+      toast({ title: "Evidence attached", description: "The file and its upload details are now in the audit trail." });
+    },
+    onError: (error: Error) => toast({ title: "Could not attach evidence", description: error.message, variant: "destructive" }),
+  });
+  const uploadEvidence = (kind: "runs" | "restore-tests", recordId: string, file: File) => {
+    evidenceMutation.mutate({ kind, recordId, file });
+  };
 
   function openSchedule(schedule?: Schedule) {
     const target = schedule?.serverId ? `server:${schedule.serverId}` : schedule?.applicationId ? `application:${schedule.applicationId}` : "";
@@ -190,13 +219,13 @@ export default function BackupSchedulesPage() {
 
         <TabsContent value="jobs"><RegisterTable loading={loading} empty={!filteredRuns.length} emptyText="No backup job runs have been recorded.">
           <Table><TableHeader><TableRow><TableHead>Schedule / Target</TableHead><TableHead>Status</TableHead><TableHead>Started / Completed</TableHead><TableHead>Data / Restore point</TableHead><TableHead>Evidence</TableHead><TableHead>Work notes</TableHead></TableRow></TableHeader><TableBody>
-            {filteredRuns.map(run => <TableRow key={run.id}><TableCell><div className="font-medium">{run.scheduleName}</div><div className="text-xs text-muted-foreground">{run.targetName}</div></TableCell><TableCell><Badge variant={run.status === "success" ? "secondary" : "destructive"}>{labelize(run.status)}</Badge></TableCell><TableCell className="whitespace-nowrap">{formatDateTime(run.startedAt)}<div className="text-xs text-muted-foreground">Completed: {run.completedAt ? formatDateTime(run.completedAt) : "Not recorded"}</div></TableCell><TableCell>{run.dataSizeMb == null ? "—" : `${run.dataSizeMb.toLocaleString()} MB`}<div className="max-w-40 truncate text-xs text-muted-foreground" title={run.restorePoint ?? ""}>{run.restorePoint || "No restore point"}</div></TableCell><TableCell className="max-w-40 truncate" title={run.evidenceReference ?? ""}>{run.evidenceReference || "—"}</TableCell><TableCell className="max-w-64 truncate" title={run.notes}>{run.notes}</TableCell></TableRow>)}
+            {filteredRuns.map(run => <TableRow key={run.id}><TableCell><div className="font-medium">{run.scheduleName}</div><div className="text-xs text-muted-foreground">{run.targetName}</div></TableCell><TableCell><Badge variant={run.status === "success" ? "secondary" : "destructive"}>{labelize(run.status)}</Badge></TableCell><TableCell className="whitespace-nowrap">{formatDateTime(run.startedAt)}<div className="text-xs text-muted-foreground">Completed: {run.completedAt ? formatDateTime(run.completedAt) : "Not recorded"}</div></TableCell><TableCell>{run.dataSizeMb == null ? "—" : `${run.dataSizeMb.toLocaleString()} MB`}<div className="max-w-40 truncate text-xs text-muted-foreground" title={run.restorePoint ?? ""}>{run.restorePoint || "No restore point"}</div></TableCell><TableCell className="min-w-52 max-w-64"><div className="truncate text-xs text-muted-foreground" title={run.evidenceReference ?? ""}>{run.evidenceReference || "No evidence reference"}</div><EvidenceFiles kind="runs" recordId={run.id} attachments={run.evidence ?? []} canManage={canManage} busy={evidenceMutation.isPending && evidenceMutation.variables?.recordId === run.id} onUpload={uploadEvidence} /></TableCell><TableCell className="max-w-64 truncate" title={run.notes}>{run.notes}</TableCell></TableRow>)}
           </TableBody></Table>
         </RegisterTable></TabsContent>
 
         <TabsContent value="restore"><RegisterTable loading={loading} empty={!filteredTests.length} emptyText="No restore verification tests have been recorded.">
           <Table><TableHeader><TableRow><TableHead>Schedule / Target</TableHead><TableHead>Outcome</TableHead><TableHead>Tested</TableHead><TableHead>Measured RTO / RPO</TableHead><TableHead>Recovery point</TableHead><TableHead>Evidence / Notes</TableHead></TableRow></TableHeader><TableBody>
-            {filteredTests.map(test => <TableRow key={test.id}><TableCell><div className="font-medium">{test.scheduleName}</div><div className="text-xs text-muted-foreground">{test.targetName}</div></TableCell><TableCell><Badge variant={test.outcome === "passed" ? "secondary" : "destructive"}>{labelize(test.outcome)}</Badge></TableCell><TableCell className="whitespace-nowrap">{formatDateTime(test.testedAt)}</TableCell><TableCell>RTO: {test.measuredRtoMinutes == null ? "—" : `${test.measuredRtoMinutes} min`}<div className="text-xs text-muted-foreground">RPO: {test.measuredRpoMinutes == null ? "—" : `${test.measuredRpoMinutes} min`}</div></TableCell><TableCell className="max-w-40 truncate" title={test.recoveryPoint ?? ""}>{test.recoveryPoint || "—"}</TableCell><TableCell className="max-w-64"><div className="truncate" title={test.evidenceReference ?? ""}>{test.evidenceReference || "No evidence link"}</div><div className="truncate text-xs text-muted-foreground" title={test.notes}>{test.notes}</div></TableCell></TableRow>)}
+            {filteredTests.map(test => <TableRow key={test.id}><TableCell><div className="font-medium">{test.scheduleName}</div><div className="text-xs text-muted-foreground">{test.targetName}</div></TableCell><TableCell><Badge variant={test.outcome === "passed" ? "secondary" : "destructive"}>{labelize(test.outcome)}</Badge></TableCell><TableCell className="whitespace-nowrap">{formatDateTime(test.testedAt)}</TableCell><TableCell>RTO: {test.measuredRtoMinutes == null ? "—" : `${test.measuredRtoMinutes} min`}<div className="text-xs text-muted-foreground">RPO: {test.measuredRpoMinutes == null ? "—" : `${test.measuredRpoMinutes} min`}</div></TableCell><TableCell className="max-w-40 truncate" title={test.recoveryPoint ?? ""}>{test.recoveryPoint || "—"}</TableCell><TableCell className="min-w-52 max-w-64"><div className="truncate text-xs text-muted-foreground" title={test.evidenceReference ?? ""}>{test.evidenceReference || "No evidence reference"}</div><EvidenceFiles kind="restore-tests" recordId={test.id} attachments={test.evidence ?? []} canManage={canManage} busy={evidenceMutation.isPending && evidenceMutation.variables?.recordId === test.id} onUpload={uploadEvidence} /><div className="mt-1 truncate text-xs text-muted-foreground" title={test.notes}>{test.notes}</div></TableCell></TableRow>)}
           </TableBody></Table>
         </RegisterTable></TabsContent>
       </Tabs>
@@ -249,6 +278,43 @@ export default function BackupSchedulesPage() {
   </div>;
 }
 
+function EvidenceFiles({
+  kind, recordId, attachments, canManage, busy, onUpload,
+}: {
+  kind: "runs" | "restore-tests";
+  recordId: string;
+  attachments: EvidenceAttachment[];
+  canManage: boolean;
+  busy: boolean;
+  onUpload: (kind: "runs" | "restore-tests", recordId: string, file: File) => void;
+}) {
+  return <div className="mt-1 space-y-1.5">
+    {attachments.map(file => <div key={file.id} className="text-xs">
+      <a className="font-medium text-primary hover:underline" href={`/api/backup-schedules/${kind}/${recordId}/evidence/${file.id}`} download>
+        {file.originalName} · v{file.version}
+      </a>
+      <div className="text-muted-foreground">{formatBytes(file.fileSize)} · {file.uploadedByName || "Former user"} · {formatDateTime(file.uploadedAt)}</div>
+    </div>)}
+    {canManage && <Label className="inline-flex min-h-8 cursor-pointer items-center rounded-md border px-2 text-xs font-medium hover:bg-muted">
+      {busy ? "Uploading…" : "Attach file"}
+      <Input
+        type="file"
+        className="sr-only"
+        accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt,.csv,.log"
+        disabled={busy}
+        onChange={event => {
+          const file = event.currentTarget.files?.[0];
+          if (file) onUpload(kind, recordId, file);
+          event.currentTarget.value = "";
+        }}
+      />
+    </Label>}
+    {!attachments.length && !canManage && <div className="text-xs text-muted-foreground">No files attached</div>}
+  </div>;
+}
+function formatBytes(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 function Metric({ icon, label, value, tone = "blue" }: { icon: React.ReactNode; label: string; value: number; tone?: "blue" | "green" | "red" | "amber" }) {
   const styles = { blue: "border-l-blue-600", green: "border-l-green-600", red: "border-l-red-600", amber: "border-l-amber-600" }[tone];
   return <Card className={`border-l-4 ${styles}`}><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold">{value}</p></div><span className="text-muted-foreground">{icon}</span></CardContent></Card>;

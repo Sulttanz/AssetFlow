@@ -1,9 +1,13 @@
 import { respondWithApiError } from "./api-error-handler";
 import type { Express, Request, RequestHandler, Response } from "express";
+import multer from "multer";
+import { randomUUID } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { basename, extname, resolve } from "node:path";
 import { asc, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditLogs, backupJobRuns, backupRestoreTests, backupSchedules,
+  auditLogs, backupEvidenceAttachments, backupJobRuns, backupRestoreTests, backupSchedules,
   cmdbApplications, servers, users,
 } from "@shared/schema";
 import { getPersonaRoleKeys, isSystemAdministrator } from "@shared/personas";
@@ -12,8 +16,61 @@ import { storage } from "./storage";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Viewer = { id: string; roles: { name: string }[]; permissions: string[] };
+type EvidenceKind = "runs" | "restore-tests";
 class BackupError extends Error {
   constructor(public status: number, message: string) { super(message); }
+}
+
+const evidenceUploadLimit = 10 * 1024 * 1024;
+const evidenceRoot = resolve(process.env.BACKUP_EVIDENCE_UPLOAD_DIR || "server/uploads/backup-evidence");
+const evidenceExtensions = new Set(["pdf", "docx", "xlsx", "png", "jpg", "jpeg", "txt", "csv", "log"]);
+const evidenceMimeTypes: Record<string, string[]> = {
+  pdf: ["application/pdf"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  png: ["image/png"],
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  txt: ["text/plain"],
+  log: ["text/plain"],
+  csv: ["text/csv", "application/csv", "application/vnd.ms-excel", "text/plain"],
+};
+const evidenceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: evidenceUploadLimit, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    const extension = extname(file.originalname).slice(1).toLowerCase();
+    if (!evidenceExtensions.has(extension)) {
+      callback(new Error("Supported backup evidence files: PDF, DOCX, XLSX, PNG, JPG, TXT, CSV, and LOG."));
+      return;
+    }
+    callback(null, true);
+  },
+});
+
+function validateEvidenceFile(file: Pick<Express.Multer.File, "originalname" | "mimetype" | "size" | "buffer">) {
+  const extension = extname(file.originalname).slice(1).toLowerCase();
+  if (!evidenceExtensions.has(extension) || !evidenceMimeTypes[extension]?.includes(file.mimetype.toLowerCase())) {
+    throw new BackupError(400, "Choose an approved evidence file type: PDF, DOCX, XLSX, PNG, JPG, TXT, CSV, or LOG.");
+  }
+  if (file.size < 1 || file.size > evidenceUploadLimit) {
+    throw new BackupError(400, "Evidence files must be between 1 byte and 10 MB.");
+  }
+
+  const bytes = file.buffer;
+  const validSignature = extension === "pdf" ? bytes.subarray(0, 5).toString("ascii") === "%PDF-"
+    : extension === "docx" || extension === "xlsx" ? bytes.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]))
+    : extension === "png" ? bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      : extension === "jpg" || extension === "jpeg" ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+        : !bytes.includes(0) && (() => {
+          try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); return true; }
+          catch { return false; }
+        })();
+  if (!validSignature) throw new BackupError(400, "The file contents do not match the selected evidence file type.");
+}
+
+function safeEvidenceName(value: string) {
+  return basename(value.replace(/\\/g, "/")).replace(/[\u0000-\u001f]/g, "").slice(0, 255) || "backup-evidence";
 }
 
 const isoDateTime = z.string().datetime({ offset: true });
@@ -84,6 +141,29 @@ function canRead(user: Viewer): boolean {
     personas.some(role => role === "auditor");
 }
 
+async function evidenceRowsFor(kind: EvidenceKind, recordIds: string[]) {
+  if (!recordIds.length) return [];
+  const base = {
+    id: backupEvidenceAttachments.id,
+    jobRunId: backupEvidenceAttachments.jobRunId,
+    restoreTestId: backupEvidenceAttachments.restoreTestId,
+    version: backupEvidenceAttachments.version,
+    originalName: backupEvidenceAttachments.originalName,
+    fileType: backupEvidenceAttachments.fileType,
+    fileSize: backupEvidenceAttachments.fileSize,
+    uploadedAt: backupEvidenceAttachments.uploadedAt,
+    uploadedBy: backupEvidenceAttachments.uploadedBy,
+    uploadedByName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${users.username})`,
+  };
+  const rows = await (kind === "runs"
+    ? db.select(base).from(backupEvidenceAttachments).leftJoin(users, eq(backupEvidenceAttachments.uploadedBy, users.id))
+      .where(inArray(backupEvidenceAttachments.jobRunId, recordIds))
+    : db.select(base).from(backupEvidenceAttachments).leftJoin(users, eq(backupEvidenceAttachments.uploadedBy, users.id))
+      .where(inArray(backupEvidenceAttachments.restoreTestId, recordIds)))
+    .orderBy(desc(backupEvidenceAttachments.uploadedAt), desc(backupEvidenceAttachments.version));
+  return rows;
+}
+
 function advanceDueDate(from: Date, frequency: string): Date | null {
   const next = new Date(from);
   switch (frequency) {
@@ -150,6 +230,119 @@ export function registerBackupGovernanceRoutes(
       console.error("Backup governance request failed", error instanceof Error ? error.message : "Unknown error");
       respondWithApiError(res, error, "Backup governance request failed");
     }
+  };
+  const requireManager: RequestHandler = async (req, res, next) => {
+    try {
+      if (!isManager(await loadViewer(req))) {
+        return void res.status(403).json({ message: "Backup register edit access required" });
+      }
+      next();
+    } catch (error) {
+      if (error instanceof BackupError) return void res.status(error.status).json({ message: error.message });
+      respondWithApiError(res, error, "Could not verify backup evidence access");
+    }
+  };
+  const parseEvidenceUpload: RequestHandler = (req, res, next) => {
+    evidenceUpload.single("file")(req, res, error => {
+      if (!error) return next();
+      const message = (error as any).code === "LIMIT_FILE_SIZE"
+        ? "Evidence files must not exceed 10 MB."
+        : error.message || "Could not upload backup evidence.";
+      res.status(400).json({ message });
+    });
+  };
+  const getEvidenceParent = async (kind: EvidenceKind, id: string, executor: any = db) => {
+    if (kind === "runs") {
+      const [row] = await executor.select({
+        id: backupJobRuns.id, scheduleId: backupJobRuns.scheduleId, label: backupSchedules.name,
+      }).from(backupJobRuns).innerJoin(backupSchedules, eq(backupJobRuns.scheduleId, backupSchedules.id))
+        .where(eq(backupJobRuns.id, id)).limit(1);
+      return row ?? null;
+    }
+    const [row] = await executor.select({
+      id: backupRestoreTests.id, scheduleId: backupRestoreTests.scheduleId, label: backupSchedules.name,
+    }).from(backupRestoreTests).innerJoin(backupSchedules, eq(backupRestoreTests.scheduleId, backupSchedules.id))
+      .where(eq(backupRestoreTests.id, id)).limit(1);
+    return row ?? null;
+  };
+  const registerEvidenceEndpoints = (kind: EvidenceKind, collectionPath: string) => {
+    app.get(`${collectionPath}/:id/evidence`, requireAuth, requireAssetManagement, route(false, async (req, res) => {
+      const parent = await getEvidenceParent(kind, req.params.id);
+      if (!parent) throw new BackupError(404, "Backup record not found");
+      res.json(await evidenceRowsFor(kind, [parent.id]));
+    }));
+    app.post(`${collectionPath}/:id/evidence`, requireAuth, requireAssetManagement, requireManager, parseEvidenceUpload,
+      route(true, async (req, res, user) => {
+        const file = (req as Request & { file?: Express.Multer.File }).file;
+        if (!file) throw new BackupError(400, "Choose an evidence file to upload.");
+        validateEvidenceFile(file);
+        const originalName = safeEvidenceName(file.originalname);
+        const id = randomUUID();
+        const extension = extname(originalName).toLowerCase();
+        const fileName = `${id}${extension}`;
+        const filePath = resolve(evidenceRoot, fileName);
+        try {
+          await mkdir(evidenceRoot, { recursive: true });
+          await writeFile(filePath, file.buffer, { flag: "wx" });
+          const attachment = await db.transaction(async tx => {
+            const parent = await getEvidenceParent(kind, req.params.id, tx);
+            if (!parent) throw new BackupError(404, "Backup record not found");
+            if (kind === "runs") {
+              await tx.select({ id: backupJobRuns.id }).from(backupJobRuns)
+                .where(eq(backupJobRuns.id, parent.id)).for("update");
+            } else {
+              await tx.select({ id: backupRestoreTests.id }).from(backupRestoreTests)
+                .where(eq(backupRestoreTests.id, parent.id)).for("update");
+            }
+            const prior = kind === "runs"
+              ? await tx.select({ version: backupEvidenceAttachments.version, originalName: backupEvidenceAttachments.originalName })
+                .from(backupEvidenceAttachments).where(eq(backupEvidenceAttachments.jobRunId, parent.id))
+              : await tx.select({ version: backupEvidenceAttachments.version, originalName: backupEvidenceAttachments.originalName })
+                .from(backupEvidenceAttachments).where(eq(backupEvidenceAttachments.restoreTestId, parent.id));
+            const matchingVersions = prior.filter(row => row.originalName.trim().toLowerCase() === originalName.trim().toLowerCase())
+              .map(row => row.version);
+            const version = Math.max(0, ...matchingVersions) + 1;
+            const [created] = await tx.insert(backupEvidenceAttachments).values({
+              id,
+              ...(kind === "runs" ? { jobRunId: parent.id } : { restoreTestId: parent.id }),
+              version,
+              originalName,
+              fileName,
+              fileType: file.mimetype,
+              fileSize: file.size,
+              filePath,
+              uploadedBy: user.id,
+            }).returning();
+            const { filePath: _storedPath, fileName: _generatedName, ...metadata } = created;
+            await tx.insert(auditLogs).values({
+              userId: user.id,
+              action: "CREATE",
+              tableName: "backup_evidence_attachments",
+              recordId: created.id,
+              recordName: `${kind === "runs" ? "Backup run" : "Restore test"}: ${originalName} v${version}`,
+              newValues: JSON.stringify(metadata),
+              ipAddress: req.ip ?? null,
+              userAgent: req.get("user-agent") ?? null,
+            });
+            return { ...metadata, uploadedByName: null };
+          });
+          res.status(201).json(attachment);
+        } catch (error) {
+          await unlink(filePath).catch(() => {});
+          throw error;
+        }
+      }));
+    app.get(`${collectionPath}/:id/evidence/:attachmentId`, requireAuth, requireAssetManagement, route(false, async (req, res) => {
+      const parent = await getEvidenceParent(kind, req.params.id);
+      if (!parent) throw new BackupError(404, "Backup record not found");
+      const [attachment] = await db.select().from(backupEvidenceAttachments).where(kind === "runs"
+        ? eq(backupEvidenceAttachments.jobRunId, parent.id)
+        : eq(backupEvidenceAttachments.restoreTestId, parent.id));
+      if (!attachment || attachment.id !== req.params.attachmentId) throw new BackupError(404, "Evidence file not found");
+      res.download(attachment.filePath, attachment.originalName, error => {
+        if (error && !res.headersSent) res.status(404).json({ message: "Evidence file is unavailable." });
+      });
+    }));
   };
 
   app.get("/api/backup-schedules/options", requireAuth, requireAssetManagement, route(false, async (_req, res, user) => {
@@ -238,7 +431,18 @@ export function registerBackupGovernanceRoutes(
       applicationIds.length ? db.select({ id: cmdbApplications.id, name: cmdbApplications.name }).from(cmdbApplications).where(inArray(cmdbApplications.id, applicationIds)) : Promise.resolve([]),
     ]);
     const names = new Map<string, string>([...serverRows, ...applicationRows].map(row => [row.id, row.name]));
-    res.json(rows.map(row => ({ ...row, targetName: names.get(row.serverId ?? row.applicationId ?? "") ?? "Removed target" })));
+    const evidence = await evidenceRowsFor("runs", rows.map(row => row.id));
+    const evidenceByRecord = new Map<string, typeof evidence>();
+    for (const item of evidence) {
+      const list = evidenceByRecord.get(item.jobRunId!) ?? [];
+      list.push(item);
+      evidenceByRecord.set(item.jobRunId!, list);
+    }
+    res.json(rows.map(row => ({
+      ...row,
+      targetName: names.get(row.serverId ?? row.applicationId ?? "") ?? "Removed target",
+      evidence: evidenceByRecord.get(row.id) ?? [],
+    })));
   }));
   app.get("/api/backup-schedules/restore-tests", requireAuth, requireAssetManagement, route(false, async (_req, res) => {
     const rows = await db.select({
@@ -256,7 +460,18 @@ export function registerBackupGovernanceRoutes(
       applicationIds.length ? db.select({ id: cmdbApplications.id, name: cmdbApplications.name }).from(cmdbApplications).where(inArray(cmdbApplications.id, applicationIds)) : Promise.resolve([]),
     ]);
     const names = new Map<string, string>([...serverRows, ...applicationRows].map(row => [row.id, row.name]));
-    res.json(rows.map(row => ({ ...row, targetName: names.get(row.serverId ?? row.applicationId ?? "") ?? "Removed target" })));
+    const evidence = await evidenceRowsFor("restore-tests", rows.map(row => row.id));
+    const evidenceByRecord = new Map<string, typeof evidence>();
+    for (const item of evidence) {
+      const list = evidenceByRecord.get(item.restoreTestId!) ?? [];
+      list.push(item);
+      evidenceByRecord.set(item.restoreTestId!, list);
+    }
+    res.json(rows.map(row => ({
+      ...row,
+      targetName: names.get(row.serverId ?? row.applicationId ?? "") ?? "Removed target",
+      evidence: evidenceByRecord.get(row.id) ?? [],
+    })));
   }));
 
   app.post("/api/backup-schedules/:id/runs", requireAuth, requireAssetManagement, route(true, async (req, res, user) => {
@@ -299,6 +514,8 @@ export function registerBackupGovernanceRoutes(
     });
     res.status(201).json(created);
   }));
+  registerEvidenceEndpoints("runs", "/api/backup-schedules/runs");
+  registerEvidenceEndpoints("restore-tests", "/api/backup-schedules/restore-tests");
 }
 
-export const __backupGovernanceTestUtils = { advanceDueDate };
+export const __backupGovernanceTestUtils = { advanceDueDate, validateEvidenceFile, evidenceUploadLimit };
