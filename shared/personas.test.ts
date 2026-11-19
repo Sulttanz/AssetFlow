@@ -22,6 +22,14 @@ describe("persona access policy", () => {
     expect(isPersonaApiAllowed(["end_user"], [], "/dropdowns/options", "POST")).toBe(false);
   });
 
+  it("keeps the incident catalog manager-only and exposes personal assets to the linked-employee route guard", () => {
+    expect(isPersonaPageAllowed(["it_manager"], [], "/incident-catalog")).toBe(true);
+    expect(isPersonaApiAllowed(["it_manager"], [], "/incident-catalog", "GET")).toBe(true);
+    expect(isPersonaPageAllowed(["end_user"], [], "/incident-catalog")).toBe(false);
+    expect(isPersonaPageAllowed(["end_user"], [], "/my-assets")).toBe(true);
+    expect(isPersonaPageAllowed(["auditor"], [], "/my-assets")).toBe(true);
+  });
+
   it("keeps auditor pages read-only and focused on audit and inventory", () => {
     expect(isPersonaPageAllowed(["auditor"], [], "/access-governance")).toBe(true);
     expect(isPersonaPageAllowed(["auditor"], [], "/audit-logs")).toBe(true);

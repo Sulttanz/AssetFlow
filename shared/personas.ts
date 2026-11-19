@@ -11,13 +11,14 @@ export type PersonaUserLike = {
 const IT_AGENT_PAGE_PREFIXES = [
   "/dashboard", "/assets", "/consumables", "/inventory", "/assignments",
   "/maintenance", "/asset-requests", "/asset-disposal", "/asset-audits", "/asset-handovers",
-  "/incidents", "/service-requests", "/problems", "/knowledge-base",
+  "/incidents", "/service-requests", "/problems", "/knowledge-base", "/my-assets",
   "/service-catalog", "/network-topology", "/backup-schedules", "/reports/tickets", "/reports/problems",
   "/reports/hardware-lifecycle", "/reports/consumables-stock", "/reports/itsm-mttr", "/reports/itsm-sla",
 ];
 
 const MANAGER_PAGE_PREFIXES = [
   ...IT_AGENT_PAGE_PREFIXES,
+  "/incident-catalog",
   "/changes", "/applications", "/servers", "/purchase-orders", "/budgets",
   "/procure-to-pay", "/finance/quotations", "/finance/purchase-orders", "/finance/invoices",
   "/finance/returns", "/finance/budgets", "/finance/contracts", "/finance/tax-settings", "/reports/procurement-finance",
@@ -59,6 +60,9 @@ export function isPersonaPageAllowed(
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
   if (path === "/knowledge-base") return true;
   if (isDemoViewer(roleNames)) return isDemoPageAllowed(requestedPath);
+  // Access to the personal asset register is separately guarded by the linked
+  // employee check (or my_assets_view permission) in ProtectedRoute.
+  if (path === "/my-assets") return true;
   if (["/reports", "/reports/personnel", "/reports/employee-directory", "/reports/workload-heatmap", "/reports/account-activity"].includes(path)) return true;
   if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
 

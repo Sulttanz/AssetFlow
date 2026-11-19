@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { UserWithDetails } from "@shared/schema";
+import { isPersonaPageAllowed } from "@shared/personas";
 import Sidebar from "./sidebar";
 
 const state = vi.hoisted(() => ({ user: null as UserWithDetails | null, disabled: [] as string[] }));
@@ -114,6 +115,22 @@ describe("Enterprise sidebar navigation", () => {
     render(<Sidebar />);
     expect(screen.getByRole("link", { name: "Request Tracker" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: "Service Requests" }).hasAttribute("aria-current")).toBe(false);
+  });
+
+  it("shows Incident Catalog to managers and My Assets to linked employees", () => {
+    expect(isPersonaPageAllowed(["it_manager"], [], "/incident-catalog")).toBe(true);
+    expect(isPersonaPageAllowed(["end_user"], [], "/incident-catalog")).toBe(false);
+    expect(isPersonaPageAllowed(["end_user"], [], "/my-assets")).toBe(true);
+    state.user = user("it_manager");
+    render(<Sidebar />);
+    fireEvent.click(button("IT Service Management"));
+    expect(screen.getByRole("link", { name: "Incident Catalog" })).toBeTruthy();
+    cleanup();
+
+    state.user = { ...user("end_user"), employeeId: "employee-linked" } as UserWithDetails;
+    render(<Sidebar />);
+    fireEvent.click(button("My Assets"));
+    expect(screen.getByRole("link", { name: "My Assigned Assets" })).toBeTruthy();
   });
 
   it("nests the exact four report categories and opens the active report category", () => {

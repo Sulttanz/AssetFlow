@@ -3533,8 +3533,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // --------------------
 
   // Assets routes - all require authentication
-  app.get("/api/my/assets", requireAuth, requirePermission("my_assets_view"), async (req: any, res) => {
+  app.get("/api/my/assets", requireAuth, async (req: any, res) => {
     try {
+      const hasAssetViewPermission = req.user?.permissions?.includes("my_assets_view") ||
+        req.user?.permissions?.includes("system_admin");
+      if (!hasAssetViewPermission && !req.user?.employeeId) {
+        return res.status(403).json({ message: "Link this account to an employee profile to view assigned assets." });
+      }
+      if (req.user?.employeeId) {
+        const [employee] = await db.select({ id: employees.id })
+          .from(employees)
+          .where(eq(employees.id, req.user.employeeId))
+          .limit(1);
+        if (!employee) return res.json([]);
+        const assignedAssets = await db.select({
+          assignmentId: assignments.id,
+          assignedDate: assignments.assignedDate,
+          assetId: assets.id,
+          assetTag: assets.assetTag,
+          name: assets.name,
+          type: assets.type,
+          model: assets.model,
+          serialNumber: assets.serialNumber,
+          status: assets.status,
+        })
+          .from(assignments)
+          .innerJoin(assets, eq(assets.id, assignments.assetId))
+          .where(and(eq(assignments.employeeId, employee.id), isNull(assignments.returnedDate)))
+          .orderBy(desc(assignments.assignedDate), asc(assets.name));
+        return res.json(assignedAssets);
+      }
       const userEmail = req.user?.email;
       if (!userEmail) return res.json([]);
       const [employee] = await db.select({ id: employees.id })

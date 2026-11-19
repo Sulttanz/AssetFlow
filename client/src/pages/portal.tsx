@@ -184,7 +184,12 @@ export default function PortalPage() {
       {user?.employeeId && <section className="mt-8 overflow-hidden rounded-[24px] border border-[#d4e2de] bg-[#fffdfa] shadow-[0_10px_38px_rgba(35,73,70,.045)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4ebe7] px-5 py-5 sm:px-7">
           <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#e5efea] text-[#39736d]"><Laptop className="h-5 w-5" /></div><div><p className="text-xs font-semibold uppercase tracking-[.13em] text-[#7a908c]">Equipment in your care</p><h2 className="text-xl font-semibold tracking-[-.03em]">My Assigned Assets</h2></div></div>
-          <span className="rounded-full border border-[#d7e5dd] bg-[#f3f8f4] px-3 py-1.5 text-xs font-medium text-[#55766c]">{custodyQuery.data?.length ?? 0} active receipt{custodyQuery.data?.length === 1 ? "" : "s"}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[#d7e5dd] bg-[#f3f8f4] px-3 py-1.5 text-xs font-medium text-[#55766c]">{custodyQuery.data?.length ?? 0} active receipt{custodyQuery.data?.length === 1 ? "" : "s"}</span>
+            <Button asChild size="sm" variant="outline" className="rounded-full border-[#d7e5dd] bg-white text-[#39736d]">
+              <Link href="/my-assets">View all assets <ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Link>
+            </Button>
+          </div>
         </div>
         {custodyQuery.isLoading ? <div className="space-y-3 p-5 sm:p-7" aria-label="Loading assigned assets">{[0, 1].map(item => <div key={item} className="h-24 animate-pulse rounded-2xl bg-[#eff4f0]" />)}</div>
           : custodyQuery.isError ? <div className="px-6 py-12 text-center"><p className="font-semibold">Your custody receipts could not load</p><p className="mt-1 text-sm text-[#7c908d]">Try again in a moment.</p><Button variant="outline" className="mt-4 rounded-full" onClick={() => void custodyQuery.refetch()}>Try again</Button></div>

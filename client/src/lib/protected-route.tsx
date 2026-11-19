@@ -12,6 +12,7 @@ export function ProtectedRoute({
   requiredAnyPermission,
   requiredModule,
   requiresItsmWorkbench,
+  allowLinkedEmployee,
 }: {
   path: string;
   component: React.ComponentType;
@@ -19,6 +20,7 @@ export function ProtectedRoute({
   requiredAnyPermission?: string[];
   requiredModule?: string;
   requiresItsmWorkbench?: boolean;
+  allowLinkedEmployee?: boolean;
 }) {
   const { user, isLoading } = useAuth();
   const { isModuleEnabled, isLoading: isModulesLoading } = useModules();
@@ -69,7 +71,7 @@ export function ProtectedRoute({
   }
 
   // Check specific permission if required
-  if (requiredPermission && !user.permissions?.includes(requiredPermission)) {
+  if (requiredPermission && !user.permissions?.includes(requiredPermission) && !(allowLinkedEmployee && user.employeeId)) {
     return (
       <Route path={path}>
         <div className="flex items-center justify-center min-h-screen">

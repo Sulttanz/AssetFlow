@@ -188,7 +188,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       title: "My Assets",
       moduleKey: "asset_management",
       items: [
-        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", permission: ["my_assets_view", "system_admin"], visible: Boolean(user?.employeeId) },
+        { name: "My Assigned Assets", href: "/my-assets", icon: Laptop, current: location === "/my-assets", visible: Boolean(user?.employeeId || user?.permissions?.some(permission => ["my_assets_view", "system_admin"].includes(permission))) },
       ],
     },
     {
@@ -266,6 +266,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       moduleKey: "itsm",
       items: [
         { name: "Incidents", href: "/incidents", icon: Ticket, current: location === "/incidents" },
+        { name: "Incident Catalog", href: "/incident-catalog", icon: ShieldAlert, current: location === "/incident-catalog", visible: isSystemAdministrator(user) || personaRoles.includes("it_manager") || roleNames.some(name => getStandardRoleKey(name) === "it_manager") },
         { name: "Incident Tracker", href: "/incidents/tracker", icon: AlertTriangle, current: location === "/incidents/tracker" },
         { name: "Service Requests", href: "/service-requests", icon: ClipboardList, current: location === "/service-requests" },
         { name: "Request Tracker", href: "/service-requests/tracker", icon: ClipboardCheck, current: location === "/service-requests/tracker" },

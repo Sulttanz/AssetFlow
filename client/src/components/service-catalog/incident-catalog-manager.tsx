@@ -57,10 +57,10 @@ export function IncidentCatalogManager() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/incident-catalog"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/incidents/options"] });
-      toast({ title: editing ? "Incident type updated" : "Incident type created" });
+      toast({ title: editing ? "Incident template updated" : "Incident template created" });
       setOpen(false);
     },
-    onError: (error: Error) => toast({ title: "Could not save incident type", description: error.message, variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Could not save incident template", description: error.message, variant: "destructive" }),
   });
   const deactivate = useMutation({
     mutationFn: async (id: string) => checkedResponse(await apiRequest("DELETE", `/api/incident-catalog/${id}`)),
@@ -94,10 +94,10 @@ export function IncidentCatalogManager() {
 
   return <section className="space-y-4">
     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-      <div><h2 className="text-xl font-semibold">Incident types</h2><p className="text-sm text-muted-foreground">Set global or project-specific intake choices and their default triage routing.</p></div>
-      <Button onClick={beginCreate}><Plus className="mr-2 h-4 w-4" />New incident type</Button>
+      <div><h2 className="text-xl font-semibold">Incident templates</h2><p className="text-sm text-muted-foreground">Set global or project-specific intake choices and their default triage routing.</p></div>
+      <Button onClick={beginCreate}><Plus className="mr-2 h-4 w-4" />New incident template</Button>
     </div>
-    {itemsQuery.isLoading ? <div className="h-24 animate-pulse rounded-xl bg-muted" /> : itemsQuery.isError ? <Card><CardContent className="p-6 text-sm text-destructive">Incident types could not be loaded.</CardContent></Card> : !itemsQuery.data?.length ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No incident types have been configured yet.</CardContent></Card> : <div className="grid gap-3">
+    {itemsQuery.isLoading ? <div className="h-24 animate-pulse rounded-xl bg-muted" /> : itemsQuery.isError ? <Card><CardContent className="p-6 text-sm text-destructive">Incident templates could not be loaded.</CardContent></Card> : !itemsQuery.data?.length ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No incident templates have been configured yet.</CardContent></Card> : <div className="grid gap-3">
       {itemsQuery.data.map(item => <Card key={item.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.name}</h3><Badge variant={item.isActive ? "default" : "secondary"}>{item.isActive ? "Active" : "Inactive"}</Badge><Badge variant="outline">{item.projectId ? item.projectName ?? "Project-scoped" : "Global"}</Badge></div>
@@ -113,7 +113,7 @@ export function IncidentCatalogManager() {
 
     <Dialog open={open} onOpenChange={next => { setOpen(next); if (!next) setEditing(null); }}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{editing ? "Edit incident type" : "New incident type"}</DialogTitle><DialogDescription>End users see only active types available globally or for their assigned project.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? "Edit incident template" : "New incident template"}</DialogTitle><DialogDescription>End users see only active types available globally or for their assigned project.</DialogDescription></DialogHeader>
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
           <div className="space-y-2"><Label htmlFor="incident-type-name">Name</Label><Input id="incident-type-name" required maxLength={160} value={draft.name} onChange={event => updateDraft("name", event.target.value)} /></div>
           <div className="space-y-2"><Label htmlFor="incident-type-description">Description</Label><Textarea id="incident-type-description" maxLength={4000} value={draft.description} onChange={event => updateDraft("description", event.target.value)} /></div>
@@ -128,7 +128,7 @@ export function IncidentCatalogManager() {
             <div className="space-y-2"><Label htmlFor="incident-type-priority">Default priority</Label><select id="incident-type-priority" className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={draft.defaultPriority} onChange={event => updateDraft("defaultPriority", event.target.value as CatalogForm["defaultPriority"])}>{["P1", "P2", "P3", "P4"].map(value => <option key={value}>{value}</option>)}</select></div>
           </div>
           <div className="space-y-2"><Label htmlFor="incident-type-group">Default assignment group</Label><select id="incident-type-group" className="h-11 w-full rounded-md border bg-background px-3 text-sm" value={draft.defaultAssignmentGroup} onChange={event => updateDraft("defaultAssignmentGroup", event.target.value)}><option value="">No default group</option>{groups.map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</select></div>
-          <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={save.isPending || !draft.name.trim()}>{save.isPending ? "Saving…" : "Save incident type"}</Button></div>
+          <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={save.isPending || !draft.name.trim()}>{save.isPending ? "Saving…" : "Save incident template"}</Button></div>
         </form>
       </DialogContent>
     </Dialog>

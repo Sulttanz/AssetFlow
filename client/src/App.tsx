@@ -81,6 +81,7 @@ const SlaPolicies = lazy(() => import("@/pages/sla-policies"));
 const KnowledgeBase = lazy(() => import("@/pages/knowledge-base"));
 const Problems = lazy(() => import("@/pages/problems"));
 const ServiceCatalog = lazy(() => import("@/pages/service-catalog"));
+const IncidentCatalogPage = lazy(() => import("@/pages/incident-catalog"));
 const Changes = lazy(() => import("@/pages/changes"));
 const ChangeTracker = lazy(() => import("@/pages/change-tracker"));
 const RiskManagement = lazy(() => import("@/pages/risk-management"));
@@ -121,7 +122,7 @@ function Router() {
                   <ProtectedRoute path="/reports/project-allocations" component={ProjectAllocationsReport} requiredModule="project_management" requiredAnyPermission={["project_view", "project_manage", "system_admin"]} />
                   <ProtectedRoute path="/portal" component={PortalPage} requiredModule="itsm" />
                   <ProtectedRoute path="/assets" component={Assets} requiredModule="asset_management" requiredAnyPermission={["asset_view", "asset_update", "asset_create", "compliance_view"]} />
-                  <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredModule="asset_management" requiredPermission="my_assets_view" />
+                  <ProtectedRoute path="/my-assets" component={MyAssignedAssets} requiredModule="asset_management" requiredPermission="my_assets_view" allowLinkedEmployee />
                   <ProtectedRoute path="/employees" component={Employees} requiredModule="asset_management" requiredAnyPermission={["employee_update", "offboarding_approve", "system_admin"]} />
                   <ProtectedRoute path="/access-governance" component={AccessGovernance} requiredModule="asset_management" requiredAnyPermission={["employee_update", "access_governance_view", "system_admin"]} />
                   <ProtectedRoute path="/applications" component={Applications} requiredModule="cmdb" requiredAnyPermission={["asset_update", "cmdb_view", "system_admin"]} />
@@ -204,6 +205,7 @@ function Router() {
                   <ProtectedRoute path="/reports/changes" component={ChangesReport} requiredModule="itsm" />
                   <ProtectedRoute path="/reports/kb-articles" component={KnowledgeBaseReport} />
                   <ProtectedRoute path="/sla-policies" component={SlaPolicies} requiredModule="itsm" requiredPermission="system_admin" />
+                  <ProtectedRoute path="/incident-catalog" component={IncidentCatalogPage} requiredModule="itsm" />
                   <ProtectedRoute path="/knowledge-base" component={KnowledgeBase} />
                   <ProtectedRoute path="/problems" component={Problems} requiredModule="itsm" requiresItsmWorkbench />
                   <ProtectedRoute path="/service-catalog" component={ServiceCatalog} requiredModule="itsm" />

@@ -14,10 +14,8 @@ import { CatalogItemEditor } from "@/components/service-catalog/catalog-item-edi
 import { ServiceRequestDialog } from "@/components/service-catalog/service-request-dialog";
 import { CatalogItem, CatalogOptions, checkedResponse } from "@/components/service-catalog/types";
 import { isPersonaApiAllowed } from "@shared/personas";
-import { IncidentCatalogManager } from "@/components/service-catalog/incident-catalog-manager";
-import { getStandardRoleKey } from "@shared/role-catalog";
 
-type TabValue = "services" | "manage" | "approvals" | "incident-types";
+type TabValue = "services" | "manage" | "approvals";
 
 export default function ServiceCatalog() {
   const { user } = useAuth();
@@ -37,8 +35,6 @@ export default function ServiceCatalog() {
   const options = optionsQuery.data;
   const canManage = Boolean(options?.canManage);
   const canApprove = Boolean(options?.canApprove);
-  const canManageIncidents = Boolean(user?.permissions?.includes("system_admin") ||
-    user?.roles?.some(role => ["system_admin", "it_manager"].includes(getStandardRoleKey(role.name) ?? "")));
   const canRequest = isPersonaApiAllowed(user?.roles?.map(role => role.name) ?? [], user?.permissions ?? [], "/service-catalog/items/item/request", "POST");
   const itemsQuery = useQuery<CatalogItem[]>({
     queryKey: ["/api/service-catalog/items", user?.id, Boolean(options?.canManage)],
@@ -110,7 +106,6 @@ export default function ServiceCatalog() {
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="services">Browse services</TabsTrigger>
           {canManage && <TabsTrigger value="manage">Catalog management</TabsTrigger>}
-          {canManageIncidents && <TabsTrigger value="incident-types">Incident types</TabsTrigger>}
           {canApprove && <TabsTrigger value="approvals">Pending approvals{(approvalsQuery.data?.length ?? 0) > 0 && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px]">{approvalsQuery.data?.length}</span>}</TabsTrigger>}
         </TabsList>
         <TabsContent value="services" className="mt-5 space-y-6">
@@ -139,7 +134,6 @@ export default function ServiceCatalog() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">Governed service definitions</h2><p className="text-sm text-muted-foreground">Control availability, questions, service targets, and approval gates.</p></div><Button onClick={() => { setEditingItem(null); setEditorOpen(true); }}><Plus className="mr-2 h-4 w-4" />Create service</Button></div>
           {itemsQuery.isLoading ? <div className="h-36 animate-pulse rounded-xl border bg-card" /> : itemsQuery.isError ? <Card><CardContent className="p-8 text-center"><p>Catalog records could not be loaded.</p><Button variant="outline" className="mt-3" onClick={() => void itemsQuery.refetch()}>Retry</Button></CardContent></Card> : items.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center"><p className="font-semibold">No service definitions yet</p><p className="mt-1 text-sm text-muted-foreground">Create the first governed service.</p><Button className="mt-4" onClick={() => { setEditingItem(null); setEditorOpen(true); }}>Create service</Button></div> : <div className="grid gap-3">{items.map(item => <Card key={item.id}><CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.title}</h3><Badge variant={item.status === "Active" ? "default" : "secondary"}>{item.status}</Badge><Badge variant="outline">{options.categories.find(entry => entry.value === item.category)?.label ?? item.category}</Badge></div><p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.description || "No description provided."}</p><p className="mt-2 text-xs text-muted-foreground">{item.customFieldsSchema.length} form questions · {item.requiresApproval ? `Approval: ${item.approverRole ?? "role not set"}` : "No approval gate"} · {item.slaHours != null ? `${item.slaHours}h target` : "No SLA target"}</p></div><Button variant="outline" className="shrink-0" onClick={() => { setEditingItem(item); setEditorOpen(true); }}>Edit service</Button></CardContent></Card>)}</div>}
         </TabsContent>}
-        {canManageIncidents && <TabsContent value="incident-types" className="mt-5"><IncidentCatalogManager /></TabsContent>}
         {canApprove && <TabsContent value="approvals" className="mt-5 space-y-4"><div><h2 className="text-xl font-semibold">Approval decisions</h2><p className="text-sm text-muted-foreground">Review the submitted details and record a reason before fulfillment begins.</p></div><ApprovalQueue rows={approvalsQuery.data ?? []} loading={approvalsQuery.isLoading} error={approvalsQuery.isError} retry={() => void approvalsQuery.refetch()} /></TabsContent>}
       </Tabs>
     </div>
