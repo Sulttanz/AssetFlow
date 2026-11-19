@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ const dataDirectory = path.join(tempRoot, "postgres-data");
 const postgresLog = path.join(tempRoot, "postgres.log");
 const schemaName = `test_full_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
 let postgresStarted = false;
+let reportSequence = 0;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -111,25 +112,83 @@ try {
       ? { RUN_COMPREHENSIVE_SEED_TESTS: "1" }
       : {}),
   });
-  const runVitest = (args) => spawnSync(
-    process.execPath,
-    [vitestCli, "run", "--config", "vitest.config.ts", ...args],
-    {
-      cwd: projectRoot,
-      stdio: "inherit",
-      env: vitestEnvironment,
-    },
-  );
+  const runVitest = async (args, suiteName) => {
+    const reportPath = path.join(tempRoot, `vitest-report-${reportSequence++}.json`);
+    const result = spawnSync(
+      process.execPath,
+      [
+        vitestCli,
+        "run",
+        "--config",
+        "vitest.config.ts",
+        "--reporter=default",
+        "--reporter=json",
+        `--outputFile.json=${reportPath}`,
+        ...args,
+      ],
+      {
+        cwd: projectRoot,
+        stdio: "inherit",
+        env: vitestEnvironment,
+      },
+    );
+    if (result.error) throw result.error;
+
+    const report = JSON.parse(await readFile(reportPath, "utf8"));
+    const skipped = report.testResults.flatMap((file) =>
+      (file.assertionResults ?? [])
+        .filter((test) => test.status === "skipped" || test.status === "pending" || test.status === "todo")
+        .map((test) => ({
+          file: path.relative(projectRoot, file.name).replaceAll(path.sep, "/"),
+          name: test.fullName,
+        })),
+    );
+
+    // These skips are intentional: comprehensive seeding is opt-in, and the
+    // CAB lock probe is exercised by the separately required CAB schema check.
+    // Database integration tests are enabled above, so skips gated only on
+    // RUN_DATABASE_INTEGRATION_TESTS are not expected here.
+    const expectedSkips = new Set();
+    if (process.env.RUN_COMPREHENSIVE_SEED_TESTS !== "1") {
+      expectedSkips.add(
+        "server/comprehensive-sample-data.test.ts::comprehensive sample-data seed integration creates a complete, linked dataset and is idempotent",
+      );
+    }
+    expectedSkips.add(
+      "server/dev-cab-schema-sync.test.ts::development SQL migration sync against PostgreSQL keeps CAB writes available and retries an interrupted concurrent history index build",
+    );
+
+    const unexpected = [];
+    if (skipped.length > 0) {
+      console.log(`Skipped tests in ${suiteName}:`);
+      for (const test of skipped) {
+        const key = `${test.file}::${test.name}`;
+        const expected = expectedSkips.has(key);
+        console.log(`  ${expected ? "Expected" : "UNEXPECTED"}: ${test.name} (${test.file})`);
+        if (!expected) unexpected.push(test);
+      }
+    } else {
+      console.log(`No skipped tests in ${suiteName}.`);
+    }
+    if (unexpected.length > 0) {
+      console.error(`${unexpected.length} unexpected skipped test(s) found in ${suiteName}.`);
+      if (result.status === 0) result.status = 1;
+    }
+    return result;
+  };
   const selectedTests = process.argv.slice(2);
-  const fullSuite = runVitest(selectedTests.length
+  const fullSuite = await runVitest(selectedTests.length
     ? selectedTests
-    : ["--exclude", "server/change-overview-plan.test.ts"]);
+    : ["--exclude", "server/change-overview-plan.test.ts"], "full Vitest suite");
   if (fullSuite.error) throw fullSuite.error;
   if (fullSuite.status !== 0) {
     process.exitCode = fullSuite.status ?? 1;
   } else if (selectedTests.length === 0) {
     console.log("Running the CAB overview planner benchmark separately to avoid overlapping PostgreSQL snapshots.");
-    const isolatedPlannerSuite = runVitest(["server/change-overview-plan.test.ts"]);
+    const isolatedPlannerSuite = await runVitest(
+      ["server/change-overview-plan.test.ts"],
+      "isolated CAB overview planner suite",
+    );
     if (isolatedPlannerSuite.error) throw isolatedPlannerSuite.error;
     if (isolatedPlannerSuite.status !== 0) process.exitCode = isolatedPlannerSuite.status ?? 1;
   }
