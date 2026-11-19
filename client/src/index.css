@@ -132,6 +132,17 @@
 
   input::placeholder,
   textarea::placeholder { opacity: 1; }
+
+  /* Keep native controls interactive if a layout wrapper carries pointer-events:none. */
+  input:not([type="hidden"]),
+  textarea,
+  select,
+  [contenteditable="true"],
+  [role="textbox"] {
+    pointer-events: auto;
+    user-select: text;
+    -webkit-user-select: text;
+  }
 }
 
 .sidebar-active {

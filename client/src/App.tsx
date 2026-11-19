@@ -2,6 +2,7 @@ import { Switch, Route, Redirect } from "wouter";
 import { lazy, Suspense, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { applyMobileTableLayout } from "./lib/mobile-table-layout";
+import { installOverlayInteractionRecovery } from "./lib/overlay-interaction-recovery";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -230,6 +231,7 @@ function App() {
   useEffect(() => {
     const applyLayouts = () => applyMobileTableLayout(document.body);
     applyLayouts();
+    const stopOverlayRecovery = installOverlayInteractionRecovery(document.body);
 
     const observer = new MutationObserver(applyLayouts);
     observer.observe(document.body, {
@@ -238,7 +240,10 @@ function App() {
       subtree: true,
     });
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      stopOverlayRecovery();
+    };
   }, []);
 
   return (
