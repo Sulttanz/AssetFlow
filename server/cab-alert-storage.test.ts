@@ -7,8 +7,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { changeApprovals, changes, users } from "@shared/schema";
 
+const testDatabaseUrl = process.env.VITEST_TEST_DATABASE_URL;
 const databaseIntegrationEnabled =
-  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
+  process.env.VITEST_NATIVE_PG === "1" &&
+  Boolean(testDatabaseUrl);
 
 const database = vi.hoisted(() => ({
   select: vi.fn(),
@@ -156,12 +159,12 @@ describe("CAB alert storage query", () => {
 
   describe.skipIf(!databaseIntegrationEnabled)("PostgreSQL query plan", () => {
     const schema = `cab_alert_plan_${randomUUID().replace(/-/g, "")}`;
-    const databaseUrl = process.env.DATABASE_URL;
+    const databaseUrl = testDatabaseUrl;
     let setupPool: Pool | undefined;
     let plannerPool: Pool | undefined;
 
     beforeAll(async () => {
-      if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB alert planner test");
+      if (!databaseUrl) throw new Error("VITEST_TEST_DATABASE_URL is required for the CAB alert planner test");
       setupPool = new Pool({ connectionString: databaseUrl });
       await setupPool.query(`CREATE SCHEMA "${schema}"`);
 

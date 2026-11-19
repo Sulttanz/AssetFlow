@@ -12,6 +12,10 @@ const dataDirectory = path.join(tempRoot, "postgres-data");
 const postgresLog = path.join(tempRoot, "postgres.log");
 const reportPath = path.join(tempRoot, "vitest-report.json");
 let postgresStarted = false;
+const testEnvironment = {};
+for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "CI"]) {
+  if (process.env[key]) testEnvironment[key] = process.env[key];
+}
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -110,13 +114,14 @@ try {
       cwd: projectRoot,
       stdio: "inherit",
       env: {
-        ...process.env,
+        ...testEnvironment,
         NODE_ENV: "test",
         CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
         CAB_SCHEMA_SYNC_TEST_WITH_LOCK_PROBE: "1",
         RUN_DATABASE_INTEGRATION_TESTS: "1",
         VITEST_NATIVE_PG: "1",
         DATABASE_URL: `postgresql://postgres@127.0.0.1:${port}/postgres`,
+        VITEST_TEST_DATABASE_URL: `postgresql://postgres@127.0.0.1:${port}/postgres`,
         CAB_SCHEMA_SYNC_TEST_DATABASE_URL:
           `postgresql://postgres@127.0.0.1:${port}/postgres`,
       },

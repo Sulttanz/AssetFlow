@@ -6,18 +6,21 @@ import { Pool } from "pg";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { changeApprovals } from "@shared/schema";
 
+const testDatabaseUrl = process.env.VITEST_TEST_DATABASE_URL;
 const databaseIntegrationEnabled =
-  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
+  process.env.VITEST_NATIVE_PG === "1" &&
+  Boolean(testDatabaseUrl);
 
 describe("CAB assignment history lookup index", () => {
   const schema = `cab_assignment_plan_${randomUUID().replaceAll("-", "")}`;
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = testDatabaseUrl;
   let setupPool: Pool | undefined;
   let plannerPool: Pool | undefined;
 
   beforeAll(async () => {
     if (!databaseIntegrationEnabled) return;
-    if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB assignment planner test");
+    if (!databaseUrl) throw new Error("VITEST_TEST_DATABASE_URL is required for the CAB assignment planner test");
     setupPool = new Pool({ connectionString: databaseUrl });
     await setupPool.query(`CREATE SCHEMA "${schema}"`);
 

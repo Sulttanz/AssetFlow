@@ -101,6 +101,7 @@ try {
   const vitestCli = path.join(projectRoot, "node_modules/vitest/vitest.mjs");
   const vitestEnvironment = testEnvironment({
     DATABASE_URL: isolatedDatabaseUrl,
+    VITEST_TEST_DATABASE_URL: isolatedDatabaseUrl,
     CAB_SCHEMA_SYNC_TEST_DATABASE_URL: adminUrl,
     CAB_SCHEMA_SYNC_TEST_REQUIRED: "1",
     RUN_DATABASE_INTEGRATION_TESTS: "1",

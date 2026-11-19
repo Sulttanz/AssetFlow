@@ -7,20 +7,22 @@ import { changeApprovals, changes, users } from "@shared/schema";
 import { cabApprovalsGranted } from "./cab-gate";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 
+const testDatabaseUrl = process.env.VITEST_TEST_DATABASE_URL;
 const databaseIntegrationEnabled =
-  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
+  process.env.VITEST_NATIVE_PG === "1" &&
+  Boolean(testDatabaseUrl);
 
 describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver account is deleted (PostgreSQL)", () => {
   const schema = `test_cab_delete_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
-  const originalDatabaseUrl = process.env.DATABASE_URL;
   let setupPool: Pool | undefined;
   let appPool: Pool | undefined;
   let db: typeof import("./db").db;
   let storage: typeof import("./storage").storage;
 
   beforeAll(async () => {
-    if (!originalDatabaseUrl) throw new Error("DATABASE_URL is required for the CAB account deletion test");
-    setupPool = new Pool({ connectionString: originalDatabaseUrl });
+    if (!testDatabaseUrl) throw new Error("VITEST_TEST_DATABASE_URL is required for the CAB account deletion test");
+    setupPool = new Pool({ connectionString: testDatabaseUrl });
     const client = await setupPool.connect();
     try {
       await initializeTestSchema(client, schema);
@@ -28,7 +30,7 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
       client.release();
     }
 
-    process.env.DATABASE_URL = testDatabaseUrlForSchema(originalDatabaseUrl, schema);
+    process.env.DATABASE_URL = testDatabaseUrlForSchema(testDatabaseUrl, schema);
     const databaseModule = await import("./db");
     db = databaseModule.db;
     appPool = databaseModule.pool;
@@ -39,8 +41,7 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
     try {
       await appPool?.end();
     } finally {
-      if (originalDatabaseUrl) process.env.DATABASE_URL = originalDatabaseUrl;
-      else delete process.env.DATABASE_URL;
+      delete process.env.DATABASE_URL;
       try {
         if (setupPool) await setupPool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       } finally {

@@ -52,8 +52,13 @@ import
 ;
 
 
+const testDatabaseUrl = process.env.VITEST_TEST_DATABASE_URL
+;
+
 const databaseIntegrationEnabled =
-  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1"
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
+  process.env.VITEST_NATIVE_PG === "1" &&
+  Boolean(testDatabaseUrl)
 ;
 
 
@@ -101,7 +106,7 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
   const schema = `test_cab_vote_${randomUUID().replace(/-/g, "")}`
 ;
 
-  const originalUrl = process.env.DATABASE_URL
+  const originalUrl = testDatabaseUrl
 ;
 
   let setupPool: Pool
@@ -126,7 +131,7 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
   beforeAll(async () => 
 {
 
-    if (!originalUrl) throw new Error("DATABASE_URL is required for the CAB concurrency test")
+    if (!originalUrl) throw new Error("VITEST_TEST_DATABASE_URL is required for the CAB concurrency test")
 ;
 
     setupPool = new Pool(

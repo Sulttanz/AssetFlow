@@ -33,14 +33,17 @@ const queries: {
   whereCondition?: Parameters<typeof dialect.sqlToQuery>[0];
 }[] = [];
 
+const testDatabaseUrl = process.env.VITEST_TEST_DATABASE_URL;
 const databaseIntegrationEnabled =
-  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" && process.env.VITEST_NATIVE_PG === "1";
+  process.env.RUN_DATABASE_INTEGRATION_TESTS === "1" &&
+  process.env.VITEST_NATIVE_PG === "1" &&
+  Boolean(testDatabaseUrl);
 const scaledHistorySize = 450_000;
 const countIndexStorageBudgetBytes = 8 * 1024 * 1024;
 
 describe("CAB overview pending count plan", () => {
   const schema = `cab_overview_plan_${randomUUID().replaceAll("-", "")}`;
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = testDatabaseUrl;
   let setupPool: Pool | undefined;
   let plannerPool: Pool | undefined;
 
@@ -72,7 +75,7 @@ describe("CAB overview pending count plan", () => {
 
   beforeAll(async () => {
     if (!databaseIntegrationEnabled) return;
-    if (!databaseUrl) throw new Error("DATABASE_URL is required for the CAB overview planner test");
+    if (!databaseUrl) throw new Error("VITEST_TEST_DATABASE_URL is required for the CAB overview planner test");
     setupPool = new Pool({ connectionString: databaseUrl });
     await setupPool.query(`CREATE SCHEMA "${schema}"`);
 
