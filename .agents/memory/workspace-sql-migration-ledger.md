@@ -23,11 +23,11 @@ Applied SQL migration files are checksum-protected. Restore accidental edits to 
 
 **How to apply:** When a historical upgrade needs extra validation, keep its original contents unchanged and put the preflight in the runner; verify both the checksum and the post-merge setup retry.
 
-When an already-recorded migration needs a non-transactional operation such as a large concurrent index build, preserve its SQL and checksum and opt it into that execution mode in the runner. Record the checksum only after the operation succeeds; on retry, remove only an invalid leftover whose definition matches the intended index.
+When an already-recorded migration needs a non-transactional operation such as a large concurrent index build, preserve its SQL and checksum and opt it into that execution mode in the runner. Record the checksum only after the operation succeeds; on retry, remove only an invalid leftover whose actual indexed table and definition match the intended index.
 
 **Why:** Editing an applied migration breaks checksum validation, while interrupted `CREATE INDEX CONCURRENTLY` operations can leave an invalid index that blocks a straightforward retry.
 
-**How to apply:** Keep the runner's non-transactional path narrowly scoped, serialize it with the migration advisory lock, and test both write availability during the build and recovery after cancellation.
+**How to apply:** Read the indexed table from the index relation itself, not from the migration's target table. Keep the runner's non-transactional path narrowly scoped, serialize it with the migration advisory lock, and test both write availability during the build and recovery after cancellation.
 
 Run long concurrent-index lock probes separately from planner tests that rely on VACUUM visibility maps.
 

@@ -45,6 +45,7 @@ async function findAvailablePort() {
 
 function assertNoSkippedTests(report) {
   const expectedIntegrationTests = [
+    "refuses to replace a same-name index on another table or with a different definition",
     "preserves a CAB decision when only the deleted approver's original identity remains",
     "retries the unchanged CAB migration after restoring missing approver identity",
     "rolls back partial schema changes and the ledger row, then applies the repaired migration once",

@@ -66,7 +66,7 @@ function getConcurrentIndexMigration(sql, name) {
 async function prepareConcurrentIndexRetry(client, definition) {
   const { rows: [existing] } = await client.query(`
     SELECT table_namespace.nspname AS schema_name,
-      table_class.relname AS table_name,
+      indexed_table.relname AS table_name,
       index_class.relkind,
       index_info.indisvalid,
       index_info.indisready,
@@ -79,7 +79,7 @@ async function prepareConcurrentIndexRetry(client, definition) {
         SELECT attribute.attname::text
         FROM unnest(index_info.indkey::smallint[]) WITH ORDINALITY AS key(attnum, ordinal_position)
         JOIN pg_attribute AS attribute
-          ON attribute.attrelid = table_class.oid
+          ON attribute.attrelid = indexed_table.oid
          AND attribute.attnum = key.attnum
         WHERE key.ordinal_position <= index_info.indnkeyatts
         ORDER BY key.ordinal_position
@@ -90,6 +90,7 @@ async function prepareConcurrentIndexRetry(client, definition) {
       ON index_class.relnamespace = table_class.relnamespace
      AND index_class.relname = $1
     LEFT JOIN pg_index AS index_info ON index_info.indexrelid = index_class.oid
+    LEFT JOIN pg_class AS indexed_table ON indexed_table.oid = index_info.indrelid
     LEFT JOIN pg_am AS access_method ON access_method.oid = index_class.relam
     WHERE table_class.oid = to_regclass($2)
   `, [definition.indexName, definition.tableName]);
@@ -107,7 +108,7 @@ async function prepareConcurrentIndexRetry(client, definition) {
     JSON.stringify(existing.columns) === JSON.stringify(definition.columns);
   if (!matchesDefinition) {
     throw new Error(
-      `Index ${existing.schema_name}.${definition.indexName} exists with a different definition; refusing to replace it. Found ${JSON.stringify({
+      `Index ${existing.schema_name}.${definition.indexName} exists with a different table or definition; refusing to replace it. Found ${JSON.stringify({
         relkind: existing.relkind,
         tableName: existing.table_name,
         indisunique: existing.indisunique,

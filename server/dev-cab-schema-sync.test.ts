@@ -199,6 +199,114 @@ describe("development SQL migration sync", () => {
 
 describe("development SQL migration sync against PostgreSQL", () => {
   it.skipIf(!integrationDatabaseUrl)(
+    "refuses to replace a same-name index on another table or with a different definition",
+    async () => {
+      const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
+      const migrationName = "001_conflicting_index.sql";
+      const migrationSql = [
+        "-- replit: concurrent-index",
+        "CREATE INDEX IF NOT EXISTS expected_assignment_idx",
+        "  ON change_approvals (change_id, original_approver_id);",
+      ].join("\n");
+      const directory = await createMigrationDirectory({ [migrationName]: migrationSql });
+
+      try {
+        for (const conflict of ["another table", "different definition"] as const) {
+          const schemaName = `cab_conflicting_idx_${randomUUID().replaceAll("-", "")}`;
+          const ledgerSchema = `cab_conflicting_ledger_${randomUUID().replaceAll("-", "")}`;
+          const quotedSchema = `"${schemaName}"`;
+          const quotedLedgerSchema = `"${ledgerSchema}"`;
+          let client: Awaited<ReturnType<typeof pool.connect>> | undefined;
+
+          try {
+            client = await pool.connect();
+            await client.query(`CREATE SCHEMA ${quotedSchema}`);
+            await client.query(`CREATE SCHEMA ${quotedLedgerSchema}`);
+            await client.query(`SET search_path TO ${quotedSchema}`);
+            await client.query(`
+              CREATE TABLE change_approvals (
+                change_id varchar NOT NULL,
+                original_approver_id varchar NOT NULL
+              )
+            `);
+            await client.query(`
+              CREATE TABLE other_approvals (
+                change_id varchar NOT NULL,
+                original_approver_id varchar NOT NULL
+              )
+            `);
+
+            if (conflict === "another table") {
+              await client.query(
+                "CREATE INDEX expected_assignment_idx ON other_approvals (change_id, original_approver_id)",
+              );
+            } else {
+              await client.query(
+                "CREATE INDEX expected_assignment_idx ON change_approvals (change_id)",
+              );
+            }
+            await client.query(`
+              CREATE TABLE ${quotedLedgerSchema}.sql_migrations (
+                migration_name text PRIMARY KEY,
+                checksum text NOT NULL,
+                applied_at timestamptz NOT NULL DEFAULT now()
+              )
+            `);
+            await client.query(
+              `INSERT INTO ${quotedLedgerSchema}.sql_migrations
+                (migration_name, checksum, applied_at)
+               VALUES ('prior_migration.sql', 'prior-checksum', '2026-01-02T03:04:05Z')`,
+            );
+
+            const captureIndex = async () => {
+              const { rows } = await client!.query(
+                `SELECT table_class.relname AS table_name, pg_get_indexdef(index_class.oid) AS definition
+                 FROM pg_class AS index_class
+                 JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
+                 JOIN pg_index AS index_info ON index_info.indexrelid = index_class.oid
+                 JOIN pg_class AS table_class ON table_class.oid = index_info.indrelid
+                 WHERE index_namespace.nspname = $1
+                   AND index_class.relname = 'expected_assignment_idx'`,
+                [schemaName],
+              );
+              return rows;
+            };
+            const captureLedger = async () => {
+              const { rows } = await client!.query(
+                `SELECT migration_name, checksum, applied_at::text AS applied_at
+                 FROM ${quotedLedgerSchema}.sql_migrations
+                 ORDER BY migration_name`,
+              );
+              return rows;
+            };
+            const indexBefore = await captureIndex();
+            const ledgerBefore = await captureLedger();
+            expect(ledgerBefore).toHaveLength(1);
+
+            await expect(
+              applyDevSqlMigrations(client, { directory, ledgerSchema }),
+            ).rejects.toThrow(
+              `Index ${schemaName}.expected_assignment_idx exists with a different table or definition; refusing to replace it.`,
+            );
+
+            expect(await captureIndex()).toEqual(indexBefore);
+            expect(await captureLedger()).toEqual(ledgerBefore);
+          } finally {
+            if (client) {
+              await client.query(`DROP SCHEMA IF EXISTS ${quotedSchema} CASCADE`).catch(() => {});
+              await client.query(`DROP SCHEMA IF EXISTS ${quotedLedgerSchema} CASCADE`).catch(() => {});
+              client.release();
+            }
+          }
+        }
+      } finally {
+        await pool.end();
+      }
+    },
+    60_000,
+  );
+
+  it.skipIf(!integrationDatabaseUrl)(
     "preserves a CAB decision when only the deleted approver's original identity remains",
     async () => {
       const pool = new Pool({ connectionString: integrationDatabaseUrl, max: 1 });
