@@ -112,7 +112,7 @@ try {
       ? { RUN_COMPREHENSIVE_SEED_TESTS: "1" }
       : {}),
   });
-  const runVitest = async (args, suiteName) => {
+  const runVitest = async (args, suiteName, extraEnvironment = {}) => {
     const reportPath = path.join(tempRoot, `vitest-report-${reportSequence++}.json`);
     const result = spawnSync(
       process.execPath,
@@ -129,7 +129,7 @@ try {
       {
         cwd: projectRoot,
         stdio: "inherit",
-        env: vitestEnvironment,
+        env: { ...vitestEnvironment, ...extraEnvironment },
       },
     );
     if (result.error) throw result.error;
@@ -191,6 +191,18 @@ try {
     );
     if (isolatedPlannerSuite.error) throw isolatedPlannerSuite.error;
     if (isolatedPlannerSuite.status !== 0) process.exitCode = isolatedPlannerSuite.status ?? 1;
+    else {
+      console.log("Running the CAB assignment lookup benchmark separately from other database tests.");
+      const isolatedAssignmentBenchmark = await runVitest(
+        ["server/cab-assignment-plan.test.ts"],
+        "isolated CAB assignment lookup benchmark",
+        { RUN_CAB_ASSIGNMENT_BENCHMARK: "1" },
+      );
+      if (isolatedAssignmentBenchmark.error) throw isolatedAssignmentBenchmark.error;
+      if (isolatedAssignmentBenchmark.status !== 0) {
+        process.exitCode = isolatedAssignmentBenchmark.status ?? 1;
+      }
+    }
   }
 } finally {
   try {
