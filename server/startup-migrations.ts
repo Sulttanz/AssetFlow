@@ -11,6 +11,54 @@ const LOCK_ID = 24761006;
 const ROLE_STANDARDIZATION_MIGRATION = "20261207_standardize_standard_roles.sql";
 const ROLE_STANDARDIZATION_MIGRATION_SHA256 = "cb6b6a128495f654ca5cdceb25aa75687e7b584ef845c26b0361cd10447108f3";
 
+export type StartupMigrationFailureDiagnostic = {
+  code: "STARTUP_SCHEMA_UPGRADE_FAILED";
+  stage: "database_connection" | "migration_ledger" | "migration" | "schema_verification";
+  migration: string | null;
+  sqlState?: string;
+  detail: string;
+};
+
+function safeFailureDetail(error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const redacted = rawMessage
+    .replace(/\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/)[^/\s@]+@/gi, "$1[REDACTED]@")
+    .replace(
+      /\b(password|passwd|pwd|secret|token|api[_-]?key|database_url|connection_string)\s*([=:])\s*("[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      "$1$2[REDACTED]",
+    )
+    .replace(/[\r\n\t]+/g, " ")
+    .trim();
+  return (redacted || "Unknown startup schema upgrade failure").slice(0, 400);
+}
+
+export class StartupMigrationError extends Error {
+  readonly diagnostic: StartupMigrationFailureDiagnostic;
+
+  constructor(
+    stage: StartupMigrationFailureDiagnostic["stage"],
+    migration: string | null,
+    cause: unknown,
+  ) {
+    const detail = safeFailureDetail(cause);
+    const rawCode = cause && typeof cause === "object" && "code" in cause
+      ? String((cause as { code?: unknown }).code)
+      : undefined;
+    const sqlState = rawCode && /^[A-Z0-9]{5}$/.test(rawCode) ? rawCode : undefined;
+    const diagnostic: StartupMigrationFailureDiagnostic = {
+      code: "STARTUP_SCHEMA_UPGRADE_FAILED",
+      stage,
+      migration,
+      ...(sqlState ? { sqlState } : {}),
+      detail,
+    };
+
+    super(`Startup schema upgrade failed: ${JSON.stringify(diagnostic)}`);
+    this.name = "StartupMigrationError";
+    this.diagnostic = diagnostic;
+  }
+}
+
 function quoteSchemaIdentifier(identifier: string): string {
   if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(identifier)) {
     throw new Error(`Invalid migration ledger schema name: ${identifier}`);
@@ -126,8 +174,11 @@ export async function applyStartupMigrations(
   const applied: string[] = [];
   const alreadyApplied: string[] = [];
 
-  await client.query(`SELECT pg_advisory_lock(${LOCK_ID})`);
+  let lockAcquired = false;
+  let startupFailure: StartupMigrationError | undefined;
   try {
+    await client.query(`SELECT pg_advisory_lock(${LOCK_ID})`);
+    lockAcquired = true;
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${ledgerSchema}`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${ledgerTable} (
@@ -138,61 +189,85 @@ export async function applyStartupMigrations(
     `);
 
     for (const name of await migrationFiles(directory)) {
-      const sql = await readFile(path.join(directory, name), "utf8");
-      assertAdditiveMigration(sql, name);
-      const checksum = createHash("sha256").update(sql).digest("hex");
-
-      await client.query("BEGIN");
       try {
-        const { rows = [] } = await client.query(
-          `SELECT checksum FROM ${ledgerTable} WHERE migration_name = $1`,
-          [name],
-        );
-        const existing = rows[0];
-        if (existing) {
-          if (existing.checksum !== checksum) {
-            throw new Error(
-              `Migration ${name} changed after it was recorded; add a new migration instead of editing an applied file.`,
-            );
-          }
-          await client.query("COMMIT");
-          alreadyApplied.push(name);
-          continue;
-        }
+        const sql = await readFile(path.join(directory, name), "utf8");
+        assertAdditiveMigration(sql, name);
+        const checksum = createHash("sha256").update(sql).digest("hex");
 
-        await client.query(sql);
-        await client.query(
-          `INSERT INTO ${ledgerTable} (migration_name, checksum) VALUES ($1, $2)`,
-          [name, checksum],
-        );
-        await client.query("COMMIT");
-        applied.push(name);
+        await client.query("BEGIN");
+        try {
+          const { rows = [] } = await client.query(
+            `SELECT checksum FROM ${ledgerTable} WHERE migration_name = $1`,
+            [name],
+          );
+          const existing = rows[0];
+          if (existing) {
+            if (existing.checksum !== checksum) {
+              throw new Error(
+                `Migration ${name} changed after it was recorded; add a new migration instead of editing an applied file.`,
+              );
+            }
+            await client.query("COMMIT");
+            alreadyApplied.push(name);
+            continue;
+          }
+
+          await client.query(sql);
+          await client.query(
+            `INSERT INTO ${ledgerTable} (migration_name, checksum) VALUES ($1, $2)`,
+            [name, checksum],
+          );
+          await client.query("COMMIT");
+          applied.push(name);
+        } catch (error) {
+          await client.query("ROLLBACK").catch(() => {});
+          throw error;
+        }
       } catch (error) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw new Error(
-          `Failed to apply on-prem migration ${name}: ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error },
-        );
+        throw new StartupMigrationError("migration", name, error);
       }
     }
+  } catch (error) {
+    startupFailure = error instanceof StartupMigrationError
+      ? error
+      : new StartupMigrationError("migration_ledger", null, error);
+    throw startupFailure;
   } finally {
-    await client.query(`SELECT pg_advisory_unlock(${LOCK_ID})`);
+    if (lockAcquired) {
+      try {
+        await client.query(`SELECT pg_advisory_unlock(${LOCK_ID})`);
+      } catch (error) {
+        // Preserve the blocked migration name if cleanup also fails.
+        if (!startupFailure) {
+          throw new StartupMigrationError("migration_ledger", null, error);
+        }
+      }
+    }
   }
 
   return { applied, alreadyApplied };
 }
 
 export async function runStartupMigrations(): Promise<void> {
-  const { pool } = await import("./db");
-  const client = await pool.connect();
   try {
-    const result = await applyStartupMigrations(client);
-    await assertCabStreamLeasesTable(client);
-    console.log(
-      `On-prem SQL migrations: ${result.applied.length} applied, ${result.alreadyApplied.length} already applied.`,
-    );
-  } finally {
-    client.release();
+    const { pool } = await import("./db");
+    const client = await pool.connect();
+    try {
+      const result = await applyStartupMigrations(client);
+      try {
+        await assertCabStreamLeasesTable(client);
+      } catch (error) {
+        throw new StartupMigrationError("schema_verification", null, error);
+      }
+      console.log(
+        `On-prem SQL migrations: ${result.applied.length} applied, ${result.alreadyApplied.length} already applied.`,
+      );
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    if (error instanceof StartupMigrationError) throw error;
+    throw new StartupMigrationError("database_connection", null, error);
   }
 }
 

@@ -4,7 +4,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { startCabEventListener } from "./cab-events";
 import { startContractRenewalChecker } from "./services/contract-renewal-checker";
 import { apiErrorMiddleware } from "./api-error-handler";
-import { runStartupMigrations } from "./startup-migrations";
+import { runStartupMigrations, StartupMigrationError } from "./startup-migrations";
 import {
   apiSecurityMiddleware,
   clearSystemDataRateLimit,
@@ -249,6 +249,13 @@ app.use((req, res, next) => {
     });
     
   } catch (error) {
+    if (error instanceof StartupMigrationError) {
+      console.error("❌ STARTUP_SCHEMA_UPGRADE_FAILED", JSON.stringify(error.diagnostic));
+      // Listening is deliberately deferred until after required schema checks.
+      // Exiting here keeps readiness false and gives operators a safe failure signal.
+      process.exit(1);
+      return;
+    }
     console.error("💥 FATAL: Failed to start server:", error);
     if (error instanceof Error) {
       console.error(error.stack);

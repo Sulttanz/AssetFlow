@@ -70,6 +70,45 @@ describe("on-prem startup migrations", () => {
     );
   });
 
+  it("reports a blocked migration with a credential-safe startup failure signal", async () => {
+    tempDirectory = await mkdtemp(path.join(os.tmpdir(), "onprem-migration-failure-test-"));
+    const filename = "20261208_blocked_upgrade.sql";
+    const migrationSql = "CREATE TABLE IF NOT EXISTS blocked_table (id integer);";
+    await writeFile(path.join(tempDirectory, filename), migrationSql);
+
+    class FailingMigrationClient extends MigrationClient {
+      async query(query: string, values?: unknown[]) {
+        if (query === migrationSql) {
+          throw Object.assign(
+            new Error("permission denied while connecting to postgres://operator:db-secret@db.example/app"),
+            { code: "42501" },
+          );
+        }
+        return super.query(query, values);
+      }
+    }
+
+    let failure: unknown;
+    try {
+      await applyStartupMigrations(new FailingMigrationClient(), tempDirectory);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      name: "StartupMigrationError",
+      diagnostic: {
+        code: "STARTUP_SCHEMA_UPGRADE_FAILED",
+        stage: "migration",
+        migration: filename,
+        sqlState: "42501",
+      },
+    });
+    const diagnostic = (failure as Error & { diagnostic: { detail: string } }).diagnostic;
+    expect(diagnostic.detail).toContain("postgres://[REDACTED]@db.example/app");
+    expect(diagnostic.detail).not.toContain("db-secret");
+  });
+
   it("rejects destructive or unsupported migration SQL", () => {
     expect(() => assertAdditiveMigration(
       "ALTER TABLE assets DROP COLUMN serial_number;",
