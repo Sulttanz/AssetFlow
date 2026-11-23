@@ -13,8 +13,8 @@ for command_name in pg_dump npm curl date; do
   }
 done
 [[ -n "${DATABASE_URL:-}" ]] || { echo "DATABASE_URL must be configured in the service environment." >&2; exit 1; }
-[[ -f "$RELEASE_DIR/package.json" && -f "$RELEASE_DIR/dist/index.js" ]] || {
-  echo "Run this script from a staged release directory containing package.json and dist/index.js." >&2
+[[ -f "$RELEASE_DIR/package.json" && -f "$RELEASE_DIR/dist/index.js" && -d "$RELEASE_DIR/docs/system-manual" ]] || {
+  echo "Run this script from a staged release directory containing package.json, dist/index.js, and docs/system-manual/." >&2
   exit 1
 }
 
@@ -23,8 +23,31 @@ chmod 700 "$BACKUP_DIR"
 umask 077
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_file="$BACKUP_DIR/pre-upgrade-${timestamp}.dump"
+service_file="$(mktemp "$BACKUP_DIR/.pgservice-${timestamp}-XXXXXX")"
+trap 'rm -f "$service_file"' EXIT
 echo "Creating PostgreSQL backup: $backup_file"
-pg_dump --format=custom --file="$backup_file" "$DATABASE_URL"
+node --input-type=module - "$service_file" <<'NODE'
+import { writeFileSync } from "node:fs";
+const url = new URL(process.env.DATABASE_URL);
+if (!["postgres:", "postgresql:"].includes(url.protocol)) {
+  throw new Error("DATABASE_URL must use the PostgreSQL protocol.");
+}
+const quote = value => `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+const host = url.hostname.replace(/^\[|\]$/g, "");
+const fields = {
+  host,
+  port: url.port || "5432",
+  dbname: decodeURIComponent(url.pathname.replace(/^\//, "")),
+  user: decodeURIComponent(url.username),
+  ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+  ...Object.fromEntries(["sslmode", "sslrootcert", "sslcert", "sslkey", "application_name"]
+    .flatMap(key => url.searchParams.get(key) ? [[key, url.searchParams.get(key)]] : [])),
+};
+const body = ["[pre_upgrade_backup]", ...Object.entries(fields).map(([key, value]) => `${key}=${quote(value)}`)].join("\n") + "\n";
+writeFileSync(process.argv[2], body, { mode: 0o600 });
+NODE
+PGSERVICEFILE="$service_file" PGSERVICE=pre_upgrade_backup \
+  pg_dump --format=custom --file="$backup_file"
 
 cd "$RELEASE_DIR"
 echo "Installing locked production dependencies..."
@@ -34,7 +57,11 @@ case "$SERVICE_MANAGER" in
   systemd)
     : "${SYSTEMD_SERVICE:?Set SYSTEMD_SERVICE to the installed systemd unit name}"
     command -v systemctl >/dev/null 2>&1 || { echo "systemctl not found." >&2; exit 1; }
-    sudo systemctl restart "$SYSTEMD_SERVICE"
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+      systemctl restart "$SYSTEMD_SERVICE"
+    else
+      sudo systemctl restart "$SYSTEMD_SERVICE"
+    fi
     ;;
   pm2)
     : "${PM2_APP:?Set PM2_APP to the configured PM2 process name}"
@@ -46,8 +73,13 @@ case "$SERVICE_MANAGER" in
     command -v docker >/dev/null 2>&1 || { echo "docker not found." >&2; exit 1; }
     docker restart "$DOCKER_CONTAINER"
     ;;
+  docker-compose)
+    : "${DOCKER_COMPOSE_SERVICE:?Set DOCKER_COMPOSE_SERVICE to the Compose application service name}"
+    command -v docker >/dev/null 2>&1 || { echo "docker not found." >&2; exit 1; }
+    docker compose up -d --force-recreate --no-deps "$DOCKER_COMPOSE_SERVICE"
+    ;;
   *)
-    echo "Unsupported SERVICE_MANAGER '$SERVICE_MANAGER'. Choose systemd, pm2, or docker." >&2
+    echo "Unsupported SERVICE_MANAGER '$SERVICE_MANAGER'. Choose systemd, pm2, docker, or docker-compose." >&2
     exit 1
     ;;
 esac
@@ -63,8 +95,15 @@ done
 
 echo "Health check failed after restart. Backup retained at: $backup_file" >&2
 case "$SERVICE_MANAGER" in
-  systemd) sudo systemctl status "$SYSTEMD_SERVICE" --no-pager || true ;;
+  systemd)
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+      systemctl status "$SYSTEMD_SERVICE" --no-pager || true
+    else
+      sudo systemctl status "$SYSTEMD_SERVICE" --no-pager || true
+    fi
+    ;;
   pm2) pm2 logs "$PM2_APP" --lines 100 --nostream || true ;;
   docker) docker logs --tail 100 "$DOCKER_CONTAINER" || true ;;
+  docker-compose) docker compose logs --tail 100 "$DOCKER_COMPOSE_SERVICE" || true ;;
 esac
 exit 1

@@ -380,6 +380,10 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       userId: adminId, type: "service_contract", severity: "medium", title: "Fixture renewal",
       message: "Fixture support contract is due for renewal.", dedupeKey: "fixture-service-contract-renewal",
     });
+    await db.insert(s.appReleaseHistory).values({
+      fromVersion: "v2.1.0", toVersion: "v2.2.0", migrationCount: 59,
+      notes: "Fixture release history.", status: "applied",
+    });
     expect(Object.values(await snapshot(RESET_BUSINESS_TABLES)).every(rows => rows.length > 0)).toBe(true);
     protectedSnapshot = await snapshot(RESET_PROTECTED_TABLES);
     const app = express();

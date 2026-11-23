@@ -11,7 +11,8 @@ dependencies, restarts the selected process manager, and waits for the database-
 - PostgreSQL client utilities (`pg_dump`) compatible with the database server.
 - Node.js/npm versions supported by this release, `curl`, and an installed process manager.
 - The release artifact staged in its final directory, including `package.json`,
-  `package-lock.json`, `dist/index.js`, static assets, and `migrations/onprem/`.
+  `package-lock.json`, `dist/index.js`, static assets, `migrations/onprem/`, and
+  `docs/system-manual/`.
 - A service environment file or secrets manager that provides `DATABASE_URL` and a
   `SESSION_SECRET` of at least 32 characters. Do not put secrets in this repository or
   shell command arguments.
@@ -21,9 +22,12 @@ dependencies, restarts the selected process manager, and waits for the database-
 ## Upgrade
 
 1. Stage the release artifact and verify it corresponds to the intended release.
-2. Set `RELEASE_DIR`, `BACKUP_DIR`, and the service-manager settings below. Ensure the
-   service's environment already supplies `DATABASE_URL`, `SESSION_SECRET`, and any
-   required production settings.
+2. Set `RELEASE_DIR`, `BACKUP_DIR`, and the service-manager settings below. Provide
+   `DATABASE_URL` to the upgrade process from the organization's secret manager or a
+   restricted operator environment; the running service separately receives
+   `DATABASE_URL`, `SESSION_SECRET`, and other production settings from its secure service
+   configuration. The script writes a mode-600 temporary PostgreSQL service file for
+   `pg_dump` so the connection password is not placed in the `pg_dump` command line.
 3. Run `scripts/onprem-upgrade.sh` as an operator authorized to create database backups
    and restart the application service. The script:
    - creates a UTC-timestamped custom-format `pg_dump` backup with owner-only file
@@ -43,12 +47,13 @@ export RELEASE_DIR=/opt/it-platform/current
 export BACKUP_DIR=/var/backups/it-platform
 export SERVICE_MANAGER=systemd
 export SYSTEMD_SERVICE=it-platform.service
-sudo --preserve-env=DATABASE_URL,RELEASE_DIR,BACKUP_DIR,SERVICE_MANAGER,SYSTEMD_SERVICE \
-  scripts/onprem-upgrade.sh
+scripts/onprem-upgrade.sh
 ```
 
-The service unit should load secrets using `EnvironmentFile=` or a systemd credentials
-mechanism. Do not place secret values in the command above.
+Run the script as the deployment operator with write access to the release and backup
+directories plus narrowly scoped `sudo` permission to restart/check the unit. The service
+unit should load secrets using `EnvironmentFile=` or a systemd credentials mechanism. Do
+not place secret values in command arguments.
 
 ### PM2
 
@@ -65,7 +70,8 @@ database and session settings after `--update-env`.
 
 ### Docker
 
-For a pre-created container running the staged release:
+For a pre-created container running the staged release (for example, with the release
+directory bind-mounted into the container):
 
 ```sh
 export RELEASE_DIR=/opt/it-platform/current
@@ -76,9 +82,18 @@ scripts/onprem-upgrade.sh
 ```
 
 For Compose-managed deployments, build/stage the new image and update the Compose release
-first; restart the resulting application container using this script. Persist PostgreSQL
-backups outside ephemeral containers and configure application secrets through the
-deployment secret store.
+first, then use the Compose restart mode so the new image is recreated:
+
+```sh
+export RELEASE_DIR=/opt/it-platform/current
+export BACKUP_DIR=/var/backups/it-platform
+export SERVICE_MANAGER=docker-compose
+export DOCKER_COMPOSE_SERVICE=app
+scripts/onprem-upgrade.sh
+```
+
+Persist PostgreSQL backups outside ephemeral containers and configure application secrets
+through the deployment secret store.
 
 ## Migration and seed safety
 

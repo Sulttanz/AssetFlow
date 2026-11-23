@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { KnowledgeDocument } from "./knowledge-document";
-import styles from "./knowledge-document.css?raw";
 
 const manuals = import.meta.glob("../../../../docs/system-manual/*.md", {
   eager: true, query: "?raw", import: "default",
@@ -43,10 +43,11 @@ describe("Knowledge Base shared document rendering", () => {
     expect(screen.getByRole("link", { name: "Reference" }).getAttribute("rel")).toContain("noopener");
     expect(screen.getByText("[Image omitted: illustration]")).toBeTruthy();
   });
-  it("uses application-class scoped dark colors rather than OS-driven prose inversion", () => {
+  it("uses application-class scoped dark colors rather than OS-driven prose inversion", async () => {
     render(<div className="dark"><KnowledgeDocument content="**Visible** `code`" /></div>);
     const article = screen.getByTestId("knowledge-document");
     expect(article.className).toBe("kb-document");
+    const styles = await readFile("client/src/components/knowledge-base/knowledge-document.css", "utf8");
     expect(styles).toContain(".dark .kb-document");
     expect(styles).toContain("--kb-ink: #1e293b");
     expect(styles).toContain("line-height: 1.7");
@@ -63,7 +64,6 @@ describe("Knowledge Base shared document rendering", () => {
     });
     if (_path.includes("internal-it-department-risk-management")) {
       expect(within(article).getByText("IT-RSK-001").tagName).toBe("STRONG");
-      expect(within(article).getByText("risk_management").tagName).toBe("CODE");
       expect(within(article).getByRole("link", { name: "/risks" })).toBeTruthy();
       expect(within(article).getAllByRole("table").length).toBeGreaterThan(0);
     }

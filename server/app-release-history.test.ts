@@ -6,14 +6,14 @@ import { Pool } from "pg";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditLogs, appReleaseHistory } from "@shared/schema";
+import { APP_VERSION } from "@shared/version";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 
 describe("application release history", () => {
   it("tracks the package version and declares a safe additive startup migration", async () => {
     const pkg = JSON.parse(await readFile("package.json", "utf8"));
-    const appVersion = await readFile("shared/version.ts", "utf8");
     const migration = await readFile(path.resolve("migrations/onprem/20261214_app_release_history.sql"), "utf8");
-    expect(appVersion).toContain(`"v${pkg.version}"`);
+    expect(APP_VERSION).toBe(`v${pkg.version}`);
     expect(migration).toMatch(/CREATE TABLE IF NOT EXISTS app_release_history/);
     expect(migration).toContain("to_version text NOT NULL");
     expect(migration).toContain("migration_count integer NOT NULL DEFAULT 0");
@@ -77,8 +77,9 @@ describe.runIf(process.env.RUN_DATABASE_INTEGRATION_TESTS === "1")("release star
     ]);
     const audits = await db.select().from(auditLogs).where(eq(auditLogs.tableName, "app_release_history"));
     expect(audits).toHaveLength(2);
-    expect(audits[0]).toMatchObject({ action: "CREATE", recordName: "v2.2.0 → v2.3.0" });
-    expect(JSON.parse(audits[0].newValues ?? "{}")).toMatchObject({ version: "v2.3.0", migrationCount: 63 });
+    const upgradeAudit = audits.find(row => row.recordName === "v2.2.0 → v2.3.0");
+    expect(upgradeAudit).toMatchObject({ action: "CREATE" });
+    expect(JSON.parse(upgradeAudit?.newValues ?? "{}")).toMatchObject({ version: "v2.3.0", migrationCount: 63 });
 
     expect(await getSystemMigrationStatus()).toMatchObject({
       schemaMigrationCount: 2,

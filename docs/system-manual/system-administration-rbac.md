@@ -60,6 +60,7 @@ The server requires an authenticated System Administrator with the applicable sy
 | **Incident Catalog and Service Catalog** | Built-in and custom rows in `incident_catalog_items`, `service_catalog_items` and `catalog_items` survive. Their content, priorities, SLA configuration and dynamic form definitions are not reseeded or overwritten during reset. References to deleted operational records are detached as described below. |
 | **System Settings** | System/application settings, module-license configuration and dropdown/reference options remain, including the IT Risk Appetite setting. |
 | **SLA Policies** | Configured response/resolution policies and targets remain. |
+| **Upgrade & release history** | Release records remain. Old `audit_logs` rows, including release-event audit rows, are cleared with the other historical audits; the reset itself writes a fresh audit record. |
 | **Locations / Departments** | Organization location and department reference records remain; warehouse location records are also preserved. |
 | **System Manual guides** | All repository-managed system guides (`is_system_guide = true`), their versions, attachments and policy-control mappings remain. The count follows the Markdown files, rather than a hardcoded guide limit. |
 | **Other protected configuration** | Change blackout configuration, finance tax settings/rates and finance document sequences remain. Database migration ledgers are not cleared. |

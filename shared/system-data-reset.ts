@@ -31,7 +31,7 @@ export const RESET_BUSINESS_TABLES = [
 ] as const;
 
 export const RESET_PROTECTED_TABLES = [
-  "users", "user_roles", "roles", "permissions", "role_permissions", "sessions", "cab_stream_leases",
+  "users", "user_roles", "roles", "permissions", "role_permissions", "sessions", "cab_stream_leases", "app_release_history",
   "catalog_items", "service_catalog_items", "incident_catalog_items",
   "system_settings", "settings", "module_settings",
   "dropdown_options", "locations", "departments", "warehouse_locations", "sla_policies",
