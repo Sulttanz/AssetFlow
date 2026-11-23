@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useModules } from "@/hooks/use-modules";
 
 interface Alert {
-  type: "warranty" | "maintenance" | "budget" | "license" | "ticket" | "cab" | "service_contract";
+  type: "warranty" | "maintenance" | "budget" | "license" | "ticket" | "cab" | "service_contract" | "incident_sla";
   message: string;
   severity: "critical" | "warning" | "info" | "high" | "medium" | "low";
   assetId?: number;
@@ -44,6 +44,7 @@ const alertIcons: Record<string, React.ComponentType<{ className?: string }>> = 
   ticket: AlertTriangle,
   cab: UserCheck,
   service_contract: FileSignature,
+  incident_sla: AlertTriangle,
 };
 
 const severityColors: Record<string, string> = {
@@ -63,6 +64,7 @@ const alertNav: Record<string, string> = {
   ticket: "/tickets",
   cab: "/changes",
   service_contract: "/service-contracts",
+  incident_sla: "/incidents/tracker",
 };
 
 export default function Header({
@@ -88,7 +90,7 @@ export default function Header({
     enabled: assetEnabled || itsmEnabled,
   });
   const alerts = allAlerts.filter(alert =>
-    ["ticket", "cab"].includes(alert.type) ? itsmEnabled : assetEnabled);
+    ["ticket", "cab", "incident_sla"].includes(alert.type) ? itsmEnabled : assetEnabled);
 
   const criticalCount = alerts.filter((a) => a.severity === "critical" || a.severity === "high").length;
   const badgeCount = alerts.length;
@@ -161,7 +163,7 @@ export default function Header({
                         <div className="px-4 py-2 bg-muted/50">
                           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
                             <Icon className="h-3 w-3" />
-                            {type === "warranty" ? "Warranty Expiring" : type === "maintenance" ? "Overdue Maintenance" : type === "budget" ? "Budget Alerts" : type === "ticket" ? "Ticket SLA Alerts" : type === "cab" ? "CAB Votes" : type === "service_contract" ? "Support Contract Renewals" : "License Alerts"}
+                            {type === "warranty" ? "Warranty Expiring" : type === "maintenance" ? "Overdue Maintenance" : type === "budget" ? "Budget Alerts" : type === "ticket" ? "Ticket SLA Alerts" : type === "incident_sla" ? "Incident SLA Escalations" : type === "cab" ? "CAB Votes" : type === "service_contract" ? "Support Contract Renewals" : "License Alerts"}
                           </span>
                         </div>
                         {items.map((alert, idx) => (

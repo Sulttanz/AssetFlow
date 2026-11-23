@@ -23,7 +23,7 @@ import {
   insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
   assetAttachments, ticketAttachments, risks, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
-  incidents, incidentActivities, incidentCatalogItems, insertIncidentCatalogItemSchema, serviceRequestActivities,
+  incidents, incidentActivities, incidentCatalogItems, insertIncidentCatalogItemSchema, serviceRequestActivities, insertSlaPolicySchema,
   projects, projectManagers, projectTeamMembers, projectTasks, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, serviceCatalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
   warehouseLocations, consumables, consumableStockMovements, consumableDispatchLog, purchaseOrderItemReceipts, purchaseOrders,
@@ -5802,13 +5802,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         itsmEnabled ? storage.getPendingCabAlertChanges(currentUserId) : [],
         canManageChanges ? storage.getDisabledCabAlertChanges() : [],
       ]);
-      const renewalNotifications = assetEnabled
-        ? await db.select().from(systemNotifications).where(and(
-          eq(systemNotifications.userId, currentUserId),
-          eq(systemNotifications.type, "service_contract"),
-          eq(systemNotifications.isRead, false),
-        )).orderBy(desc(systemNotifications.createdAt)).limit(25)
-        : [];
+      const [renewalNotifications, incidentSlaNotifications] = await Promise.all([
+        assetEnabled
+          ? db.select().from(systemNotifications).where(and(
+            eq(systemNotifications.userId, currentUserId),
+            eq(systemNotifications.type, "service_contract"),
+            eq(systemNotifications.isRead, false),
+          )).orderBy(desc(systemNotifications.createdAt)).limit(25)
+          : [],
+        itsmEnabled
+          ? db.select().from(systemNotifications).where(and(
+            eq(systemNotifications.userId, currentUserId),
+            eq(systemNotifications.type, "incident_sla"),
+            eq(systemNotifications.isRead, false),
+          )).orderBy(desc(systemNotifications.createdAt)).limit(25)
+          : [],
+      ]);
 
       const alerts: any[] = [];
 
@@ -5998,6 +6007,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           contractId: notification.relatedId ? Number(notification.relatedId) : undefined,
           notificationId: notification.id,
           link: notification.link ?? "/service-contracts",
+        });
+      }
+
+      for (const notification of incidentSlaNotifications) {
+        alerts.push({
+          type: "incident_sla",
+          severity: notification.severity,
+          title: notification.title,
+          message: notification.message,
+          incidentId: notification.relatedId ?? undefined,
+          notificationId: notification.id,
+          link: notification.link ?? "/incidents/tracker",
         });
       }
 
@@ -10540,7 +10561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── SLA Policies ─────────────────────────────────────────────────────────
-  app.get("/api/sla-policies", requireAuth, async (req, res) => {
+  app.get("/api/sla-policies", requireAuth, requireModule("itsm"), requirePermission("system_admin"), async (req, res) => {
     try {
       const policies = await storage.getSlaPolicies();
       res.json(policies);
@@ -10549,26 +10570,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/sla-policies", requireAuth, requirePermission("system_admin"), async (req, res) => {
+  app.get("/api/sla-policies/options", requireAuth, requireModule("itsm"), requirePermission("system_admin"), async (_req, res) => {
     try {
-      const policy = await storage.createSlaPolicy(req.body);
+      const [groupRows, userRows] = await Promise.all([
+        db.select({ id: assignmentGroups.id, name: assignmentGroups.name }).from(assignmentGroups)
+          .where(eq(assignmentGroups.active, true)).orderBy(asc(assignmentGroups.name)),
+        db.select({
+          id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName,
+          roleName: roles.name,
+        }).from(users).innerJoin(userRoles, eq(userRoles.userId, users.id))
+          .innerJoin(roles, eq(userRoles.roleId, roles.id)).where(eq(users.isActive, true)),
+      ]);
+      const staff = new Map<string, { id: string; name: string }>();
+      for (const user of userRows) {
+        if (eligibleAssignmentRoles.has(user.roleName.trim().toLowerCase())) {
+          staff.set(user.id, {
+            id: user.id,
+            name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username,
+          });
+        }
+      }
+      res.json({ assignmentGroups: groupRows, staff: Array.from(staff.values()) });
+    } catch (error) {
+      respondWithApiError(res, error, "Failed to load SLA escalation options");
+    }
+  });
+
+  async function validateSlaEscalationTargets(input: {
+    responseEscalationGroup?: string | null;
+    responseEscalationUserId?: string | null;
+    resolutionEscalationGroup?: string | null;
+    resolutionEscalationUserId?: string | null;
+  }) {
+    for (const groupName of [input.responseEscalationGroup, input.resolutionEscalationGroup]) {
+      if (!groupName) continue;
+      const [group] = await db.select({ id: assignmentGroups.id }).from(assignmentGroups)
+        .where(and(
+          eq(assignmentGroups.active, true),
+          sql`lower(btrim(${assignmentGroups.name})) = lower(btrim(${groupName}))`,
+        )).limit(1);
+      if (!group) throw Object.assign(new Error("Choose an active assignment group for SLA escalation."), { status: 400 });
+    }
+    for (const userId of [input.responseEscalationUserId, input.resolutionEscalationUserId]) {
+      if (userId && !await isAllowedIncidentAssignee(userId, null)) {
+        throw Object.assign(new Error("Choose an active IT staff member for SLA escalation."), { status: 400 });
+      }
+    }
+  }
+
+  app.post("/api/sla-policies", requireAuth, requireModule("itsm"), requirePermission("system_admin"), async (req, res) => {
+    try {
+      const input = insertSlaPolicySchema.parse(req.body);
+      await validateSlaEscalationTargets(input);
+      const policy = await storage.createSlaPolicy(input);
       res.status(201).json(policy);
     } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid SLA policy", errors: error.issues });
+      if (error && typeof error === "object" && "status" in error) {
+        return res.status(Number(error.status)).json({ message: error instanceof Error ? error.message : "Invalid SLA escalation target" });
+      }
       respondWithApiError(res, error, "Failed to create SLA policy");
     }
   });
 
-  app.put("/api/sla-policies/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+  app.put("/api/sla-policies/:id", requireAuth, requireModule("itsm"), requirePermission("system_admin"), async (req, res) => {
     try {
-      const policy = await storage.updateSlaPolicy(req.params.id, req.body);
+      const input = insertSlaPolicySchema.partial().parse(req.body);
+      await validateSlaEscalationTargets(input);
+      const policy = await storage.updateSlaPolicy(req.params.id, input);
       if (!policy) return res.status(404).json({ message: "SLA policy not found" });
       res.json(policy);
     } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ message: "Invalid SLA policy", errors: error.issues });
+      if (error && typeof error === "object" && "status" in error) {
+        return res.status(Number(error.status)).json({ message: error instanceof Error ? error.message : "Invalid SLA escalation target" });
+      }
       respondWithApiError(res, error, "Failed to update SLA policy");
     }
   });
 
-  app.delete("/api/sla-policies/:id", requireAuth, requirePermission("system_admin"), async (req, res) => {
+  app.delete("/api/sla-policies/:id", requireAuth, requireModule("itsm"), requirePermission("system_admin"), async (req, res) => {
     try {
       const deleted = await storage.deleteSlaPolicy(req.params.id);
       if (!deleted) return res.status(404).json({ message: "SLA policy not found" });

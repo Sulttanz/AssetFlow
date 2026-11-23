@@ -2685,7 +2685,18 @@ export class MemStorage implements IStorage {
   async createSlaPolicy(policy: InsertSlaPolicy): Promise<SlaPolicy> {
     const id = randomUUID();
     const now = new Date();
-    const record: SlaPolicy = { id, ...policy, ticketType: policy.ticketType ?? null, category: policy.category ?? null, isActive: policy.isActive ?? true, createdAt: now, updatedAt: now };
+    const record: SlaPolicy = {
+      id, ...policy,
+      ticketType: policy.ticketType ?? null,
+      category: policy.category ?? null,
+      responseEscalationGroup: policy.responseEscalationGroup ?? null,
+      responseEscalationUserId: policy.responseEscalationUserId ?? null,
+      resolutionEscalationGroup: policy.resolutionEscalationGroup ?? null,
+      resolutionEscalationUserId: policy.resolutionEscalationUserId ?? null,
+      isActive: policy.isActive ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
     return record;
   }
   async updateSlaPolicy(id: string, policy: Partial<InsertSlaPolicy>): Promise<SlaPolicy | undefined> { return undefined; }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Incident } from "@shared/schema";
-import { allowedIncidentTransitions, IncidentTransitionError, planIncidentTransition } from "./incident-lifecycle";
+import { allowedIncidentTransitions, getIncidentSlaEscalationRoute, IncidentTransitionError, planIncidentTransition } from "./incident-lifecycle";
 
 function incident(overrides: Partial<Incident> = {}): Incident {
   return {
@@ -56,6 +56,28 @@ describe("incident lifecycle state machine", () => {
     expect(plan.details).toContain("Response SLA: Breached");
     expect(plan.details).toContain("Resolution SLA: Pending");
     expect(plan.escalationDetails).toContain("response");
+  });
+
+  it("routes a breach to the configured group and person plus the incident's assigned engineer", () => {
+    expect(getIncidentSlaEscalationRoute(
+      { assignmentGroup: "Service Desk", assigneeId: "assigned-agent", assignedToId: null },
+      { responseEscalationGroup: "Network", responseEscalationUserId: "escalation-agent" },
+      "response",
+    )).toEqual({
+      groupNames: ["Network"],
+      userIds: ["escalation-agent", "assigned-agent"],
+    });
+  });
+
+  it("falls back to the incident's current assignment when no policy recipient is configured", () => {
+    expect(getIncidentSlaEscalationRoute(
+      { assignmentGroup: "Service Desk", assigneeId: null, assignedToId: "assigned-agent" },
+      null,
+      "resolution",
+    )).toEqual({
+      groupNames: ["Service Desk"],
+      userIds: ["assigned-agent"],
+    });
   });
 
   it("stamps resolution and closure timestamps on their legal transitions", () => {

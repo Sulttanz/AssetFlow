@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import type { Incident } from "@shared/schema";
-import { incidentActivities, incidents } from "@shared/schema";
+import { assignmentGroupMembers, assignmentGroups, incidentActivities, incidents, slaPolicies, systemNotifications, users } from "@shared/schema";
 import { db } from "./db";
+import { inArray, sql } from "drizzle-orm";
 
 export const INCIDENT_STATUSES = ["New", "In Progress", "Pending", "Resolved", "Closed"] as const;
 export type IncidentStatus = typeof INCIDENT_STATUSES[number];
@@ -38,6 +39,28 @@ function slaLabel(dueAt: Date | null | undefined, at: Date, terminal: boolean) {
   if (!dueAt) return "Not configured";
   if (!terminal && at.getTime() <= dueAt.getTime()) return "Pending";
   return at.getTime() <= dueAt.getTime() ? "Met" : "Breached";
+}
+
+type EscalationTarget = "response" | "resolution";
+type SlaEscalationPolicy = {
+  responseEscalationGroup?: string | null;
+  responseEscalationUserId?: string | null;
+  resolutionEscalationGroup?: string | null;
+  resolutionEscalationUserId?: string | null;
+};
+
+export function getIncidentSlaEscalationRoute(
+  incident: Pick<Incident, "assignmentGroup" | "assigneeId" | "assignedToId">,
+  policy: SlaEscalationPolicy | null | undefined,
+  target: EscalationTarget,
+) {
+  const configuredGroup = target === "response" ? policy?.responseEscalationGroup : policy?.resolutionEscalationGroup;
+  const configuredUserId = target === "response" ? policy?.responseEscalationUserId : policy?.resolutionEscalationUserId;
+  const assigneeId = incident.assigneeId ?? incident.assignedToId ?? null;
+  return {
+    groupNames: configuredGroup?.trim() ? [configuredGroup.trim()] : incident.assignmentGroup?.trim() ? [incident.assignmentGroup.trim()] : [],
+    userIds: Array.from(new Set([configuredUserId, assigneeId].filter((id): id is string => Boolean(id)))),
+  };
 }
 
 export function allowedIncidentTransitions(status: string): IncidentStatus[] {
@@ -148,11 +171,78 @@ export async function transitionIncident(input: {
       details: plan.details,
     });
     if (plan.escalationDetails) {
+      const [policy] = incident.slaPolicyId
+        ? await tx.select({
+          responseEscalationGroup: slaPolicies.responseEscalationGroup,
+          responseEscalationUserId: slaPolicies.responseEscalationUserId,
+          resolutionEscalationGroup: slaPolicies.resolutionEscalationGroup,
+          resolutionEscalationUserId: slaPolicies.resolutionEscalationUserId,
+        }).from(slaPolicies).where(eq(slaPolicies.id, incident.slaPolicyId)).limit(1)
+        : [];
+      const routeDescriptions: string[] = [];
+      let notifiedRecipientCount = 0;
+      for (const target of plan.breachedTargets as EscalationTarget[]) {
+        const route = getIncidentSlaEscalationRoute(incident, policy, target);
+        const groupRecipientRows = route.groupNames.length
+          ? await tx.selectDistinct({ userId: assignmentGroupMembers.userId })
+            .from(assignmentGroupMembers)
+            .innerJoin(assignmentGroups, eq(assignmentGroups.id, assignmentGroupMembers.groupId))
+            .innerJoin(users, eq(users.id, assignmentGroupMembers.userId))
+            .where(and(
+              eq(assignmentGroups.active, true),
+              eq(users.isActive, true),
+              sql`lower(btrim(${assignmentGroups.name})) = lower(btrim(${route.groupNames[0]}))`,
+            ))
+          : [];
+        const recipientIds = Array.from(new Set([
+          ...route.userIds,
+          ...groupRecipientRows.map(row => row.userId),
+        ]));
+        const recipientRows = recipientIds.length
+          ? await tx.select({
+            id: users.id,
+            username: users.username,
+            firstName: users.firstName,
+            lastName: users.lastName,
+          }).from(users).where(and(inArray(users.id, recipientIds), eq(users.isActive, true)))
+          : [];
+        const activeRecipientIds = recipientRows.map(row => row.id);
+        notifiedRecipientCount += activeRecipientIds.length;
+        const targetLabel = target === "response" ? "Response" : "Resolution";
+        const destinationLabels = [
+          ...route.groupNames.map(name => `group "${name}"`),
+          ...route.userIds.filter(id => id !== (incident.assigneeId ?? incident.assignedToId)).map(id =>
+            recipientRows.find(row => row.id === id)?.username ?? "configured staff member",
+          ),
+          ...(incident.assigneeId || incident.assignedToId ? ["assigned engineer"] : []),
+        ];
+        if (activeRecipientIds.length) {
+          const severity = incident.priority === "P1" ? "critical" : incident.priority === "P2" ? "high" : "medium";
+          await tx.insert(systemNotifications).values(activeRecipientIds.map(userId => ({
+            userId,
+            type: "incident_sla",
+            severity,
+            title: `${targetLabel} SLA breached: ${incident.incidentNumber}`,
+            message: `${incident.title} breached its ${targetLabel.toLowerCase()} SLA. Review the incident and its assignment.`,
+            link: "/incidents/tracker",
+            relatedType: "incident",
+            relatedId: incident.id,
+            dedupeKey: `incident:${incident.id}:sla:${target}:${(target === "response" ? incident.responseDueAt : incident.resolveDueAt)?.toISOString() ?? "no-due-date"}`,
+          }))).onConflictDoNothing();
+        }
+        const notifiedNames = recipientRows.map(row =>
+          [row.firstName, row.lastName].filter(Boolean).join(" ") || row.username,
+        );
+        routeDescriptions.push(
+          `${targetLabel}: ${destinationLabels.length ? destinationLabels.join(", ") : "no escalation recipient configured"}; ` +
+          `${activeRecipientIds.length ? `notified ${notifiedNames.join(", ")}` : "no active recipients were found"}`,
+        );
+      }
       await tx.insert(incidentActivities).values({
         incidentId: incident.id,
         actorId: input.actorId,
-        action: "SLA escalation required",
-        details: plan.escalationDetails,
+        action: notifiedRecipientCount ? "SLA escalation sent" : "SLA escalation needs assignment",
+        details: `${plan.escalationDetails} ${routeDescriptions.join("; ")}.`,
       });
     }
     return updated;

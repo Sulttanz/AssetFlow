@@ -24,6 +24,10 @@ interface SlaPolicy {
   priority: string;
   responseHours: number;
   resolutionHours: number;
+  responseEscalationGroup?: string | null;
+  responseEscalationUserId?: string | null;
+  resolutionEscalationGroup?: string | null;
+  resolutionEscalationUserId?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -36,6 +40,10 @@ const formSchema = z.object({
   priority: z.enum(["critical", "high", "medium", "low"]),
   responseHours: z.coerce.number().min(0.1, "Must be at least 0.1 hours"),
   resolutionHours: z.coerce.number().min(0.1, "Must be at least 0.1 hours"),
+  responseEscalationGroup: z.string().optional(),
+  responseEscalationUserId: z.string().optional(),
+  resolutionEscalationGroup: z.string().optional(),
+  resolutionEscalationUserId: z.string().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -75,6 +83,10 @@ export default function SlaPolicies() {
   const { data: policies = [], isLoading } = useQuery<SlaPolicy[]>({
     queryKey: ["/api/sla-policies"],
   });
+  const { data: escalationOptions } = useQuery<{
+    assignmentGroups: { id: number; name: string }[];
+    staff: { id: string; name: string }[];
+  }>({ queryKey: ["/api/sla-policies/options"] });
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -85,6 +97,10 @@ export default function SlaPolicies() {
       priority: "medium",
       responseHours: 4,
       resolutionHours: 24,
+      responseEscalationGroup: "",
+      responseEscalationUserId: "",
+      resolutionEscalationGroup: "",
+      resolutionEscalationUserId: "",
       isActive: true,
     },
   });
@@ -95,6 +111,10 @@ export default function SlaPolicies() {
         ...data,
         ticketType: data.ticketType || null,
         category: data.category || null,
+        responseEscalationGroup: data.responseEscalationGroup || null,
+        responseEscalationUserId: data.responseEscalationUserId || null,
+        resolutionEscalationGroup: data.resolutionEscalationGroup || null,
+        resolutionEscalationUserId: data.resolutionEscalationUserId || null,
       };
       const res = await apiRequest("POST", "/api/sla-policies", body);
       return res.json();
@@ -114,6 +134,10 @@ export default function SlaPolicies() {
         ...data,
         ticketType: data.ticketType || null,
         category: data.category || null,
+        responseEscalationGroup: data.responseEscalationGroup || null,
+        responseEscalationUserId: data.responseEscalationUserId || null,
+        resolutionEscalationGroup: data.resolutionEscalationGroup || null,
+        resolutionEscalationUserId: data.resolutionEscalationUserId || null,
       };
       const res = await apiRequest("PUT", `/api/sla-policies/${id}`, body);
       return res.json();
@@ -149,6 +173,10 @@ export default function SlaPolicies() {
       priority: "medium",
       responseHours: 4,
       resolutionHours: 24,
+      responseEscalationGroup: "",
+      responseEscalationUserId: "",
+      resolutionEscalationGroup: "",
+      resolutionEscalationUserId: "",
       isActive: true,
     });
     setDialogOpen(true);
@@ -163,6 +191,10 @@ export default function SlaPolicies() {
       priority: policy.priority as FormData["priority"],
       responseHours: policy.responseHours,
       resolutionHours: policy.resolutionHours,
+      responseEscalationGroup: policy.responseEscalationGroup ?? "",
+      responseEscalationUserId: policy.responseEscalationUserId ?? "",
+      resolutionEscalationGroup: policy.resolutionEscalationGroup ?? "",
+      resolutionEscalationUserId: policy.resolutionEscalationUserId ?? "",
       isActive: policy.isActive,
     });
     setDialogOpen(true);
@@ -340,11 +372,11 @@ export default function SlaPolicies() {
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditingPolicy(null); form.reset(); } }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingPolicy ? "Edit SLA Policy" : "Add SLA Policy"}</DialogTitle>
             <DialogDescription>
-              Set response and resolution targets. Leave Ticket Type and Category blank to match all tickets at that priority level.
+              Set response and resolution targets and optional escalation recipients. Leave Ticket Type and Category blank to match all tickets at that priority level.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -361,12 +393,12 @@ export default function SlaPolicies() {
                 <FormField control={form.control} name="ticketType" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Ticket Type <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={value => field.onChange(value === "__all__" ? "" : value)} value={field.value || "__all__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">All types</SelectItem>
+                        <SelectItem value="__all__">All types</SelectItem>
                         <SelectItem value="incident">Incident</SelectItem>
                         <SelectItem value="service_request">Service Request</SelectItem>
                       </SelectContent>
@@ -378,12 +410,12 @@ export default function SlaPolicies() {
                 <FormField control={form.control} name="category" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Category <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                    <Select onValueChange={value => field.onChange(value === "__all__" ? "" : value)} value={field.value || "__all__"}>
                       <FormControl>
                         <SelectTrigger><SelectValue placeholder="All categories" /></SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">All categories</SelectItem>
+                        <SelectItem value="__all__">All categories</SelectItem>
                         <SelectItem value="Hardware">Hardware</SelectItem>
                         <SelectItem value="Software">Software</SelectItem>
                         <SelectItem value="Network">Network</SelectItem>
@@ -435,6 +467,52 @@ export default function SlaPolicies() {
                     <FormMessage />
                   </FormItem>
                 )} />
+              </div>
+
+              <div className="grid gap-4 rounded-md border p-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Response breach escalation</h3>
+                  <p className="text-xs text-muted-foreground">If left blank, the incident’s assigned group and engineer are used.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField control={form.control} name="responseEscalationGroup" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Assignment group</FormLabel>
+                      <FormControl><select aria-label="Response escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</select></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="responseEscalationUserId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Additional staff member</FormLabel>
+                      <FormControl><select aria-label="Response escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 rounded-md border p-4">
+                <div>
+                  <h3 className="text-sm font-semibold">Resolution breach escalation</h3>
+                  <p className="text-xs text-muted-foreground">If left blank, the incident’s assigned group and engineer are used.</p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField control={form.control} name="resolutionEscalationGroup" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Assignment group</FormLabel>
+                      <FormControl><select aria-label="Resolution escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</select></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="resolutionEscalationUserId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Additional staff member</FormLabel>
+                      <FormControl><select aria-label="Resolution escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
               </div>
 
               <FormField control={form.control} name="isActive" render={({ field }) => (

@@ -1868,6 +1868,10 @@ export const slaPolicies = pgTable("sla_policies", {
   priority: text("priority").notNull(), // "critical" | "high" | "medium" | "low"
   responseHours: real("response_hours").notNull(),
   resolutionHours: real("resolution_hours").notNull(),
+  responseEscalationGroup: text("response_escalation_group"),
+  responseEscalationUserId: varchar("response_escalation_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolutionEscalationGroup: text("resolution_escalation_group"),
+  resolutionEscalationUserId: varchar("resolution_escalation_user_id").references(() => users.id, { onDelete: "set null" }),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
