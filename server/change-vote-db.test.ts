@@ -3047,6 +3047,64 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it("preserves removed CAB history when account deletion races assignment removal", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "Casey", lastName: "Reviewer" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent CAB account deletion",
+      status: "submitted",
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId, originalApproverId: approverId,
+      approverLabel: "Casey Reviewer", decision: "pending",
+    });
+
+    try {
+      const [deletionResult, removalResult] = await Promise.allSettled([
+        storage.deleteUser(approverId),
+        storage.removeChangeApproval(approvalId, managerId),
+      ]);
+
+      expect(deletionResult.status).toBe("fulfilled");
+      if (deletionResult.status !== "fulfilled") throw deletionResult.reason;
+      expect(deletionResult.value).toBe(true);
+
+      expect(removalResult.status).toBe("fulfilled");
+      if (removalResult.status !== "fulfilled") throw removalResult.reason;
+      expect(removalResult.value?.removedAt).toBeInstanceOf(Date);
+
+      const history = await db.select().from(changeApprovals)
+        .where(eq(changeApprovals.changeId, changeId));
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        id: approvalId,
+        changeId,
+        approverId: null,
+        originalApproverId: approverId,
+        approverLabel: "Casey Reviewer",
+        decision: "pending",
+        removedById: managerId,
+        removedByLabel: "CAB Manager",
+        removedAt: removalResult.value!.removedAt,
+      });
+      expect(await storage.getChangeApprovals(changeId)).toEqual([]);
+      expect(await storage.getAllChangeApprovalRecords(changeId)).toHaveLength(1);
+    } finally {
+      await db.delete(auditLogs).where(eq(auditLogs.recordId, approvalId));
+      await db.delete(changes).where(eq(changes.id, changeId));
+      await db.delete(users).where(eq(users.id, approverId));
+      await db.delete(users).where(eq(users.id, managerId));
+    }
+  });
+
   it("rolls back CAB removal when PostgreSQL rejects status recalculation", async () => {
     const managerId = randomUUID();
     const approverId = randomUUID();
