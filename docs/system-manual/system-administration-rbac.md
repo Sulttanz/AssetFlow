@@ -1,14 +1,14 @@
 ---
-title: System Administration & RBAC Matrix
+title: System Administration, RBAC & Data Reset Guide
 category: System Administration & RBAC
 author: Sulttanz
 owner: Sulttanz
 is_system_guide: true
-version: 1.0.0
+version: 1.1.0
 audience: all_authenticated
 ---
 
-# System Administration & RBAC Matrix
+# System Administration, RBAC & Data Reset Guide
 
 Access is enforced by server-side roles and permissions, page/API persona rules, and enabled module feature gates. A hidden menu entry is not the security boundary; APIs also verify authorization.
 
@@ -43,3 +43,48 @@ All authenticated roles can read published repository-synced system guides regar
 ## Safe administration
 
 Use the normal user, role, module, and project management screens. Never share passwords or tokens in Knowledge Base content. Clear-data and other destructive settings require administrator authorization and retain protected system data according to their documented safeguards.
+
+## Clear All System Data: authorization and purpose
+
+Open **System Settings → Clear All System Data** only when intentionally resetting operational business content. This is a destructive operation, not a troubleshooting step or a user-account cleanup tool. Back up required records and attachments and coordinate with affected teams first.
+
+The server requires an authenticated System Administrator with the applicable system permission and verifies the administrator's **current password** before executing the reset. Closing/cancelling the confirmation performs no deletion. A successful reset is one database transaction; foreign-key or final audit-write failures roll back the operation instead of leaving a partial reset.
+
+### Preserved accounts, governance and reference data
+
+| Preserved data | What remains after reset |
+|---|---|
+| **All User Accounts** (`users`) | Administrators and non-admins retain usernames, optional email, password hashes, active/disabled state and login credentials. No account category is deleted. |
+| **All Role Assignments** (`user_roles`) and RBAC | User-role mappings, standard/custom roles, permissions and role-permission mappings remain intact. |
+| **Active Sessions** (`sessions`) | Existing session records and CAB stream admission leases are preserved; reset does not deliberately sign everyone out. Normal session expiry and account restrictions still apply. |
+| **Incident Catalog and Service Catalog** | Built-in and custom rows in `incident_catalog_items`, `service_catalog_items` and `catalog_items` survive. Their content, priorities, SLA configuration and dynamic form definitions are not reseeded or overwritten during reset. References to deleted operational records are detached as described below. |
+| **System Settings** | System/application settings, module-license configuration and dropdown/reference options remain, including the IT Risk Appetite setting. |
+| **SLA Policies** | Configured response/resolution policies and targets remain. |
+| **Locations / Departments** | Organization location and department reference records remain; warehouse location records are also preserved. |
+| **System Manual guides** | All repository-managed system guides (`is_system_guide = true`), their versions, attachments and policy-control mappings remain. The count follows the Markdown files, rather than a hardcoded guide limit. |
+| **Other protected configuration** | Change blackout configuration, finance tax settings/rates and finance document sequences remain. Database migration ledgers are not cleared. |
+
+### Permanently cleared operational data
+
+The reset removes operational **Incidents, Service Requests, Problems, Changes, CAB approvals and ticket activity/attachments**, **Projects, project memberships, managers, tasks, milestones, baselines, project changes/risks/documents and asset links**, and **Employees, employee access entitlements and offboarding records**.
+
+It also clears **Assets, license/seat allocations, custody/handovers, assignments, bookings, disposal/audit records, Consumables and inventory movements**, **Vendors and certifications**, **Contracts, quotations, purchase orders, invoices, payments, returns and budgets**, and **Maintenance schedules/records**.
+
+CMDB Applications/Servers and dependencies, Network Topology/Firewall records and reviews, Backup/Restore jobs/evidence records, IT Component Compliance Reviews, the **Internal IT Risk Register** with all mitigation actions/reviews/links, Data Migration Center batches, system notifications and custom Knowledge Base articles are cleared.
+
+Previous **Audit Logs** are cleared. On success the transaction creates one fresh **CLEAR_SYSTEM_DATA** audit entry identifying the administrator and reset scope. Thus the post-reset audit log is not completely empty.
+
+### Safe detachment and restored defaults
+
+- Preserved users are detached from deleted employee records: **`users.employee_id = NULL`**. Credentials, active status and role assignments remain unchanged.
+- Project team memberships and other project operational records are deleted. Preserved accounts consequently have no surviving project assignments.
+- Catalog references to deleted projects or consumables are set to `NULL`; catalog routing labels referencing removed non-default assignment groups are cleared. Catalog descriptions, priorities, SLAs and form configurations are retained.
+- Assignment groups and their memberships are operational data. The default support groups are recreated inside the reset transaction, without re-seeding or overwriting catalog rows. Custom groups/memberships do not survive.
+- Non-system Knowledge Base articles and their governed versions/attachments/control mappings are removed. Repository-owned guides and their associated governance records are preserved; operational ticket-to-article links are cleared.
+- Startup synchronization reads `docs/system-manual/`, adds missing guides and updates changed guides by stable source-derived slug. It preserves article identity/version history and does not create a duplicate each time the server starts.
+
+Because employee and project associations disappear, a preserved user's self-service persona may change after reset even though their login and role remain valid. Refresh application data and verify operational permissions before resuming work.
+
+### Verification and recovery precautions
+
+Never run a live reset merely to test it. Regression tests use an isolated disposable PostgreSQL schema to verify preservation, detachment, foreign-key safety and rollback. A reset clears database operational records; it is not a secure erasure guarantee for external evidence stores, downloaded reports or backups. Restore deleted business data only through your approved backup/recovery process.

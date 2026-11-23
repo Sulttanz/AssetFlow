@@ -4,7 +4,7 @@ category: GRC & Compliance
 author: Sulttanz
 owner: Sulttanz
 is_system_guide: true
-version: 1.0.0
+version: 1.1.0
 audience: internal
 ---
 
@@ -12,18 +12,19 @@ audience: internal
 
 Governance-related capabilities are provided across the standalone risk register, Knowledge Base policy governance, and asset/vendor compliance views. These are related tools, not a single end-to-end GRC framework. The platform does not claim certification against ISO/IEC 27001, NCA, or another regulatory framework.
 
-## Enterprise Risk Register
+## Internal IT Department Risk Register
 
-The `/risks` page provides an organization-level risk register under the `risk_management` feature:
+The `/risks` page is the **Internal IT Department Risk Register**, under the `risk_management` feature. It is separate from Project Management and project-specific risks.
 
-- Record a title, description, category, owner, due date, mitigation, contingency, and status.
-- Choose an inherent likelihood and impact from 1–5. The API calculates the inherent score as `likelihood × impact`, displayed on a 5×5 matrix.
-- Record optional residual likelihood and impact to show remaining exposure after mitigation.
-- Supported categories are Security, Availability, Data, Schedule, Operational, Compliance, Vendor, and Other.
-- Statuses are Identified, Mitigating, Accepted, and Closed. Setting a risk to Accepted requires an acceptance reason.
-- Risk changes are audit logged. Risk management is independent of Change Management; a legacy nullable change reference in the database is not required by the current risk workflow.
+- Each risk has an `IT-RSK-xxx` reference and belongs to one of seven internal IT domains.
+- Record inherent, residual and target 1–5 likelihood/impact assessments; switch the interactive 5×5 matrix between those stages and select a cell to filter records.
+- Assess CIA impact, threats, vulnerabilities, existing controls and control effectiveness.
+- Choose Mitigate, Accept, Transfer or Avoid; track concrete engineering mitigation actions with owners, due dates, evidence and completion timestamps.
+- Residual exposure is compared with the configurable IT Risk Appetite (default 12). Acceptance at or above the threshold requires justification, a future expiry and a recorded operator sign-off with actor/timestamp.
+- Link optional internal infrastructure, assets, vendors, compliance reviews, problems and changes; spawn linked internal changes/problems when ITSM is enabled. No project association is required or offered.
+- Record periodic reviews with automatic next-review advancement and score/status history; export filtered CSV and Executive PDF reports.
 
-An acceptance reason is not an executive sign-off workflow: the register does not currently route risk acceptance for executive approval or record an approver decision.
+Read the **Internal IT Department Risk Management Guide** in **Knowledge Base → User Guides** for the complete workflow. Acceptance records an authorized operator's decision; it does not route a separate executive approval request or replace organizational approval policy.
 
 ## Policy Control Mapping
 

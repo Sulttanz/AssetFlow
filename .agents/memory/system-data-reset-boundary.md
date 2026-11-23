@@ -9,8 +9,8 @@ description: Identity/configuration protection and isolation rules for destructi
 
 **How to apply:** Classify new modules deliberately against this boundary. Verify successful wipes only in a dedicated schema inside the disposable test cluster, not even the shared full-suite schema, because other tests run concurrently. Keep the reset and its fresh audit entry atomic.
 
-Built-in service request and incident catalogs must always be available after startup and business resets.
+Seed missing built-in service request and incident catalogs on startup, but never re-seed or overwrite catalog records during a business reset.
 
-**Why:** The user explicitly requires default templates to survive Clear All Data through preservation or immediate re-seeding, rather than leaving empty catalogs.
+**Why:** The user's finalized reset rule preserves all built-in and custom catalog records and their configurations; earlier permission to re-seed during reset was superseded.
 
-**How to apply:** Re-seed defaults inside the reset transaction before commit and seed missing defaults at startup without overwriting customer customization.
+**How to apply:** Startup may insert missing defaults without overwriting customer customization. Reset only detaches references to deleted operational records and recreates default assignment groups; it must not call the catalog seeder.

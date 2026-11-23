@@ -2,9 +2,10 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeArticle } from "@/components/knowledge-base/types";
 import KnowledgeBase from "./knowledge-base";
+import riskGuideMarkdown from "../../../docs/system-manual/internal-it-department-risk-management.md?raw";
 
 const state = vi.hoisted(() => ({
-  role: "end_user", employeeId: null as string | null, projects: [] as string[], canManage: false,
+  role: "end_user", employeeId: null as string | null, projects: [] as string[], canManage: false, manualKind: "project",
 }));
 const manual: KnowledgeArticle = {
   id: "system-guide", title: "Project Collaboration & Project Change Management",
@@ -12,6 +13,11 @@ const manual: KnowledgeArticle = {
   content: "# Assigned Projects\n\nFinal approval creates a **linked Project Task**.",
   isSystemGuide: true, isPublic: true, status: "published", version: "1.1",
   authorId: null, ownerId: null, authorName: "Sulttanz", ownerName: "Sulttanz", reviewDate: null,
+};
+const riskManual: KnowledgeArticle = {
+  ...manual, id: "risk-guide", title: "Internal IT Department Risk Management Guide",
+  slug: "system-manual-internal-it-department-risk-management", category: "GRC & Compliance",
+  content: riskGuideMarkdown.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "").trim(),
 };
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: {
@@ -24,20 +30,22 @@ vi.mock("@/components/knowledge-base/policy-governance-panel", () => ({ PolicyGo
 vi.mock("@/components/knowledge-base/article-editor-dialog", () => ({ ArticleEditorDialog: () => null }));
 vi.mock("@tanstack/react-query", () => ({
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
-  useQuery: ({ queryKey, enabled }: { queryKey: string[]; enabled: boolean }) => ({
+  useQuery: ({ queryKey, enabled }: { queryKey: string[]; enabled: boolean }) => {
+    const selectedManual = state.manualKind === "risk" ? riskManual : manual;
+    return ({
     data: !enabled ? undefined : queryKey[0] === "/api/kb/options"
       ? { canManage: state.canManage, categories: [], owners: [] }
-      : queryKey.includes("fresh-detail") ? manual
-      : queryKey.includes("versions") ? [] : [manual, {
+      : queryKey.includes("fresh-detail") ? selectedManual
+      : queryKey.includes("versions") ? [] : [selectedManual, {
         ...manual, id: "custom-article", title: "Custom guide", isSystemGuide: false,
         category: "User Guide", authorId: "reader", ownerId: "reader",
       }],
     isLoading: false, isFetching: false, isError: false, refetch: vi.fn(),
-  }),
+  }); },
 }));
 
 beforeEach(() => {
-  Object.assign(state, { role: "end_user", employeeId: null, projects: [], canManage: false });
+  Object.assign(state, { role: "end_user", employeeId: null, projects: [], canManage: false, manualKind: "project" });
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -78,4 +86,18 @@ describe("system manual discovery and rendering", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Manage guide" })).toBeNull();
   });
+  it.each(["system_admin", "it_manager", "it_agent", "asset_manager", "cab_member", "auditor", "read_only_user", "demo_viewer", "end_user"])(
+    "renders the actual IT risk manual in User Guides for %s", role => {
+      state.role = role; state.manualKind = "risk";
+      render(<KnowledgeBase />);
+      fireEvent.click(screen.getByRole("tab", { name: /User Guides/ }));
+      expect(screen.getByRole("heading", { name: riskManual.title })).toBeTruthy();
+      fireEvent.click(screen.getAllByRole("button", { name: "Read article" })[0]);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByRole("heading", { name: "Three-stage scoring and the 5 × 5 IT Risk Matrix" })).toBeTruthy();
+      expect(within(dialog).getByRole("heading", { name: "IT Risk Appetite and time-limited Risk Acceptance" })).toBeTruthy();
+      expect(within(dialog).getByText("IT-RSK-001").tagName).toBe("STRONG");
+      expect(within(dialog).getByRole("link", { name: "/risks" }).getAttribute("href")).toBe("/risks");
+    },
+  );
 });
