@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { Eye, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ArticleStatus, KnowledgeArticle, KnowledgeOptions } from "./types";
+import { KnowledgeDocument } from "./knowledge-document";
 
 export interface ArticlePayload {
   title: string;
@@ -64,9 +64,6 @@ export function ArticleEditorDialog({ open, onOpenChange, article, options, pend
   const employeePublicCategory = ["policy", "user guide"].includes(category.trim().toLowerCase());
   const canGovernArticles = options.canManage;
   const canSave = title.trim().length > 0 && content.trim().length >= 10 && category.length > 0;
-  const markdownComponents = {
-    img: ({ alt }: { alt?: string }) => <span className="text-muted-foreground">[Image omitted{alt ? `: ${alt}` : ""}]</span>,
-  };
 
   return <Dialog open={open} onOpenChange={value => { if (!pending) onOpenChange(value); }}>
     <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto">
@@ -90,7 +87,7 @@ export function ArticleEditorDialog({ open, onOpenChange, article, options, pend
         </div>
         {canGovernArticles && employeePublicCategory ? <label className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3 text-sm"><Checkbox checked={isPublic} onCheckedChange={value => setIsPublic(value === true)} /><span><span className="font-medium">Public to employees</span><span className="mt-0.5 block text-xs text-muted-foreground">Only published Policy and User Guide articles marked public are visible to employees.</span></span></label> : canGovernArticles ? <p className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">This category is staff-only. Employee visibility applies only to Policy and User Guide articles.</p> : <p className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">You can update your article content. Category, publication, and ownership are managed by IT staff.</p>}
         <div className="flex items-center justify-between"><label htmlFor="kb-content" className="text-sm font-medium">Article content <span className="font-normal text-muted-foreground">Markdown supported</span></label><Button type="button" variant="ghost" size="sm" onClick={() => setPreview(value => !value)} className="gap-1.5">{preview ? <FileText className="h-4 w-4" /> : <Eye className="h-4 w-4" />}{preview ? "Edit" : "Preview"}</Button></div>
-        {preview ? <div className="prose prose-sm min-h-48 max-w-none rounded-lg border bg-muted/20 p-4 dark:prose-invert"><ReactMarkdown components={markdownComponents}>{content || "Nothing to preview yet."}</ReactMarkdown></div> : <Textarea id="kb-content" value={content} onChange={event => setContent(event.target.value)} className="min-h-48 font-mono text-sm" placeholder={"## Purpose\n\nDescribe the approved procedure…"} required />}
+        {preview ? <div className="min-h-48 min-w-0 rounded-lg border bg-card p-4"><KnowledgeDocument content={content || "Nothing to preview yet."} /></div> : <Textarea id="kb-content" value={content} onChange={event => setContent(event.target.value)} className="min-h-48 font-mono text-sm" placeholder={"## Purpose\n\nDescribe the approved procedure…"} required />}
         {article && <label className="grid gap-1.5 text-sm font-medium">Change note <span className="font-normal text-muted-foreground">Optional, included in version history</span><Input value={changeNote} onChange={event => setChangeNote(event.target.value)} maxLength={500} /></label>}
         <DialogFooter className="flex-col gap-2 border-t pt-4 sm:flex-row sm:justify-between">
           {article && article.status !== "archived" ? <Button type="button" variant="destructive" onClick={() => setConfirmArchive(true)} disabled={pending}>Archive article</Button> : <span />}

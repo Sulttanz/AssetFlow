@@ -1,0 +1,315 @@
+.kb-document {
+  --kb-ink: #1e293b;
+  --kb-heading: #102a4c;
+  --kb-muted: #52647a;
+  --kb-link: #1558a6;
+  --kb-link-hover: #0f427e;
+  --kb-border: #cbd6e2;
+  --kb-soft: #f1f5f9;
+  --kb-code-bg: #eaf0f6;
+  --kb-code-ink: #193b62;
+  --kb-callout-bg: #edf4fb;
+  --kb-callout-border: #3974af;
+  color: var(--kb-ink);
+  font-size: 15.5px;
+  line-height: 1.7;
+  text-align: left;
+  direction: ltr;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dark .kb-document {
+  --kb-ink: #d5dfeb;
+  --kb-heading: #e6eef8;
+  --kb-muted: #b1c0d1;
+  --kb-link: #8abcf4;
+  --kb-link-hover: #b6d5fa;
+  --kb-border: #40536a;
+  --kb-soft: #1b2a3c;
+  --kb-code-bg: #23364c;
+  --kb-code-ink: #d5e8ff;
+  --kb-callout-bg: #1b3048;
+  --kb-callout-border: #6ba0d8;
+}
+
+.kb-document :where(p, li, dt, dd, th, td, blockquote, figcaption) {
+  color: var(--kb-ink);
+  text-align: left;
+}
+
+.kb-document :where(h1, h2, h3, h4) {
+  color: var(--kb-heading);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.kb-document h1 {
+  margin: 0 0 1.15rem;
+  font-size: clamp(1.85rem, 4vw, 2.35rem);
+  line-height: 1.16;
+  letter-spacing: -0.035em;
+}
+
+.kb-document h2 {
+  margin: 2.1rem 0 0.8rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--kb-border);
+  font-size: clamp(1.45rem, 3vw, 1.8rem);
+}
+
+.kb-document h3 {
+  margin: 1.65rem 0 0.55rem;
+  font-size: 1.25rem;
+}
+
+.kb-document h4 {
+  margin: 1.35rem 0 0.45rem;
+  font-size: 1.0625rem;
+  letter-spacing: -0.01em;
+}
+
+.kb-document :where(p, ul, ol, blockquote, pre, table) {
+  margin-top: 0;
+  margin-bottom: 1.1rem;
+}
+
+.kb-document :where(ul, ol) {
+  padding-left: 1.55rem;
+}
+
+.kb-document ul {
+  list-style: disc;
+}
+
+.kb-document ol {
+  list-style: decimal;
+}
+
+.kb-document li {
+  padding-left: 0.18rem;
+}
+
+.kb-document li + li {
+  margin-top: 0.3rem;
+}
+
+.kb-document li::marker {
+  color: var(--kb-muted);
+}
+
+.kb-document li > :where(ul, ol) {
+  margin-top: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.kb-document strong,
+.kb-document b {
+  color: var(--kb-heading);
+  font-weight: 700;
+}
+
+.kb-document :where(span, em, small, sub, sup) {
+  color: inherit;
+}
+
+.kb-document mark {
+  background: var(--kb-code-bg);
+  color: var(--kb-code-ink);
+  border-radius: 0.2em;
+  padding: 0.05em 0.2em;
+}
+
+.kb-document a {
+  color: var(--kb-link);
+  font-weight: 600;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  overflow-wrap: anywhere;
+}
+
+.kb-document a:hover {
+  color: var(--kb-link-hover);
+  text-decoration-thickness: 2px;
+}
+
+.kb-document a:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--kb-link);
+  outline-offset: 3px;
+}
+
+.kb-document code {
+  display: inline;
+  padding: 0.12em 0.38em;
+  border: 1px solid var(--kb-border);
+  border-radius: 0.3rem;
+  background-color: var(--kb-code-bg);
+  color: var(--kb-code-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  font-weight: 600;
+  line-height: inherit;
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+}
+
+.kb-document code::before,
+.kb-document code::after {
+  content: none;
+}
+
+.kb-document kbd {
+  display: inline;
+  padding: 0.12em 0.42em;
+  border: 1px solid var(--kb-border);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  background-color: var(--kb-soft);
+  color: var(--kb-heading);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84em;
+  font-weight: 650;
+  line-height: inherit;
+  white-space: break-spaces;
+  overflow-wrap: anywhere;
+}
+
+.kb-document pre {
+  max-width: 100%;
+  max-height: min(34rem, 70vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--kb-border);
+  border-radius: 0.55rem;
+  background-color: var(--kb-soft);
+  color: var(--kb-ink);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  tab-size: 2;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kb-document pre code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.kb-document blockquote {
+  margin-left: 0;
+  padding: 0.8rem 1rem;
+  border-left: 4px solid var(--kb-callout-border);
+  border-radius: 0 0.4rem 0.4rem 0;
+  background-color: var(--kb-callout-bg);
+  color: var(--kb-ink);
+}
+
+.kb-document blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.kb-document hr {
+  height: 1px;
+  margin: 1.8rem 0;
+  border: 0;
+  background-color: var(--kb-border);
+}
+
+.kb-document .kb-table-scroll {
+  max-width: 100%;
+  margin-bottom: 1.1rem;
+  overflow-x: auto;
+  border: 1px solid var(--kb-border);
+  border-radius: 0.45rem;
+  overscroll-behavior-x: contain;
+}
+
+.kb-document .kb-table-scroll:focus-visible {
+  outline: 2px solid var(--kb-link);
+  outline-offset: 2px;
+}
+
+.kb-document table {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+  color: var(--kb-ink);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kb-document .kb-image-placeholder {
+  color: var(--kb-muted);
+  font-style: italic;
+}
+
+.kb-document :where(th, td) {
+  min-width: 7rem;
+  padding: 0.65rem 0.8rem;
+  border-right: 1px solid var(--kb-border);
+  border-bottom: 1px solid var(--kb-border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.kb-document tr > :last-child {
+  border-right: 0;
+}
+
+.kb-document tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.kb-document th {
+  background-color: var(--kb-soft);
+  color: var(--kb-heading);
+  font-weight: 700;
+}
+
+.kb-document img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.45rem;
+}
+
+@media (max-width: 640px) {
+  .kb-document {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .kb-document h2 {
+    margin-top: 1.8rem;
+  }
+
+  .kb-document pre {
+    max-height: min(28rem, 60vh);
+    padding: 0.85rem;
+  }
+
+  .kb-document :where(th, td) {
+    min-width: 6.25rem;
+    padding: 0.55rem 0.65rem;
+  }
+}

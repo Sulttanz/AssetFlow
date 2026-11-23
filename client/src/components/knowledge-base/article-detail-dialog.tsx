@@ -1,7 +1,6 @@
 import { formatDateTimeMinute } from "@shared/date-format";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
 import { AlertCircle, BookOpen, History, LoaderCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +11,7 @@ import { formatDateDisplay } from "@/lib/date-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { ArticleVersion, KnowledgeArticle, statusLabel } from "./types";
 import { PolicyGovernancePanel } from "./policy-governance-panel";
+import { KnowledgeDocument } from "./knowledge-document";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await apiRequest("GET", url);
@@ -47,12 +47,9 @@ export function ArticleDetailDialog({ articleId, open, onOpenChange }: {
   const historical = versionsReady ? versions.find(version => version.id === selectedVersion) : undefined;
   const shown = historical?.snapshot ?? article;
   const displayDate = (value?: string | null) => value ? formatDateDisplay(value) : "Not set";
-  const markdownComponents = {
-    img: ({ alt }: { alt?: string }) => <span className="text-muted-foreground">[Image omitted{alt ? `: ${alt}` : ""}]</span>,
-  };
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[88dvh] max-w-3xl overflow-y-auto">
+    <DialogContent className="max-h-[88dvh] max-w-6xl overflow-y-auto">
       {(isLoading || isFetching || isError || !shown) && <DialogHeader className="sr-only">
         <DialogTitle>{isError ? "Article unavailable" : "Knowledge article"}</DialogTitle>
         <DialogDescription>{isError ? "The requested article could not be loaded." : "Loading article content, ownership, and version history."}</DialogDescription>
@@ -65,11 +62,9 @@ export function ArticleDetailDialog({ articleId, open, onOpenChange }: {
               <DialogTitle className="pt-1 text-2xl">{shown.title}</DialogTitle>
               <DialogDescription>{shown.slug ? `/${shown.slug}` : "Knowledge article"}</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 sm:grid-cols-[1fr_210px]">
-              <div className="min-w-0 rounded-lg border bg-card px-5 py-4">
-                <article className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:font-semibold prose-a:text-primary prose-pre:overflow-x-auto">
-                  <ReactMarkdown components={markdownComponents}>{shown.content}</ReactMarkdown>
-                </article>
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="min-w-0 rounded-xl border bg-card px-4 py-5 sm:px-6">
+                <KnowledgeDocument content={shown.content} />
                 {shown.tags && <div className="mt-6 flex flex-wrap gap-1.5">{shown.tags.split(",").map(tag => <Badge key={tag} variant="outline" className="font-normal">{tag.trim()}</Badge>)}</div>}
               </div>
               <aside className="space-y-4">
