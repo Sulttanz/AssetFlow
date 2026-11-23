@@ -23,6 +23,7 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
   const linkedNoProjectId = randomUUID();
   const linkedProjectId = randomUUID();
   const employeeIds = [randomUUID(), randomUUID()];
+  const employeeId = randomUUID();
   const internalPolicyId = randomUUID();
   const projectIds = [randomUUID(), randomUUID()];
   const catalogIds = [randomUUID(), randomUUID(), randomUUID()];
@@ -108,7 +109,7 @@ describe.runIf(enabled)("Project-scoped incident portal over HTTP", () => {
       await db.delete(s.auditLogs).where(inArray(s.auditLogs.userId, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
       await db.delete(s.userRoles).where(inArray(s.userRoles.userId, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
       await db.delete(s.users).where(inArray(s.users.id, [actorId, outsiderId, linkedNoProjectId, linkedProjectId]));
-      await db.delete(s.employees).where(inArray(s.employees.id, employeeIds));
+      await db.delete(s.employees).where(inArray(s.employees.id, [...employeeIds, employeeId]));
     } finally {
       if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()));
       await pool.end();

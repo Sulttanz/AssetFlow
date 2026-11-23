@@ -44,7 +44,7 @@ async function assignedProjectsForUser(userId: string) {
       eq(projectTasks.assigneeId, userId),
     )))
     .orderBy(asc(projects.name));
-  return [...new Map(projectsForUser.map(project => [project.id, project])).values()];
+  return Array.from(new Map(projectsForUser.map(project => [project.id, project])).values());
 }
 function handle(handler: (req: Request, res: Response, user: Viewer) => Promise<void>): RequestHandler {
   return async (req, res) => {

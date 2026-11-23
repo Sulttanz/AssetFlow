@@ -11406,7 +11406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(!canViewAll ? { requestedById: userId, projectIds: assignedProjectIds } : {}),
       });
       const impactSummaries = await getChangeImpactSummaries(result.changes.map(change => change.id));
-      const linkedTasks = result.changes.length
+      const linkedTaskRows = result.changes.length
         ? await db.select({
           id: projectTasks.id,
           changeRequestId: projectTasks.changeRequestId,
@@ -11414,6 +11414,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).from(projectTasks)
           .where(inArray(projectTasks.changeRequestId, result.changes.map(change => change.id)))
         : [];
+      const linkedTasks = Array.isArray(linkedTaskRows) ? linkedTaskRows : [];
       const taskByChange = new Map(linkedTasks.map(task => [task.changeRequestId, task]));
       res.json({
         ...result,
@@ -11443,10 +11444,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await canReadChangeRecord(userId, ch.id)) && !canManageChanges) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
-      const [linkedProjectTask] = await db.select({
-        id: projectTasks.id,
-        title: projectTasks.title,
-      }).from(projectTasks).where(eq(projectTasks.changeRequestId, ch.id)).limit(1);
+      const [linkedProjectTask] = ch.projectId
+        ? await db.select({
+          id: projectTasks.id,
+          title: projectTasks.title,
+        }).from(projectTasks).where(eq(projectTasks.changeRequestId, ch.id)).limit(1)
+        : [];
       res.json({ ...ch, impactAnalysis: await getChangeImpactAnalysis(ch.id), linkedProjectTask: linkedProjectTask ?? null });
     } catch (error) { respondWithApiError(res, error, "Failed to fetch change"); }
   });
