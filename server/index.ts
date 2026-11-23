@@ -112,6 +112,11 @@ app.use((req, res, next) => {
     if (release) {
       console.log(`Application release recorded: ${release.fromVersion ?? "initial installation"} → ${release.toVersion}.`);
     }
+    const { reconcileSystemUpdateJobAtStartup } = await import("./system-update-execution");
+    const reconciledUpdate = await reconcileSystemUpdateJobAtStartup();
+    if (reconciledUpdate) {
+      console.log(`Self-hosted update job reconciled as ${reconciledUpdate.status}.`);
+    }
     const { ensureDefaultCatalogs } = await import("./default-catalogs");
     await ensureDefaultCatalogs();
     console.log("Default service and incident catalogs are ready.");

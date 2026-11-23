@@ -38,6 +38,9 @@ Set these values in the hosting platform's secret/environment-variable manager. 
 | `UPDATE_AVAILABLE_VERSION` | No | Optional explicit update-version override. Takes precedence over GitHub checks. |
 | `GITHUB_RELEASE_API_URL` | No | Optional HTTPS GitHub REST API URL for a latest release, e.g. `/repos/OWNER/REPO/releases/latest`. |
 | `RELEASE_REPO_URL` | No | Optional public GitHub repository URL; used to check its latest Git tag when no API URL or override is set. |
+| `SELF_HOSTED_UPDATE_BACKUP_CHECK_SCRIPT` | No | Absolute executable that creates and verifies the pre-update backup. |
+| `SELF_HOSTED_UPDATE_SCRIPT` | No | Trusted executable that fetches/stages the selected tag and installs/builds it without restarting the service. |
+| `SELF_HOSTED_UPDATE_RESTART_SCRIPT` | No | Trusted executable that activates the staged release and triggers a detached service restart. |
 
 The optional `VITEST_TEST_DATABASE_URL` and `CAB_SCHEMA_SYNC_TEST_DATABASE_URL` variables are for isolated test databases only. Never point them at production data.
 
@@ -75,6 +78,26 @@ Replit's deployment configuration currently targets Autoscale. Set production-on
 To publish a release, bump `version` in `package.json`, commit and tag it in Git as
 `vX.Y.Z`, then click **Republish**. Republish builds the deployed bundle; the new instance
 records the installed version in `app_release_history`.
+
+The admin-only **Apply Update** action detects `REPLIT_DEPLOYMENT=1` and returns
+`republish_required` when a newer version is available. It does not run local update scripts
+or claim that the published deployment changed. A Replit workspace is also prevented from
+using self-hosted scripts.
+
+For self-hosted production, Apply Update runs only when all three script paths above point
+to absolute executable files that are not group/world writable. The backup-check adapter
+must create and verify a fresh backup and exit successfully. The release adapter receives
+the checked tag as its only argument and in `UPDATE_TARGET_VERSION`; it must fetch/checkout
+and stage that version, install/build it, and not restart the running service. Then the
+restart adapter is launched detached to activate the staged release and restart systemd,
+PM2, or the container service. Startup migrations run before the new server accepts
+traffic, and the installed version is recorded in `app_release_history`. Use deployment-
+specific scripts reviewed by operations; arbitrary shell strings, repository URLs, script
+paths, and credentials are never supplied by or returned to the client.
+
+Apply attempts and transitions are audited, concurrent runs are blocked by a database lock,
+and status is persisted in `system_update_jobs`. `GET /api/system/update/status` is
+administrator-only. Clear All System Data preserves this update-status history.
 
 ## On-premises deployment
 

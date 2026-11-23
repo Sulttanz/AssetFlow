@@ -384,6 +384,14 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       fromVersion: "v2.1.0", toVersion: "v2.2.0", migrationCount: 59,
       notes: "Fixture release history.", status: "applied",
     });
+    await db.insert(s.systemUpdateJobs).values({
+      requestedByUserId: adminId,
+      currentVersion: "v2.2.0",
+      targetVersion: "v2.3.0",
+      runtimeEnvironment: "self_hosted",
+      status: "failed",
+      message: "Fixture update status.",
+    });
     expect(Object.values(await snapshot(RESET_BUSINESS_TABLES)).every(rows => rows.length > 0)).toBe(true);
     protectedSnapshot = await snapshot(RESET_PROTECTED_TABLES);
     const app = express();

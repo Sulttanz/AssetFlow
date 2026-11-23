@@ -114,3 +114,25 @@ The administrator-only in-app **Check for Updates** action checks
 After reviewing a release, the on-premises operator stages and applies it with this
 runbook. GitHub checks use public release/tag information and never return the configured
 repository URL or credentials to the client.
+
+## Optional administrator-triggered update adapters
+
+The in-app **Apply Update** action never runs on Replit; published Replit projects return
+`republish_required` and must be promoted with **Republish**. For self-hosted production,
+automatic execution is disabled unless all of these deployment-owned environment variables
+point to absolute, executable, non-group/world-writable files:
+
+- `SELF_HOSTED_UPDATE_BACKUP_CHECK_SCRIPT`: create and verify a fresh database backup; exit
+  nonzero to stop before release changes.
+- `SELF_HOSTED_UPDATE_SCRIPT`: fetch/checkout and stage the checked release tag, then install
+  and build it. It receives the tag as its positional argument and
+  `UPDATE_TARGET_VERSION`. It must not restart the live service.
+- `SELF_HOSTED_UPDATE_RESTART_SCRIPT`: run detached to activate the staged release and
+  restart the configured systemd, PM2, or container service.
+
+The server serializes requests with a database lock, audits job transitions, and persists
+status in `system_update_jobs`. The new server applies additive migrations at startup and
+reconciles the job against its installed version. Do not point the update script at a
+user-controlled command or permit client input to select a path, repository, or arbitrary
+tag; the server derives and validates the target release before calling the adapters.
+Use staging to validate adapter scripts before enabling these settings in production.

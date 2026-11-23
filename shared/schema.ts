@@ -1249,6 +1249,32 @@ export const insertAppReleaseHistorySchema = createInsertSchema(appReleaseHistor
 export type AppReleaseHistory = typeof appReleaseHistory.$inferSelect;
 export type InsertAppReleaseHistory = z.infer<typeof insertAppReleaseHistorySchema>;
 
+export const systemUpdateJobs = pgTable("system_update_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestedByUserId: varchar("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  currentVersion: text("current_version").notNull(),
+  targetVersion: text("target_version"),
+  runtimeEnvironment: text("runtime_environment").notNull(),
+  status: text("status").notNull(),
+  message: text("message").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, table => [
+  check("system_update_jobs_runtime_check", sql`${table.runtimeEnvironment} IN ('replit', 'self_hosted')`),
+  check("system_update_jobs_status_check", sql`${table.status} IN ('idle', 'running', 'restarting', 'republish_required', 'failed')`),
+  index("system_update_jobs_started_idx").on(table.startedAt),
+]);
+
+export const insertSystemUpdateJobSchema = createInsertSchema(systemUpdateJobs).omit({
+  id: true,
+  startedAt: true,
+  updatedAt: true,
+  finishedAt: true,
+});
+export type SystemUpdateJob = typeof systemUpdateJobs.$inferSelect;
+export type InsertSystemUpdateJob = z.infer<typeof insertSystemUpdateJobSchema>;
+
 export const systemNotifications = pgTable("system_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

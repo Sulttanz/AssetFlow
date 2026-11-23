@@ -41,6 +41,7 @@ export default function SystemSettings() {
     lastCheckedAt: string;
     message: string;
   } | null>(null);
+  const [isApplyUpdateOpen, setIsApplyUpdateOpen] = useState(false);
 
   const { data: versionInfo, isLoading: isVersionLoading } = useQuery<{
     version: string;
@@ -72,6 +73,54 @@ export default function SystemSettings() {
       toast({
         title: "Update check failed",
         description: error.message || "Could not check for updates.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const { data: updateStatus } = useQuery<{
+    runtimeEnvironment: "replit" | "self_hosted";
+    status: "idle" | "running" | "restarting" | "republish_required" | "failed";
+    currentVersion: string;
+    targetVersion: string | null;
+    message: string;
+    startedAt: string | null;
+    updatedAt: string;
+  }>({
+    queryKey: ["/api/system/update/status"],
+    refetchInterval: query => {
+      const status = query.state.data?.status;
+      return status === "running" || status === "restarting" ? 2000 : false;
+    },
+  });
+
+  const applyUpdateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/system/update/apply", {
+        method: "POST",
+        credentials: "include",
+      });
+      const result = await response.json();
+      if (!response.ok && !result.status) {
+        throw new Error(result.message || "Could not start the update operation.");
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(["/api/system/update/status"], result);
+      setIsApplyUpdateOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["/api/system/update/status"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/system/version"] });
+      toast({
+        title: result.status === "failed" ? "Update could not be applied" : "Update status",
+        description: result.message,
+        variant: result.status === "failed" ? "destructive" : "default",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update request failed",
+        description: error.message || "Could not start the update operation.",
         variant: "destructive",
       });
     },
@@ -404,6 +453,34 @@ export default function SystemSettings() {
               </p>
             </div>
           )}
+          {updateStatus && (
+            <div
+              className={`rounded-md border p-3 text-sm ${
+                updateStatus.status === "failed"
+                  ? "border-destructive/40 bg-destructive/5"
+                  : updateStatus.status === "republish_required"
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : "bg-muted/40"
+              }`}
+              role="status"
+              aria-live="polite"
+              data-testid="update-job-status"
+            >
+              <p className="font-medium">
+                Update action: {updateStatus.status.replaceAll("_", " ")}
+                {" · "}
+                {updateStatus.runtimeEnvironment === "replit" ? "Replit" : "Self-hosted"}
+              </p>
+              <p className="mt-1 text-muted-foreground">{updateStatus.message}</p>
+              {updateStatus.targetVersion && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {updateStatus.currentVersion} → {updateStatus.targetVersion}
+                  {" · Updated "}
+                  {appFormatDateTime(updateStatus.updatedAt)}
+                </p>
+              )}
+            </div>
+          )}
           <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Replit release steps</p>
             <p className="mt-1">
@@ -417,20 +494,66 @@ export default function SystemSettings() {
               If GitHub is unconfigured or unreachable, the check reports that status without affecting the application.
             </p>
             <p className="mt-2">
-              This is a comparison only; it never downloads or installs code. On-premises releases are installed by the operator using the
-              <code> DEPLOY_ONPREM.md</code> runbook.
+              Check for Updates only compares versions. Apply Update requires deployment-owned backup, release-staging, and restart scripts on self-hosted systems; if those are not configured, use the operator steps in
+              <code> DEPLOY_ONPREM.md</code>. Replit deployments always require Republish.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => updateCheckMutation.mutate()}
-            disabled={updateCheckMutation.isPending}
-            data-testid="button-check-updates"
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${updateCheckMutation.isPending ? "animate-spin" : ""}`} />
-            {updateCheckMutation.isPending ? "Checking…" : "Check for Updates"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => updateCheckMutation.mutate()}
+              disabled={updateCheckMutation.isPending}
+              data-testid="button-check-updates"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${updateCheckMutation.isPending ? "animate-spin" : ""}`} />
+              {updateCheckMutation.isPending ? "Checking…" : "Check for Updates"}
+            </Button>
+            {updateCheckResult?.updateAvailable && (
+              <AlertDialog open={isApplyUpdateOpen} onOpenChange={setIsApplyUpdateOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    disabled={
+                      applyUpdateMutation.isPending ||
+                      updateStatus?.status === "running" ||
+                      updateStatus?.status === "restarting" ||
+                      updateStatus?.status === "republish_required" ||
+                      (updateStatus?.runtimeEnvironment === "self_hosted" &&
+                        updateStatus.status === "idle" &&
+                        updateStatus.message.toLowerCase().includes("not configured"))
+                    }
+                    data-testid="button-apply-update"
+                  >
+                    {applyUpdateMutation.isPending ? "Starting…" : "Apply Update"}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Apply this update?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Requested version: <strong>{updateCheckResult.currentVersion}</strong>
+                      {" → "}
+                      <strong>{updateCheckResult.latestAvailableVersion}</strong>.
+                      {" On Replit, this action directs you to Republish. On self-hosted systems, a pre-update backup must pass before configured release and restart scripts run."}
+                      {" "}
+                      This may restart the application. Continue only during an approved maintenance window.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      type="button"
+                      onClick={() => applyUpdateMutation.mutate()}
+                      data-testid="confirm-apply-update"
+                    >
+                      Apply Update
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </div>
         </CardContent>
       </Card>
 

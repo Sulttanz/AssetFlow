@@ -76,6 +76,7 @@ import { reserveFinancialDocumentNumber } from "./finance-document-numbering";
 import { respondWithApiError } from "./api-error-handler";
 import { registerRiskManagementRoutes } from "./risk-management";
 import { registerSystemUpdateCheckRoute } from "./system-update-check-route";
+import { registerSystemUpdateExecutionRoutes } from "./system-update-execution-route";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -3368,6 +3369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   registerSystemUpdateCheckRoute(app, requireAuth, requirePermission("system_admin"));
+  registerSystemUpdateExecutionRoutes(app, requireAuth, requirePermission("system_admin"));
 
   // System status route - check if system is initialized
   app.get("/api/system/status", async (req, res) => {
