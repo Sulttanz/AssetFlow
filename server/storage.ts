@@ -42,6 +42,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { EventEmitter } from "events";
 import { clearDatabaseBusinessData } from "./system-data-reset";
 import { systemDataResetAudit, type SystemDataResetActor } from "@shared/system-data-reset";
+import { isSystemAdministrator } from "@shared/personas";
 
 function deriveTicketPriority(impact?: string | null, urgency?: string | null, fallback?: string | null): string {
   if (impact && urgency && TICKET_PRIORITY_MATRIX[impact]?.[urgency]) {
@@ -574,6 +575,14 @@ export class MemStorage implements IStorage {
           if (callback) {
             process.nextTick(() => callback(error));
           }
+        }
+      }
+
+      removeUsers(userIds: readonly string[]) {
+        const ids = new Set(userIds);
+        for (const [sid, session] of this.sessions) {
+          const sessionUserId = session?.passport?.user;
+          if (typeof sessionUserId === "string" && ids.has(sessionUserId)) this.sessions.delete(sid);
         }
       }
 
@@ -2854,9 +2863,21 @@ export class MemStorage implements IStorage {
   async clearAllData(actor: SystemDataResetActor): Promise<boolean> {
     this.assets.clear();
     this.employees.clear();
+    const removedUserIds: string[] = [];
     for (const [id, user] of Array.from(this.users.entries())) {
-      if (user.employeeId) this.users.set(id, { ...user, employeeId: null });
+      const roles = await this.getUserRoles(id);
+      const permissions = await this.getUserPermissions(id);
+      if (isSystemAdministrator({ id, roles, permissions })) {
+        if (user.employeeId) this.users.set(id, { ...user, employeeId: null });
+        continue;
+      }
+      this.users.delete(id);
+      removedUserIds.push(id);
+      for (const [userRoleId, userRole] of Array.from(this.userRoles.entries())) {
+        if (userRole.userId === id) this.userRoles.delete(userRoleId);
+      }
     }
+    this.sessionStore.removeUsers(removedUserIds);
     this.assignments.clear();
     this.vendors.clear();
     this.purchaseOrders.clear();

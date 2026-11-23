@@ -2,7 +2,7 @@ import { getTableName, is, sql } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
 import {
-  RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES, systemDataResetAudit,
+  RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES, RESET_SELECTIVE_TABLES, systemDataResetAudit,
   type SystemDataResetActor,
 } from "@shared/system-data-reset";
 import { db } from "./db";
@@ -12,11 +12,13 @@ export function assertSystemDataResetCoverage() {
   const declared = Object.values(schema).filter(value => is(value, PgTable)).map(table => getTableName(table));
   const business = new Set<string>(RESET_BUSINESS_TABLES);
   const protectedTables = new Set<string>(RESET_PROTECTED_TABLES);
-  const unclassified = declared.filter(name => !business.has(name) && !protectedTables.has(name));
+  const selective = new Set<string>(RESET_SELECTIVE_TABLES);
+  const unclassified = declared.filter(name => !business.has(name) && !protectedTables.has(name) && !selective.has(name));
   const overlapping = RESET_BUSINESS_TABLES.filter(name => protectedTables.has(name));
-  const obsolete = [...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES].filter(name => !declared.includes(name));
-  if (unclassified.length || overlapping.length || obsolete.length) {
-    throw new Error(`System reset table policy needs review: ${[...unclassified, ...overlapping, ...obsolete].join(", ")}`);
+  const duplicates = RESET_SELECTIVE_TABLES.filter(name => business.has(name) || protectedTables.has(name));
+  const obsolete = [...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES].filter(name => !declared.includes(name));
+  if (unclassified.length || overlapping.length || duplicates.length || obsolete.length) {
+    throw new Error(`System reset table policy needs review: ${[...unclassified, ...overlapping, ...duplicates, ...obsolete].join(", ")}`);
   }
 }
 
@@ -57,6 +59,42 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
     // Re-create built-in catalogs before commit: no request can observe an empty
     // catalog after reset, and a seed failure rolls the whole reset back.
     await seedDefaultCatalogsInTransaction(tx);
+
+    // Keep all accounts with effective System Administrator access, but remove
+    // other logins and their authorization/session rows. Role and permission
+    // definitions themselves remain intact.
+    const nonAdminUsers = await tx.select({ id: schema.users.id }).from(schema.users).where(sql`
+      NOT (
+        NOT EXISTS (
+          SELECT 1 FROM user_roles demo_ur JOIN roles demo_r ON demo_r.id = demo_ur.role_id
+          WHERE demo_ur.user_id = ${schema.users.id}
+            AND regexp_replace(lower(trim(demo_r.name)), '[[:space:]-]+', '_', 'g') = 'demo_viewer'
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = ${schema.users.id}
+              AND regexp_replace(lower(trim(r.name)), '[[:space:]-]+', '_', 'g')
+                IN ('system_admin', 'system_administrator', 'administrator', 'admin')
+          )
+          OR EXISTS (
+            SELECT 1 FROM user_roles ur
+            JOIN role_permissions rp ON rp.role_id = ur.role_id
+            JOIN permissions p ON p.id = rp.permission_id
+            WHERE ur.user_id = ${schema.users.id} AND lower(trim(p.name)) = 'system_admin'
+          )
+        )
+      )
+    `);
+    const nonAdminIds = nonAdminUsers.map(user => user.id);
+    if (nonAdminIds.length) {
+      await tx.delete(schema.sessions).where(sql`
+        (${schema.sessions.sess}::jsonb #>> '{passport,user}') = ANY(${nonAdminIds}::text[])
+      `);
+      await tx.delete(schema.cabStreamLeases).where(sql`${schema.cabStreamLeases.userId} = ANY(${nonAdminIds}::text[])`);
+      await tx.delete(schema.userRoles).where(sql`${schema.userRoles.userId} = ANY(${nonAdminIds}::text[])`);
+      await tx.delete(schema.users).where(sql`${schema.users.id} = ANY(${nonAdminIds}::text[])`);
+    }
     // If this audit write fails, PostgreSQL rolls the entire reset back.
     await tx.insert(schema.auditLogs).values(systemDataResetAudit(actor));
   });

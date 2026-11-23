@@ -10,7 +10,7 @@ import { and, eq, getTableName, is } from "drizzle-orm";
 import { getTableConfig, PgTable, type AnyPgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as s from "@shared/schema";
-import { RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES } from "@shared/system-data-reset";
+import { RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES, RESET_SELECTIVE_TABLES } from "@shared/system-data-reset";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
 import { DEFAULT_INCIDENT_CATALOG, DEFAULT_SERVICE_CATALOG, seedDefaultCatalogsInTransaction } from "./default-catalogs";
@@ -19,7 +19,7 @@ describe("System data reset policy", () => {
   it("explicitly classifies every schema table and never wipes a protected table", () => {
     const tables = Object.values(s).filter(value => is(value, PgTable));
     const names = tables.map(getTableName);
-    const classified = [...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES];
+    const classified = [...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES];
     expect(new Set(classified).size).toBe(classified.length);
     expect([...classified].sort()).toEqual(names.sort());
     const business = new Set<string>(RESET_BUSINESS_TABLES);
@@ -172,8 +172,12 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     const permission = await seed(s.permissions, { name: "system_admin" });
     await seed(s.userRoles, { userId: adminId, roleId: role });
     await seed(s.rolePermissions, { roleId: role, permissionId: permission });
+    const endUserRole = await seed(s.roles, { name: "End User" });
+    await seed(s.userRoles, { userId: otherId, roleId: endUserRole });
     await db.insert(s.sessions).values({ sid: "retained-session", sess: JSON.stringify({ passport: { user: adminId } }), expire: new Date("2099-01-01") });
+    await db.insert(s.sessions).values({ sid: "deleted-user-session", sess: JSON.stringify({ passport: { user: otherId } }), expire: new Date("2099-01-01") });
     await seed(s.cabStreamLeases, { userId: adminId, sessionId: "retained-session", expiresAt: new Date("2099-01-01") });
+    await seed(s.cabStreamLeases, { userId: otherId, sessionId: "deleted-user-session", expiresAt: new Date("2099-01-01") });
     await seed(s.systemSettings, { key: "reset-sentinel", value: "preserve" });
     await seed(s.settings, { key: "reset-sentinel", value: "preserve" });
     await db.insert(s.moduleSettings).values({ moduleKey: "reset-sentinel", enabled: true });
@@ -340,7 +344,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       message: "Fixture support contract is due for renewal.", dedupeKey: "fixture-service-contract-renewal",
     });
     expect(Object.values(await snapshot(RESET_BUSINESS_TABLES)).every(rows => rows.length > 0)).toBe(true);
-    protectedSnapshot = await snapshot(RESET_PROTECTED_TABLES);
+    protectedSnapshot = await snapshot([...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES]);
     const app = express();
     app.use(express.json());
     app.use(async (req, _res, next) => {
@@ -423,23 +427,32 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     }
   });
 
-  it("also preserves in-memory accounts, permissions and lookup data", async () => {
+  it("preserves in-memory administrators and RBAC while removing non-admin accounts and sessions", async () => {
     const { MemStorage } = await import("./storage");
     const memory = new MemStorage();
-    const user = await memory.createUser({ username: "retained-memory-admin", email: "memory@example.test", password: "fixture-hash", firstName: "Memory", lastName: "Administrator" });
-    const role = await memory.createRole({ name: "Retained memory role" });
-    const permission = await memory.createPermission({ name: "memory_reset_permission" });
-    await memory.assignUserRole(user.id, role.id);
-    await memory.assignRolePermission(role.id, permission.id);
+    const admin = await memory.createUser({ username: "retained-memory-admin", email: "memory@example.test", password: "fixture-hash", firstName: "Memory", lastName: "Administrator" });
+    const endUser = await memory.createUser({ username: "removed-memory-user", email: "user@example.test", password: "fixture-hash", firstName: "Memory", lastName: "User" });
+    const adminRole = await memory.createRole({ name: "System Administrator" });
+    const endUserRole = await memory.createRole({ name: "End User" });
+    const permission = await memory.createPermission({ name: "system_admin" });
+    await memory.assignUserRole(admin.id, adminRole.id);
+    await memory.assignUserRole(endUser.id, endUserRole.id);
+    await memory.assignRolePermission(adminRole.id, permission.id);
     const option = await memory.createDropdownOption({ category: "memory_reset", value: "keep", label: "Keep" });
     const location = await memory.createLocation({ name: "Retained memory location" });
     const department = await memory.createDepartment({ name: "Retained memory department" });
     await memory.createAsset({ name: "Removed memory asset", type: "laptop" });
-    const rolesBefore = await memory.getUserRoles(user.id);
-    expect(await memory.clearAllData({ userId: user.id, username: user.username })).toBe(true);
-    expect(await memory.getUser(user.id)).toEqual(user);
-    expect(await memory.getUserRoles(user.id)).toEqual(rolesBefore);
-    expect(await memory.getUserPermissions(user.id)).toContain("memory_reset_permission");
+    const rolesBefore = await memory.getUserRoles(admin.id);
+    await new Promise<void>((resolve, reject) => memory.sessionStore.set("memory-admin-session", { passport: { user: admin.id } }, (error?: Error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => memory.sessionStore.set("memory-user-session", { passport: { user: endUser.id } }, (error?: Error) => error ? reject(error) : resolve()));
+    expect(await memory.clearAllData({ userId: admin.id, username: admin.username })).toBe(true);
+    expect(await memory.getUser(admin.id)).toEqual(admin);
+    expect(await memory.getUser(endUser.id)).toBeUndefined();
+    expect(await memory.getUserRoles(admin.id)).toEqual(rolesBefore);
+    expect(await memory.getUserRoles(endUser.id)).toHaveLength(0);
+    expect(await memory.getUserPermissions(admin.id)).toContain("system_admin");
+    const sessions = await new Promise<any>((resolve, reject) => memory.sessionStore.all((error: Error | null, rows: any) => error ? reject(error) : resolve(rows)));
+    expect(Object.keys(sessions)).toEqual(["memory-admin-session"]);
     expect(await memory.getDropdownOptions()).toContainEqual(option);
     expect(await memory.getLocations()).toContainEqual(location);
     expect(await memory.getDepartments()).toContainEqual(department);
@@ -481,8 +494,16 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       [systemGuideId],
     )).rows.some((row: { article_id: string }) => row.article_id === systemGuideId)).toBe(true);
     // The deleted employee is detached, but identity, roles, and permissions survive.
-    protectedSnapshot.users = protectedSnapshot.users.map(row => ({ ...(row as object), employee_id: null }));
-    expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
+    protectedSnapshot.users = protectedSnapshot.users
+      .filter((row: any) => row.id === adminId)
+      .map((row: any) => ({ ...row, employee_id: null }));
+    protectedSnapshot.user_roles = protectedSnapshot.user_roles.filter((row: any) => row.user_id === adminId);
+    protectedSnapshot.sessions = protectedSnapshot.sessions.filter((row: any) =>
+      JSON.parse(row.sess).passport?.user === adminId);
+    protectedSnapshot.cab_stream_leases = protectedSnapshot.cab_stream_leases.filter((row: any) => row.user_id === adminId);
+    expect(await snapshot([...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES])).toEqual(protectedSnapshot);
+    expect(await db.select().from(s.users).where(eq(s.users.id, otherId))).toHaveLength(0);
+    expect(await db.select().from(s.users).where(eq(s.users.id, adminId))).toHaveLength(1);
     expect((await setupPool.query(`SELECT * FROM "${schema}"."_onprem_migrations"`)).rows).toEqual([{ name: "retained-migration" }]);
     const [audit] = await db.select().from(s.auditLogs);
     expect(audit).toMatchObject({ action: "CLEAR_SYSTEM_DATA", userId: adminId, recordId: "clear-data" });
@@ -494,7 +515,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     });
     // A repeated reset still leaves the account/permission/session intact.
     expect((await request({ confirmPassword: password })).status).toBe(200);
-    expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
+    expect(await snapshot([...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES])).toEqual(protectedSnapshot);
     expect(await db.select().from(s.auditLogs)).toHaveLength(1);
     expect(await db.select().from(s.serviceCatalogItems)).toHaveLength(DEFAULT_SERVICE_CATALOG.length);
     expect(await db.select().from(s.incidentCatalogItems)).toHaveLength(DEFAULT_INCIDENT_CATALOG.length);

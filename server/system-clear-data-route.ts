@@ -2,7 +2,7 @@ import { respondWithApiError } from "./api-error-handler";
 import type { Express, RequestHandler } from "express";
 import type { User } from "@shared/schema";
 import {
-  RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES, type SystemDataResetActor,
+  RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES, RESET_SELECTIVE_TABLES, type SystemDataResetActor,
 } from "@shared/system-data-reset";
 
 interface ResetStorage {
@@ -40,11 +40,14 @@ export function registerSystemClearDataRoute(
       });
       if (!success) return void respondWithApiError(res, new Error("Clear data operation returned false"), "Failed to clear system data; no changes were committed");
       res.json({
-        message: "Business data cleared successfully. User accounts, authorization, settings and system guides were preserved; default service and incident catalogs were restored.",
+        message: "Business data and non-administrator accounts were cleared. System Administrator accounts, role and permission definitions, protected settings, system guides, and default catalogs were preserved.",
         clearedAt: new Date().toISOString(),
         clearedBy: user.username,
         clearedTables: RESET_BUSINESS_TABLES,
         preservedTables: RESET_PROTECTED_TABLES,
+        selectivelyClearedTables: RESET_SELECTIVE_TABLES,
+        preservedSystemAdministratorAccounts: true,
+        removedNonAdministratorAccounts: true,
         preservedSystemGuideRecords: true,
         defaultCatalogsRestored: true,
         auditLogRefreshed: true,

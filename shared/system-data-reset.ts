@@ -27,9 +27,15 @@ export const RESET_BUSINESS_TABLES = [
   "change_approvals", "change_environment_stages", "change_pirs",
 ] as const;
 
+// These tables remain present but have account-specific rows removed for
+// non-administrators. System Administrator access and sessions are retained.
+export const RESET_SELECTIVE_TABLES = [
+  "users", "user_roles", "sessions", "cab_stream_leases",
+] as const;
+
 export const RESET_PROTECTED_TABLES = [
-  "users", "roles", "permissions", "user_roles", "role_permissions",
-  "sessions", "cab_stream_leases", "system_settings", "settings", "module_settings",
+  "roles", "permissions", "role_permissions",
+  "system_settings", "settings", "module_settings",
   "dropdown_options", "locations", "departments", "warehouse_locations", "sla_policies",
     "change_blackouts", "finance_tax_settings", "finance_tax_rates", "finance_document_sequences",
 ] as const;
@@ -54,6 +60,9 @@ export function systemDataResetAudit(actor: SystemDataResetActor) {
       clearedBy: actor.username,
       clearedTables: RESET_BUSINESS_TABLES,
       preservedTables: RESET_PROTECTED_TABLES,
+      selectivelyClearedTables: RESET_SELECTIVE_TABLES,
+      preservedSystemAdministratorAccounts: true,
+      removedNonAdministratorAccounts: true,
       preservedSystemGuideRecords: true,
       reason: "Administrator confirmed the business-data reset using their current password.",
     }),
