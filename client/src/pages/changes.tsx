@@ -646,6 +646,8 @@ export default function Changes() {
   const [pirData, setPirData] = useState<any>(null);
   const [pirLoading, setPirLoading] = useState(false);
   const [addApproverUserId, setAddApproverUserId] = useState<string>("");
+  const [approverUsersRefreshState, setApproverUsersRefreshState] = useState<"idle" | "refreshing" | "ready" | "error">("idle");
+  const [approverPickerOpen, setApproverPickerOpen] = useState(false);
   const [pendingVotesOpen, setPendingVotesOpen] = useState(false);
 
   useEffect(() => {
@@ -711,11 +713,13 @@ export default function Changes() {
     enabled: !!selectedChange,
     refetchInterval: 60_000,
   });
-  const { data: allUsers = [], refetch: refetchUsers } = useQuery<UserSummary[]>({
+  const approverUsersQuery = useQuery<UserSummary[]>({
     queryKey: ["/api/users"],
     enabled: canManageChange,
     refetchInterval: canManageChange && selectedChange && detailTab === "approvals" ? 15_000 : false,
   });
+  const allUsers = approverUsersQuery.data ?? [];
+  const refetchUsers = approverUsersQuery.refetch;
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange && isModuleEnabled("asset_management") });
 
   const form = useForm<FormData>({
@@ -867,16 +871,37 @@ export default function Changes() {
   }
 
   const currentChange = detailChange?.id === selectedChange?.id ? detailChange : selectedChange;
-  useEffect(() => { setAddApproverUserId(""); }, [currentChange?.id]);
+  useEffect(() => {
+    setAddApproverUserId("");
+    setApproverUsersRefreshState("idle");
+  }, [currentChange?.id]);
+  useEffect(() => {
+    if (approverUsersQuery.isError) {
+      setAddApproverUserId("");
+      setApproverUsersRefreshState("error");
+      setApproverPickerOpen(false);
+    }
+  }, [approverUsersQuery.isError]);
   const myApproval = currentChange?.approvals?.find(a => a.approverId === (user as any)?.id);
   const unavailableApproverIds = new Set([
     ...(currentChange?.approvals?.map(a => a.originalApproverId) ?? []),
     ...(currentChange?.removedApproverIds ?? []),
     ...(currentChange?.removedApprovals?.map(a => a.originalApproverId) ?? []),
   ]);
-  const canAddSelectedApprover = !!addApproverUserId
+  const approverUsersAreVerified = approverUsersRefreshState === "ready"
+    && !approverUsersQuery.isError
+    && !approverUsersQuery.isFetching;
+  const canAddSelectedApprover = approverUsersAreVerified
+    && !!addApproverUserId
     && !unavailableApproverIds.has(addApproverUserId)
     && allUsers.some(account => account.id === addApproverUserId && account.isActive === true);
+  async function refreshApproverUsers() {
+    setApproverUsersRefreshState("refreshing");
+    setAddApproverUserId("");
+    const result = await refetchUsers();
+    setApproverUsersRefreshState(result.isSuccess ? "ready" : "error");
+    setApproverPickerOpen(result.isSuccess);
+  }
   const isWorking = workflowMutation.isPending || assignMutation.isPending;
 
   // Workflow action buttons based on status
@@ -1538,15 +1563,25 @@ export default function Changes() {
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Assign Approver</p>
                       <div className="flex gap-2 items-center">
                         <Select
+                          open={approverPickerOpen}
                           value={canAddSelectedApprover ? addApproverUserId : ""}
                           onValueChange={setAddApproverUserId}
-                          onOpenChange={open => { if (open) void refetchUsers(); }}
+                          onOpenChange={open => {
+                            setApproverPickerOpen(open);
+                            if (open) void refreshApproverUsers();
+                          }}
                         >
                           <SelectTrigger className="flex-1 h-8 text-sm">
                             <SelectValue placeholder="Select a user…" />
                           </SelectTrigger>
                           <SelectContent>
-                            {allUsers
+                            {!approverUsersAreVerified
+                              ? <SelectItem value="__approver-eligibility-unavailable" disabled>
+                                  {approverUsersRefreshState === "refreshing" || approverUsersQuery.isFetching
+                                    ? "Checking account eligibility…"
+                                    : "Account eligibility unavailable"}
+                                </SelectItem>
+                              : allUsers
                               .filter(u => u.isActive === true && !unavailableApproverIds.has(u.id))
                               .map(u => (
                                 <SelectItem key={u.id} value={u.id}>
@@ -1565,6 +1600,17 @@ export default function Changes() {
                           Add Approver
                         </Button>
                       </div>
+                      {(approverUsersRefreshState === "refreshing" || approverUsersQuery.isFetching) && (
+                        <p role="status" className="text-xs text-muted-foreground">Refreshing account eligibility…</p>
+                      )}
+                      {(approverUsersRefreshState === "error" || approverUsersQuery.isError) && (
+                        <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+                          <span>Could not refresh account eligibility. No users are available until a refresh succeeds.</span>
+                          <Button type="button" size="sm" variant="outline" className="h-7" onClick={() => void refreshApproverUsers()}>
+                            Retry
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   )}
                   {/* Self-nomination */}

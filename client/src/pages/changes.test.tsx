@@ -608,6 +608,54 @@ describe("change detail CAB approvals", () => {
     expect(screen.getByRole("option", { name: "Alice" })).toBeTruthy();
   });
 
+  it("hides cached CAB candidates after a failed refresh and restores them only after retry succeeds", async () => {
+    auth.isAdmin = true;
+    const cachedUsers = [
+      { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
+      { id: "reviewer", username: "reviewer", firstName: "Riley", lastName: "Reviewer", isActive: true },
+    ];
+    const freshUsers = [
+      cachedUsers[0],
+      { id: "fresh-reviewer", username: "fresh", firstName: "Fresh", lastName: "Reviewer", isActive: true },
+    ];
+    const { user, panel } = await openApprovals([], [], [], [], cachedUsers);
+    let userListRequests = 0;
+    let rejectInitialUserListRequest!: (error: Error) => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/users") {
+        userListRequests++;
+        if (userListRequests === 1) {
+          return new Promise((_, reject) => { rejectInitialUserListRequest = reject; });
+        }
+        return { ok: true, json: async () => freshUsers };
+      }
+      if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === "/api/changes/change-1") return { ok: true, json: async () => queryClient.getQueryData<{ changes: ReturnType<typeof change>[] }>(["/api/changes", 1, "", "all", "all"])?.changes[0] };
+      return { ok: true, json: async () => [] };
+    }));
+
+    await user.click(within(panel).getByRole("combobox"));
+
+    expect(await screen.findByText("Refreshing account eligibility…")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
+    await act(async () => { rejectInitialUserListRequest(new Error("Temporary user-list failure")); });
+    await waitFor(() => expect(userListRequests).toBe(1));
+    expect(await screen.findByText("Could not refresh account eligibility. No users are available until a refresh succeeds.")).toBeTruthy();
+    expect(queryClient.getQueryData<UserSummaryFixture[]>(["/api/users"])?.some(account => account.id === "reviewer" && account.isActive)).toBe(true);
+    expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
+    const addButton = within(panel).getByText("Add Approver").closest("button") as HTMLButtonElement;
+    expect(addButton.disabled).toBe(true);
+
+    await user.click(within(panel).getByText("Retry").closest("button")!);
+
+    expect(await screen.findByRole("option", { name: "Fresh Reviewer" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
+    await user.click(screen.getByRole("option", { name: "Fresh Reviewer" }));
+    expect(addButton.disabled).toBe(false);
+    expect(userListRequests).toBe(2);
+  });
+
   it("removes a disabled account from an open picker and disables its selected assignment", async () => {
     auth.isAdmin = true;
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
