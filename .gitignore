@@ -4,6 +4,8 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+/.env
+/.env.*
 /deployment/onprem/.env
 /deployment/onprem/*.env
 /deployment/onprem/secrets/

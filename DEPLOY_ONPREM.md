@@ -6,6 +6,55 @@ The upgrade script takes a PostgreSQL backup, installs the release's locked prod
 dependencies, restarts the selected process manager, and waits for the database-backed
 `GET /api/health` readiness check.
 
+## Fresh Ubuntu/Debian installation
+
+For a new Ubuntu or Debian server, the repository includes a one-command installer. Run it
+from a trusted terminal as root (or through `sudo`); it installs Git, build tools, PostgreSQL,
+and the current Node.js LTS from the signed NodeSource apt repository, then clones or fast-
+forwards the official repository into `/opt/assetflow`:
+
+```sh
+curl --fail --silent --show-error --location \
+  https://raw.githubusercontent.com/Sulttanz/AssetFlow/main/scripts/onprem-install.sh | sudo bash
+```
+
+The installer is idempotent for an existing checkout and database: it refuses to overwrite
+an unrelated directory or pull over local Git changes, keeps the database and session
+secrets already in `/opt/assetflow/.env`, and preserves existing users and passwords. It
+creates a dedicated PostgreSQL role/database, installs dependencies, applies the normal
+startup migrations, builds the app, configures and starts `assetflow.service`, and waits for
+`/api/health`.
+
+On a fresh database only, it uses the application's one-time setup API to create the
+`admin` System Administrator. A new cryptographically random password is generated for that
+account, stored in PostgreSQL only as the application's scrypt password hash, and printed
+once in the installer summary. Save it securely before closing the terminal; it is not
+written in plaintext to `.env`. If an account already exists, the installer does not reset
+or print its password. Each fresh database gets a newly generated password; rerunning an
+installer must not unexpectedly rotate credentials on a live system.
+
+Database and session secrets are generated on first install and stored in
+`/opt/assetflow/.env`, owned by root with mode `0600`. The systemd manager reads this file
+and injects its values into the non-root `assetflow` process. The application directory is
+not writable by the service account after the build, so the process cannot replace the
+root-only `.env`; only its upload directories and private home are writable. Keep any
+operator-added environment variables in `.env`; the installer preserves unmanaged entries
+on reruns. The service listens on port `5000` by default and binds to all IPv4 interfaces.
+The final summary prints the detected primary IPv4 address and URL. Configure the host
+firewall and your organization's Nginx/ModSecurity policy before exposing the service publicly.
+
+Useful service commands:
+
+```sh
+sudo systemctl status assetflow
+sudo journalctl -u assetflow -f
+sudo systemctl restart assetflow
+```
+
+The installer script is `scripts/onprem-install.sh`; inspect it before piping it to a root
+shell. It is intended for a fresh Ubuntu/Debian host and does not configure Nginx, TLS,
+firewall rules, or backups. Use the upgrade procedure below for subsequent staged releases.
+
 ## Prerequisites
 
 - PostgreSQL client utilities (`pg_dump`) compatible with the database server.

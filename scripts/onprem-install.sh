@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPOSITORY_URL="https://github.com/Sulttanz/AssetFlow.git"
+APP_DIR="${APP_DIR:-/opt/assetflow}"
+APP_DB_NAME="${APP_DB_NAME:-}"
+APP_DB_USER="${APP_DB_USER:-}"
+APP_PORT="${PORT:-}"
+ENV_FILE="${APP_DIR}/.env"
+SYSTEMD_UNIT="/etc/systemd/system/assetflow.service"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "Run this installer as root, for example: curl ... | sudo bash" >&2
+  exit 1
+fi
+if [[ "$APP_DIR" != /* || "$APP_DIR" == *[[:space:]]* ]]; then
+  echo "APP_DIR must be an absolute path without whitespace." >&2
+  exit 1
+fi
+if [[ ! -r /etc/os-release ]]; then
+  echo "Cannot identify the operating system; this installer supports Ubuntu and Debian." >&2
+  exit 1
+fi
+# shellcheck disable=SC1091
+source /etc/os-release
+if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" ]]; then
+  echo "Unsupported operating system: ${ID:-unknown}. Use Ubuntu or Debian." >&2
+  exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates curl gnupg git build-essential postgresql postgresql-contrib \
+  openssl sudo iproute2
+
+# Install the current Node.js LTS from the signed NodeSource apt repository.
+install -d -m 0755 /etc/apt/keyrings
+curl --fail --silent --show-error --location https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+  | gpg --dearmor --yes --output /etc/apt/keyrings/nodesource.gpg
+chmod 0644 /etc/apt/keyrings/nodesource.gpg
+NODE_ARCH="$(dpkg --print-architecture)"
+printf 'deb [arch=%s signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_lts.x nodistro main\n' \
+  "$NODE_ARCH" > /etc/apt/sources.list.d/nodesource.list
+apt-get update
+apt-get install -y --no-install-recommends nodejs
+
+for tool in git curl psql openssl node npm systemctl runuser; do
+  command -v "$tool" >/dev/null 2>&1 || {
+    echo "Required command is unavailable after package installation: $tool" >&2
+    exit 1
+  }
+done
+
+NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
+if [[ "$NODE_MAJOR" -lt 20 ]]; then
+  echo "Node.js 20 or newer is required; found $(node --version)." >&2
+  exit 1
+fi
+
+systemctl enable --now postgresql
+if ! id assetflow >/dev/null 2>&1; then
+  useradd --system --user-group --home-dir /var/lib/assetflow --create-home \
+    --shell /usr/sbin/nologin assetflow
+else
+  getent group assetflow >/dev/null 2>&1 || groupadd --system assetflow
+  usermod --home /var/lib/assetflow --gid assetflow --shell /usr/sbin/nologin assetflow
+fi
+install -d -o assetflow -g assetflow -m 0750 /var/lib/assetflow
+
+if [[ -d "$APP_DIR/.git" ]]; then
+  CURRENT_ORIGIN="$(git -C "$APP_DIR" remote get-url origin)"
+  case "$CURRENT_ORIGIN" in
+    https://github.com/Sulttanz/AssetFlow|https://github.com/Sulttanz/AssetFlow.git|git@github.com:Sulttanz/AssetFlow.git)
+      ;;
+    *)
+      echo "Refusing to update $APP_DIR: origin is not the expected AssetFlow repository." >&2
+      exit 1
+      ;;
+  esac
+
+  LOCAL_CHANGES="$(git -C "$APP_DIR" status --porcelain --untracked-files=all \
+    | awk '$2 != ".env" && $2 !~ /^\.env\./ { print }')"
+  if [[ -n "$LOCAL_CHANGES" ]]; then
+    echo "Refusing to pull over local changes in $APP_DIR. Save or remove them first." >&2
+    exit 1
+  fi
+  git -C "$APP_DIR" fetch --tags origin
+  git -C "$APP_DIR" remote set-head origin --auto >/dev/null 2>&1 || true
+  DEFAULT_BRANCH="$(git -C "$APP_DIR" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)"
+  DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+  if git -C "$APP_DIR" show-ref --verify --quiet "refs/heads/$DEFAULT_BRANCH"; then
+    git -C "$APP_DIR" checkout "$DEFAULT_BRANCH"
+  else
+    git -C "$APP_DIR" checkout --track -b "$DEFAULT_BRANCH" "origin/$DEFAULT_BRANCH"
+  fi
+  git -C "$APP_DIR" pull --ff-only origin "$DEFAULT_BRANCH"
+elif [[ -e "$APP_DIR" && -n "$(find "$APP_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+  echo "$APP_DIR exists but is not an AssetFlow Git checkout; refusing to overwrite it." >&2
+  exit 1
+else
+  install -d -o assetflow -g assetflow -m 0755 "$APP_DIR"
+  git clone "$REPOSITORY_URL" "$APP_DIR"
+fi
+
+# Keep the running process from using files while the deployment is rebuilt.
+systemctl stop assetflow.service >/dev/null 2>&1 || true
+
+chown root:assetflow "$APP_DIR"
+chmod 0750 "$APP_DIR"
+find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name '.env*' -exec chown -R root:assetflow {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type d -exec chmod 0750 {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type f -perm /111 -exec chmod 0750 {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type f ! -perm /111 -exec chmod 0640 {} +
+if [[ -f "$ENV_FILE" ]]; then
+  chown root:root "$ENV_FILE"
+  chmod 0600 "$ENV_FILE"
+fi
+
+read_env_value() {
+  local key="$1"
+  if [[ -f "$ENV_FILE" ]]; then
+    awk -F= -v wanted="$key" '$1 == wanted { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE"
+  fi
+}
+
+APP_DB_NAME="${APP_DB_NAME:-$(read_env_value ASSETFLOW_DB_NAME)}"
+APP_DB_NAME="${APP_DB_NAME:-assetflow}"
+APP_DB_USER="${APP_DB_USER:-$(read_env_value ASSETFLOW_DB_USER)}"
+APP_DB_USER="${APP_DB_USER:-assetflow_app}"
+APP_PORT="${APP_PORT:-$(read_env_value PORT)}"
+APP_PORT="${APP_PORT:-5000}"
+HEALTH_URL="http://127.0.0.1:${APP_PORT}/api/health"
+
+DB_PASSWORD="$(read_env_value ASSETFLOW_DB_PASSWORD)"
+if [[ -z "$DB_PASSWORD" ]]; then
+  DB_PASSWORD="$(openssl rand -hex 32)"
+fi
+SESSION_SECRET="$(read_env_value SESSION_SECRET)"
+if [[ "${#SESSION_SECRET}" -lt 32 ]]; then
+  SESSION_SECRET="$(openssl rand -hex 48)"
+fi
+
+if [[ ! "$DB_PASSWORD" =~ ^[a-fA-F0-9]{64}$ ]]; then
+  echo "ASSETFLOW_DB_PASSWORD in $ENV_FILE must be a 64-character hexadecimal secret." >&2
+  exit 1
+fi
+if [[ ! "$APP_DB_NAME" =~ ^[a-z][a-z0-9_]{0,62}$ || ! "$APP_DB_USER" =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then
+  echo "Database and user names must be lowercase PostgreSQL identifiers." >&2
+  exit 1
+fi
+if [[ ! "$APP_PORT" =~ ^[0-9]{1,5}$ ]] || (( APP_PORT < 1 || APP_PORT > 65535 )); then
+  echo "PORT must be a valid TCP port number." >&2
+  exit 1
+fi
+
+# Keep the generated password out of the psql command line; SQL is sent over stdin.
+sudo -u postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 <<SQL
+DO \$assetflow_role\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${APP_DB_USER}') THEN
+    EXECUTE format('CREATE ROLE ${APP_DB_USER} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', '${DB_PASSWORD}');
+  ELSE
+    EXECUTE format('ALTER ROLE ${APP_DB_USER} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', '${DB_PASSWORD}');
+  END IF;
+END;
+\$assetflow_role\$;
+SELECT format('CREATE DATABASE ${APP_DB_NAME} OWNER ${APP_DB_USER}')
+WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = '${APP_DB_NAME}')\\gexec
+ALTER DATABASE ${APP_DB_NAME} OWNER TO ${APP_DB_USER};
+GRANT ALL PRIVILEGES ON DATABASE ${APP_DB_NAME} TO ${APP_DB_USER};
+SQL
+
+sudo -u postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 --dbname="$APP_DB_NAME" <<SQL
+ALTER SCHEMA public OWNER TO ${APP_DB_USER};
+GRANT ALL ON SCHEMA public TO ${APP_DB_USER};
+SQL
+
+ENV_TEMP="$(mktemp "${APP_DIR}/.env.XXXXXX")"
+trap 'rm -f "${ENV_TEMP:-}" "${BOOTSTRAP_FILE:-}"' EXIT
+chmod 0600 "$ENV_TEMP"
+if [[ -f "$ENV_FILE" ]]; then
+  # Preserve optional operator settings while replacing installer-managed values.
+  awk -F= '$1 !~ /^(DATABASE_URL|ASSETFLOW_DB_NAME|ASSETFLOW_DB_USER|ASSETFLOW_DB_PASSWORD|SESSION_SECRET|NODE_ENV|PORT|HOST)$/ { print }' \
+    "$ENV_FILE" > "$ENV_TEMP"
+fi
+cat >> "$ENV_TEMP" <<EOF
+ASSETFLOW_DB_NAME=${APP_DB_NAME}
+ASSETFLOW_DB_USER=${APP_DB_USER}
+ASSETFLOW_DB_PASSWORD=${DB_PASSWORD}
+DATABASE_URL=postgresql://${APP_DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${APP_DB_NAME}
+SESSION_SECRET=${SESSION_SECRET}
+NODE_ENV=production
+PORT=${APP_PORT}
+HOST=0.0.0.0
+EOF
+chown root:root "$ENV_TEMP"
+chmod 0600 "$ENV_TEMP"
+mv -f "$ENV_TEMP" "$ENV_FILE"
+
+echo "Installing dependencies and building the production application..."
+rm -rf -- "$APP_DIR/node_modules" "$APP_DIR/dist"
+install -d -o assetflow -g assetflow -m 0750 "$APP_DIR/node_modules" "$APP_DIR/dist"
+runuser -u assetflow -- bash -c 'cd "$1" && npm ci && npm run build' _ "$APP_DIR"
+
+# Make application code and dependencies read-only to the service account. Only
+# the explicit upload directories and its private home remain writable at runtime.
+find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name '.env*' -exec chown -R root:assetflow {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type d -exec chmod 0750 {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type f -perm /111 -exec chmod 0750 {} +
+find "$APP_DIR" -path "$ENV_FILE" -prune -o -type f ! -perm /111 -exec chmod 0640 {} +
+chown root:root "$ENV_FILE"
+chmod 0600 "$ENV_FILE"
+install -d -o assetflow -g assetflow -m 0750 \
+  "$APP_DIR/server/uploads" \
+  "$APP_DIR/server/uploads/project-documents" \
+  "$APP_DIR/server/uploads/backup-evidence"
+chown -R assetflow:assetflow "$APP_DIR/server/uploads"
+
+NODE_BIN="$(command -v node)"
+cat > "$SYSTEMD_UNIT" <<EOF
+[Unit]
+Description=AssetFlow IT Asset and Service Management
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=assetflow
+Group=assetflow
+WorkingDirectory=${APP_DIR}
+EnvironmentFile=${ENV_FILE}
+ExecStart=${NODE_BIN} ${APP_DIR}/dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+chmod 0644 "$SYSTEMD_UNIT"
+systemctl daemon-reload
+systemctl enable --now assetflow.service
+systemctl restart assetflow.service
+
+echo "Waiting for database migrations and application health..."
+healthy=false
+for attempt in $(seq 1 60); do
+  if curl --fail --silent "$HEALTH_URL" >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 3
+done
+if [[ "$healthy" != "true" ]]; then
+  systemctl status assetflow.service --no-pager || true
+  journalctl -u assetflow.service -n 100 --no-pager || true
+  echo "AssetFlow did not become healthy. Review the systemd logs before retrying." >&2
+  exit 1
+fi
+
+SYSTEM_STATUS="$(curl --fail --silent --show-error "http://127.0.0.1:${APP_PORT}/api/system/status")"
+NEEDS_SETUP="$(node -e 'const status = JSON.parse(process.argv[1]); process.stdout.write(status.needsSetup ? "yes" : "no")' "$SYSTEM_STATUS")"
+ADMIN_PASSWORD=""
+if [[ "$NEEDS_SETUP" == "yes" ]]; then
+  # Extra random bytes provide ample entropy; the suffix guarantees all password
+  # character classes required by the first-run setup endpoint.
+  ADMIN_PASSWORD="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(36).toString("base64url") + "Aa1!")')"
+  BOOTSTRAP_FILE="$(mktemp /run/assetflow-admin-bootstrap.XXXXXX)"
+  chmod 0600 "$BOOTSTRAP_FILE"
+  printf '{"username":"admin","email":"admin@assetflow.example.com","firstName":"System","lastName":"Administrator","password":"%s"}\n' \
+    "$ADMIN_PASSWORD" > "$BOOTSTRAP_FILE"
+  if ! curl --fail --silent --show-error \
+    --header "Content-Type: application/json" \
+    --data-binary "@${BOOTSTRAP_FILE}" \
+    "http://127.0.0.1:${APP_PORT}/api/system/seed-data" >/dev/null; then
+    echo "Secure first-administrator setup failed. No generated password is being displayed." >&2
+    exit 1
+  fi
+  rm -f "$BOOTSTRAP_FILE"
+  unset BOOTSTRAP_FILE
+else
+  echo "An account already exists; preserving current user accounts and passwords."
+fi
+
+PRIMARY_IPV4="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }' || true)"
+PRIMARY_IPV4="${PRIMARY_IPV4:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+PRIMARY_IPV4="${PRIMARY_IPV4:-127.0.0.1}"
+
+echo
+echo "============================================================"
+echo "AssetFlow installation is healthy."
+echo "Open:     http://${PRIMARY_IPV4}:${APP_PORT}"
+echo "Username: admin"
+if [[ -n "$ADMIN_PASSWORD" ]]; then
+  echo "Password: ${ADMIN_PASSWORD}"
+  echo "Save this password now; it is not stored in plaintext."
+else
+  echo "Password: unchanged (this was not a fresh database install)."
+fi
+echo "Service:  systemctl status assetflow"
+echo "Secrets:  ${ENV_FILE} (root-only, mode 600)"
+echo "============================================================"
