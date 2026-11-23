@@ -20,10 +20,13 @@ export function canAuditPublishedPolicies(user: PersonaUserLike | null | undefin
 
 export function canReadKnowledge(
   user: PersonaUserLike | null | undefined,
-  article: { status: string; isPublic: boolean; category: string; authorId?: string | null; ownerId?: string | null },
+  article: { status: string; isPublic: boolean; category: string; isSystemGuide?: boolean; authorId?: string | null; ownerId?: string | null },
 ): boolean {
   if (!user) return false;
   if (user.id && (article.authorId === user.id || article.ownerId === user.id)) return true;
+  // Repository-owned manuals are authenticated platform documentation for
+  // every persona, independent of business-module licenses and categories.
+  if (article.isSystemGuide && article.status === "published") return true;
   if (canAuditPublishedPolicies(user) && article.status === "published" &&
     article.category.trim().toLowerCase() === "policy") return true;
   return canManageKnowledge(user) ||

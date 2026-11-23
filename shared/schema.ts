@@ -1103,7 +1103,7 @@ export const maintenanceRecords = pgTable("maintenance_records", {
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
-  email: text("email").notNull().unique(),
+  email: text("email").unique(),
   employeeId: varchar("employee_id").references(() => employees.id, { onDelete: "set null" }),
   password: text("password").notNull(), // bcrypt hashed password
   firstName: text("first_name").notNull(),
@@ -2247,7 +2247,12 @@ export const maintenanceRecordSubmissionSchema = insertMaintenanceRecordSchema.e
 });
 
 // User Management Insert Schemas
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertUserSchema = createInsertSchema(users, {
+  email: z.preprocess(
+    value => typeof value === "string" && value.trim() === "" ? null : value,
+    z.string().trim().email("Enter a valid email address").nullable().optional(),
+  ).transform(value => typeof value === "string" ? value.toLowerCase() : value ?? null),
+}).omit({ id: true, createdAt: true });
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true, createdAt: true });
 export const insertPermissionSchema = createInsertSchema(permissions).omit({ id: true });
 export const insertUserRoleSchema = createInsertSchema(userRoles).omit({ id: true, assignedAt: true });

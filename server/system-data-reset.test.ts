@@ -165,7 +165,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       ownerLabel: "Reset Administrator",
       version: "1.0",
       isSystemGuide: true,
-      isPublic: false,
+      isPublic: true,
       status: "published",
     });
     const role = await seed(s.roles, { name: "Reset administrator" });

@@ -2238,7 +2238,8 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(u => u.email === email);
+    const normalized = email.trim().toLowerCase();
+    return Array.from(this.users.values()).find(u => u.email?.trim().toLowerCase() === normalized);
   }
 
   async createUser(user: InsertUser): Promise<User> {
@@ -3443,7 +3444,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.email, email));
+    const result = await db.select().from(users)
+      .where(sql`lower(btrim(${users.email})) = lower(btrim(${email.trim()}))`).limit(1);
     return result[0] || undefined;
   }
 

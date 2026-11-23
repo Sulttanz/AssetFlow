@@ -12118,54 +12118,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ── KB Articles ─────────────────────────────────────────────────────────
       const kbData = [
         {
-          title: "How to Connect to VPN",
-          content: "## Connecting to the Corporate VPN\n\n### Prerequisites\n- VPN client installed (GlobalProtect)\n- Active corporate credentials\n\n### Steps\n1. Open GlobalProtect from your system tray\n2. Enter the portal address: `vpn.company.com`\n3. Sign in with your corporate credentials\n4. Select the appropriate gateway\n5. Click Connect\n\n### Troubleshooting\n- If connection fails, try disconnecting and reconnecting\n- Ensure your account is not locked\n- Contact IT if issues persist",
-          category: "Network", tags: "vpn,remote,connectivity", status: "published", authorId: adminUser.id,
+          title: "Sign In and Account Access",
+          content: "## Signing in\n\nUse your account username or the email address saved on your account. Accounts without an email address use the username. If sign-in fails, verify the account is active and contact your administrator. Never include a password or authentication token in a ticket.",
+          category: "User Guide", tags: "sign in,username,email,account", status: "published", isPublic: true, authorId: adminUser.id,
         },
         {
-          title: "Password Reset Procedure",
-          content: "## Resetting Your Password\n\n### Self-Service Reset\n1. Go to `https://passwordreset.company.com`\n2. Enter your username\n3. Follow the verification steps (email or phone)\n4. Set a new password meeting the requirements\n\n### Password Requirements\n- Minimum 12 characters\n- At least 1 uppercase, 1 lowercase, 1 number, 1 special character\n- Cannot reuse last 5 passwords\n\n### Helpdesk Reset\nIf self-service fails, raise a ticket via the Service Catalog.",
-          category: "Access Management", tags: "password,account,access", status: "published", authorId: adminUser.id,
+          title: "Report an Incident or Request a Service",
+          content: "## Choose the correct intake\n\nUse Report an Incident and select an Incident Catalog type when something is broken or disrupting work. Use Service Catalog for a standard hardware, software, access, or IT service request. The incident form does not ask end users to set priority, urgency, impact, assignment group, assignee, or SLA; the service desk applies routing from the catalog and server rules.",
+          category: "User Guide", tags: "incident,service catalog,request,portal", status: "published", isPublic: true, authorId: adminUser.id,
         },
         {
-          title: "Setting Up Multi-Factor Authentication (MFA)",
-          content: "## Enable MFA for Your Account\n\n### Supported MFA Methods\n- Microsoft Authenticator (preferred)\n- SMS one-time passcode\n- Hardware token (issued on request)\n\n### Setup Steps\n1. Log in to the self-service portal at `https://account.company.com`\n2. Navigate to **Security → MFA**\n3. Click **Add authentication method**\n4. Follow the on-screen instructions\n\n### Troubleshooting\n- Lost your phone? Contact IT Security to reset MFA\n- Time-sync issues? Ensure your phone clock is automatic",
-          category: "Security", tags: "mfa,2fa,security,authentication", status: "published", authorId: adminUser.id,
+          title: "Project Access and Change Requests",
+          content: "## Project access\n\nProject pages, tickets, and project-specific catalog items are limited to projects assigned to your account. Ask an authorized user administrator or project manager to review your Assigned Projects if a project is missing.\n\n## Project changes\n\nWhen the portal offers Project Change Request, submit it for an assigned project. Active System Administrators, IT Managers, and CAB Members review the request. Final approval creates a linked Project Task in the project workspace; it does not create an Incident or Service Request.",
+          category: "User Guide", tags: "project,assigned projects,change request", status: "published", isPublic: true, authorId: adminUser.id,
         },
         {
-          title: "Laptop Troubleshooting: Blue Screen of Death (BSOD)",
-          content: "## BSOD Troubleshooting Guide\n\n### Immediate Steps\n1. Note the error code displayed (e.g., `KERNEL_SECURITY_CHECK_FAILURE`)\n2. Allow Windows to restart automatically\n3. Check if the issue recurs\n\n### Common Causes & Fixes\n| Cause | Fix |\n|---|---|\n| Driver issue | Roll back recent driver updates |\n| RAM failure | Run Windows Memory Diagnostic |\n| Disk error | Run `chkdsk /f /r` in elevated CMD |\n| Overheating | Clean vents, check thermal paste |\n\n### Escalation\nIf BSODs persist more than 3 times in a week, raise an incident ticket with the stop code and a description.",
-          category: "Hardware", tags: "bsod,bluescreen,crash,windows", status: "published", authorId: adminUser.id,
+          title: "Follow Up on My Tickets",
+          content: "## Track progress\n\nOpen My Tickets in Employee Self Service to check incident and service request status. Open an incident to add a comment or upload supporting files. Service requests show their current approval and fulfillment status. Include the ticket reference in follow-up messages and never upload passwords, tokens, or unrelated employee data.",
+          category: "User Guide", tags: "my tickets,comments,attachments,status", status: "published", isPublic: true, authorId: adminUser.id,
         },
         {
-          title: "Wi-Fi Connectivity Issues",
-          content: "## Resolving Wi-Fi Issues\n\n### Quick Checks\n1. Is your Wi-Fi adapter enabled? (`Fn + F2` on most laptops)\n2. Are you connecting to the correct SSID (`CORP-WiFi-5G`)\n3. Try forgetting and reconnecting to the network\n\n### Steps\n1. Open **Settings → Network & Internet → Wi-Fi**\n2. Click **Manage known networks**\n3. Remove the corporate SSID\n4. Reconnect and enter credentials\n\n### Still Not Working?\nCheck if colleagues in the same area are affected (possible access point outage) and raise an incident ticket.",
-          category: "Network", tags: "wifi,wireless,connectivity,network", status: "published", authorId: adminUser.id,
-        },
-        {
-          title: "Requesting Software via Service Catalog",
-          content: "## How to Request Software\n\n1. Navigate to **Service Catalog** in the ITSM portal\n2. Find the **Software License Request** item\n3. Click **Request Service**\n4. Fill in the software name, version, and business justification\n5. Submit — your manager will receive an approval request\n\n### Approval Timeline\nApprovals typically take 1–2 business days. You will be notified by email.",
-          category: "Software", tags: "software,license,catalog,request", status: "published", authorId: adminUser.id,
-        },
-        {
-          title: "Email Not Syncing on Mobile Device",
-          content: "## Fix Email Sync Issues on Mobile\n\n### Android\n1. Go to **Settings → Accounts → Work Account**\n2. Tap your email account and select **Sync now**\n3. If prompted, re-enter your password\n\n### iOS\n1. Go to **Settings → Mail → Accounts**\n2. Tap your Exchange account\n3. Toggle **Mail** off and back on\n\n### If Still Not Working\n- Check that your account is not locked (try logging in via web browser)\n- Ensure MFA is configured for mobile\n- Raise a service request if you need device re-enrollment",
-          category: "Software", tags: "email,mobile,exchange,sync", status: "published", authorId: adminUser.id,
-        },
-        {
-          title: "DRAFT: Printer Setup Guide",
-          content: "## Adding a Network Printer\n\n*This article is under review.*\n\n### Steps\n1. Go to **Settings → Printers & Scanners**\n2. Click **Add a printer or scanner**\n3. Select the printer from the list or enter the IP address manually\n\n*Full guide including driver download links to be added.*",
-          category: "Hardware", tags: "printer,setup,network", status: "draft", authorId: adminUser.id,
-        },
-        {
-          title: "Data Backup and Recovery Policy",
-          content: "## Backup Policy Summary\n\n### What is Backed Up\n- All data stored on corporate OneDrive (continuous sync)\n- File server shares (nightly snapshot, 30-day retention)\n- Email (180-day retention, managed by IT)\n\n### What is NOT Backed Up\n- Local `C:\\` drive data not in OneDrive\n- Personal USB drives\n\n### Recovery Requests\nFor file recovery, raise an incident ticket with:\n- File/folder path\n- Approximate date of last good version\n- Business justification if urgency is high",
-          category: "Data Management", tags: "backup,recovery,data,policy", status: "published", authorId: adminUser.id,
-        },
-        {
-          title: "Understanding SLA Priorities",
-          content: "## IT Support Priority Levels\n\n| Priority | Response Time | Resolution Time | Examples |\n|---|---|---|---|\n| Critical | 15 min | 4 hours | Complete outage, security breach |\n| High | 1 hour | 8 hours | Major function unavailable |\n| Medium | 4 hours | 24 hours | Minor functionality impacted |\n| Low | 8 hours | 72 hours | Cosmetic issues, requests |\n\n### How Priority is Set\nPriority is determined from **Impact × Urgency** at ticket creation. Agents may adjust after triage.",
-          category: "Process", tags: "sla,priority,process,support", status: "published", authorId: adminUser.id,
+          title: "My Assigned Assets and Custody",
+          content: "## Employee equipment\n\nMy Assigned Assets is available only when your account is linked to an internal employee record. Review the listed equipment and handover receipt. Contact the asset team if an assignment is missing or the recorded condition is incorrect. External project users and unlinked accounts do not receive employee asset-custody access.",
+          category: "User Guide", tags: "assigned assets,custody,handover", status: "published", isPublic: true, authorId: adminUser.id,
         },
       ];
       for (const article of kbData) {

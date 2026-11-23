@@ -51,7 +51,7 @@ describe("Enterprise sign-in", () => {
   it("toggles password visibility accessibly without submitting or losing the entered password", () => {
     render(<AuthPage />);
     const password = screen.getByLabelText("Password") as HTMLInputElement;
-    const username = screen.getByLabelText("Username") as HTMLInputElement;
+    const username = screen.getByLabelText("Username or Email") as HTMLInputElement;
     expect(username.autocomplete).toBe("username");
     expect(password.autocomplete).toBe("current-password");
     fireEvent.change(password, { target: { value: "visibility-test-value" } });
@@ -71,7 +71,7 @@ describe("Enterprise sign-in", () => {
   it("allows pointer focus and typing in the username and password fields", async () => {
     const user = userEvent.setup();
     render(<AuthPage />);
-    const username = screen.getByLabelText("Username") as HTMLInputElement;
+    const username = screen.getByLabelText("Username or Email") as HTMLInputElement;
     const password = screen.getByLabelText("Password") as HTMLInputElement;
 
     await user.click(username);
@@ -95,7 +95,7 @@ describe("Enterprise sign-in", () => {
 
   it("submits exactly the existing username/password authentication payload", async () => {
     render(<AuthPage />);
-    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "qa-user" } });
+    fireEvent.change(screen.getByLabelText("Username or Email"), { target: { value: "qa-user" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "form-test-value" } });
     fireEvent.click(screen.getByTestId("button-login"));
     await waitFor(() => expect(state.mutate).toHaveBeenCalledExactlyOnceWith({
@@ -107,7 +107,7 @@ describe("Enterprise sign-in", () => {
     state.pending = true;
     render(<AuthPage />);
     for (const element of [
-      screen.getByLabelText("Username"), screen.getByLabelText("Password"),
+      screen.getByLabelText("Username or Email"), screen.getByLabelText("Password"),
       screen.getByRole("button", { name: "Show password" }), screen.getByTestId("button-login"),
     ]) expect(element.hasAttribute("disabled")).toBe(true);
     expect(screen.getByTestId("button-login").textContent).toMatch(/signing in/i);
@@ -126,7 +126,7 @@ describe("Enterprise sign-in", () => {
     state.statusLoading = true;
     render(<AuthPage />);
     expect(screen.getByText(/checking sign-in availability/i)).toBeTruthy();
-    const username = screen.getByLabelText("Username") as HTMLInputElement;
+    const username = screen.getByLabelText("Username or Email") as HTMLInputElement;
     const password = screen.getByLabelText("Password") as HTMLInputElement;
     fireEvent.change(username, { target: { value: "qa-user" } });
     fireEvent.change(password, { target: { value: "form-test-value" } });

@@ -41,8 +41,9 @@ function toManualDocument(relativePath: string, content: string): ManualDocument
   const body = frontmatterMatch ? content.slice(frontmatterMatch[0].length) : content;
   const heading = body.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]?.trim();
   const category = frontmatter.category || (frontmatter.audience?.toLowerCase() === "employee" ? "User Guide" : "Technical SOP");
-  const isPublic = frontmatter.audience?.toLowerCase() === "employee" &&
-    ["policy", "user guide"].includes(category.trim().toLowerCase());
+  // All published repository manuals are available to authenticated users;
+  // frontmatter audience is descriptive, not an authorization boundary.
+  const isPublic = true;
   const versionParts = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(frontmatter.version ?? "");
   const initialVersion = versionParts ? `${versionParts[1]}.${versionParts[2]}` : "1.0";
   const slugPath = normalizedPath.replace(/\.md$/i, "").toLowerCase()
@@ -104,7 +105,7 @@ async function recordVersion(tx: Parameters<Parameters<typeof db.transaction>[0]
   }).onConflictDoNothing();
 }
 
-/** Synchronize repository-owned Markdown into protected, employee-visible KB records. */
+/** Synchronize repository-owned Markdown into protected guides for authenticated personas. */
 export async function syncSystemManualArticles(
   directory = DEFAULT_MANUAL_DIRECTORY,
 ): Promise<{ inserted: number; updated: number; archived: number; unchanged: number }> {

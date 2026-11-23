@@ -10,33 +10,28 @@ audience: internal
 
 # Platform Architecture & Getting Started
 
-Welcome to the Enterprise IT & Governance Platform. This platform is engineered as a high-performance **Modular Monolith**, delivering unified operational governance across ITIL, PMP/PMI RMP, ITAM, and GRC frameworks within a single, secure database deployment.
+The product is a TypeScript modular monolith: a React client, an Express/Node.js server, PostgreSQL persistence through Drizzle ORM, a shared schema, and a single deployment. Modules share infrastructure but have independent feature gates. This is not a collection of separately deployable microservices.
 
-## Core Architectural Design
+## Core platform and module gates
 
-The platform operates on a single codebase and database model, utilizing role-based access control (RBAC) and strict feature gating to isolate functionality per organization license.
+The Knowledge Base / System Manual, authentication, role checks, and audit infrastructure are core services. The current feature registry contains:
 
-### Independent Module Licensing
-Modules can be enabled or disabled independently without disrupting system stability or deleting underlying data:
-- **Core Platform Services**: User management, RBAC authorization, audit logging, and global system manuals are permanently active.
-- **Project Management (PMP/RMP)**: Independent execution workspace for projects, baselines, tasks, and risk registers.
-- **IT Service Management (ITSM)**: Incident lifecycles (P1–P4), Change Enablement (CAB), and Service Catalog.
-- **IT Asset Management (ITAM)**: Hardware asset tracking, consumable dispatches, and inventory lifecycle.
-- **Configuration Management Database (CMDB)**: Infrastructure dependency mapping connecting applications to physical server clusters.
-- **Governance, Risk & Compliance (GRC)**: Organizational risk tracking and ISO/NCA control frameworks.
+- **Asset Management** — employees, hardware and software assets, assignments, handovers, maintenance, consumables, vendors, financial and asset reports.
+- **CMDB & Infrastructure** — applications, servers, network topology, configuration documents, and backup governance.
+- **ITSM** — incidents, service requests, catalogs, problems, and change/CAB workflows.
+- **Risk Management** — the standalone organizational risk register.
+- **Project Management** — project teams, tasks, milestones, baselines, project risks, and project-scoped changes.
 
-Disabled modules strictly enforce **403 Feature Not Enabled** responses on direct API routes while cleanly removing corresponding sidebar links and dashboard widgets.
+Feature gates hide disabled-module pages and reject disabled-module API requests. Cross-module links are optional where supported; a feature being disabled does not mean its stored records are deleted. Some combined views require both linked modules—for example, change impact analysis requires ITSM and CMDB.
 
-## Navigation & Workspaces
+## Sign-in and navigation
 
-Upon signing in with your assigned corporate credentials:
-1. **Dynamic Workspace Layout**: Your navigation menu automatically adapts to show only the tools licensed by your organization and permitted by your assigned role.
-2. **Global Search**: Search across records, knowledge base articles, and assets using the top navigation search bar.
-3. **Audit Readiness**: Every record modification, approval, status transition, and data clearance event is automatically written to immutable system audit logs.
+Users sign in with their username or, when one is present, their email address. The landing page, sidebar links, portal sections, and API access are filtered by assigned roles, permissions, linked employee status, assigned projects, and enabled modules. A hidden link is not a substitute for server-side authorization; protected routes enforce access independently.
 
-## Security & Access Control
+Repository Markdown under `docs/system-manual/` is synchronized at server startup into protected, published Knowledge Base articles. Every authenticated role can read these published system guides; ordinary article authors cannot edit or publish them. Authorized IT staff and managers govern custom articles, and only System Administrators can modify or archive repository-owned system guides.
 
-Access is governed strictly by organizational roles:
-- **System Administrator**: Full administrative access, tenant configuration, module toggle management, baseline locks, and system guide deletion privileges.
-- **Department Manager / Project Manager**: Operational lead access including baseline approvals, task assignments, risk ownership, and CAB vote participation.
-- **Standard User / Employee**: Self-service portal access, service catalog submissions, assigned task execution, and read access to global knowledge base articles.
+## Data, audit, and compliance boundaries
+
+Operational changes and approvals are audit logged in the relevant workflows. Audit logs support investigation; they do not by themselves establish certification or guarantee compliance with ITIL, PMI, ISO, NCA, or other standards. Use the relevant process owner and control framework to determine the organization's required procedures.
+
+Only authorized administrators should change system configuration or use data-clearance controls. System manuals are repository-managed and protected from business-data reset.

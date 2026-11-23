@@ -24,7 +24,7 @@ The `/portal` page currently requires ITSM to be enabled. Its sections also depe
 
 - **Service Catalog & Tickets**: Browse active catalog items, submit dynamic requests, and track personal incidents and service requests when ITSM is enabled.
 - **Assigned Assets**: View active physical-asset custody receipts when Asset Management data and access are available.
-- **Knowledge Base**: Search published articles that are approved for employee visibility. Technical SOPs and other internal articles remain staff-only.
+- **Knowledge Base**: Search published employee-visible articles and repository-maintained system manuals. All authenticated roles can read published system guides, including operational and administrative guides; custom internal articles remain restricted to their authorized audience.
 
 ## Service Request Workflow
 

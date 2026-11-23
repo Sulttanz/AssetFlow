@@ -75,7 +75,9 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
-        const user = await storage.getUserByUsername(username);
+        const identifier = username.trim();
+        const user = await storage.getUserByUsername(identifier) ??
+          (identifier.includes("@") ? await storage.getUserByEmail(identifier) : undefined);
         if (!user) return done(null, false, { message: "Invalid username or password" });
         if (!user.isActive) return done(null, false, { message: "Account is inactive" });
 

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { insertUserSchema } from "@shared/schema";
 
 const authTestState = vi.hoisted(() => ({
   user: null as any,
@@ -10,7 +11,10 @@ const authTestState = vi.hoisted(() => ({
 vi.mock("./storage", () => ({
   storage: {
     getUser: vi.fn(async () => authTestState.user),
-    getUserByUsername: vi.fn(async () => authTestState.user),
+    getUserByUsername: vi.fn(async (username: string) =>
+      authTestState.user?.username === username ? authTestState.user : undefined),
+    getUserByEmail: vi.fn(async (email: string) =>
+      authTestState.user?.email?.toLowerCase() === email.trim().toLowerCase() ? authTestState.user : undefined),
     getUserRoles: vi.fn(async () => []),
     getUserPermissions: vi.fn(async () => []),
   },
@@ -75,9 +79,44 @@ describe("inactive accounts with an existing session", () => {
     authTestState.user = {
       id: "alice",
       username: "alice",
+      email: "alice@example.test",
       password: await hashPassword("correct horse battery staple"),
       isActive: true,
     };
+  });
+
+  it("supports username or registered email sign-in and allows accounts without email", async () => {
+    const emailResponse = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "ALICE@EXAMPLE.TEST", password: "correct horse battery staple" }),
+    });
+    expect(emailResponse.status).toBe(200);
+
+    authTestState.user.email = null;
+    const usernameResponse = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: "alice", password: "correct horse battery staple" }),
+    });
+    expect(usernameResponse.status).toBe(200);
+  });
+
+  it("normalizes blank optional email to null in the account insert schema", () => {
+    const user = insertUserSchema.parse({
+      username: "username-only",
+      email: "   ",
+      password: "hashed-password",
+      firstName: "User",
+      lastName: "Only",
+    });
+    expect(user.email).toBeNull();
+    expect(insertUserSchema.parse({
+      username: "username-only-2",
+      password: "hashed-password",
+      firstName: "User",
+      lastName: "Only",
+    }).email).toBeNull();
   });
 
   afterAll(async () => {

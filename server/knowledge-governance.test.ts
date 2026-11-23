@@ -81,6 +81,15 @@ describe("knowledge persona and input policy", () => {
       { category: "Technical SOP" }, { category: "KEDB Article" }, { category: "DR Plan" },
     ]) expect(canReadKnowledge(user, { ...article, ...changed })).toBe(false);
   });
+  it.each([
+    "system_admin", "it_manager", "it_agent", "asset_manager", "cab_member",
+    "auditor", "read_only_user", "demo_viewer", "end_user",
+  ])("allows authenticated %s users to read published repository guides", role => {
+    const user = { id: "reader", roles: [{ name: role }] };
+    const guide = { ...article, category: "System Administration & RBAC", isPublic: true, isSystemGuide: true, authorId: null, ownerId: null };
+    expect(canReadKnowledge(user, guide)).toBe(true);
+    expect(canReadKnowledge(user, { ...guide, status: "draft" })).toBe(false);
+  });
   it("requires an authenticated viewer and allows employee navigation without mutations", () => {
     expect(canReadKnowledge(null, article)).toBe(false);
     for (const role of ["end_user", "it_agent", "cab_member", "it_manager", "auditor"]) {
@@ -154,11 +163,12 @@ describe("knowledge governance HTTP boundaries", () => {
       article, { ...article, id: "internal", isPublic: false },
       { ...article, id: "draft", status: "draft" },
       { ...article, id: "sop", category: "Technical SOP" },
+      { ...article, id: "system-sop", category: "Technical SOP", isPublic: true, isSystemGuide: true },
       { ...article, id: "policy", category: "Policy" },
     ].map((row, index) => ({ ...row, authorId: index === 0 ? "test-user" : "another-user", ownerId: index === 0 ? "test-user" : "another-user" })));
     const response = await request(path);
     expect(response.status).toBe(200);
-    expect((await response.json()).map((row: any) => row.id)).toEqual(["guide-1", "policy"]);
+    expect((await response.json()).map((row: any) => row.id)).toEqual(["guide-1", "system-sop", "policy"]);
     const condition = new PgDialect().sqlToQuery(mock.state.filters[0]);
     expect(condition.params).toEqual(expect.arrayContaining(["published", true, "policy", "user guide"]));
   });
@@ -166,6 +176,13 @@ describe("knowledge governance HTTP boundaries", () => {
     mock.state.selects.push([{ ...article, isPublic: false, authorId: "another-user", ownerId: "another-user" }]);
     expect((await request("/api/kb/articles/guide-1")).status).toBe(404);
     expect(mock.state.updates).toHaveLength(0);
+  });
+  it("allows every authenticated persona to open a published system guide directly", async () => {
+    mock.state.selects.push([{
+      ...article, category: "System Administration & RBAC", isPublic: true, isSystemGuide: true,
+      authorId: null, ownerId: null,
+    }]);
+    expect((await request("/api/kb/articles/guide-1")).status).toBe(200);
   });
   it("does not expose historical private or superseded public snapshots to employees", async () => {
     mock.state.selects.push([article], [
@@ -230,13 +247,14 @@ describe("knowledge governance HTTP boundaries", () => {
     expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(200);
     expect(mock.state.updates[0]).toMatchObject({ status: "archived", version: "1.1" });
   });
-  it("allows an article owner to edit and archive their own custom article", async () => {
+  it("keeps custom article editing restricted to IT staff while preserving owner archive rights", async () => {
     mock.state.existing = { ...article, status: "draft", isPublic: false };
     mock.state.selects.push([{ ...mock.state.existing }]);
     expect((await request("/api/kb/articles/guide-1", "PUT", {
       ...payload, status: "draft", isPublic: false, expectedVersion: "1.0",
       content: "Updated private employee guidance",
-    })).status).toBe(200);
+    })).status).toBe(403);
+    expect(mock.state.updates).toHaveLength(0);
     mock.state.selects.push([{ ...mock.state.existing }]);
     expect((await request("/api/kb/articles/guide-1", "DELETE")).status).toBe(200);
     expect(mock.state.updates.at(-1)).toMatchObject({ status: "archived" });

@@ -374,9 +374,9 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
             name="email"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Email</FormLabel>
+                <FormLabel>Email (optional)</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="Enter email" {...field} data-testid="input-email" />
+                  <Input type="email" placeholder="Leave blank for username-only sign-in" {...field} value={field.value ?? ""} data-testid="input-email" />
                 </FormControl>
                 <FormMessage />
               </FormItem>

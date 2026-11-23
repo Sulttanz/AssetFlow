@@ -8,22 +8,39 @@ version: 1.0.0
 audience: employee
 ---
 
-# Using the IT Management Platform
+# Employee Self-Service Portal
 
-This manual is maintained with the application source and synchronized into the authenticated Knowledge Base at startup.
+This guide is maintained in the repository and synchronized into the Knowledge Base. It is available to every authenticated role.
 
-## Finding your workspace
+## Sign in
 
-Sign in with your assigned account. The dashboard and navigation show the pages available to your role and the modules enabled for your organization. If a page is not available, contact your platform administrator rather than trying to access it through a saved link.
+At `/auth`, enter your username or the email address saved on your account, then enter your password. An account without an email address signs in with its username. If your account is inactive or the credentials are rejected, contact your system administrator; do not create a second account to work around the issue.
 
-## Employee support
+## Use Employee Self Service
 
-When the Service Catalog is enabled, use it to find approved services and submit a request. Use the Self-Service Portal to follow your own requests and incidents. For operational guidance, search the Knowledge Base; articles marked as system guides are maintained from this repository and cannot be changed by ordinary article editors.
+The `/portal` page is your starting point for incidents, service requests, project changes when you have assigned projects, and Knowledge Base guidance. The page and its links are filtered by your role, assigned projects, linked employee record, and enabled modules.
 
-## Working with records
+### Report an issue
 
-Use the search and filters on each register to find records. Dates shown in the application use the organization’s day-first display format. Changes to operational records may be recorded in the audit history, so add clear notes when a workflow asks for a reason or resolution.
+1. Select **Report an incident**.
+2. Choose an incident type from the **Incident Catalog** and describe the symptom, business impact, and steps already tried.
+3. A project selector appears only when your account is assigned to multiple projects. One assigned project is selected automatically; with no assigned projects, the report is treated as an internal/global incident. External project users must choose one of their assigned projects.
+4. Add relevant files if needed and submit.
 
-## Data and account safety
+The intake form does not ask end users to select priority, impact, urgency, assignment group, engineer, or SLA policy. The incident catalog and server-side rules apply technical routing and SLA values for the support team.
 
-Only administrators should use system-level settings or data-reset controls. A business-data reset preserves accounts and configuration, and repository-owned system guides are retained. Do not include passwords, access tokens, or other secrets in article content or attachments.
+### Request a service
+
+Open **Service Catalog** to choose an available service, such as hardware, software, access, or another standard request. Complete the item's dynamic fields and business justification where requested. Some items require approval. If the catalog offers project-specific services, only services for your assigned projects are shown. Request status and approval progress are visible in **My Tickets**.
+
+### Track tickets, comment, and attach files
+
+Use **My Tickets** to review the status and details of your own incidents and service requests. Open an incident to add a comment or attach supporting files; supported attachment types are shown by the upload control. Keep comments factual and do not attach passwords, authentication tokens, or unrelated personal data. Service request information and approval status are displayed with the request.
+
+### My Assigned Assets
+
+**My Assigned Assets** is shown only when your login is linked to an active internal employee record. It lists assets held in your custody and associated handover receipts. External project users and unlinked general users do not see internal employee asset custody.
+
+## Knowledge Base and account safety
+
+All authenticated roles can read published repository-maintained system manuals. Article creation, editing, review, and publication are restricted to authorized IT staff and managers; system guides are protected from ordinary editing. Contact your administrator for access or account changes.

@@ -149,7 +149,7 @@ export default function AuthPage() {
                   name="username"
                   render={({ field }) => (
                     <FormItem className="auth-field">
-                      <label htmlFor="auth-username" className="auth-label">Username</label>
+                      <label htmlFor="auth-username" className="auth-label">Username or Email</label>
                         <div className="auth-input-wrap">
                           <UserRound className="auth-input-icon" aria-hidden="true" />
                           <FormControl>
@@ -158,7 +158,7 @@ export default function AuthPage() {
                               id="auth-username"
                               type="text"
                               autoComplete="username"
-                              placeholder="Your username"
+                              placeholder="Username or email"
                               disabled={loginMutation.isPending}
                               data-testid="input-username"
                               className="auth-input"

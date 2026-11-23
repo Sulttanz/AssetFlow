@@ -25,11 +25,19 @@ Asset records can capture:
 
 Custodian relationships are recorded through employee assignments and asset handovers. Location is tracked on the asset record.
 
-### 2. Maintenance
+### 2. Supporting ITAM Registers
+
+- **Licenses and software seats**: Track license type, expiry, purchased/used seats, and employee allocations. Reassign or reclaim seats through the supported license workflow.
+- **Accessories and consumables**: Record stock by warehouse, receipts, issues, transfers, and audited manual adjustments. Disabled warehouses are excluded from new stock operations while historical movements remain available.
+- **Vendors and contracts**: Maintain supplier contacts, linked assets, vendor certifications, service/support contracts, renewal dates, and performance information where configured.
+- **Locations and departments**: Use shared organizational reference data to group employee and asset records.
+- **Employee custody**: Asset handovers record issue/return condition and acknowledgement. Returned equipment updates its assignment and asset status through the handover workflow.
+
+### 3. Maintenance
 
 Maintenance schedules associate an asset with a type, frequency, next due date, priority, and estimated cost. Maintenance records capture completed work, technician or vendor, actual cost, and notes.
 
-### 3. Consumable Stock
+### 4. Consumable Stock
 
 Consumable quantities are tracked per active warehouse, with category, part number, minimum reorder level, and unit cost. Stock movements record receipts, issues, and transfers. Service-request dispatch records are linked to the request and requester; the current dispatch model does not directly allocate stock to a project.
 

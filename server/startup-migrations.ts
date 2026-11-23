@@ -134,6 +134,10 @@ export function assertAdditiveMigration(sql: string, name: string): void {
       /^UPDATE employees SET email = NULL WHERE email IS NOT NULL AND email ~ '\^\[\[:space:\]\]\*\$'$/i.test(statement)
     ) continue;
     if (
+      /^ALTER TABLE users ALTER COLUMN email DROP NOT NULL$/i.test(statement) ||
+      /^UPDATE users SET email = NULL WHERE email IS NOT NULL AND btrim\(email\) = ''$/i.test(statement)
+    ) continue;
+    if (
       /^\s*(?:DROP|DELETE\b|TRUNCATE|RENAME|UPDATE)\b/i.test(statement) ||
       /^ALTER TABLE\b[\s\S]*\b(?:DROP|ALTER COLUMN|RENAME)\b/i.test(statement)
     ) {

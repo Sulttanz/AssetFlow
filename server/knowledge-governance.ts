@@ -59,13 +59,13 @@ function visibleArticles(user: Viewer): SQL | undefined {
     or(and(
       eq(kbArticles.status, "published"),
       sql`lower(trim(${kbArticles.category})) = 'policy'`,
-    ), owned),
+    ), and(eq(kbArticles.status, "published"), eq(kbArticles.isSystemGuide, true)), owned),
   );
   return or(and(
     eq(kbArticles.status, "published"),
     eq(kbArticles.isPublic, true),
     inArray(sql`lower(trim(${kbArticles.category}))`, ["policy", "user guide"]),
-  ), owned);
+  ), and(eq(kbArticles.status, "published"), eq(kbArticles.isSystemGuide, true)), owned);
 }
 
 async function articleDetail(id: string, user: Viewer) {
@@ -123,26 +123,13 @@ async function updateArticle(
   req: Request, user: Viewer,
   transition?: { from?: string; status: string; reviewed?: boolean },
 ) {
-  if (transition) requireEditor(user);
+  requireEditor(user);
   const parsed = transition ? undefined : updateInput.parse(req.body);
   return db.transaction(async tx => {
     const [previous] = await tx.select().from(kbArticles)
       .where(eq(kbArticles.id, req.params.id)).for("update");
     if (!previous) throw new KnowledgeError(404, "Article not found");
     requireSystemGuideAdministrator(user, previous);
-    const ownsCustomArticle = !previous.isSystemGuide &&
-      (previous.authorId === user.id || previous.ownerId === user.id);
-    if (transition && !canManageKnowledge(user)) {
-      throw new KnowledgeError(403, "IT staff or manager access required");
-    }
-    if (!transition && !canManageKnowledge(user) && !ownsCustomArticle) {
-      throw new KnowledgeError(403, "You can only manage your own custom articles");
-    }
-    if (!transition && !canManageKnowledge(user) &&
-      (parsed!.status !== previous.status || parsed!.isPublic !== previous.isPublic ||
-       (parsed!.ownerId !== undefined && parsed!.ownerId !== previous.ownerId))) {
-      throw new KnowledgeError(403, "Only IT staff or managers can change publication, visibility, or ownership");
-    }
     if (transition?.from && previous.status !== transition.from) {
       throw new KnowledgeError(409, `Only ${transition.from} articles support this action`);
     }
