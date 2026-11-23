@@ -12,7 +12,7 @@ the current account's valid local password (`confirmPassword`).
 - Consumable stock, movements, dispatches and receiving records.
 - Vendors, contracts and their links, purchase orders, lines and budgets.
 - Projects, legacy tickets, incidents, requests, problems, changes, CAB decisions,
-  stage/PIR history, risks and service catalog definitions.
+  stage/PIR history, and risks. Project links on retained catalog items are detached.
 - CMDB applications, servers, hosting/dependency links and document records.
 - Network zones/devices/links, firewall rules and review history.
 - Backup schedules, run evidence references and restore-verification records.
@@ -25,6 +25,11 @@ the current account's valid local password (`confirmPassword`).
 - Users, password hashes, account status and security configuration.
 - Roles, permissions, user-role assignments and role-permission mappings.
 - Sessions and CAB stream admission infrastructure.
+- All legacy, built-in, and custom Incident Catalog and Service Catalog records,
+  including priorities, SLAs, descriptions, approval settings and dynamic form schemas.
+  Links to deleted projects, consumables, or non-default assignment groups are set to
+  `NULL`; catalog records themselves are neither deleted nor reseeded during reset.
+- Default assignment groups are recreated after their business records are cleared.
 - System settings, general settings and module configuration.
 - Dropdown options, locations, departments, warehouse definitions and SLA policies.
 - Migration/schema ledgers and the database schema itself.
@@ -34,10 +39,11 @@ directories, external storage or external backup systems.
 
 ## Atomicity and audit
 
-All business tables are explicitly named in one transactional PostgreSQL
-`TRUNCATE ... CONTINUE IDENTITY RESTRICT`. This handles cross-module dependencies
-and cycles without dropping tables, disabling constraints or using `CASCADE`.
-Concurrent resets are serialized. Lock waits are bounded.
+Business tables are explicitly classified. Most are cleared by one transactional
+PostgreSQL `TRUNCATE ... CONTINUE IDENTITY RESTRICT`; employees, projects, and
+consumables are deleted with `DELETE` so protected references can be detached safely.
+Catalog links to consumables/projects and user links to employees are nulled first.
+No `CASCADE` is used. Concurrent resets are serialized and lock waits are bounded.
 
 A `CLEAR_SYSTEM_DATA` audit entry with actor, IP, user agent, timestamp and table
 scope is inserted in the same transaction. If either the reset or audit write

@@ -395,7 +395,7 @@ export default function SystemSettings() {
             <div>
               <h4 className="text-sm font-medium text-destructive mb-2">Clear All System Data</h4>
               <p className="text-sm text-muted-foreground mb-4">
-                This will permanently delete business records across assets, employees and access grants, consumables, ITSM tickets, changes and service catalogs, financials, CMDB, network/firewall management, backups, knowledge/policy records, compliance reviews, and migration history.
+                This permanently deletes operational records across tickets, projects and tasks, employees, assets and inventory, vendors and contracts, purchasing and finance, CMDB/network, backups, custom knowledge articles, compliance reviews, audit history, and migration history.
                 <span className="font-semibold text-destructive"> This action cannot be undone.</span>
               </p>
               <div className="rounded-md bg-amber-50 dark:bg-amber-950 p-4 mb-4">
@@ -406,12 +406,14 @@ export default function SystemSettings() {
                       Warning: Data Loss Risk
                     </p>
                     <ul className="text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
-                      <li>All business data will be permanently deleted</li>
+                      <li>Operational records, employees, projects, assets, inventory, vendors, contracts, and tickets will be permanently deleted</li>
                       <li>All user accounts, login credentials, active status, sign-in sessions, and assigned roles will be preserved</li>
                       <li>Role and permission definitions and role-permission mappings will be preserved</li>
                       <li>System/module settings, dropdowns, locations, departments, warehouses, and SLA policies will be preserved</li>
-                      <li>Repository-managed System Manual guides and their versions will be preserved; built-in service and incident catalog entries will be restored</li>
-                      <li>Project memberships, tasks, project links, and other business records will be cleared</li>
+                      <li>All Incident Catalog, Service Catalog, and catalog item records will be preserved, including custom entries, priorities, SLAs, descriptions, and form configuration</li>
+                      <li>Links from preserved catalog items to deleted projects, consumables, or custom assignment groups will be cleared to avoid broken references</li>
+                      <li>All 12 repository-managed System Manual guides and their versions will be preserved</li>
+                      <li>Project memberships, tasks, project records, and other operational records will be cleared</li>
                       <li>Previous audit history is cleared; a new record of this operation is retained</li>
                       <li>Attachment/evidence database records are removed; stored files and external backups are not erased</li>
                       <li>This operation requires your current password</li>

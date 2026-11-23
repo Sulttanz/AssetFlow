@@ -13,7 +13,7 @@ import * as s from "@shared/schema";
 import { RESET_BUSINESS_TABLES, RESET_PROTECTED_TABLES } from "@shared/system-data-reset";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
-import { DEFAULT_INCIDENT_CATALOG, DEFAULT_SERVICE_CATALOG, seedDefaultCatalogsInTransaction } from "./default-catalogs";
+import { seedDefaultAssignmentGroupsInTransaction, seedDefaultCatalogsInTransaction } from "./default-catalogs";
 
 describe("System data reset policy", () => {
   it("explicitly classifies every schema table and never wipes a protected table", () => {
@@ -23,13 +23,23 @@ describe("System data reset policy", () => {
     expect(new Set(classified).size).toBe(classified.length);
     expect([...classified].sort()).toEqual(names.sort());
     const business = new Set<string>(RESET_BUSINESS_TABLES);
+    const safeCatalogDetaches = new Map([
+      ["users->employees", "set null"],
+      ["catalog_items->consumables", "set null"],
+      ["service_catalog_items->projects", "set null"],
+      ["incident_catalog_items->projects", "restrict"],
+    ]);
     for (const table of tables.filter(table => !business.has(getTableName(table)))) {
       for (const fk of getTableConfig(table).foreignKeys) {
-        if (getTableName(table) === "users" && getTableName(fk.reference().foreignTable) === "employees") {
-          expect(fk.onDelete).toBe("set null");
+        const sourceTable = getTableName(table);
+        const targetTable = getTableName(fk.reference().foreignTable);
+        if (business.has(targetTable)) {
+          const expectedOnDelete = safeCatalogDetaches.get(`${sourceTable}->${targetTable}`);
+          expect(expectedOnDelete, `${sourceTable} -> ${targetTable} must have a reset detach policy`).toBeDefined();
+          expect(fk.onDelete).toBe(expectedOnDelete);
           continue;
         }
-        expect(business.has(getTableName(fk.reference().foreignTable)), `${getTableName(table)} must not depend on reset data`).toBe(false);
+        expect(business.has(targetTable), `${sourceTable} must not depend on reset data`).toBe(false);
       }
     }
   });
@@ -194,6 +204,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     });
     await setupPool.query(`CREATE TABLE "${schema}"."_onprem_migrations" (name text PRIMARY KEY)`);
     await setupPool.query(`INSERT INTO "${schema}"."_onprem_migrations" VALUES ('retained-migration')`);
+    await db.transaction(seedDefaultCatalogsInTransaction);
 
     // Seed EVERY business table, including real cross-module RESTRICT FKs.
     const employee = await seed(s.employees, { firstName: "Fixture", lastName: "Employee", email: "employee@example.test", position: "Analyst" });
@@ -201,7 +212,12 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.employeeAccessRights, { employeeId: employee, applicationName: "Fixture", privilegeLevel: "Viewer", businessJustification: "Integration fixture" });
     await seed(s.employeeOffboardingClearances, { employeeId: employee, offboardingDate: "2026-10-22", clearanceType: "physical_asset_return", status: "verified", signedBy: adminId });
     const project = await seed(s.projects, { name: "Fixture project" });
-    await seed(s.incidentCatalogItems, { name: "Fixture incident template", category: "Network", projectId: project });
+    await seed(s.incidentCatalogItems, {
+      name: "Fixture incident template", description: "Custom project incident template",
+      category: "Network", projectId: project, icon: "network",
+      defaultImpact: "high", defaultUrgency: "medium", defaultPriority: "P2",
+      defaultAssignmentGroup: "Fixture assignment group", isActive: false, createdBy: adminId,
+    });
     await seed(s.serviceContracts, {
       id: 1,
       contractNumber: "CNT-RESET",
@@ -277,8 +293,19 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await seed(s.assetAttachments, { assetId: asset, fileName: "asset.pdf", originalName: "asset.pdf", filePath: "/fixture/asset.pdf" });
     const consumable = await seed(s.consumables, { name: "Fixture toner", warehouseLocationId: ids.warehouse_locations });
     await seed(s.consumableStockMovements, { consumableId: consumable, movementType: "adjustment", quantity: 1 });
-    const catalog = await seed(s.catalogItems, { name: "Fixture service", category: "hardware", consumableId: consumable });
-    await seed(s.serviceCatalogItems, { id: catalog, title: "Fixture service", category: "hardware" });
+    const catalog = await seed(s.catalogItems, {
+      name: "Fixture service", description: "Custom service description", category: "hardware",
+      fulfillmentTeam: "Custom Fulfillment", consumableId: consumable, slaHours: 19,
+      approvalRequired: true, isActive: false, displayOrder: 71,
+    });
+    await seed(s.serviceCatalogItems, {
+      id: catalog, title: "Fixture service", category: "Hardware", projectId: project,
+      description: "Custom service details", defaultPriority: "P2", defaultImpact: "high",
+      defaultUrgency: "high", icon: "laptop", slaHours: 36, requiresApproval: true,
+      approverRole: "IT Director",
+      customFieldsSchema: [{ key: "justification", label: "Business justification", type: "textarea", required: true }],
+      status: "Inactive",
+    });
     const requestId = await seed(s.serviceRequests, { requestNumber: "SR-RESET", title: "Fixture request", description: "Fixture", requesterId: otherId, creatorId: adminId, catalogItemId: catalog, serviceCatalogItemId: catalog });
     await seed(s.serviceRequestActivities, { serviceRequestId: requestId, actorId: adminId, action: "created" });
     await seed(s.serviceRequestsApprovals, { ticketId: requestId, approverId: adminId, approverRole: "Manager" });
@@ -468,22 +495,15 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     expect(result).toMatchObject({
       clearedBy: "reset-admin", auditLogRefreshed: true,
       clearedTables: [...RESET_BUSINESS_TABLES], preservedTables: [...RESET_PROTECTED_TABLES],
-      preservedAllUserAccounts: true, preservedAllUserRoleAssignments: true,
+      preservedAllUserAccounts: true, preservedAllUserRoleAssignments: true, preservedCatalogRecords: true,
       preservedSystemGuideRecords: true,
     });
     for (const [name, rows] of Object.entries(await snapshot(RESET_BUSINESS_TABLES))) {
       const defaults: Record<string, number> = {
-        catalog_items: DEFAULT_SERVICE_CATALOG.length,
-        service_catalog_items: DEFAULT_SERVICE_CATALOG.length,
-        incident_catalog_items: DEFAULT_INCIDENT_CATALOG.length,
         assignment_groups: 5,
       };
       expect(rows.length, name).toBe(defaults[name] ?? (name === "audit_logs" ? 1 : guidesBeforeReset[name]?.length ?? 0));
     }
-    expect((await db.select().from(s.incidentCatalogItems)).map(item => item.name).sort())
-      .toEqual(DEFAULT_INCIDENT_CATALOG.map(item => item.name).sort());
-    expect((await db.select().from(s.serviceCatalogItems)).map(item => item.title).sort())
-      .toEqual(DEFAULT_SERVICE_CATALOG.map(item => item.name).sort());
     expect(await snapshotSystemGuides()).toEqual(guidesBeforeReset);
     const retainedGuide = await setupPool.query(
       `SELECT id, is_system_guide FROM "${schema}".kb_articles WHERE id = $1`,
@@ -497,6 +517,20 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     // Both accounts, their roles, and sessions survive; employee-owned user
     // references are detached before employee rows are removed.
     protectedSnapshot.users = protectedSnapshot.users.map((row: any) => ({ ...row, employee_id: null }));
+    const seededGroups = new Set(["service desk", "application support", "network operations", "desktop support", "infrastructure"]);
+    protectedSnapshot.catalog_items = protectedSnapshot.catalog_items.map((row: any) => ({
+      ...row,
+      consumable_id: null,
+      fulfillment_team: row.fulfillment_team && seededGroups.has(String(row.fulfillment_team).trim().toLowerCase())
+        ? row.fulfillment_team : null,
+    }));
+    protectedSnapshot.service_catalog_items = protectedSnapshot.service_catalog_items.map((row: any) => ({ ...row, project_id: null }));
+    protectedSnapshot.incident_catalog_items = protectedSnapshot.incident_catalog_items.map((row: any) => ({
+      ...row,
+      project_id: null,
+      default_assignment_group: row.default_assignment_group && seededGroups.has(String(row.default_assignment_group).trim().toLowerCase())
+        ? row.default_assignment_group : null,
+    }));
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
     expect(await db.select().from(s.users).where(eq(s.users.id, otherId))).toMatchObject([
       { username: "reset-user", employeeId: null, isActive: true },
@@ -506,6 +540,29 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     ]);
     expect(await db.select().from(s.userRoles).where(eq(s.userRoles.userId, otherId))).toHaveLength(1);
     expect(await db.select().from(s.userRoles).where(eq(s.userRoles.userId, adminId))).toHaveLength(1);
+    const [customIncident] = await db.select().from(s.incidentCatalogItems)
+      .where(eq(s.incidentCatalogItems.name, "Fixture incident template"));
+    expect(customIncident).toMatchObject({
+      description: "Custom project incident template", projectId: null, defaultPriority: "P2",
+      defaultImpact: "high", defaultUrgency: "medium", defaultAssignmentGroup: null,
+      isActive: false, createdBy: adminId,
+    });
+    const [customService] = await db.select().from(s.serviceCatalogItems)
+      .where(eq(s.serviceCatalogItems.title, "Fixture service"));
+    expect(customService).toMatchObject({
+      description: "Custom service details", projectId: null, defaultPriority: "P2",
+      defaultImpact: "high", defaultUrgency: "high", slaHours: 36, requiresApproval: true,
+      approverRole: "IT Director", status: "Inactive",
+      customFieldsSchema: [{ key: "justification", label: "Business justification", type: "textarea", required: true }],
+    });
+    const [customLegacyService] = await db.select().from(s.catalogItems).where(eq(s.catalogItems.name, "Fixture service"));
+    expect(customLegacyService).toMatchObject({
+      description: "Custom service description", category: "hardware", fulfillmentTeam: null,
+      consumableId: null, slaHours: 19, approvalRequired: true, isActive: false, displayOrder: 71,
+    });
+    expect(await db.select().from(s.serviceCatalogItems)).toHaveLength(protectedSnapshot.service_catalog_items.length);
+    expect(await db.select().from(s.incidentCatalogItems)).toHaveLength(protectedSnapshot.incident_catalog_items.length);
+    expect(await db.select().from(s.catalogItems)).toHaveLength(protectedSnapshot.catalog_items.length);
     expect((await setupPool.query(`SELECT * FROM "${schema}"."_onprem_migrations"`)).rows).toEqual([{ name: "retained-migration" }]);
     const [audit] = await db.select().from(s.auditLogs);
     expect(audit).toMatchObject({ action: "CLEAR_SYSTEM_DATA", userId: adminId, recordId: "clear-data" });
@@ -516,18 +573,20 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       clearedTables: [...RESET_BUSINESS_TABLES],
       preservedAllUserAccounts: true,
       preservedAllUserRoleAssignments: true,
+      preservedCatalogRecords: true,
+      detachedCatalogReferencesToClearedRecords: true,
       preservedSystemGuideRecords: true,
     });
     // A repeated reset still leaves both users, their role mappings and sessions intact.
     expect((await request({ confirmPassword: password })).status).toBe(200);
     expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
     expect(await db.select().from(s.auditLogs)).toHaveLength(1);
-    expect(await db.select().from(s.serviceCatalogItems)).toHaveLength(DEFAULT_SERVICE_CATALOG.length);
-    expect(await db.select().from(s.incidentCatalogItems)).toHaveLength(DEFAULT_INCIDENT_CATALOG.length);
-    const seededSnapshot = await snapshot(["catalog_items", "service_catalog_items", "incident_catalog_items", "assignment_groups"]);
-    await db.transaction(seedDefaultCatalogsInTransaction);
-    await db.transaction(seedDefaultCatalogsInTransaction);
-    expect(await snapshot(["catalog_items", "service_catalog_items", "incident_catalog_items", "assignment_groups"]))
-      .toEqual(seededSnapshot);
+    expect(await db.select().from(s.serviceCatalogItems)).toHaveLength(protectedSnapshot.service_catalog_items.length);
+    expect(await db.select().from(s.incidentCatalogItems)).toHaveLength(protectedSnapshot.incident_catalog_items.length);
+    expect(await db.select().from(s.catalogItems)).toHaveLength(protectedSnapshot.catalog_items.length);
+    const groupSnapshot = await snapshot(["assignment_groups"]);
+    await db.transaction(seedDefaultAssignmentGroupsInTransaction);
+    await db.transaction(seedDefaultAssignmentGroupsInTransaction);
+    expect(await snapshot(["assignment_groups"])).toEqual(groupSnapshot);
   });
 });

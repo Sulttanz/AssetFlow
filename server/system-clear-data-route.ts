@@ -40,15 +40,17 @@ export function registerSystemClearDataRoute(
       });
       if (!success) return void respondWithApiError(res, new Error("Clear data operation returned false"), "Failed to clear system data; no changes were committed");
       res.json({
-        message: "Operational data was cleared. All user accounts and role assignments, role and permission definitions, protected settings, system guides, and default catalogs were preserved.",
+        message: "Operational data was cleared. All user accounts, role assignments, Incident and Service Catalog records, role and permission definitions, protected settings, and System Manual guides were preserved; links to deleted records were detached.",
         clearedAt: new Date().toISOString(),
         clearedBy: user.username,
         clearedTables: RESET_BUSINESS_TABLES,
         preservedTables: RESET_PROTECTED_TABLES,
         preservedAllUserAccounts: true,
         preservedAllUserRoleAssignments: true,
+        preservedCatalogRecords: true,
+        detachedCatalogReferencesToClearedRecords: true,
         preservedSystemGuideRecords: true,
-        defaultCatalogsRestored: true,
+        defaultAssignmentGroupsRestored: true,
         auditLogRefreshed: true,
       });
     } catch (error) {

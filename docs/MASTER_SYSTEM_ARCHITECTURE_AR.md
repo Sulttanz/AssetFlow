@@ -1066,10 +1066,11 @@ audit_logs يسجل الحقول: userId، action، tableName، recordId، recor
 
 1. مسؤول موثّق مع تحقق كلمة المرور الحالية.
 2. التحقق من تصنيف جميع جداول المخطط قبل المسح؛ جدول غير مصنف يفشل بدل مسح غير مقصود.
-3. transaction مع قفل وTRUNCATE صريح دون CASCADE عام.
-4. حماية users وroles وpermissions وربطها والجلسات والإعدادات والقوائم المرجعية وبعض المراجع الأخرى حسب RESET_PROTECTED_TABLES.
-5. الاحتفاظ بالمقالات is_system_guide=true ونسخها ومرفقاتها وربط ضوابطها، مع حذف المقالات المخصصة.
-6. تسجيل CLEAR_SYSTEM_DATA جديد؛ فشل التسجيل يُرجع transaction كاملًا.
+3. transaction مع قفل وTRUNCATE صريح لمعظم الجداول التشغيلية دون CASCADE عام؛ تُحذف employees/projects/consumables بـDELETE بعد تصفير المراجع المحمية.
+4. حماية كل users وuser_roles والجلسات وroles/permissions والكتالوجين Incident/Service وإعدادات النظام والقوائم المرجعية حسب RESET_PROTECTED_TABLES.
+5. الاحتفاظ بكل سجلات الكتالوج وإعداداتها؛ تُصفّر فقط روابطها إلى projects/consumables المحذوفة، وتُعاد مجموعات الإسناد الافتراضية دون تعديل عناصر الكتالوج.
+6. الاحتفاظ بالمقالات is_system_guide=true ونسخها ومرفقاتها وربط ضوابطها، مع حذف المقالات المخصصة.
+7. تسجيل CLEAR_SYSTEM_DATA جديد؛ فشل التسجيل يُرجع transaction كاملًا.
 
 لا تستخدم هذا المسار لاختبار التقرير أو QA على بيانات تشغيل حقيقية.
 

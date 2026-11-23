@@ -21,14 +21,15 @@ export const RESET_BUSINESS_TABLES = [
   "asset_audit_items", "asset_relationships", "asset_requests", "asset_attachments",
   "configuration_documents", "tickets", "ticket_comments", "ticket_attachments",
   "kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings",
-  "kb_ticket_links", "problems", "problem_incidents", "catalog_items", "service_catalog_items",
-  "changes", "incident_catalog_items", "incidents", "incident_activities", "service_requests", "service_request_activities",
+   "kb_ticket_links", "problems", "problem_incidents",
+   "changes", "incidents", "incident_activities", "service_requests", "service_request_activities",
   "service_requests_approvals", "risk_register", "change_risk_links", "change_ci_links", "change_asset_links",
   "change_approvals", "change_environment_stages", "change_pirs",
 ] as const;
 
 export const RESET_PROTECTED_TABLES = [
   "users", "user_roles", "roles", "permissions", "role_permissions", "sessions", "cab_stream_leases",
+  "catalog_items", "service_catalog_items", "incident_catalog_items",
   "system_settings", "settings", "module_settings",
   "dropdown_options", "locations", "departments", "warehouse_locations", "sla_policies",
     "change_blackouts", "finance_tax_settings", "finance_tax_rates", "finance_document_sequences",
@@ -56,6 +57,8 @@ export function systemDataResetAudit(actor: SystemDataResetActor) {
       preservedTables: RESET_PROTECTED_TABLES,
       preservedAllUserAccounts: true,
       preservedAllUserRoleAssignments: true,
+      preservedCatalogRecords: true,
+      detachedCatalogReferencesToClearedRecords: true,
       preservedSystemGuideRecords: true,
       reason: "Administrator confirmed the business-data reset using their current password.",
     }),

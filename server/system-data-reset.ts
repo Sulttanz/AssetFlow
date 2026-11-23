@@ -1,4 +1,4 @@
-import { getTableName, is, sql } from "drizzle-orm";
+import { getTableName, isNotNull, is, sql } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
 import {
@@ -6,7 +6,7 @@ import {
   type SystemDataResetActor,
 } from "@shared/system-data-reset";
 import { db } from "./db";
-import { seedDefaultCatalogsInTransaction } from "./default-catalogs";
+import { DEFAULT_ASSIGNMENT_GROUPS, seedDefaultAssignmentGroupsInTransaction } from "./default-catalogs";
 
 export function assertSystemDataResetCoverage() {
   const declared = Object.values(schema).filter(value => is(value, PgTable)).map(table => getTableName(table));
@@ -31,15 +31,42 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
     const systemGuideTables = new Set([
       "kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings",
     ]);
+    const deleteByFkAction = new Set(["employees", "projects", "consumables", "vendors"]);
     const tables = sql.join(
-      RESET_BUSINESS_TABLES.filter(name => !systemGuideTables.has(name) && name !== "employees").map(name => sql.identifier(name)),
+      RESET_BUSINESS_TABLES.filter(name => !systemGuideTables.has(name) && !deleteByFkAction.has(name)).map(name => sql.identifier(name)),
       sql`, `,
     );
     await tx.execute(sql`TRUNCATE TABLE ${tables} CONTINUE IDENTITY RESTRICT`);
-    // Preserve every account and role mapping while detaching optional links
-    // before employee deletion. The explicit update avoids relying on FK order.
+    // Catalog rows are protected, but their references to records being reset
+    // must be detached before deleting the referenced employee/project/stock.
+    await tx.update(schema.catalogItems).set({ consumableId: null })
+      .where(isNotNull(schema.catalogItems.consumableId));
+    await tx.update(schema.serviceCatalogItems).set({ projectId: null })
+      .where(isNotNull(schema.serviceCatalogItems.projectId));
+    await tx.update(schema.incidentCatalogItems).set({ projectId: null })
+      .where(isNotNull(schema.incidentCatalogItems.projectId));
+    const retainedGroups = sql.join(
+      DEFAULT_ASSIGNMENT_GROUPS.map(name => sql`${name.trim().toLowerCase()}`),
+      sql`, `,
+    );
+    await tx.execute(sql`
+      UPDATE catalog_items
+      SET fulfillment_team = NULL
+      WHERE fulfillment_team IS NOT NULL
+        AND lower(btrim(fulfillment_team)) NOT IN (${retainedGroups})
+    `);
+    await tx.execute(sql`
+      UPDATE incident_catalog_items
+      SET default_assignment_group = NULL
+      WHERE default_assignment_group IS NOT NULL
+        AND lower(btrim(default_assignment_group)) NOT IN (${retainedGroups})
+    `);
+    // Preserve every account and role mapping while detaching employee links.
     await tx.update(schema.users).set({ employeeId: null });
     await tx.delete(schema.employees);
+    await tx.delete(schema.projects);
+    await tx.delete(schema.consumables);
+    await tx.delete(schema.vendors);
     // Preserve repository-owned system guides and their governed history while
     // removing custom Knowledge Base content as part of the business reset.
     await tx.execute(sql`
@@ -55,9 +82,8 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
       WHERE article_id IN (SELECT id FROM kb_articles WHERE is_system_guide = false)
     `);
     await tx.execute(sql`DELETE FROM kb_articles WHERE is_system_guide = false`);
-    // Re-create built-in catalogs before commit: no request can observe an empty
-    // catalog after reset, and a seed failure rolls the whole reset back.
-    await seedDefaultCatalogsInTransaction(tx);
+    // Keep standard support teams available without touching catalog rows.
+    await seedDefaultAssignmentGroupsInTransaction(tx);
 
     // If this audit write fails, PostgreSQL rolls the entire reset back.
     await tx.insert(schema.auditLogs).values(systemDataResetAudit(actor));

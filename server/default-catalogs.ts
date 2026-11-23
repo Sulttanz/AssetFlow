@@ -22,11 +22,22 @@ export const DEFAULT_SERVICE_CATALOG = [
   { name: "Shared Folder / Permissions Access", category: "Access", description: "Request approved access to a shared folder or team resource.", group: "Infrastructure", slaHours: 24, approval: true },
 ] as const;
 
+export const DEFAULT_ASSIGNMENT_GROUPS = [
+  "Service Desk", "Application Support", "Network Operations", "Desktop Support", "Infrastructure",
+] as const;
+
+export async function seedDefaultAssignmentGroupsInTransaction(tx: Transaction) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('default-catalog-seed'))`);
+  for (const name of DEFAULT_ASSIGNMENT_GROUPS) {
+    await tx.insert(assignmentGroups).values({ name, description: "Standard support routing team" }).onConflictDoNothing();
+  }
+}
+
 // Stable UUIDs survive reset/reseed. Conflict handling never overwrites customer
 // templates or their approval/schema customization. All inserts are atomic.
 export async function seedDefaultCatalogsInTransaction(tx: Transaction) {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('default-catalog-seed'))`);
-  for (const name of ["Service Desk", "Application Support", "Network Operations", "Desktop Support", "Infrastructure"]) {
+  for (const name of DEFAULT_ASSIGNMENT_GROUPS) {
     await tx.insert(assignmentGroups).values({ name, description: "Standard support routing team" }).onConflictDoNothing();
   }
   for (const [index, item] of Array.from(DEFAULT_SERVICE_CATALOG.entries())) {
