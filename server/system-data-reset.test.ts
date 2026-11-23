@@ -384,7 +384,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
   });
 
   it("rejects unauthenticated, unauthorized, invalid and incorrect password requests without changing any table", async () => {
-    const before = await snapshot([...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES]);
+    const before = await snapshot([...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES]);
     expect((await request({ confirmPassword: password }, "")).status).toBe(401);
     expect((await request({ confirmPassword: password }, otherId)).status).toBe(403);
     for (const value of [undefined, "", 123, {}, ["invalid"]]) expect((await request({ confirmPassword: value })).status).toBe(400);
@@ -392,7 +392,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     await db.update(s.users).set({ isActive: false }).where(eq(s.users.id, adminId));
     try { expect((await request({ confirmPassword: password })).status).toBe(403); }
     finally { await db.update(s.users).set({ isActive: true }).where(eq(s.users.id, adminId)); }
-    expect(await snapshot([...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES])).toEqual(before);
+    expect(await snapshot([...RESET_BUSINESS_TABLES, ...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES])).toEqual(before);
   });
 
   it("rolls back all deletion if the final audit write fails", async () => {
@@ -405,7 +405,7 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       expect(response.status).toBe(500);
       expect((await response.json()).message).toContain("no changes were committed");
       expect(await snapshot(RESET_BUSINESS_TABLES)).toEqual(before);
-      expect(await snapshot(RESET_PROTECTED_TABLES)).toEqual(protectedSnapshot);
+      expect(await snapshot([...RESET_PROTECTED_TABLES, ...RESET_SELECTIVE_TABLES])).toEqual(protectedSnapshot);
     } finally {
       log.mockRestore();
       await setupPool.query(`DROP TRIGGER reject_reset_audit ON "${schema}".audit_logs`);
@@ -468,6 +468,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     expect(result).toMatchObject({
       clearedBy: "reset-admin", auditLogRefreshed: true,
       clearedTables: [...RESET_BUSINESS_TABLES], preservedTables: [...RESET_PROTECTED_TABLES],
+      selectivelyClearedTables: [...RESET_SELECTIVE_TABLES],
+      preservedSystemAdministratorAccounts: true, removedNonAdministratorAccounts: true,
       preservedSystemGuideRecords: true,
     });
     for (const [name, rows] of Object.entries(await snapshot(RESET_BUSINESS_TABLES))) {
@@ -493,7 +495,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       `SELECT article_id FROM "${schema}".kb_article_versions WHERE article_id = $1`,
       [systemGuideId],
     )).rows.some((row: { article_id: string }) => row.article_id === systemGuideId)).toBe(true);
-    // The deleted employee is detached, but identity, roles, and permissions survive.
+    // Business records and non-admin identities are removed while administrator
+    // access, RBAC definitions, and administrator sessions survive.
     protectedSnapshot.users = protectedSnapshot.users
       .filter((row: any) => row.id === adminId)
       .map((row: any) => ({ ...row, employee_id: null }));
@@ -511,7 +514,11 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     expect(audit.timestamp).toBeInstanceOf(Date);
     expect(audit.newValues).not.toContain(password);
     expect(JSON.parse(audit.newValues!)).toMatchObject({
-      clearedTables: [...RESET_BUSINESS_TABLES], preservedSystemGuideRecords: true,
+      clearedTables: [...RESET_BUSINESS_TABLES],
+      selectivelyClearedTables: [...RESET_SELECTIVE_TABLES],
+      preservedSystemAdministratorAccounts: true,
+      removedNonAdministratorAccounts: true,
+      preservedSystemGuideRecords: true,
     });
     // A repeated reset still leaves the account/permission/session intact.
     expect((await request({ confirmPassword: password })).status).toBe(200);

@@ -1,4 +1,4 @@
-import { getTableName, is, sql } from "drizzle-orm";
+import { getTableName, inArray, is, sql } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import * as schema from "@shared/schema";
 import {
@@ -38,8 +38,8 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
       sql`, `,
     );
     await tx.execute(sql`TRUNCATE TABLE ${tables} CONTINUE IDENTITY RESTRICT`);
-    // Users are protected identity records. DELETE honors ON DELETE SET NULL
-    // on their optional employee link; TRUNCATE cannot honor that FK action.
+    // Employee rows are removed with DELETE so an administrator's optional
+    // employee link is detached via ON DELETE SET NULL (TRUNCATE cannot do that).
     await tx.delete(schema.employees);
     // Preserve repository-owned system guides and their governed history while
     // removing custom Knowledge Base content as part of the business reset.
@@ -88,12 +88,13 @@ export async function clearDatabaseBusinessData(actor: SystemDataResetActor): Pr
     `);
     const nonAdminIds = nonAdminUsers.map(user => user.id);
     if (nonAdminIds.length) {
-      await tx.delete(schema.sessions).where(sql`
-        (${schema.sessions.sess}::jsonb #>> '{passport,user}') = ANY(${nonAdminIds}::text[])
-      `);
-      await tx.delete(schema.cabStreamLeases).where(sql`${schema.cabStreamLeases.userId} = ANY(${nonAdminIds}::text[])`);
-      await tx.delete(schema.userRoles).where(sql`${schema.userRoles.userId} = ANY(${nonAdminIds}::text[])`);
-      await tx.delete(schema.users).where(sql`${schema.users.id} = ANY(${nonAdminIds}::text[])`);
+      await tx.delete(schema.sessions).where(inArray(
+        sql`(${schema.sessions.sess}::jsonb #>> '{passport,user}')`,
+        nonAdminIds,
+      ));
+      await tx.delete(schema.cabStreamLeases).where(inArray(schema.cabStreamLeases.userId, nonAdminIds));
+      await tx.delete(schema.userRoles).where(inArray(schema.userRoles.userId, nonAdminIds));
+      await tx.delete(schema.users).where(inArray(schema.users.id, nonAdminIds));
     }
     // If this audit write fails, PostgreSQL rolls the entire reset back.
     await tx.insert(schema.auditLogs).values(systemDataResetAudit(actor));

@@ -580,7 +580,7 @@ export class MemStorage implements IStorage {
 
       removeUsers(userIds: readonly string[]) {
         const ids = new Set(userIds);
-        for (const [sid, session] of this.sessions) {
+        for (const [sid, session] of Array.from(this.sessions.entries())) {
           const sessionUserId = session?.passport?.user;
           if (typeof sessionUserId === "string" && ids.has(sessionUserId)) this.sessions.delete(sid);
         }
