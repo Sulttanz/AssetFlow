@@ -134,9 +134,28 @@ describe.runIf(enabled)("Project delivery governance in isolated PostgreSQL", ()
     riskId = risk.id;
     expect(risk.riskScore).toBe(20);
     expect((await request(`${prefix}/risks/${riskId}`, "PATCH", { impact: 1 }, member)).status).toBe(403);
-    expect((await request(`${prefix}/risks/${riskId}`, "PATCH", { status: "Mitigated", mitigationStrategy: "Verified rollback plan" }, member)).status).toBe(200);
+    const nextReviewDate = new Date();
+    nextReviewDate.setUTCDate(nextReviewDate.getUTCDate() + 1);
+    const nextReview = nextReviewDate.toISOString().slice(0, 10);
+    expect((await request(`${prefix}/risks/${riskId}`, "PATCH", {
+      status: "Mitigated", mitigationStrategy: "Verified rollback plan", reviewDate: nextReview,
+    }, member)).status).toBe(200);
+    const [ownerUpdatedRisk] = await db.select().from(s.projectRisks).where(eq(s.projectRisks.id, riskId));
+    expect(ownerUpdatedRisk.reviewDate).toBe(nextReview);
     const changed = await request(`${prefix}/risks/${riskId}`, "PATCH", { impact: 2 });
     expect((await changed.json()).riskScore).toBe(8);
+    const dueRiskDate = new Date();
+    dueRiskDate.setUTCDate(dueRiskDate.getUTCDate() + 3);
+    const dueDate = dueRiskDate.toISOString().slice(0, 10);
+    expect((await request(`${prefix}/risks/${riskId}`, "PATCH", { status: "Identified", reviewDate: dueDate })).status).toBe(200);
+    const queue = await (await request("/api/projects/risk-reviews/queue?filter=due-soon", "GET", undefined, member)).json();
+    expect(queue).toMatchObject({
+      dueSoonCount: 1,
+      overdueCount: 0,
+      reviews: [expect.objectContaining({ id: riskId, projectId: project, reviewDate: dueDate })],
+    });
+    expect(await (await request("/api/projects/risk-reviews/queue", "GET", undefined, other)).json())
+      .toMatchObject({ dueSoonCount: 0, overdueCount: 0, reviews: [] });
     expect((await request(`${prefix}/risks/${riskId}`, "DELETE", undefined, demo)).status).toBe(403);
     expect((await request(`/api/projects/${randomUUID()}/risks/${riskId}`, "PATCH", { impact: 1 })).status).toBe(404);
   });

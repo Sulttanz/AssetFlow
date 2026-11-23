@@ -72,7 +72,12 @@ export function ProjectRiskRegisterTab({
     queryFn: () => projectApi(`/api/projects/${project.id}/risks`),
   });
   const risks = risksQuery.data ?? [];
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id, "risks"] });
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["/api/projects", project.id, "risks"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/projects/risk-reviews/queue"] }),
+    ]);
+  };
 
   const saveMutation = useMutation({
     mutationFn: (input: ProjectRiskInput) => projectApi<ProjectRiskRecord>(
@@ -88,10 +93,15 @@ export function ProjectRiskRegisterTab({
     onError: error => toast({ title: "Could not save risk", description: error.message, variant: "destructive" }),
   });
   const ownerUpdateMutation = useMutation({
-    mutationFn: ({ riskId, status, mitigationStrategy }: { riskId: string; status: ProjectRiskStatus; mitigationStrategy: string }) =>
+    mutationFn: ({ riskId, status, mitigationStrategy, reviewDate }: {
+      riskId: string;
+      status: ProjectRiskStatus;
+      mitigationStrategy: string;
+      reviewDate: string | null;
+    }) =>
       projectApi(`/api/projects/${project.id}/risks/${riskId}`, {
         method: "PATCH",
-        body: JSON.stringify({ status, mitigationStrategy }),
+        body: JSON.stringify({ status, mitigationStrategy, reviewDate }),
       }),
     onSuccess: () => refresh(),
     onError: error => toast({ title: "Could not update risk response", description: error.message, variant: "destructive" }),
@@ -185,7 +195,7 @@ export function ProjectRiskRegisterTab({
                     {!canManage && risk.ownerId === userId && <OwnerResponse risk={risk} value={mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? ""}
                       pending={ownerUpdateMutation.isPending}
                       onChange={value => setMitigationDrafts(current => ({ ...current, [risk.id]: value }))}
-                      onSave={status => ownerUpdateMutation.mutate({ riskId: risk.id, status, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
+                      onSave={(status, reviewDate) => ownerUpdateMutation.mutate({ riskId: risk.id, status, reviewDate, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
                   </TableCell>
                   {canManage && <TableCell><div className="flex justify-end gap-1"><Button variant="outline" className="min-h-11" onClick={() => openEdit(risk)}>Edit</Button><Button variant="ghost" size="icon" aria-label={`Delete risk ${risk.title}`} className="min-h-11 min-w-11 text-rose-700" onClick={() => {
                     if (window.confirm(`Delete risk "${risk.title}"?`)) deleteMutation.mutate(risk);
@@ -210,7 +220,7 @@ export function ProjectRiskRegisterTab({
                 {!canManage && isOwner && <OwnerResponse risk={risk} value={mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? ""}
                   pending={ownerUpdateMutation.isPending}
                   onChange={value => setMitigationDrafts(current => ({ ...current, [risk.id]: value }))}
-                  onSave={status => ownerUpdateMutation.mutate({ riskId: risk.id, status, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
+                  onSave={(status, reviewDate) => ownerUpdateMutation.mutate({ riskId: risk.id, status, reviewDate, mitigationStrategy: mitigationDrafts[risk.id] ?? risk.mitigationStrategy ?? "" })} />}
               </article>;
             })}
             {!risksQuery.isLoading && !risksQuery.isError && !filteredRisks.length && <p className="py-8 text-center text-sm text-muted-foreground">No risks match this view.</p>}
@@ -249,16 +259,18 @@ function OwnerResponse({ risk, value, onChange, onSave, pending }: {
   risk: ProjectRiskRecord;
   value: string;
   onChange: (value: string) => void;
-  onSave: (status: ProjectRiskStatus) => void;
+  onSave: (status: ProjectRiskStatus, reviewDate: string | null) => void;
   pending: boolean;
 }) {
   const [status, setStatus] = useState<ProjectRiskStatus>(risk.status);
+  const [reviewDate, setReviewDate] = useState(risk.reviewDate ?? "");
   return <div className="space-y-2 border-t pt-3">
     <Label htmlFor={`owner-mitigation-${risk.id}`}>Update mitigation response</Label>
     <Textarea id={`owner-mitigation-${risk.id}`} value={value} onChange={event => onChange(event.target.value)} />
     <div className="flex flex-wrap items-end gap-2">
       <div className="min-w-40 flex-1 space-y-1"><Label>Status</Label><Select value={status} onValueChange={value => setStatus(value as ProjectRiskStatus)}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{PROJECT_RISK_STATUSES.map(item => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></div>
-       <Button className="min-h-11" disabled={pending} onClick={() => onSave(status)}>{pending ? "Saving…" : "Save response"}</Button>
+      <div className="min-w-40 flex-1 space-y-1"><Label htmlFor={`owner-review-date-${risk.id}`}>Next review date</Label><DateInput id={`owner-review-date-${risk.id}`} className="min-h-11" value={reviewDate} onChange={setReviewDate} /></div>
+       <Button type="button" className="min-h-11" disabled={pending} onClick={() => onSave(status, reviewDate || null)}>{pending ? "Saving…" : "Save response"}</Button>
     </div>
   </div>;
 }

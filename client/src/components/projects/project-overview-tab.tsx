@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Activity, CalendarClock, Check, CircleDollarSign, Gauge, ShieldAlert } from "lucide-react";
+import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +12,17 @@ import { projectApi } from "@/lib/project-management-api";
 import { formatDateDisplay, toDateInputValue } from "@/lib/date-utils";
 import { ProjectBaselinePanel } from "./project-baseline-panel";
 import type { ProjectChangeRecord, ProjectRecord, ProjectRiskRecord, ProjectTaskRecord } from "@/types/project-management";
+
+type RiskReviewQueueItem = Pick<ProjectRiskRecord,
+  "id" | "projectId" | "title" | "reviewDate" | "status" | "ownerId" | "ownerName" |
+  "residualProbability" | "residualImpact"
+> & { projectTitle: string };
+
+type RiskReviewQueueResponse = {
+  dueSoonCount: number;
+  overdueCount: number;
+  reviews: RiskReviewQueueItem[];
+};
 
 function amount(value: string | number) {
   const number = Number(value);
@@ -30,6 +43,7 @@ function ratio(value: number | null) {
 export function ProjectOverviewTab({ project, canManage, assetsAvailable = true }: { project: ProjectRecord; canManage: boolean; assetsAvailable?: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [riskReviewFilter, setRiskReviewFilter] = useState<"all" | "due-soon" | "overdue">("all");
   const tasksQuery = useQuery<ProjectTaskRecord[]>({
     queryKey: ["/api/projects", project.id, "tasks"],
     queryFn: () => projectApi(`/api/projects/${project.id}/tasks`),
@@ -37,6 +51,10 @@ export function ProjectOverviewTab({ project, canManage, assetsAvailable = true 
   const risksQuery = useQuery<ProjectRiskRecord[]>({
     queryKey: ["/api/projects", project.id, "risks"],
     queryFn: () => projectApi(`/api/projects/${project.id}/risks`),
+  });
+  const riskReviewsQuery = useQuery<RiskReviewQueueResponse>({
+    queryKey: ["/api/projects/risk-reviews/queue", riskReviewFilter],
+    queryFn: () => projectApi(`/api/projects/risk-reviews/queue?filter=${riskReviewFilter}`),
   });
   const changesQuery = useQuery<ProjectChangeRecord[]>({
     queryKey: ["/api/projects", project.id, "changes"],
@@ -101,6 +119,53 @@ export function ProjectOverviewTab({ project, canManage, assetsAvailable = true 
           </Card>
         ))}
       </div>
+
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="text-base">Risk review queue</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Reviews across projects you can access. Select a review to open its project risk register.</p>
+          </div>
+          <div className="flex flex-wrap gap-2" aria-label="Filter risk reviews">
+            {([
+              ["all", "All due", (riskReviewsQuery.data?.dueSoonCount ?? 0) + (riskReviewsQuery.data?.overdueCount ?? 0)],
+              ["due-soon", "Due soon", riskReviewsQuery.data?.dueSoonCount ?? 0],
+              ["overdue", "Overdue", riskReviewsQuery.data?.overdueCount ?? 0],
+            ] as const).map(([filter, label, value]) => (
+              <Button key={filter} type="button" variant={riskReviewFilter === filter ? "default" : "outline"}
+                className="min-h-11" aria-pressed={riskReviewFilter === filter}
+                onClick={() => setRiskReviewFilter(filter)}>{label} <span className="ml-2 tabular-nums">{riskReviewsQuery.isLoading ? "…" : value}</span></Button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {riskReviewsQuery.isLoading && <p role="status" className="text-sm text-muted-foreground">Loading risk reviews…</p>}
+          {riskReviewsQuery.isError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+            <span>Risk reviews could not be loaded. {riskReviewsQuery.error instanceof Error ? riskReviewsQuery.error.message : "Try again."}</span>
+            <Button variant="outline" className="min-h-11 border-rose-300 bg-white text-rose-800" onClick={() => riskReviewsQuery.refetch()}>Retry</Button>
+          </div>}
+          {!riskReviewsQuery.isLoading && !riskReviewsQuery.isError && riskReviewsQuery.data?.reviews.map(review => (
+            <article key={`${review.projectId}-${review.id}`} className="flex flex-col gap-3 rounded-lg border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h3 className="font-medium">{review.title}</h3>
+                <p className="text-sm text-muted-foreground">{review.projectTitle} · Owner: {review.ownerName ?? "Unassigned"} · Review {formatDateDisplay(review.reviewDate)}</p>
+                <p className="text-xs text-muted-foreground">
+                  Residual exposure: {review.residualProbability && review.residualImpact
+                    ? `${review.residualProbability} × ${review.residualImpact} = ${review.residualProbability * review.residualImpact}`
+                    : "Not assessed"}
+                </p>
+              </div>
+              <Link href={`/projects/${review.projectId}?tab=risks`} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-md border border-slate-300 px-3 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                Open risk register
+              </Link>
+            </article>
+          ))}
+          {!riskReviewsQuery.isLoading && !riskReviewsQuery.isError && !riskReviewsQuery.data?.reviews.length &&
+            <p className="rounded-md bg-slate-50 p-4 text-center text-sm text-muted-foreground">
+              {riskReviewFilter === "overdue" ? "No overdue risk reviews." : riskReviewFilter === "due-soon" ? "No risk reviews due in the next 30 days." : "No risk reviews are due soon or overdue."}
+            </p>}
+        </CardContent>
+      </Card>
 
       <ProjectBaselinePanel project={project} canManage={canManage} />
 

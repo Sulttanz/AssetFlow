@@ -98,7 +98,7 @@ export default function ProjectWorkspacePage() {
         </div>
       </header>
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue={new URLSearchParams(window.location.search).get("tab") === "risks" ? "risks" : "overview"} className="space-y-4">
         <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-white p-1">
           <TabsTrigger value="overview" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />Overview &amp; financials</TabsTrigger>
           <TabsTrigger value="tasks" className="min-h-11"><ClipboardList className="mr-2 h-4 w-4" />Task board</TabsTrigger>

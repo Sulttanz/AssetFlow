@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({ setLocation: vi.fn() }));
 vi.mock("wouter", () => ({
+  Link: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a>,
   useParams: () => ({ id: "project-1" }),
   useLocation: () => ["/projects/project-1", navigation.setLocation],
 }));
@@ -69,6 +70,23 @@ const risk = {
   updatedAt: "2026-01-01T12:00:00.000Z",
 };
 
+const queueReviews = {
+  dueSoonCount: 1,
+  overdueCount: 1,
+  reviews: [{
+    id: "review-risk-1",
+    projectId: "project-2",
+    projectTitle: "Data center migration",
+    title: "Validate failover plan",
+    reviewDate: "2026-11-25",
+    status: "Identified",
+    ownerId: "manager-1",
+    ownerName: "Ada Lovelace",
+    residualProbability: 2,
+    residualImpact: 4,
+  }],
+};
+
 const rows: Record<string, unknown> = {
   "/api/projects/project-1": project,
   "/api/projects/options": { users: [{ id: "manager-1", name: "Ada Lovelace", username: "ada" }], assets: [] },
@@ -90,6 +108,9 @@ function renderPage() {
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.startsWith("/api/projects/risk-reviews/queue")) {
+      return response(url.includes("filter=overdue") ? { ...queueReviews, reviews: [] } : queueReviews);
+    }
     return response(rows[url] ?? []);
   }));
 });
@@ -107,6 +128,23 @@ describe("Project command center", () => {
     expect(screen.getByText("Milestone tracker")).toBeTruthy();
     expect((await screen.findAllByText("Design approved")).length).toBeGreaterThan(0);
     expect(screen.getByText("SRV-001 · Core server")).toBeTruthy();
+  });
+
+  it("shows cross-project review counts, filters the queue, and links to the risk register", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Risk review queue")).toBeTruthy();
+    expect(await screen.findByText("Data center migration · Owner: Ada Lovelace · Review 25-11-2026")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open risk register" }).getAttribute("href"))
+      .toBe("/projects/project-2?tab=risks");
+    const overdue = screen.getByRole("button", { name: "Overdue 1" });
+    await user.click(overdue);
+    expect(overdue.getAttribute("aria-pressed")).toBe("true");
+    expect(await screen.findByText("No overdue risk reviews.")).toBeTruthy();
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/projects/risk-reviews/queue?filter=overdue",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("loads the five-column task board", async () => {

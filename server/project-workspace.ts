@@ -4,7 +4,7 @@ import multer from "multer";
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
-import { and, count, desc, eq, getTableColumns, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, ilike, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -209,6 +209,58 @@ export function registerProjectWorkspaceRoutes(app: Express, requireAuth: Reques
       });
     });
   };
+
+  app.get("/api/projects/risk-reviews/queue", requireAuth, enabled, async (req: ProjectRequest, res) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Authentication required." });
+    try {
+      const query = z.object({ filter: z.enum(["all", "due-soon", "overdue"]).default("all") }).parse(req.query);
+      const rights = await access(userId);
+      const accessibleProjects = rights.globalViewer
+        ? await db.select({ id: projects.id }).from(projects)
+        : await db.selectDistinct({ id: projects.id }).from(projects)
+          .leftJoin(projectManagers, eq(projectManagers.projectId, projects.id))
+          .leftJoin(projectTeamMembers, eq(projectTeamMembers.projectId, projects.id))
+          .leftJoin(projectTasks, and(
+            eq(projectTasks.projectId, projects.id),
+            eq(projectTasks.assigneeId, userId),
+          ))
+          .where(or(
+            eq(projectManagers.userId, userId),
+            eq(projectTeamMembers.userId, userId),
+            eq(projectTasks.assigneeId, userId),
+          ));
+      const projectIds = accessibleProjects.map(project => project.id);
+      if (!projectIds.length) return res.json({ dueSoonCount: 0, overdueCount: 0, reviews: [] });
+
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      const todayDate = today.toISOString().slice(0, 10);
+      today.setUTCDate(today.getUTCDate() + 30);
+      const dueSoonThrough = today.toISOString().slice(0, 10);
+      const dueRisks = await db.select({
+        ...getTableColumns(projectRisks),
+        projectTitle: projects.title,
+        ownerName: sql<string | null>`coalesce(nullif(concat_ws(' ', ${users.firstName}, ${users.lastName}), ''), ${users.username})`,
+      }).from(projectRisks)
+        .innerJoin(projects, eq(projectRisks.projectId, projects.id))
+        .leftJoin(users, eq(projectRisks.ownerId, users.id))
+        .where(and(
+          inArray(projectRisks.projectId, projectIds),
+          isNotNull(projectRisks.reviewDate),
+          lte(projectRisks.reviewDate, dueSoonThrough),
+          sql`${projectRisks.status} NOT IN ('Closed', 'Mitigated')`,
+        ))
+        .orderBy(asc(projectRisks.reviewDate), asc(projects.title), asc(projectRisks.title));
+      const overdueCount = dueRisks.filter(risk => risk.reviewDate! < todayDate).length;
+      const dueSoonCount = dueRisks.length - overdueCount;
+      const reviews = dueRisks.filter(risk =>
+        query.filter === "all" ||
+        (query.filter === "overdue" ? risk.reviewDate! < todayDate : risk.reviewDate! >= todayDate),
+      );
+      res.json({ dueSoonCount, overdueCount, reviews });
+    } catch (error) { sendError(error, res); }
+  });
 
   app.get("/api/projects/:id/tasks", requireAuth, enabled, async (req: ProjectRequest, res) => {
     if (!await requireProjectView(req.user?.id, req.params.id, res)) return;
