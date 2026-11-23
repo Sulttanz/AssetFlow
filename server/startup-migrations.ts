@@ -10,6 +10,8 @@ const LEDGER_SCHEMA = "onprem_deploy";
 const LOCK_ID = 24761006;
 const ROLE_STANDARDIZATION_MIGRATION = "20261207_standardize_standard_roles.sql";
 const ROLE_STANDARDIZATION_MIGRATION_SHA256 = "cb6b6a128495f654ca5cdceb25aa75687e7b584ef845c26b0361cd10447108f3";
+const IT_RISK_GOVERNANCE_MIGRATION = "20261213_it_risk_governance.sql";
+const IT_RISK_GOVERNANCE_MIGRATION_SHA256 = "66a8bd1d622c94bc8b20dd550da04f4709ca31f6da19e98e36bae7ccf2efdd8c";
 
 export type StartupMigrationFailureDiagnostic = {
   code: "STARTUP_SCHEMA_UPGRADE_FAILED";
@@ -71,6 +73,13 @@ export function assertAdditiveMigration(sql: string, name: string): void {
     const checksum = createHash("sha256").update(sql).digest("hex");
     if (checksum !== ROLE_STANDARDIZATION_MIGRATION_SHA256) {
       throw new Error(`Migration ${name} does not match the reviewed role-merging migration.`);
+    }
+    return;
+  }
+  if (name === IT_RISK_GOVERNANCE_MIGRATION) {
+    const checksum = createHash("sha256").update(sql).digest("hex");
+    if (checksum !== IT_RISK_GOVERNANCE_MIGRATION_SHA256) {
+      throw new Error(`Migration ${name} does not match the reviewed risk-governance migration.`);
     }
     return;
   }

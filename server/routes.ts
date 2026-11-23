@@ -22,7 +22,7 @@ import {
   insertContractSchema, insertAssetBookingSchema, insertAssetDisposalRecordSchema, insertAssetAuditSessionSchema, insertAssetAuditItemSchema, insertAssetRelationshipSchema, insertAssetRequestSchema,
   insertServiceContractSchema, updateServiceContractSchema, serviceContracts, systemNotifications,
   insertTicketSchema, insertTicketCommentSchema, insertTicketAttachmentSchema,
-  assetAttachments, ticketAttachments, risks, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
+  assetAttachments, ticketAttachments, changes, changeBlackouts, changeApprovals, users, employees, employeeAccessRights, employeeOffboardingClearances, auditLogs, assets, assignments, contracts, softwareLicenseAllocations, dropdownOptions,
   incidents, incidentActivities, incidentCatalogItems, insertIncidentCatalogItemSchema, serviceRequestActivities, insertSlaPolicySchema,
   projects, projectManagers, projectTeamMembers, projectTasks, insertProjectSchema, slaPolicies, serviceRequests, insertIncidentSchema, updateIncidentSchema, insertServiceRequestSchema, catalogItems, serviceCatalogItems, roles, userRoles, vendors,
   assignmentGroups, assignmentGroupMembers, insertAssignmentGroupSchema, insertGroupMemberSchema,
@@ -75,6 +75,7 @@ import { registerEnterpriseReportingRoutes } from "./enterprise-reporting";
 import { receivePurchaseOrderInventory } from "./procurement-inventory";
 import { reserveFinancialDocumentNumber } from "./finance-document-numbering";
 import { respondWithApiError } from "./api-error-handler";
+import { registerRiskManagementRoutes } from "./risk-management";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -10837,132 +10838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) { respondWithApiError(res, error, "Failed to create service request"); }
   });
 
-  // ── Risk Management ──────────────────────────────────────────────────────
-  app.get("/api/risk-users", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (_req, res) => {
-    try {
-      res.json(await db.select({ id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName })
-        .from(users).where(eq(users.isActive, true)));
-    } catch (error) {
-      console.error("Failed to fetch risk owners:", error);
-      respondWithApiError(res, error, "Failed to fetch risk owners");
-    }
-  });
-
-  app.get("/api/risks", requireAuth, requireModule("risk_management"), async (_req, res) => {
-    try {
-      const rows = await db.select({
-        risk: risks,
-        linkedOwnerId: users.id,
-        linkedOwnerUsername: users.username,
-        linkedOwnerFirstName: users.firstName,
-        linkedOwnerLastName: users.lastName,
-        linkedChangeId: changes.id,
-        linkedChangeNumber: changes.changeNumber,
-        linkedChangeTitle: changes.title,
-      }).from(risks)
-        .leftJoin(users, eq(risks.ownerId, users.id))
-        .leftJoin(changes, eq(risks.changeId, changes.id));
-      const impactSummaries = await getChangeImpactSummaries(rows.flatMap(row => row.linkedChangeId ? [row.linkedChangeId] : []));
-      res.json(rows.map(row => ({
-        ...row.risk,
-        change: row.linkedChangeId ? {
-          id: row.linkedChangeId,
-          changeNumber: row.linkedChangeNumber,
-          title: row.linkedChangeTitle,
-          impactSummary: impactSummaries.get(row.linkedChangeId),
-        } : null,
-        owner: row.linkedOwnerId ? {
-          id: row.linkedOwnerId, username: row.linkedOwnerUsername,
-          firstName: row.linkedOwnerFirstName, lastName: row.linkedOwnerLastName,
-        } : null,
-      })));
-    } catch (error) {
-      console.error("Failed to fetch risks:", error);
-      respondWithApiError(res, error, "Failed to fetch risks");
-    }
-  });
-
-  app.post("/api/risks", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (req, res) => {
-    try {
-      const bodySchema = z.object({
-        title: z.string().trim().min(1).max(200),
-        changeId: z.string().nullable().optional(),
-        description: z.string().max(5000).nullable().optional(),
-        category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]),
-        likelihood: z.number().int().min(1).max(5),
-        impact: z.number().int().min(1).max(5),
-        mitigation: z.string().max(5000).nullable().optional(),
-        contingency: z.string().max(5000).nullable().optional(),
-        ownerId: z.string().nullable().optional(),
-        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-        residualLikelihood: z.number().int().min(1).max(5).nullable().optional(),
-        residualImpact: z.number().int().min(1).max(5).nullable().optional(),
-        status: z.enum(["identified", "mitigating", "accepted", "closed"]).optional(),
-        acceptanceReason: z.string().max(2000).nullable().optional(),
-      });
-      const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid risk assessment", errors: parsed.error.flatten() });
-      if (parsed.data.status === "accepted" && !parsed.data.acceptanceReason?.trim()) {
-        return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
-      }
-      const user = req.user as any;
-      const [risk] = await db.insert(risks).values({
-        ...parsed.data,
-        riskScore: parsed.data.impact * parsed.data.likelihood,
-        createdById: user.id,
-      }).returning();
-      await logAudit(user.id, "CREATE", "risks", risk.id, risk.title, null, risk, req);
-      res.status(201).json(risk);
-    } catch (error) {
-      console.error("Failed to create risk:", error);
-      respondWithApiError(res, error, "Failed to create risk");
-    }
-  });
-
-  app.put("/api/risks/:riskId", requireAuth, requirePermission("change_manage"), requireModule("risk_management"), async (req, res) => {
-    try {
-      const [oldRisk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId));
-      if (!oldRisk) return res.status(404).json({ message: "Risk not found" });
-      const bodySchema = z.object({
-        title: z.string().trim().min(1).max(200).optional(),
-        changeId: z.string().nullable().optional(),
-        description: z.string().max(5000).nullable().optional(),
-        category: z.enum(["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"]).optional(),
-        likelihood: z.number().int().min(1).max(5).optional(),
-        impact: z.number().int().min(1).max(5).optional(),
-        mitigation: z.string().max(5000).nullable().optional(),
-        contingency: z.string().max(5000).nullable().optional(),
-        ownerId: z.string().nullable().optional(),
-        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-        residualLikelihood: z.number().int().min(1).max(5).nullable().optional(),
-        residualImpact: z.number().int().min(1).max(5).nullable().optional(),
-        status: z.enum(["identified", "mitigating", "accepted", "closed"]).optional(),
-        acceptanceReason: z.string().max(2000).nullable().optional(),
-      });
-      const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid risk assessment", errors: parsed.error.flatten() });
-      const nextReason = parsed.data.acceptanceReason !== undefined
-        ? parsed.data.acceptanceReason
-        : oldRisk.acceptanceReason;
-      const nextStatus = parsed.data.status ?? oldRisk.status;
-      if (nextStatus === "accepted" && !nextReason?.trim()) {
-        return res.status(400).json({ message: "An acceptance reason is required for accepted risks" });
-      }
-      const nextImpact = parsed.data.impact ?? oldRisk.impact;
-      const nextLikelihood = parsed.data.likelihood ?? oldRisk.likelihood;
-      const [risk] = await db.update(risks).set({
-        ...parsed.data,
-        riskScore: nextImpact * nextLikelihood,
-        updatedAt: new Date(),
-      })
-        .where(eq(risks.id, req.params.riskId)).returning();
-      await logAudit((req.user as any).id, "UPDATE", "risks", risk.id, risk.title, oldRisk, risk, req);
-      res.json(risk);
-    } catch (error) {
-      console.error("Failed to update risk:", error);
-      respondWithApiError(res, error, "Failed to update risk");
-    }
-  });
+  registerRiskManagementRoutes(app, requireAuth, requirePermission, requireModule);
 
   // ── Change Management ────────────────────────────────────────────────────
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);

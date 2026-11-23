@@ -23,7 +23,10 @@ export const RESET_BUSINESS_TABLES = [
   "kb_articles", "kb_article_versions", "kb_article_attachments", "kb_article_control_mappings",
    "kb_ticket_links", "problems", "problem_incidents",
    "changes", "incidents", "incident_activities", "service_requests", "service_request_activities",
-  "service_requests_approvals", "risk_register", "change_risk_links", "change_ci_links", "change_asset_links",
+   "service_requests_approvals", "risk_register", "risk_mitigation_actions", "risk_review_history",
+   "risk_application_links", "risk_server_links", "risk_network_device_links", "risk_asset_links",
+   "risk_vendor_links", "risk_compliance_review_links", "risk_problem_links", "risk_change_links",
+   "change_risk_links", "change_ci_links", "change_asset_links",
   "change_approvals", "change_environment_stages", "change_pirs",
 ] as const;
 

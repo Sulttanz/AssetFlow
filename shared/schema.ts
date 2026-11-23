@@ -3017,10 +3017,11 @@ export type InsertServiceRequest = z.infer<typeof insertServiceRequestSchema>;
 
 export const risks = pgTable("risk_register", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskNumber: text("risk_number").notNull(),
   changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
-  category: text("category").notNull().default("operational"),
+  category: text("category").notNull().default("Service Delivery & ITSM"),
   likelihood: integer("likelihood").notNull(),
   impact: integer("impact").notNull(),
   riskScore: integer("risk_score").notNull().default(0),
@@ -3032,13 +3033,145 @@ export const risks = pgTable("risk_register", {
   residualImpact: integer("residual_impact"),
   status: text("status").notNull().default("identified"),
   acceptanceReason: text("acceptance_reason"),
+  threatSource: text("threat_source"),
+  vulnerability: text("vulnerability"),
+  ciaImpact: jsonb("cia_impact").$type<{ confidentiality: boolean; integrity: boolean; availability: boolean }>()
+    .notNull().default(sql`'{"confidentiality":false,"integrity":false,"availability":false}'::jsonb`),
+  existingControls: text("existing_controls"),
+  controlEffectiveness: text("control_effectiveness"),
+  targetImpact: integer("target_impact"),
+  targetLikelihood: integer("target_likelihood"),
+  treatmentStrategy: text("treatment_strategy").notNull().default("Mitigate"),
+  reviewFrequency: text("review_frequency").notNull().default("Quarterly"),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  nextReviewDate: date("next_review_date"),
+  contingencyPlan: text("contingency_plan"),
+  acceptanceJustification: text("acceptance_justification"),
+  acceptedByUserId: varchar("accepted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  acceptedAt: timestamp("accepted_at"),
+  acceptanceExpiresAt: date("acceptance_expires_at"),
   createdById: varchar("created_by_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 }, table => [
   index("risk_register_change_status_idx").on(table.changeId, table.status),
   index("risk_register_owner_idx").on(table.ownerId),
+  uniqueIndex("risk_register_number_uq").on(table.riskNumber),
+  index("risk_register_review_due_idx").on(table.nextReviewDate),
+  index("risk_register_acceptance_expiry_idx").on(table.acceptanceExpiresAt),
+  check("risk_register_likelihood_range", sql`${table.likelihood} BETWEEN 1 AND 5`),
+  check("risk_register_impact_range", sql`${table.impact} BETWEEN 1 AND 5`),
+  check("risk_register_residual_likelihood_range", sql`${table.residualLikelihood} IS NULL OR ${table.residualLikelihood} BETWEEN 1 AND 5`),
+  check("risk_register_residual_impact_range", sql`${table.residualImpact} IS NULL OR ${table.residualImpact} BETWEEN 1 AND 5`),
+  check("risk_register_target_impact_range", sql`${table.targetImpact} IS NULL OR ${table.targetImpact} BETWEEN 1 AND 5`),
+  check("risk_register_target_likelihood_range", sql`${table.targetLikelihood} IS NULL OR ${table.targetLikelihood} BETWEEN 1 AND 5`),
+  check("risk_register_treatment_strategy_check", sql`${table.treatmentStrategy} IN ('Mitigate', 'Accept', 'Transfer', 'Avoid')`),
+  check("risk_register_review_frequency_check", sql`${table.reviewFrequency} IN ('Monthly', 'Quarterly', 'Semi-Annual', 'Annual')`),
+  check("risk_register_control_effectiveness_check", sql`${table.controlEffectiveness} IS NULL OR ${table.controlEffectiveness} IN ('Effective', 'Partially Effective', 'Ineffective')`),
 ]);
+
+export const riskMitigationActions = pgTable("risk_mitigation_actions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  ownerUserId: varchar("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  dueDate: date("due_date"),
+  status: text("status").notNull().default("Open"),
+  evidenceNotes: text("evidence_notes"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+  updatedAt: timestamp("updated_at").notNull().default(sql`now()`),
+}, table => [
+  check("risk_mitigation_actions_status_check", sql`${table.status} IN ('Open', 'In Progress', 'Completed', 'Overdue')`),
+  index("risk_mitigation_actions_risk_status_idx").on(table.riskId, table.status),
+  index("risk_mitigation_actions_owner_due_idx").on(table.ownerUserId, table.dueDate),
+]);
+
+export const riskReviewHistory = pgTable("risk_review_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  reviewedById: varchar("reviewed_by_id").references(() => users.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull().default("review"),
+  notes: text("notes"),
+  previousInherentScore: integer("previous_inherent_score"),
+  inherentScore: integer("inherent_score").notNull(),
+  previousResidualScore: integer("previous_residual_score"),
+  residualScore: integer("residual_score"),
+  previousStatus: text("previous_status"),
+  status: text("status").notNull(),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [
+  index("risk_review_history_risk_created_idx").on(table.riskId, table.createdAt),
+]);
+
+export const riskApplicationLinks = pgTable("risk_application_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  applicationId: varchar("application_id").notNull().references(() => cmdbApplications.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_application_links_pair_uq").on(table.riskId, table.applicationId)]);
+
+export const riskServerLinks = pgTable("risk_server_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  serverId: varchar("server_id").notNull().references(() => servers.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_server_links_pair_uq").on(table.riskId, table.serverId)]);
+
+export const riskNetworkDeviceLinks = pgTable("risk_network_device_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  networkDeviceId: varchar("network_device_id").notNull().references(() => networkDevices.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_network_device_links_pair_uq").on(table.riskId, table.networkDeviceId)]);
+
+export const riskAssetLinks = pgTable("risk_asset_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  assetId: varchar("asset_id").notNull().references(() => assets.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_asset_links_pair_uq").on(table.riskId, table.assetId)]);
+
+export const riskVendorLinks = pgTable("risk_vendor_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_vendor_links_pair_uq").on(table.riskId, table.vendorId)]);
+
+export const riskComplianceReviewLinks = pgTable("risk_compliance_review_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  complianceReviewId: varchar("compliance_review_id").notNull().references(() => itComponentComplianceReviews.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_compliance_review_links_pair_uq").on(table.riskId, table.complianceReviewId)]);
+
+export const riskProblemLinks = pgTable("risk_problem_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  problemId: varchar("problem_id").notNull().references(() => problems.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_problem_links_pair_uq").on(table.riskId, table.problemId)]);
+
+export const riskChangeLinks = pgTable("risk_change_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  riskId: varchar("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  changeId: varchar("change_id").notNull().references(() => changes.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
+}, table => [uniqueIndex("risk_change_links_pair_uq").on(table.riskId, table.changeId)]);
+
+export const risksRelations = relations(risks, ({ many }) => ({
+  mitigationActions: many(riskMitigationActions),
+  reviewHistory: many(riskReviewHistory),
+  applicationLinks: many(riskApplicationLinks),
+  serverLinks: many(riskServerLinks),
+  networkDeviceLinks: many(riskNetworkDeviceLinks),
+  assetLinks: many(riskAssetLinks),
+  vendorLinks: many(riskVendorLinks),
+  complianceReviewLinks: many(riskComplianceReviewLinks),
+  problemLinks: many(riskProblemLinks),
+  changeLinks: many(riskChangeLinks),
+}));
 
 export const changeRiskLinks = pgTable("change_risk_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -3149,7 +3282,14 @@ export const changePIRs = pgTable("change_pirs", {
 });
 
 export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
-export const insertRiskSchema = createInsertSchema(risks).omit({ id: true, createdAt: true, updatedAt: true, createdById: true });
+export const insertRiskSchema = createInsertSchema(risks).omit({
+  id: true, riskNumber: true, riskScore: true, createdAt: true, updatedAt: true,
+  createdById: true, acceptedByUserId: true, acceptedAt: true,
+});
+export const insertRiskMitigationActionSchema = createInsertSchema(riskMitigationActions)
+  .omit({ id: true, riskId: true, createdAt: true, updatedAt: true, completedAt: true });
+export const insertRiskReviewHistorySchema = createInsertSchema(riskReviewHistory)
+  .omit({ id: true, riskId: true, reviewedById: true, createdAt: true });
 export const insertChangeApprovalSchema = createInsertSchema(changeApprovals).omit({ id: true, createdAt: true, decidedAt: true, originalApproverId: true, approverLabel: true });
 export const insertChangeEnvironmentStageSchema = createInsertSchema(changeEnvironmentStages, {
   attempts: z.array(z.object({
@@ -3162,6 +3302,9 @@ export const insertChangePIRSchema = createInsertSchema(changePIRs).omit({ id: t
 export type Change = typeof changes.$inferSelect;
 export type Risk = typeof risks.$inferSelect;
 export type InsertRisk = z.infer<typeof insertRiskSchema>;
+export type RiskMitigationAction = typeof riskMitigationActions.$inferSelect;
+export type InsertRiskMitigationAction = z.infer<typeof insertRiskMitigationActionSchema>;
+export type RiskReviewHistory = typeof riskReviewHistory.$inferSelect;
 export type InsertChange = z.infer<typeof insertChangeSchema>;
 export type ChangeApproval = typeof changeApprovals.$inferSelect;
 export type InsertChangeApproval = z.infer<typeof insertChangeApprovalSchema>;
