@@ -39,7 +39,7 @@ import
 
 import 
 {
- changeApprovals, changes, users 
+ auditLogs, changeApprovals, changes, users
 }
  from "@shared/schema"
 ;
@@ -1169,7 +1169,6 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
       return rows;
     });
     const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
-    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
 
     try {
       const remove = (managerId: string) => fetch(
@@ -1202,20 +1201,19 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
       expect(history[0].removedAt).toBeInstanceOf(Date);
       expect(await storage.getChangeApprovals(changeId)).toEqual([]);
 
-      expect(auditSpy).toHaveBeenCalledTimes(1);
-      expect(auditSpy.mock.calls[0][0]).toMatchObject({
+      const [audit] = await db.select().from(auditLogs).where(eq(auditLogs.recordId, approvalId));
+      expect(audit).toMatchObject({
         userId: winnerId,
         action: "DELETE",
         tableName: "change_approvals",
         recordId: approvalId,
       });
-      expect(JSON.parse(auditSpy.mock.calls[0][0].newValues ?? "{}")).toMatchObject({
+      expect(JSON.parse(audit.newValues!)).toMatchObject({
         removedById: winnerId,
       });
     } finally {
       readSpy.mockRestore();
       permissionSpy.mockRestore();
-      auditSpy.mockRestore();
     }
   }, 15_000);
 
@@ -2808,12 +2806,81 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
       const [removed] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
       expect(removed).toMatchObject({ decision: "pending", approverId, removedById: managerId });
       expect(removed.removedAt).toBeInstanceOf(Date);
+      const [removalAudit] = await db.select().from(auditLogs).where(eq(auditLogs.recordId, approvalId));
+      expect(removalAudit).toMatchObject({
+        userId: managerId,
+        action: "DELETE",
+        tableName: "change_approvals",
+      });
+      expect(JSON.parse(removalAudit.newValues!)).toMatchObject({
+        changeId,
+        approverId,
+        removedById: managerId,
+      });
       const [afterRemoval] = await db.select().from(changes).where(eq(changes.id, changeId));
       expect(afterRemoval).toMatchObject({ status: "submitted", approvedAt: null });
       expect(await storage.getChangeApprovals(changeId)).toEqual([]);
     } finally {
       permissionSpy.mockRestore();
       auditSpy.mockRestore();
+    }
+  });
+
+  it("rolls back CAB removal when its audit event cannot be stored", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "CAB audit persistence failure",
+      status: "submitted", cabRequired: true,
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId, originalApproverId: approverId,
+      approverLabel: "CAB Approver", decision: "pending",
+    });
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+
+    try {
+      await appPool.query(`
+        CREATE FUNCTION reject_cab_removal_audit() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.table_name = 'change_approvals' AND NEW.action = 'DELETE' THEN
+            RAISE EXCEPTION 'simulated audit storage outage';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER reject_cab_removal_audit
+        BEFORE INSERT ON audit_logs
+        FOR EACH ROW EXECUTE FUNCTION reject_cab_removal_audit();
+      `);
+
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`, {
+        method: "DELETE",
+        headers: { "x-test-user": managerId },
+      });
+      expect(response.status).toBe(500);
+
+      const [stillAssigned] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
+      expect(stillAssigned).toMatchObject({
+        id: approvalId,
+        removedAt: null,
+        removedById: null,
+      });
+      const [missingAudit] = await db.select().from(auditLogs).where(eq(auditLogs.recordId, approvalId));
+      expect(missingAudit).toBeUndefined();
+      expect(await storage.getChangeApprovals(changeId)).toHaveLength(1);
+    } finally {
+      await appPool.query("DROP TRIGGER IF EXISTS reject_cab_removal_audit ON audit_logs");
+      await appPool.query("DROP FUNCTION IF EXISTS reject_cab_removal_audit()");
+      permissionSpy.mockRestore();
     }
   });
 
@@ -2973,6 +3040,7 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
         removedAt: removed!.removedAt,
       }]);
     } finally {
+      await db.delete(auditLogs).where(eq(auditLogs.recordId, approvalId));
       await db.delete(changes).where(eq(changes.id, changeId));
       await db.delete(users).where(eq(users.id, approverId));
       await db.delete(users).where(eq(users.id, managerId));
@@ -3150,6 +3218,7 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
       } finally {
         terminalUpdateSpy.mockRestore();
         removeSpy.mockRestore();
+        await db.delete(auditLogs).where(eq(auditLogs.recordId, pendingId));
         await db.delete(changes).where(eq(changes.id, changeId));
         await db.delete(users).where(eq(users.id, pendingVoterId));
         await db.delete(users).where(eq(users.id, approvedVoterId));

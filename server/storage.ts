@@ -402,7 +402,10 @@ export interface IStorage {
   getAllChangeApprovalRecords(changeId: string): Promise<ChangeApproval[]>;
   createChangeApproval(approval: InsertChangeApproval): Promise<ChangeApproval>;
   updateChangeApproval(changeId: string, id: string, decision: string, comments?: string, expectedReviewVersion?: number): Promise<ChangeApproval | undefined>;
-  removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined>;
+  removeChangeApproval(id: string, removedById: string, auditContext?: {
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }): Promise<ChangeApproval | undefined>;
   getChangePIR(changeId: string): Promise<ChangePIR | undefined>;
   createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR>;
   updateChangePIR(changeId: string, pir: Partial<InsertChangePIR>): Promise<ChangePIR | undefined>;
@@ -2836,7 +2839,11 @@ export class MemStorage implements IStorage {
     return { id: randomUUID(), ...approval, approverId: approver.id, originalApproverId: approver.id, approverLabel: [approver.firstName, approver.lastName].filter(Boolean).join(" ") || approver.username, decision: approval.decision ?? "pending", comments: approval.comments ?? null, decidedAt: null, reviewVersion: 1, decisionHistory: [], removedAt: null, removedById: null, removedByLabel: null, createdAt: new Date() };
   }
   async updateChangeApproval(_changeId: string, _id: string, _decision: string, _comments?: string, _expectedReviewVersion?: number): Promise<ChangeApproval | undefined> { return undefined; }
-  async removeChangeApproval(_id: string, _removedById: string): Promise<ChangeApproval | undefined> { return undefined; }
+  async removeChangeApproval(
+    _id: string,
+    _removedById: string,
+    _auditContext?: { ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<ChangeApproval | undefined> { return undefined; }
   async getChangePIR(_changeId: string): Promise<ChangePIR | undefined> { return undefined; }
   async createChangePIR(pir: InsertChangePIR & { changeId: string; completedById?: string }): Promise<ChangePIR> {
     return { id: randomUUID(), changeId: pir.changeId, outcome: pir.outcome ?? "successful", summary: pir.summary, lessonsLearned: pir.lessonsLearned ?? null, incidentsCaused: pir.incidentsCaused ?? null, followUpActions: pir.followUpActions ?? null, completedById: pir.completedById ?? null, createdAt: new Date(), updatedAt: new Date() };
@@ -4946,7 +4953,11 @@ export class DatabaseStorage implements IStorage {
       return approval;
     });
   }
-  async removeChangeApproval(id: string, removedById: string): Promise<ChangeApproval | undefined> {
+  async removeChangeApproval(
+    id: string,
+    removedById: string,
+    auditContext: { ipAddress?: string | null; userAgent?: string | null } = {},
+  ): Promise<ChangeApproval | undefined> {
     const [remover] = await db.select().from(users).where(eq(users.id, removedById));
     if (!remover) throw new Error("CAB remover account not found");
     const removedByLabel = [remover.firstName, remover.lastName].filter(Boolean).join(" ") || remover.username;
@@ -4962,6 +4973,11 @@ export class DatabaseStorage implements IStorage {
         .where(eq(changes.id, target.changeId)).for("update");
       if (!change) return undefined;
 
+      const [previous] = await tx.select().from(changeApprovals)
+        .where(and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, target.changeId)))
+        .for("update");
+      if (!previous) return undefined;
+
       const [removed] = await tx.update(changeApprovals)
         .set({ removedAt: new Date(), removedById, removedByLabel })
         .where(and(eq(changeApprovals.id, id), eq(changeApprovals.changeId, target.changeId),
@@ -4969,6 +4985,31 @@ export class DatabaseStorage implements IStorage {
           or(eq(changeApprovals.decision, "pending"), isNull(changeApprovals.decision))))
         .returning();
       if (!removed) return undefined;
+
+      // Keep the compliance event in the same transaction as the soft removal.
+      // If audit persistence fails, the assignment history must remain active.
+      await tx.insert(auditLogs).values({
+        userId: removedById,
+        action: "DELETE",
+        tableName: "change_approvals",
+        recordId: removed.id,
+        recordName: `CAB approver ${removed.originalApproverId} on change ${removed.changeId}`,
+        oldValues: JSON.stringify({
+          changeId: previous.changeId,
+          approverId: previous.originalApproverId,
+          decision: previous.decision,
+          removedAt: previous.removedAt,
+        }),
+        newValues: JSON.stringify({
+          changeId: removed.changeId,
+          approverId: removed.originalApproverId,
+          decision: removed.decision,
+          removedAt: removed.removedAt,
+          removedById: removed.removedById,
+        }),
+        ipAddress: auditContext.ipAddress ?? null,
+        userAgent: auditContext.userAgent ?? null,
+      });
 
       const active = await tx.select({ decision: changeApprovals.decision })
         .from(changeApprovals)

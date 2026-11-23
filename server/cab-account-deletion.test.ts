@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { Pool } from "pg";
-import { changeApprovals, changes, users } from "@shared/schema";
+import { auditLogs, changeApprovals, changes, users } from "@shared/schema";
 import { cabApprovalsGranted } from "./cab-gate";
 import { initializeTestSchema, testDatabaseUrlForSchema } from "./test-database";
 
@@ -119,17 +119,23 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
       const removed = await storage.removeChangeApproval(pending.id, removerId);
       expect(removed?.removedAt).toBeInstanceOf(Date);
       expect(removed?.removedByLabel).toBe("Test Manager");
+      const [removalAudit] = await db.select().from(auditLogs).where(eq(auditLogs.recordId, pending.id));
+      expect(removalAudit).toMatchObject({
+        userId: removerId,
+        action: "DELETE",
+        tableName: "change_approvals",
+      });
+      expect(JSON.parse(removalAudit.newValues!)).toMatchObject({ removedById: removerId });
       const remaining = await storage.getChangeApprovals(changeId);
       expect(remaining.map(approval => approval.id)).toEqual([decided!.id]);
       expect(cabApprovalsGranted(remaining)).toBe(true);
       expect((await storage.getAllChangeApprovalRecords(changeId))).toHaveLength(2);
-      expect(await storage.deleteUser(removerId)).toBe(true);
       const details = await storage.getChange(changeId);
       expect(details?.approvals?.map(a => a.id)).toEqual([decided!.id]);
       expect(details?.removedApproverIds).toEqual([approverId]);
       expect(details?.removedApprovals).toMatchObject([{
         id: pending.id, originalApproverId: approverId, approverLabel: "Casey Reviewer",
-        removedById: null, removedByLabel: "Test Manager", removedAt: removed!.removedAt,
+        removedById: removerId, removedByLabel: "Test Manager", removedAt: removed!.removedAt,
       }]);
     } finally {
       // Only delete fixtures identified by their generated IDs; never touch existing changes or users.
@@ -137,12 +143,16 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
         await db.delete(changes).where(eq(changes.id, changeId)); // cascades to fixture approvals
       } finally {
         try {
-          await db.delete(users).where(eq(users.id, approverId));
+          await db.delete(auditLogs).where(eq(auditLogs.userId, removerId));
         } finally {
           try {
-            await db.delete(users).where(eq(users.id, decidedApproverId));
+            await db.delete(users).where(eq(users.id, approverId));
           } finally {
-            await db.delete(users).where(eq(users.id, removerId));
+            try {
+              await db.delete(users).where(eq(users.id, decidedApproverId));
+            } finally {
+              await db.delete(users).where(eq(users.id, removerId));
+            }
           }
         }
       }

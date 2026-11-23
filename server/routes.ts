@@ -11750,12 +11750,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "A CAB vote that has already been cast cannot be removed" });
       }
 
-      const removed = await storage.removeChangeApproval(approval.id, user.id);
+      const removed = await storage.removeChangeApproval(approval.id, user.id, {
+        ipAddress: req.ip || null,
+        userAgent: req.get("user-agent") || null,
+      });
       if (!removed) return res.status(409).json({ message: "This CAB approval was already voted on or removed" });
-      await logAudit(user.id, "DELETE", "change_approvals", removed.id,
-        `CAB approver ${removed.originalApproverId} on change ${removed.changeId}`,
-        { changeId: approval.changeId, approverId: approval.originalApproverId, decision: approval.decision, removedAt: approval.removedAt },
-        { changeId: removed.changeId, approverId: removed.originalApproverId, decision: removed.decision, removedAt: removed.removedAt, removedById: removed.removedById }, req);
       await publishCabChange();
       res.json({ success: true });
     } catch (error) {
