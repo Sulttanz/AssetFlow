@@ -39,7 +39,6 @@ import {
 } from "@shared/schema";
 import { MODULE_REGISTRY, isValidModuleKey, getModuleDefinition } from "@shared/modules";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
-import { APP_VERSION } from "@shared/version";
 import { calculateDocumentTotals, ProcurementPricingError } from "@shared/procurement-pricing";
 import { canTransitionPurchaseOrder } from "@shared/purchase-order-lifecycle";
 import { db, pool } from "./db";
@@ -55,7 +54,6 @@ import { isDemoViewer } from "@shared/demo-viewer";
 import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks, AssetLicenseError } from "./asset-licensing";
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
-import { compareAppVersions } from "./startup-migrations";
 import { getRecentAppReleaseHistory, getSystemMigrationStatus, readPackageAppVersion } from "./app-release-history";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
 import { registerKnowledgeRoutes } from "./knowledge-governance";
@@ -77,6 +75,7 @@ import { receivePurchaseOrderInventory } from "./procurement-inventory";
 import { reserveFinancialDocumentNumber } from "./finance-document-numbering";
 import { respondWithApiError } from "./api-error-handler";
 import { registerRiskManagementRoutes } from "./risk-management";
+import { registerSystemUpdateCheckRoute } from "./system-update-check-route";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -3368,23 +3367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/system/update-check", requireAuth, requirePermission("system_admin"), async (_req, res) => {
-    const latestVersion = process.env.UPDATE_AVAILABLE_VERSION?.trim() || null;
-    try {
-      const updateAvailable = latestVersion
-        ? compareAppVersions(latestVersion, APP_VERSION) > 0
-        : false;
-      res.json({
-        currentVersion: APP_VERSION,
-        latestVersion,
-        updateAvailable,
-        checkedAt: new Date().toISOString(),
-        sourceConfigured: latestVersion !== null,
-      });
-    } catch (error) {
-      respondWithApiError(res, error, "Configured update version is invalid");
-    }
-  });
+  registerSystemUpdateCheckRoute(app, requireAuth, requirePermission("system_admin"));
 
   // System status route - check if system is initialized
   app.get("/api/system/status", async (req, res) => {

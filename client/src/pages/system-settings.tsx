@@ -35,10 +35,11 @@ export default function SystemSettings() {
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState<{
     currentVersion: string;
-    latestVersion: string | null;
+    latestAvailableVersion: string | null;
     updateAvailable: boolean;
-    checkedAt: string;
-    sourceConfigured: boolean;
+    source: "env_override" | "git_release" | "none";
+    lastCheckedAt: string;
+    message: string;
   } | null>(null);
 
   const { data: versionInfo, isLoading: isVersionLoading } = useQuery<{
@@ -345,7 +346,7 @@ export default function SystemSettings() {
             System Update &amp; Version
           </CardTitle>
           <CardDescription>
-            Review this installation’s version and compare it with the manually configured release version.
+            Review this installation’s version and compare it with a configured release version or GitHub release/tag.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -386,22 +387,39 @@ export default function SystemSettings() {
             <div className="space-y-1" role="status" data-testid="update-check-result">
               <p className="text-sm">
                 {updateCheckResult.updateAvailable
-                  ? `Version ${updateCheckResult.latestVersion} is newer than the installed version ${updateCheckResult.currentVersion}. This check does not install it.`
-                  : updateCheckResult.sourceConfigured
-                    ? `The configured release version matches or is not newer than ${updateCheckResult.currentVersion}.`
-                    : `No release version is configured. Current version: ${updateCheckResult.currentVersion}. Set UPDATE_AVAILABLE_VERSION to enable comparison.`}
+                  ? `Version ${updateCheckResult.latestAvailableVersion} is newer than the installed version ${updateCheckResult.currentVersion}. This check does not install it.`
+                  : updateCheckResult.source !== "none"
+                    ? `No newer version is available. Installed version: ${updateCheckResult.currentVersion}; latest checked version: ${updateCheckResult.latestAvailableVersion}.`
+                    : updateCheckResult.message}
               </p>
               <p className="text-xs text-muted-foreground">
-                Checked {appFormatDateTime(updateCheckResult.checkedAt)}
-                {updateCheckResult.latestVersion ? ` · Configured release: ${updateCheckResult.latestVersion}` : ""}
+                Checked {appFormatDateTime(updateCheckResult.lastCheckedAt)}
+                {" · Source: "}
+                {updateCheckResult.source === "env_override"
+                  ? "UPDATE_AVAILABLE_VERSION"
+                  : updateCheckResult.source === "git_release"
+                    ? "GitHub release/tag"
+                    : "Not available"}
+                {updateCheckResult.latestAvailableVersion ? ` · Latest: ${updateCheckResult.latestAvailableVersion}` : ""}
               </p>
             </div>
           )}
           <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-            This is a version comparison only; it does not download or apply updates. On Replit, rebuild and deploy changes
-            with <span className="font-medium text-foreground">Republish</span>. For on-premises installations,
-            UPDATE_AVAILABLE_VERSION must be set by the deployment administrator; acquiring and installing releases
-            still requires your Git/release and deployment process.
+            <p className="font-medium text-foreground">Replit release steps</p>
+            <p className="mt-1">
+              Bump <code>version</code> in <code>package.json</code> (for example, 2.2.1 or 2.3.0), commit and tag the
+              release in Git as <code>vX.Y.Z</code>, then click <span className="font-medium text-foreground">Republish</span>.
+              Republish builds the deployed bundle; the new instance records the installed version in Upgrade &amp; Release History.
+            </p>
+            <p className="mt-2">
+              Update checks use <code>UPDATE_AVAILABLE_VERSION</code> first when set. Otherwise they can check a public GitHub release or tag configured by
+              <code> GITHUB_RELEASE_API_URL</code> or <code>RELEASE_REPO_URL</code>. The check runs on the server and returns no repository URL or credentials.
+              If GitHub is unconfigured or unreachable, the check reports that status without affecting the application.
+            </p>
+            <p className="mt-2">
+              This is a comparison only; it never downloads or installs code. On-premises releases are installed by the operator using the
+              <code> DEPLOY_ONPREM.md</code> runbook.
+            </p>
           </div>
           <Button
             type="button"

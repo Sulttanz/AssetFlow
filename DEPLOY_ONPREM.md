@@ -108,6 +108,9 @@ through the deployment secret store.
 - The readiness endpoint returns only a health status and HTTP 503 when the database is
   unavailable; it does not disclose connection details.
 
-The in-app **Check for Updates** action compares the installed version with
-`UPDATE_AVAILABLE_VERSION`; it does not download or install releases. This runbook is the
-on-premises deployment operator's release installation path.
+The administrator-only in-app **Check for Updates** action checks
+`UPDATE_AVAILABLE_VERSION` first, then a configured `GITHUB_RELEASE_API_URL` or
+`RELEASE_REPO_URL`. It reports version status only; it does not download or install code.
+After reviewing a release, the on-premises operator stages and applies it with this
+runbook. GitHub checks use public release/tag information and never return the configured
+repository URL or credentials to the client.

@@ -35,9 +35,25 @@ Set these values in the hosting platform's secret/environment-variable manager. 
 | `HOST` | No | Bind address; defaults to `0.0.0.0`. |
 | `ONPREM_MIGRATIONS_DIR` | No | Override for the additive SQL migration directory; defaults to `migrations/onprem`. |
 | `CAB_EVENTS_DATABASE_URL` | No | Optional separate PostgreSQL connection for CAB event coordination. If omitted, `DATABASE_URL` is used. |
-| `UPDATE_AVAILABLE_VERSION` | No | Optional version shown by the application update-status endpoint. |
+| `UPDATE_AVAILABLE_VERSION` | No | Optional explicit update-version override. Takes precedence over GitHub checks. |
+| `GITHUB_RELEASE_API_URL` | No | Optional HTTPS GitHub REST API URL for a latest release, e.g. `/repos/OWNER/REPO/releases/latest`. |
+| `RELEASE_REPO_URL` | No | Optional public GitHub repository URL; used to check its latest Git tag when no API URL or override is set. |
 
 The optional `VITEST_TEST_DATABASE_URL` and `CAB_SCHEMA_SYNC_TEST_DATABASE_URL` variables are for isolated test databases only. Never point them at production data.
+
+## Update checks and release publishing
+
+The administrator-only `GET /api/system/update-check` endpoint checks sources in this
+order: `UPDATE_AVAILABLE_VERSION`, `GITHUB_RELEASE_API_URL`, then `RELEASE_REPO_URL`.
+GitHub requests are made server-side with a short timeout. Unset, invalid, offline, or
+unreachable sources return a safe `source: "none"` status and do not interrupt startup.
+The response includes only current/latest versions, comparison result, source kind,
+timestamp, and a general status message—not configured repository URLs or credentials.
+GitHub release checks currently use public releases/tags.
+
+On Replit, the GitHub check does not fetch source code or deploy it. Republish builds the
+current project; after startup, that installed version is recorded in `app_release_history`.
+For on-premises releases, use the operator workflow in [DEPLOY_ONPREM.md](DEPLOY_ONPREM.md).
 
 On an empty installation, visit `/initialize` and create the first administrator account with a unique username and a strong password. The server validates the credentials, hashes the password, rate-limits attempts, and disables first-run initialization as soon as an account exists. No preset administrator credentials are used or displayed.
 
@@ -55,6 +71,10 @@ On an empty installation, visit `/initialize` and create the first administrator
 4. At startup, the service runs the additive SQL migrations in `migrations/onprem` before accepting requests. Ensure the database role can create the migration ledger schema/table and apply the migration statements.
 
 Replit's deployment configuration currently targets Autoscale. Set production-only secrets in Publishing settings rather than relying on development secrets. Keep `SESSION_SECRET` consistent across application instances.
+
+To publish a release, bump `version` in `package.json`, commit and tag it in Git as
+`vX.Y.Z`, then click **Republish**. Republish builds the deployed bundle; the new instance
+records the installed version in `app_release_history`.
 
 ## On-premises deployment
 
