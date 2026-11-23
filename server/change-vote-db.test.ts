@@ -2979,6 +2979,79 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it("rolls back CAB removal when PostgreSQL rejects status recalculation", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const remainingApproverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+      { id: remainingApproverId, username: `approver-${remainingApproverId}`,
+        email: `${remainingApproverId}@example.invalid`, password: "test-only",
+        firstName: "CAB", lastName: "Remaining Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Atomic CAB removal",
+      status: "submitted", cabRequired: true,
+    });
+    await db.insert(changeApprovals).values([
+      {
+        id: approvalId, changeId, approverId, originalApproverId: approverId,
+        approverLabel: "CAB Approver", decision: "pending",
+      },
+      {
+        changeId, approverId: remainingApproverId, originalApproverId: remainingApproverId,
+        approverLabel: "CAB Remaining Approver", decision: "approved", decidedAt: new Date(),
+      },
+    ]);
+
+    try {
+      await setupPool.query(`
+        CREATE FUNCTION "${schema}".fail_cab_status_recalculation() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.id = '${changeId}' AND NEW.status = 'approved' THEN
+            RAISE EXCEPTION 'fixture CAB status recalculation failure';
+          END IF;
+          RETURN NEW;
+        END
+        $$
+      `);
+      await setupPool.query(`
+        CREATE TRIGGER fail_cab_status_recalculation
+        BEFORE UPDATE OF status ON "${schema}".changes
+        FOR EACH ROW EXECUTE FUNCTION "${schema}".fail_cab_status_recalculation()
+      `);
+
+      await expect(storage.removeChangeApproval(approvalId, managerId))
+        .rejects.toThrow(/Failed query: update "changes"/);
+
+      const [savedApproval] = await db.select().from(changeApprovals)
+        .where(eq(changeApprovals.id, approvalId));
+      expect(savedApproval).toMatchObject({
+        decision: "pending",
+        approverId,
+        removedAt: null,
+        removedById: null,
+        removedByLabel: null,
+      });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange).toMatchObject({ status: "submitted", approvedAt: null });
+    } finally {
+      await setupPool.query(`DROP TRIGGER IF EXISTS fail_cab_status_recalculation ON "${schema}".changes`);
+      await setupPool.query(`DROP FUNCTION IF EXISTS "${schema}".fail_cab_status_recalculation()`);
+      await db.delete(changes).where(eq(changes.id, changeId));
+      await db.delete(users).where(eq(users.id, managerId));
+      await db.delete(users).where(eq(users.id, approverId));
+      await db.delete(users).where(eq(users.id, remainingApproverId));
+    }
+  });
+
   it.each([
     { status: "completed", first: "removal" },
     { status: "completed", first: "terminal update" },
