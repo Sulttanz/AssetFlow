@@ -407,8 +407,8 @@ export default function SystemSettings() {
                     </p>
                     <ul className="text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
                       <li>All business data will be permanently deleted</li>
-                      <li>System Administrator accounts and their sign-in sessions will be preserved; all other user accounts, their role assignments, and sessions will be removed</li>
-                      <li>Role, permission, and role-permission definitions will be preserved</li>
+                      <li>All user accounts, login credentials, active status, sign-in sessions, and assigned roles will be preserved</li>
+                      <li>Role and permission definitions and role-permission mappings will be preserved</li>
                       <li>System/module settings, dropdowns, locations, departments, warehouses, and SLA policies will be preserved</li>
                       <li>Repository-managed System Manual guides and their versions will be preserved; built-in service and incident catalog entries will be restored</li>
                       <li>Project memberships, tasks, project links, and other business records will be cleared</li>

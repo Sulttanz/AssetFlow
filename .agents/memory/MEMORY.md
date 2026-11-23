@@ -37,7 +37,7 @@
 - [Contract governance boundaries](vendor-sla-governance.md) — vendor SLAs extend financial contracts; customer support agreements remain separate; preserve lifecycle and currency boundaries.
 - [Procurement settlement boundaries](procurement-settlement-boundary.md) — invoice confirmation must not duplicate stock; supplier debit notes reduce payables without counting as cash paid.
 - [Bulk import governance](bulk-import-governance.md) — migrating records must not bypass publication, approvals, or access authorization.
-- [System data reset boundary](system-data-reset-boundary.md) — resets delete non-admin accounts but preserve administrator access, RBAC definitions, system configuration, and require isolated destructive verification.
+- [System data reset boundary](system-data-reset-boundary.md) — preserve all user accounts, role mappings, and sessions; detach employees and clear operational data in isolated tests.
 - [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.
 - [Login visual direction](login-visual-direction.md) — preserve the original navy, white and blue enterprise styling; avoid serif typography and technical badge clutter.
 - [Internal design direction](internal-design-system.md) — align all internal modules with shared blue/slate styling, simple headers/filter bars and soft semantic accents.
