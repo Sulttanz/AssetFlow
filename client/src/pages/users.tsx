@@ -68,7 +68,7 @@ export default function UsersPage() {
     return (
       user.firstName.toLowerCase().includes(searchLower) ||
       user.lastName.toLowerCase().includes(searchLower) ||
-      user.email.toLowerCase().includes(searchLower) ||
+      (user.email ?? "").toLowerCase().includes(searchLower) ||
       user.username.toLowerCase().includes(searchLower) ||
       roles.toLowerCase().includes(searchLower) ||
       (user.isActive ? "active" : "inactive").toLowerCase().includes(searchLower)

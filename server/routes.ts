@@ -1671,12 +1671,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         projectName: row.projectId ? projectNames.get(row.projectId) ?? null : null,
         creatorName: row.creatorId ? userDetails.get(row.creatorId)?.name ?? null : null,
         creatorEmail: row.creatorId ? userDetails.get(row.creatorId)?.email ?? null : null,
-        creatorPhone: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email.toLowerCase() ?? "")?.phone ?? null : null,
-        creatorMobile: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email.toLowerCase() ?? "")?.mobile ?? null : null,
+        creatorPhone: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email?.toLowerCase() ?? "")?.phone ?? null : null,
+        creatorMobile: row.creatorId ? employeeContacts.get(userDetails.get(row.creatorId)?.email?.toLowerCase() ?? "")?.mobile ?? null : null,
         requesterName: row.requesterId ? userDetails.get(row.requesterId)?.name ?? null : null,
         requesterEmail: row.requesterId ? userDetails.get(row.requesterId)?.email ?? null : null,
-        requesterPhone: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.phone ?? null : null,
-        requesterMobile: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null : null,
+        requesterPhone: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email?.toLowerCase() ?? "")?.phone ?? null : null,
+        requesterMobile: row.requesterId ? employeeContacts.get(userDetails.get(row.requesterId)?.email?.toLowerCase() ?? "")?.mobile ?? null : null,
         assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
     } catch (error) {
@@ -2155,8 +2155,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         consumableId: row.catalogItemId ? catalogConsumables.get(row.catalogItemId) ?? null : null,
         requesterName: userDetails.get(row.requesterId)?.name ?? null,
         requesterEmail: userDetails.get(row.requesterId)?.email ?? null,
-        requesterPhone: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.phone ?? null,
-        requesterMobile: employeeContacts.get(userDetails.get(row.requesterId)?.email.toLowerCase() ?? "")?.mobile ?? null,
+        requesterPhone: employeeContacts.get(userDetails.get(row.requesterId)?.email?.toLowerCase() ?? "")?.phone ?? null,
+        requesterMobile: employeeContacts.get(userDetails.get(row.requesterId)?.email?.toLowerCase() ?? "")?.mobile ?? null,
         assigneeName: (row.assigneeId || row.assignedToId) ? userDetails.get(row.assigneeId || row.assignedToId!)?.name ?? null : null,
       })));
     } catch (error) {
@@ -2665,7 +2665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .innerJoin(roles, eq(userRoles.roleId, roles.id))
         .where(eq(users.isActive, true))
         .orderBy(asc(users.firstName), asc(users.lastName));
-      const eligible = new Map<string, { id: string; name: string; email: string }>();
+      const eligible = new Map<string, { id: string; name: string; email: string | null }>();
       for (const row of rows) {
         if (!eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase())) continue;
         eligible.set(row.id, {
@@ -2751,7 +2751,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .innerJoin(roles, eq(userRoles.roleId, roles.id))
         .where(eq(assignmentGroupMembers.groupId, id))
         .orderBy(asc(users.firstName), asc(users.lastName));
-      const members = new Map<string, { id: string; username: string; name: string; email: string; isActive: boolean | null }>();
+      const members = new Map<string, { id: string; username: string; name: string; email: string | null; isActive: boolean | null }>();
       for (const row of rows) {
         const isEligible = eligibleAssignmentRoles.has(row.roleName.trim().toLowerCase()) ||
           (row.isActive === true && (await storage.getUserPermissions(row.id)).includes("system_admin"));

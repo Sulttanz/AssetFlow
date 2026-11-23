@@ -88,7 +88,7 @@ describe("knowledge persona and input policy", () => {
     const user = { id: "reader", roles: [{ name: role }] };
     const guide = { ...article, category: "System Administration & RBAC", isPublic: true, isSystemGuide: true, authorId: null, ownerId: null };
     expect(canReadKnowledge(user, guide)).toBe(true);
-    expect(canReadKnowledge(user, { ...guide, status: "draft" })).toBe(false);
+    expect(canReadKnowledge(user, { ...guide, status: "draft" })).toBe(canManageKnowledge(user));
   });
   it("requires an authenticated viewer and allows employee navigation without mutations", () => {
     expect(canReadKnowledge(null, article)).toBe(false);

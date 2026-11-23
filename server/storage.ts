@@ -2046,7 +2046,8 @@ export class MemStorage implements IStorage {
 
   private toRequesterDetails(user?: User) {
     if (!user) return undefined;
-    const employee = Array.from(this.employees.values()).find(e => e.email === user.email);
+    const employee = user.employeeId ? this.employees.get(user.employeeId)
+      : user.email ? Array.from(this.employees.values()).find(e => e.email === user.email) : undefined;
     let departmentName: string | null | undefined = employee?.department ?? undefined;
     let locationName: string | undefined;
     if (employee?.departmentId) {
@@ -4009,7 +4010,9 @@ export class DatabaseStorage implements IStorage {
 
   private async toRequesterDetails(user?: User) {
     if (!user) return undefined;
-    const employee = await db.select().from(employees).where(eq(employees.email, user.email)).then(r => r[0]);
+    const employee = user.employeeId
+      ? await db.select().from(employees).where(eq(employees.id, user.employeeId)).then(r => r[0])
+      : user.email ? await db.select().from(employees).where(eq(employees.email, user.email)).then(r => r[0]) : undefined;
     let departmentName: string | null | undefined = employee?.department ?? undefined;
     let locationName: string | undefined;
     if (employee?.departmentId) {

@@ -18,6 +18,10 @@ import { z } from "zod";
 
 // Create separate schemas for create and edit operations
 const baseFormSchema = insertUserSchema.extend({
+  email: z.string().trim().refine(
+    value => value === "" || z.email().safeParse(value).success,
+    "Enter a valid email address",
+  ).nullable().optional(),
   selectedRoles: z.array(z.string()).optional(),
   assignedProjectIds: z.array(z.string().uuid()).optional(),
 });
@@ -137,7 +141,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
       const { passwordConfirm, selectedRoles = [], assignedProjectIds = [], ...userData } = data;
-      const response = await apiRequest("POST", "/api/users", userData);
+      const response = await apiRequest("POST", "/api/users", { ...userData, email: userData.email?.trim() || null });
       const newUser = await response.json();
       const roleWarnings: string[] = [];
       if (projectsEnabled) {
@@ -190,7 +194,7 @@ export default function UserForm({ user, onSuccess, onCancel }: UserFormProps) {
         delete updateData.password;
       }
       
-      const response = await apiRequest("PUT", `/api/users/${user!.id}`, updateData);
+      const response = await apiRequest("PUT", `/api/users/${user!.id}`, { ...updateData, email: updateData.email?.trim() || null });
       const updatedUser = await response.json();
       const currentRoleIds = userRoles.map(role => role.id);
       const roleWarnings: string[] = [];

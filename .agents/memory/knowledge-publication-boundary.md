@@ -3,12 +3,10 @@ name: Knowledge publication boundary
 description: Employee-public semantics and why legacy publication or old revision visibility cannot be treated as authorization.
 ---
 
-The user specified: "End users see published end-user guides; IT agents and managers see full technical SOPs and KEDB runbooks."
+Published repository-owned system manuals are readable by all authenticated roles and all four End User personas, regardless of operational category, audience metadata, or ITSM licensing. This exception does not make custom internal articles public.
 
-`isPublic` means visible to authenticated employees, not anonymous Internet publication. Public policies and user guides are employee-eligible; technical SOPs, KEDB runbooks, and DR plans remain internal.
+`isPublic` means authenticated employee visibility, never anonymous Internet publication. Custom public policies/user guides remain employee-eligible; custom technical SOPs, KEDB runbooks, and DR plans retain their internal audience.
 
-Repository-synchronized system-manual Markdown defaults to an internal Technical SOP. A document is employee-visible only when its frontmatter explicitly sets `audience: employee` and its category is Policy or User Guide.
+**Why:** The user explicitly broadened the core System Manual's audience to every authenticated persona while retaining authorized IT staff authoring. Existing custom article publication is not evidence that internal content was approved for employee disclosure.
 
-**Why:** The legacy KB had published articles without any employee-public distinction. Existing publication is not evidence that internal content was approved for employee disclosure, so upgrades must not automatically make legacy published articles public.
-
-**How to apply:** Apply the same visibility boundary to list, search, detail, report, and history reads. Employee history is limited to the current accessible published snapshot, never historical private drafts or superseded snapshots. Keep full historical content staff-only, even when a newer version becomes employee-public. Treat repository docs as internal unless the source explicitly marks them for employee access.
+**How to apply:** Apply this distinction to list, search, detail, report, and history reads. Creation, editing, review, and publication require System Administrator, IT Manager, or IT Agent authority; repository-owned guide changes remain administrator-only. Employee history stays limited to the current accessible published snapshot, not historical private drafts or superseded content. Repository manuals must not contain credentials, secrets, or operational data that should remain restricted.

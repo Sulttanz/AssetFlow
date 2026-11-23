@@ -72,7 +72,7 @@ describe("on-prem startup migrations", () => {
 
   it("uses an additive startup migration for optional user email", async () => {
     const migration = await readFile("migrations/onprem/20261211_users_optional_email.sql", "utf8");
-    expect(() => assertAdditiveMigration(migration, "optional user email")).not.toThrow();
+    expect(() => assertAdditiveMigration(migration, "20261211_users_optional_email.sql")).not.toThrow();
     expect(migration).toMatch(/btrim\(email\)\s*=\s*''/i);
     expect(migration).toMatch(/ALTER COLUMN email DROP NOT NULL/i);
   });
