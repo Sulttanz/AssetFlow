@@ -57,6 +57,15 @@ app.use("/api", apiSecurityMiddleware());
 app.use("/api/data-migrations", dataMigrationRateLimit);
 app.use("/api/import", dataMigrationRateLimit);
 app.use("/api/system/clear-data", clearSystemDataRateLimit);
+app.get("/api/health", async (_req, res) => {
+  try {
+    const { pool } = await import("./db");
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ok" });
+  } catch {
+    res.status(503).json({ status: "unavailable" });
+  }
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -97,6 +106,12 @@ app.use((req, res, next) => {
     // applied. The runner uses its own ledger and excludes workspace history.
     console.log("🗃️  Applying on-prem database migrations...");
     await runStartupMigrations();
+    const { getSystemMigrationStatus, recordAppReleaseIfUpgraded } = await import("./app-release-history");
+    const migrationStatus = await getSystemMigrationStatus();
+    const release = await recordAppReleaseIfUpgraded(undefined, migrationStatus.schemaMigrationCount);
+    if (release) {
+      console.log(`Application release recorded: ${release.fromVersion ?? "initial installation"} → ${release.toVersion}.`);
+    }
     const { ensureDefaultCatalogs } = await import("./default-catalogs");
     await ensureDefaultCatalogs();
     console.log("Default service and incident catalogs are ready.");

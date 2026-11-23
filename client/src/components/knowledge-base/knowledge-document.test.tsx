@@ -57,10 +57,10 @@ describe("Knowledge Base shared document rendering", () => {
     render(<KnowledgeDocument content={body(source)} />);
     const article = screen.getByTestId("knowledge-document");
     expect(within(article).getByRole("heading", { level: 1 }).textContent?.trim().length).toBeGreaterThan(0);
-    for (const element of article.querySelectorAll("strong, code, kbd, a")) {
+    article.querySelectorAll("strong, code, kbd, a").forEach(element => {
       expect(element.textContent?.trim().length).toBeGreaterThan(0);
       expect(element.getAttribute("style")).toBeNull();
-    }
+    });
     if (_path.includes("internal-it-department-risk-management")) {
       expect(within(article).getByText("IT-RSK-001").tagName).toBe("STRONG");
       expect(within(article).getByText("risk_management").tagName).toBe("CODE");

@@ -1230,6 +1230,25 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"), // Optional: Browser/client info
 });
 
+export const appReleaseHistory = pgTable("app_release_history", {
+  id: serial("id").primaryKey(),
+  fromVersion: text("from_version"),
+  toVersion: text("to_version").notNull(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().default(sql`now()`),
+  migrationCount: integer("migration_count").notNull().default(0),
+  notes: text("notes"),
+  status: text("status").notNull().default("applied"),
+}, table => [
+  index("app_release_history_applied_at_idx").on(table.appliedAt),
+]);
+
+export const insertAppReleaseHistorySchema = createInsertSchema(appReleaseHistory).omit({
+  id: true,
+  appliedAt: true,
+});
+export type AppReleaseHistory = typeof appReleaseHistory.$inferSelect;
+export type InsertAppReleaseHistory = z.infer<typeof insertAppReleaseHistorySchema>;
+
 export const systemNotifications = pgTable("system_notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

@@ -45,6 +45,18 @@ export default function SystemSettings() {
     version: string;
     buildTimestamp: string;
     activeModules: string[];
+    schemaMigrationCount: number;
+    latestMigration: string | null;
+    environment: string;
+    releaseHistory: Array<{
+      id: number;
+      fromVersion: string | null;
+      toVersion: string;
+      appliedAt: string;
+      migrationCount: number;
+      notes: string | null;
+      status: string;
+    }>;
   }>({
     queryKey: ["/api/system/version"],
   });
@@ -340,11 +352,36 @@ export default function SystemSettings() {
           <div className="grid gap-2 text-sm sm:grid-cols-2">
             <p><span className="font-medium">Current version:</span> {isVersionLoading ? "Loading…" : versionInfo?.version ?? "Unavailable"}</p>
             <p><span className="font-medium">Build timestamp:</span> {versionInfo?.buildTimestamp ? appFormatDateTime(versionInfo.buildTimestamp) : "Unavailable"}</p>
+            <p><span className="font-medium">Environment:</span> {versionInfo?.environment ?? "Unavailable"}</p>
+            <p><span className="font-medium">Schema migrations:</span> {versionInfo?.schemaMigrationCount ?? "Unavailable"}</p>
+            <p className="min-w-0 sm:col-span-2"><span className="font-medium">Latest migration:</span> <span className="break-all font-mono text-xs">{versionInfo?.latestMigration ?? "None"}</span></p>
             <p className="sm:col-span-2">
               <span className="font-medium">Active modules:</span>{" "}
               {versionInfo?.activeModules?.length ? versionInfo.activeModules.join(", ") : "None"}
             </p>
           </div>
+          <section className="space-y-2" aria-labelledby="release-history-title">
+            <h3 id="release-history-title" className="text-sm font-semibold">Upgrade &amp; Release History</h3>
+            {versionInfo?.releaseHistory?.length ? (
+              <div className="max-w-full overflow-x-auto rounded-md border">
+                <table className="w-full min-w-[600px] text-left text-xs">
+                  <thead className="bg-muted/50 text-muted-foreground">
+                    <tr><th className="px-3 py-2 font-medium">Release</th><th className="px-3 py-2 font-medium">Applied</th><th className="px-3 py-2 font-medium">Migrations</th><th className="px-3 py-2 font-medium">Status / Notes</th></tr>
+                  </thead>
+                  <tbody>
+                    {versionInfo.releaseHistory.map(release => (
+                      <tr key={release.id} className="border-t align-top">
+                        <td className="whitespace-nowrap px-3 py-2 font-medium">{release.fromVersion ? `${release.fromVersion} → ${release.toVersion}` : release.toVersion}</td>
+                        <td className="whitespace-nowrap px-3 py-2">{appFormatDateTime(release.appliedAt)}</td>
+                        <td className="px-3 py-2">{release.migrationCount}</td>
+                        <td className="max-w-sm px-3 py-2"><span className="font-medium capitalize">{release.status}</span>{release.notes && <span className="text-muted-foreground"> · {release.notes}</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="text-xs text-muted-foreground">{isVersionLoading ? "Loading release history…" : "No release history has been recorded yet."}</p>}
+          </section>
           {updateCheckResult && (
             <div className="space-y-1" role="status" data-testid="update-check-result">
               <p className="text-sm">

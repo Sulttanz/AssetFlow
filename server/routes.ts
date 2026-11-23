@@ -56,6 +56,7 @@ import { allocateSoftwareSeat, releaseSoftwareSeat, updateAssetWithLicenseChecks
 import { z } from "zod";
 import { publishCabChange, publishItsmEnabled, subscribeToCabEvents, subscribeToItsmAccessEvents } from "./cab-events";
 import { compareAppVersions } from "./startup-migrations";
+import { getRecentAppReleaseHistory, getSystemMigrationStatus, readPackageAppVersion } from "./app-release-history";
 import { buildReportWorkbook, reportExportSchema } from "./report-export";
 import { registerKnowledgeRoutes } from "./knowledge-governance";
 import { catalogMutationError, catalogRequestHandler, isStructuredCatalogItem, loadCatalogViewer, registerServiceCatalogRoutes, syncLegacyCatalogItem } from "./service-catalog";
@@ -3351,10 +3352,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const modules = await storage.getModuleSettings();
       const buildTimestamp = process.env.BUILD_TIMESTAMP ?? new Date().toISOString();
+      const [migrationStatus, releaseHistory] = await Promise.all([
+        getSystemMigrationStatus(),
+        getRecentAppReleaseHistory(10),
+      ]);
       res.json({
-        version: APP_VERSION,
+        version: readPackageAppVersion(),
         buildTimestamp,
         activeModules: modules.filter((module) => module.enabled).map((module) => module.moduleKey),
+        ...migrationStatus,
+        releaseHistory,
       });
     } catch (error) {
       respondWithApiError(res, error, "Failed to fetch system version");
