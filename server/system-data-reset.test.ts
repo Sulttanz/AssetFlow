@@ -337,6 +337,15 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
     const zone = await seed(s.networkZones, { name: "Fixture zone", code: "RESET-ZONE" });
     const firewall = await seed(s.networkDevices, { name: "Fixture firewall", deviceType: "firewall", zoneId: zone, assetId: asset });
     const router = await seed(s.networkDevices, { name: "Fixture router", deviceType: "router", zoneId: zone });
+    await seed(s.riskMitigationActions, { riskId: risk, title: "Replace firewall", ownerUserId: otherId });
+    await seed(s.riskReviewHistory, { riskId: risk, reviewedById: adminId, inherentScore: 6, residualScore: 4, status: "identified" });
+    await seed(s.riskApplicationLinks, { riskId: risk, applicationId: application });
+    await seed(s.riskServerLinks, { riskId: risk, serverId: infrastructure });
+    await seed(s.riskNetworkDeviceLinks, { riskId: risk, networkDeviceId: firewall });
+    await seed(s.riskAssetLinks, { riskId: risk, assetId: asset });
+    await seed(s.riskVendorLinks, { riskId: risk, vendorId: vendor });
+    await seed(s.riskProblemLinks, { riskId: risk, problemId: problem });
+    await seed(s.riskChangeLinks, { riskId: risk, changeId: change });
     await seed(s.networkDeviceLinks, { sourceDeviceId: firewall, targetDeviceId: router });
     const rule = await seed(s.firewallRules, { name: "Fixture rule", firewallDeviceId: firewall, sourceZoneId: zone, action: "allow", businessJustification: "Required for integration fixture" });
     await seed(s.firewallRuleReviews, { firewallRuleId: rule, outcome: "approved", notes: "Fixture review notes" });
@@ -347,7 +356,8 @@ describe.runIf(integrationEnabled)("Password-confirmed system reset in isolated 
       fileType: "application/pdf", fileSize: 8, filePath: "/fixture/backup-evidence.pdf", uploadedBy: adminId,
     });
     await seed(s.backupRestoreTests, { scheduleId: backup, outcome: "passed", notes: "Fixture restore evidence", evidenceReference: "fixture://restore" });
-    await seed(s.itComponentComplianceReviews, { componentType: "asset", componentId: asset, findings: "Fixture finding", remediationNotes: "Fixture remediation" });
+    const complianceReview = await seed(s.itComponentComplianceReviews, { componentType: "asset", componentId: asset, findings: "Fixture finding", remediationNotes: "Fixture remediation" });
+    await seed(s.riskComplianceReviewLinks, { riskId: risk, complianceReviewId: complianceReview });
     const [assignmentGroup] = await db.insert(s.assignmentGroups)
       .values({ name: "Fixture assignment group", description: "Reset coverage fixture." })
       .returning({ id: s.assignmentGroups.id });

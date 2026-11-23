@@ -305,6 +305,9 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       ownerEmail: actorEmail,
       status: "identified",
     }]);
+    const [importedRisk] = await db.select().from(risks).where(eq(risks.title, `${prefix} Risk`));
+    expect(importedRisk.category).toBe("Third-Party & Vendor");
+    expect(importedRisk.riskNumber).toMatch(/^IT-RSK-\d{3,}$/);
     const [risk] = await db.select().from(risks).where(eq(risks.title, `${prefix} Risk`));
     expect(risk).toMatchObject({ ownerId: actorId, likelihood: 3, impact: 4, riskScore: 12, status: "identified", createdById: actorId });
   });

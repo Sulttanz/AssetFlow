@@ -1,213 +1,114 @@
-import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleAlert, Plus, Search, ShieldAlert, SlidersHorizontal } from "lucide-react";
+import { formatDateDisplay } from "@/lib/date-utils";
+import { IT_RISK_CATEGORIES } from "@shared/risk-management";
+import { AlertCircle, ClipboardCheck, Download, FileText, Plus, Search, Settings2, ShieldAlert, Target, X } from "lucide-react";
+import { RiskEditor } from "@/components/risks/risk-editor";
+import { exportRisks } from "@/components/risks/risk-exports";
+import { filterRiskRows, personName, scores, scoreTone, type MatrixMode, type RiskRecord } from "@/components/risks/risk-types";
 
-type Person = { id: string; firstName?: string; lastName?: string; username?: string };
-type RiskRow = {
-  id: string; title: string; description?: string; category?: string; likelihood?: number; impact?: number;
-  mitigation?: string; contingency?: string; ownerId?: string; owner?: Person; dueDate?: string | null;
-  residualLikelihood?: number; residualImpact?: number; status?: string; acceptanceReason?: string | null;
-};
-type RiskForm = {
-  title: string; description: string; category: string; likelihood: string; impact: string;
-  mitigation: string; contingency: string; ownerId: string; dueDate: string;
-  residualLikelihood: string; residualImpact: string; status: string; acceptanceReason: string;
-};
-
-const blankRisk: RiskForm = {
-  title: "", description: "", category: "operational", likelihood: "3", impact: "3",
-  mitigation: "", contingency: "", ownerId: "", dueDate: "", residualLikelihood: "2",
-  residualImpact: "2", status: "identified", acceptanceReason: "",
-};
-const selectClass = "h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
-const personName = (person?: Person | null) => person ? `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim() || person.username || "Unassigned" : "Unassigned";
-const dateLabel = (value?: string | null) => value ? appFormatDate(value) : "—";
-const statusLabel = (value = "identified") => value.replaceAll("_", " ");
-
-function Field({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
-  return <label className={`block space-y-1.5 ${className}`}><span className="text-[11px] font-semibold uppercase tracking-[.09em] text-slate-500">{label}</span>{children}</label>;
-}
-
-function RiskScore({ likelihood, impact, residual = false }: { likelihood?: number; impact?: number; residual?: boolean }) {
-  const score = (likelihood ?? 0) * (impact ?? 0);
-  return <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[11px] ${score >= 15 ? "border-rose-200 bg-rose-50 text-rose-800" : score >= 8 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-teal-200 bg-teal-50 text-teal-800"}`}>
-    {residual ? <ArrowDownRight className="h-3 w-3" /> : <ArrowUpRight className="h-3 w-3" />}{impact ?? "—"} × {likelihood ?? "—"} <b>= {likelihood && impact ? score : "—"}</b>
-  </span>;
-}
-
-function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <Field label={label}><Input type="text" inputMode="numeric" pattern="[1-5]" required value={value} onChange={(event) => onChange(event.target.value)} className="font-mono" /></Field>;
-}
+const selectClass = "h-11 w-full min-w-0 rounded-md border bg-background px-3 text-sm sm:w-auto";
+const dateLabel = (value: string | null) => value ? formatDateDisplay(value) : "—";
 
 export default function RiskManagement() {
-  const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canManageRisks = !!user?.permissions?.some((permission: string) => permission === "change_manage" || permission === "system_admin");
+  const qc = useQueryClient();
+  const canManage = !!user?.permissions?.some(permission => ["risk_manage", "change_manage", "system_admin"].includes(permission));
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRisk, setEditingRisk] = useState<RiskRow | null>(null);
-  const [form, setForm] = useState<RiskForm>(blankRisk);
-
-  const { data: users = [] } = useQuery<Person[]>({
-    queryKey: ["/api/risk-users"],
-    queryFn: async () => (await apiRequest("GET", "/api/risk-users")).json(),
-    enabled: canManageRisks,
+  const [status, setStatus] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [mode, setMode] = useState<MatrixMode>("Inherent");
+  const [cell, setCell] = useState<{ impact: number; likelihood: number } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [thresholdDraft, setThresholdDraft] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const { data: risks = [], isLoading, isError, refetch } = useQuery<RiskRecord[]>({
+    queryKey: ["/api/risks"], queryFn: async () => (await apiRequest("GET", "/api/risks")).json(),
   });
-  const { data: risks = [], isLoading, isError, refetch } = useQuery<RiskRow[]>({
-    queryKey: ["/api/risks"],
-    queryFn: async () => (await apiRequest("GET", "/api/risks")).json(),
+  const { data: settings } = useQuery<{ appetiteThreshold: number }>({
+    queryKey: ["/api/risk-management/settings"], queryFn: async () => (await apiRequest("GET", "/api/risk-management/settings")).json(),
   });
-  const filteredRisks = useMemo(() => risks.filter((risk) => {
-    const query = search.toLowerCase().trim();
-    return (statusFilter === "all" || risk.status === statusFilter) &&
-      (!query || `${risk.title} ${risk.description} ${risk.category} ${personName(risk.owner)}`.toLowerCase().includes(query));
-  }), [risks, search, statusFilter]);
-  const activeCount = risks.filter((risk) => !["closed", "accepted"].includes(risk.status ?? "")).length;
-  const highCount = risks.filter((risk) => (risk.likelihood ?? 0) * (risk.impact ?? 0) >= 15 && !["closed", "accepted"].includes(risk.status ?? "")).length;
-  const riskCountAt = (impact: number, likelihood: number) => risks.filter(
-    (risk) => risk.impact === impact && risk.likelihood === likelihood,
-  ).length;
-
-  const saveRisk = useMutation({
-    mutationFn: async ({ id, payload }: { id?: string; payload: Record<string, unknown> }) => {
-      const response = id
-        ? await apiRequest("PUT", `/api/risks/${id}`, payload)
-        : await apiRequest("POST", "/api/risks", payload);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/risks"] });
-      setDialogOpen(false);
-      toast({ title: editingRisk ? "Risk updated" : "Risk added to register" });
-    },
-    onError: (error: Error) => toast({ title: "Unable to save risk", description: error.message, variant: "destructive" }),
+  const appetite = settings?.appetiteThreshold ?? 12;
+  const saveSettings = useMutation({
+    mutationFn: async () => (await apiRequest("PUT", "/api/risk-management/settings", { appetiteThreshold: Number(thresholdDraft) })).json(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/risk-management/settings"] }); setSettingsOpen(false); toast({ title: "Risk appetite updated" }); },
+    onError: (error: Error) => toast({ title: "Unable to update risk appetite", description: error.message, variant: "destructive" }),
   });
-
-  function startCreate() {
-    setEditingRisk(null);
-    setForm(blankRisk);
-    setDialogOpen(true);
-  }
-  function startEdit(risk: RiskRow) {
-    setEditingRisk(risk);
-    setForm({
-      title: risk.title ?? "", description: risk.description ?? "", category: risk.category ?? "operational",
-      likelihood: String(risk.likelihood ?? 3), impact: String(risk.impact ?? 3), mitigation: risk.mitigation ?? "",
-      contingency: risk.contingency ?? "", ownerId: risk.ownerId ?? risk.owner?.id ?? "", dueDate: risk.dueDate?.slice(0, 10) ?? "",
-      residualLikelihood: String(risk.residualLikelihood ?? 2), residualImpact: String(risk.residualImpact ?? 2),
-      status: risk.status ?? "identified", acceptanceReason: risk.acceptanceReason ?? "",
-    });
-    setDialogOpen(true);
-  }
-  function setField(key: keyof RiskForm, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const payload = {
-      title: form.title.trim(), description: form.description, category: form.category,
-      likelihood: Number(form.likelihood), impact: Number(form.impact), mitigation: form.mitigation,
-      contingency: form.contingency, ownerId: form.ownerId || null, dueDate: form.dueDate || null,
-      residualLikelihood: Number(form.residualLikelihood), residualImpact: Number(form.residualImpact),
-      status: form.status, acceptanceReason: form.acceptanceReason || null,
-    };
-    saveRisk.mutate({ id: editingRisk?.id, payload });
-  }
-
-  return <main className="min-h-[100dvh] bg-[#f3f6f4] text-slate-900">
-    <div className="mx-auto max-w-[1500px] px-4 pb-12 pt-6 sm:px-7 lg:px-10">
-      <header className="mb-7 flex flex-col justify-between gap-5 border-b border-[#d8e1dc] pb-6 sm:flex-row sm:items-end">
-        <div>
-          <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.2em] text-teal-800"><ShieldAlert className="h-3.5 w-3.5" /> ITSM / Governance</div>
-          <h1 className="font-semibold tracking-[-.045em] text-[2rem] leading-none sm:text-[2.55rem]">Risk Management</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">A standalone ITSM register for risks, owners, response plans and residual exposure.</p>
-        </div>
-        {canManageRisks && <Button className="bg-[#174d42] hover:bg-[#103d34]" onClick={startCreate}><Plus className="mr-2 h-4 w-4" /> Create risk</Button>}
-      </header>
-
-      <section className="mb-6 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Total risks</p><strong className="mt-2 block font-mono text-3xl font-medium">{isLoading ? "—" : risks.length}</strong></div>
-        <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">Active risk actions</p><strong className="mt-2 block font-mono text-3xl font-medium">{isLoading ? "—" : activeCount}</strong></div>
-        <div className="rounded-lg border border-[#d8e1dc] bg-[#fbfcfb] p-4"><p className="text-[10px] font-bold uppercase tracking-[.16em] text-slate-500">High exposure · active</p><strong className="mt-2 block font-mono text-3xl font-medium text-rose-700">{isLoading ? "—" : highCount}</strong></div>
-      </section>
-
-      <section className="mb-6 rounded-xl border border-[#d5dfd9] bg-[#fbfcfb] p-4 sm:p-6">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold tracking-tight">5 × 5 risk matrix</h2>
-          <p className="mt-1 text-xs text-slate-500">Current inherent exposure by impact and likelihood. Cell values show risk count.</p>
-        </div>
-        <div className="overflow-x-auto">
-          <div className="min-w-[520px]">
-            <div className="grid grid-cols-[92px_repeat(5,minmax(54px,1fr))] gap-1">
-              <div className="flex items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">Impact ↓<br />Likelihood →</div>
-              {[1, 2, 3, 4, 5].map((likelihood) => <div key={`lh-${likelihood}`} className="py-1 text-center text-[10px] font-semibold text-slate-500">{likelihood}</div>)}
-              {[5, 4, 3, 2, 1].map((impact) => <div key={`im-${impact}`} className="contents">
-                <div className="flex items-center justify-end pr-2 text-[10px] font-semibold text-slate-500">{impact} · {["", "Very low", "Low", "Moderate", "High", "Severe"][impact]}</div>
-                {[1, 2, 3, 4, 5].map((likelihood) => {
-                  const score = impact * likelihood;
-                  const count = riskCountAt(impact, likelihood);
-                  const tone = score >= 15 ? "bg-rose-100 text-rose-900 border-rose-200" : score >= 8 ? "bg-amber-100 text-amber-900 border-amber-200" : "bg-teal-50 text-teal-900 border-teal-200";
-                  return <div key={`${impact}-${likelihood}`} aria-label={`Impact ${impact}, likelihood ${likelihood}, score ${score}, ${count} risks`} className={`flex h-12 items-center justify-center rounded border text-xs ${tone}`}><span className="font-mono">{count}</span></div>;
-                })}
-              </div>)}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="overflow-hidden rounded-xl border border-[#d5dfd9] bg-[#fbfcfb]">
-        <div className="flex flex-col gap-3 border-b border-[#e0e7e3] p-4 sm:flex-row sm:px-6">
-            <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search risk, category, owner…" className="h-10 border-[#d9e2dd] bg-white pl-9 text-sm" /></div>
-          <select aria-label="Filter risk status" className={selectClass + " sm:w-52"} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All risk statuses</option>{["identified","mitigating","accepted","closed"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] border-collapse text-left">
-            <thead className="bg-[#f3f6f4] text-[10px] font-bold uppercase tracking-[.13em] text-slate-500"><tr><th className="px-5 py-3">Risk / description</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Impact × likelihood</th><th className="px-4 py-3">Residual score</th><th className="px-4 py-3">Risk owner / due</th><th className="px-4 py-3">Mitigation status</th><th className="px-5 py-3 text-right">Action</th></tr></thead>
-            <tbody className="divide-y divide-[#e5ebe7]">
-              {isLoading && <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">Loading risk register…</td></tr>}
-              {isError && <tr><td colSpan={7} className="px-5 py-14 text-center"><AlertCircle className="mx-auto mb-2 h-6 w-6 text-rose-600" /><p className="font-medium">Risk register could not be loaded.</p><Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button></td></tr>}
-              {!isLoading && !isError && filteredRisks.map((risk) => <tr key={risk.id} className="hover:bg-[#f7faf8]">
-                <td className="max-w-[360px] px-5 py-4"><p className="truncate text-sm font-semibold text-slate-800">{risk.title}</p><p className="mt-1 truncate text-xs text-slate-500">{risk.description || "No description provided"}</p></td>
-                <td className="px-4 py-4 text-xs text-slate-700">{risk.category || "—"}</td><td className="px-4 py-4"><RiskScore likelihood={risk.likelihood} impact={risk.impact} /></td><td className="px-4 py-4"><RiskScore likelihood={risk.residualLikelihood} impact={risk.residualImpact} residual /></td>
-                <td className="px-4 py-4"><p className="text-xs font-medium text-slate-700">{personName(risk.owner)}</p><p className="mt-1 text-[11px] text-slate-500">Due {dateLabel(risk.dueDate)}</p></td>
-                <td className="px-4 py-4"><Badge variant="outline" className={`capitalize ${risk.status === "closed" ? "border-teal-200 bg-teal-50 text-teal-800" : risk.status === "accepted" ? "border-slate-200 bg-slate-100 text-slate-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{statusLabel(risk.status)}</Badge></td>
-                <td className="px-5 py-4 text-right">{canManageRisks && <Button variant="ghost" size="sm" className="text-teal-800 hover:bg-teal-50" onClick={() => startEdit(risk)}>Edit</Button>}</td>
-              </tr>)}
-              {!isLoading && !isError && filteredRisks.length === 0 && <tr><td colSpan={7} className="px-5 py-16 text-center"><CircleAlert className="mx-auto mb-3 h-6 w-6 text-teal-800" /><p className="font-semibold">No risks found.</p><p className="mt-1 text-sm text-slate-500">Create a risk independently of the Change Management workflow.</p></td></tr>}
-            </tbody>
-          </table>
-        </div>
-        <footer className="border-t border-[#e0e7e3] bg-[#f8faf8] px-5 py-3 text-[11px] text-slate-500">{filteredRisks.length} risks shown · linked change risk register</footer>
-      </section>
-    </div>
-
-    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-      <DialogContent className="max-h-[92dvh] max-w-3xl overflow-y-auto border-[#d6e1db] bg-[#fbfcfb]">
-        <DialogHeader><div className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg bg-[#e5eee9] text-teal-900"><ShieldAlert className="h-4 w-4" /></div><DialogTitle>{editingRisk ? "Update risk record" : "Add risk"}</DialogTitle><DialogDescription>Record the exposure, owner and response plan independently of change records.</DialogDescription></DialogHeader>
-        <form onSubmit={submit} className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Risk title" className="sm:col-span-2"><Input required value={form.title} onChange={(event) => setField("title", event.target.value)} placeholder="e.g. Unauthorized access to a critical system" /></Field>
-            <Field label="Category"><select className={selectClass} value={form.category} onChange={(event) => setField("category", event.target.value)}>{["security","availability","data","schedule","operational","compliance","vendor","other"].map((category) => <option key={category} value={category}>{category}</option>)}</select></Field>
-            <Field label="Risk owner"><select className={selectClass} value={form.ownerId} onChange={(event) => setField("ownerId", event.target.value)}><option value="">Select owner…</option>{users.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}</select></Field>
-            <Field label="Description" className="sm:col-span-2"><Textarea value={form.description} onChange={(event) => setField("description", event.target.value)} rows={2} /></Field>
-            <Field label="Mitigation plan"><Textarea value={form.mitigation} onChange={(event) => setField("mitigation", event.target.value)} rows={3} /></Field>
-            <Field label="Contingency plan"><Textarea value={form.contingency} onChange={(event) => setField("contingency", event.target.value)} rows={3} /></Field>
-          </div>
-          <div className="rounded-lg border border-[#e0e7e3] bg-[#f4f7f5] p-4"><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[.12em] text-slate-600"><SlidersHorizontal className="h-3.5 w-3.5" /> Risk scoring · 1 low — 5 severe</div><div className="grid grid-cols-2 gap-3 sm:grid-cols-5"><NumberField label="Likelihood" value={form.likelihood} onChange={(v) => setField("likelihood", v)} /><NumberField label="Impact" value={form.impact} onChange={(v) => setField("impact", v)} /><NumberField label="Residual likelihood" value={form.residualLikelihood} onChange={(v) => setField("residualLikelihood", v)} /><NumberField label="Residual impact" value={form.residualImpact} onChange={(v) => setField("residualImpact", v)} /><Field label="Due date"><Input type="date" value={form.dueDate} onChange={(event) => setField("dueDate", event.target.value)} /></Field></div></div>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="Status"><select className={selectClass} value={form.status} onChange={(event) => setField("status", event.target.value)}><option value="identified">Identified</option><option value="mitigating">Mitigating</option><option value="accepted">Accepted</option><option value="closed">Closed</option></select></Field>{form.status === "accepted" && <Field label="Acceptance reason"><Textarea required value={form.acceptanceReason} onChange={(event) => setField("acceptanceReason", event.target.value)} rows={2} placeholder="Why is the residual risk acceptable?" /></Field>}</div>
-          <DialogFooter className="gap-2 border-t border-[#e0e7e3] pt-4"><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveRisk.isPending} className="bg-[#174d42] hover:bg-[#103d34]">{saveRisk.isPending ? "Saving…" : editingRisk ? "Save changes" : "Create risk"}</Button></DialogFooter>
-        </form>
-      </DialogContent>
+  const filtered = useMemo(() => filterRiskRows(risks, search, status, category, mode, cell), [risks, search, status, category, mode, cell]);
+  const matrixRows = useMemo(() => filterRiskRows(risks, search, status, category, mode, null), [risks, search, status, category, mode]);
+  const today = new Date().toISOString().slice(0, 10);
+  const soon = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const active = risks.filter(risk => risk.status !== "closed");
+  const actions = risks.flatMap(risk => risk.mitigationActions ?? []);
+  const aboveAppetite = active.filter(risk => { const s = scores(risk, "Residual"); return (s.likelihood ?? 0) * (s.impact ?? 0) >= appetite; }).length;
+  const overdue = active.filter(risk => risk.nextReviewDate && risk.nextReviewDate < today).length +
+    actions.filter(action => action.status !== "Completed" && action.dueDate && action.dueDate < today).length;
+  const pending = active.filter(risk => risk.treatmentStrategy === "Accept" &&
+    (!risk.acceptedAt || !risk.acceptanceExpiresAt || risk.acceptanceExpiresAt <= soon)).length;
+  const selected = risks.find(risk => risk.id === selectedId);
+  const closeEditor = () => { setCreating(false); setSelectedId(null); };
+  const exportReport = async (format: "csv" | "pdf") => {
+    setExporting(true);
+    try { await exportRisks(filtered, mode, format); }
+    catch (error) { toast({ title: "Export failed", description: error instanceof Error ? error.message : "Try again", variant: "destructive" }); }
+    finally { setExporting(false); }
+  };
+  const cards = [
+    { title: "Total IT Risks", value: risks.length, icon: ShieldAlert, tone: "bg-blue-50 text-blue-700" },
+    { title: "Active Mitigation Actions", value: actions.filter(action => action.status !== "Completed").length, icon: ClipboardCheck, tone: "bg-indigo-50 text-indigo-700" },
+    { title: `Above Risk Appetite (Residual ≥ ${appetite})`, value: aboveAppetite, icon: Target, tone: "bg-rose-50 text-rose-700" },
+    { title: "Overdue Reviews / Actions", value: overdue, icon: AlertCircle, tone: "bg-amber-50 text-amber-800" },
+    { title: "Pending / Expiring Acceptances", value: pending, icon: FileText, tone: "bg-violet-50 text-violet-700" },
+  ];
+  return <main className="min-w-0 space-y-6 p-3 sm:p-6 lg:p-8">
+    <header className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+      <div><p className="mb-1 text-xs font-semibold uppercase tracking-wider text-blue-600">IT Governance</p><h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Internal IT Department Risk Register</h1><p className="mt-2 max-w-3xl text-sm text-muted-foreground">Assess operational threats, own remediation and retain review evidence. Independent of project risks.</p></div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" disabled={exporting || isLoading} onClick={() => exportReport("csv")}><Download className="mr-2 h-4 w-4" />Export CSV</Button>
+        <Button type="button" variant="outline" disabled={exporting || isLoading} onClick={() => exportReport("pdf")}><FileText className="mr-2 h-4 w-4" />Executive IT Risk Report (PDF)</Button>
+        {canManage && <><Button type="button" variant="outline" aria-label="Configure risk appetite" onClick={() => { setThresholdDraft(String(appetite)); setSettingsOpen(true); }}><Settings2 className="h-4 w-4" /></Button><Button type="button" onClick={() => setCreating(true)}><Plus className="mr-2 h-4 w-4" />Create IT risk</Button></>}
+      </div>
+    </header>
+    <section aria-label="IT risk metrics" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      {cards.map(card => <div className="rounded-xl border bg-card p-4 shadow-sm" key={card.title}><div className={`mb-3 inline-flex rounded-lg p-2 ${card.tone}`}><card.icon className="h-5 w-5" /></div><p className="min-h-10 text-xs font-medium text-muted-foreground">{card.title}</p><strong className="text-3xl font-semibold tabular-nums">{isLoading ? "—" : card.value}</strong></div>)}
+    </section>
+    <section className="rounded-xl border bg-card p-3 shadow-sm sm:p-5">
+      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row"><div><h2 className="font-semibold">5 × 5 IT risk matrix</h2><p className="mt-1 text-xs text-muted-foreground">Impact × likelihood · cell counts follow search and status filters. Select a cell to filter the register.</p></div><div className="flex flex-wrap gap-1" role="group" aria-label="Risk matrix mode">{(["Inherent", "Residual", "Target"] as const).map(value => <Button type="button" key={value} size="sm" variant={mode === value ? "default" : "outline"} aria-pressed={mode === value} onClick={() => { setMode(value); setCell(null); }}>{value} Risk</Button>)}</div></div>
+      <div className="grid grid-cols-[45px_repeat(5,minmax(0,1fr))] gap-1 sm:gap-2">
+        <span className="text-[10px] text-muted-foreground">Impact ↓</span>{[1, 2, 3, 4, 5].map(likelihood => <div key={likelihood} className="text-center text-xs font-medium">{likelihood}</div>)}
+        {[5, 4, 3, 2, 1].map(impact => <div key={impact} className="contents"><div className="flex items-center justify-center text-xs font-semibold">{impact}</div>{[1, 2, 3, 4, 5].map(likelihood => {
+          const count = matrixRows.filter(risk => { const pair = scores(risk, mode); return pair.impact === impact && pair.likelihood === likelihood; }).length;
+          const isSelected = cell?.impact === impact && cell?.likelihood === likelihood;
+          return <button type="button" key={likelihood} aria-pressed={isSelected} aria-label={`${mode}: impact ${impact}, likelihood ${likelihood}, ${count} risks`} onClick={() => setCell(isSelected ? null : { impact, likelihood })} className={`flex min-h-11 items-center justify-center gap-1 rounded-md border text-sm transition hover:brightness-95 sm:min-h-14 ${scoreTone(impact * likelihood)} ${isSelected ? "ring-2 ring-blue-600 ring-offset-1" : ""}`}><strong>{count}</strong><span className="hidden text-[10px] opacity-70 sm:inline">risks</span></button>;
+        })}</div>)}
+      </div><p className="mt-2 text-center text-xs text-muted-foreground">Likelihood → · 1 very low to 5 severe · Target mode excludes unassessed target scores</p>
+    </section>
+    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="flex flex-col gap-3 border-b p-4 lg:flex-row">
+        <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><Input aria-label="Search IT risks" className="h-11 pl-9" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search Risk ID, title, category or owner…" /></div>
+        <select aria-label="Filter risk category" className={selectClass} value={category} onChange={event => setCategory(event.target.value)}><option value="all">All IT categories</option>{IT_RISK_CATEGORIES.map(value => <option key={value}>{value}</option>)}</select>
+        <select aria-label="Filter risk status" className={selectClass} value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option>{["identified", "mitigating", "accepted", "closed"].map(value => <option key={value}>{value}</option>)}</select>
+      </div>
+      {cell && <div className="border-b px-4 py-2"><Button type="button" size="sm" variant="secondary" onClick={() => setCell(null)}>{mode}: impact {cell.impact} × likelihood {cell.likelihood}<X className="ml-2 h-4 w-4" />Clear matrix filter</Button></div>}
+      {isLoading ? <p className="p-10 text-center text-muted-foreground">Loading IT risk register…</p> : isError ? <div className="p-10 text-center"><p>Risk register could not be loaded.</p><Button type="button" variant="outline" onClick={() => refetch()}>Retry</Button></div> : <>
+        <div className="hidden overflow-x-auto md:block"><table className="w-full text-left text-sm"><thead className="bg-muted/40 text-xs text-muted-foreground"><tr>{["Risk ID / Title", "IT category", "Inherent / Residual / Target", "Owner / Review", "Treatment / Status", "Actions"].map(label => <th className="px-4 py-3 font-medium" key={label}>{label}</th>)}</tr></thead><tbody className="divide-y">{filtered.map(risk => <tr key={risk.id} className="hover:bg-muted/30"><td className="max-w-xs px-4 py-3"><p className="text-xs font-semibold text-blue-600">{risk.riskNumber}</p><p className="mt-1 break-words font-medium">{risk.title}</p><div className="mt-1 flex gap-1">{Object.entries(risk.ciaImpact ?? {}).filter(([, enabled]) => enabled).map(([key]) => <Badge key={key} variant="secondary" className="text-[10px]">{key[0].toUpperCase()}</Badge>)}</div></td><td className="px-4 py-3 text-xs">{risk.category}</td><td className="px-4 py-3"><div className="flex gap-1">{(["Inherent", "Residual", "Target"] as const).map(value => { const pair = scores(risk, value); const score = pair.impact && pair.likelihood ? pair.impact * pair.likelihood : null; return <Badge title={`${value} risk`} className={scoreTone(score ?? 0)} key={value}>{score ?? "—"}</Badge>; })}</div></td><td className="px-4 py-3 text-xs">{personName(risk.owner)}<p className={`mt-1 ${risk.nextReviewDate && risk.nextReviewDate < today ? "font-medium text-rose-600" : "text-muted-foreground"}`}>Review {dateLabel(risk.nextReviewDate)}</p></td><td className="px-4 py-3 text-xs"><p>{risk.treatmentStrategy}</p><Badge className="mt-1 capitalize" variant="outline">{risk.status}</Badge></td><td className="px-4 py-3"><Button type="button" size="sm" variant="outline" onClick={() => setSelectedId(risk.id)}>{canManage ? "View / Edit" : "View"}</Button></td></tr>)}</tbody></table></div>
+        <div className="divide-y md:hidden">{filtered.map(risk => <article className="space-y-2 p-4" key={risk.id}><p className="text-xs font-semibold text-blue-600">{risk.riskNumber}</p><h3 className="break-words font-semibold">{risk.title}</h3><p className="text-xs text-muted-foreground">{risk.category}</p><div className="flex flex-wrap gap-2"><Badge variant="outline">{risk.status}</Badge><Badge variant="secondary">{risk.treatmentStrategy}</Badge></div><p className="text-sm">{personName(risk.owner)} · Review {dateLabel(risk.nextReviewDate)}</p><Button type="button" variant="outline" className="w-full" onClick={() => setSelectedId(risk.id)}>{canManage ? "View / Edit risk" : "View risk"}</Button></article>)}</div>
+        {!filtered.length && <p className="p-12 text-center text-sm text-muted-foreground">No risks match these filters.</p>}
+      </>}
+      <footer className="border-t px-4 py-3 text-xs text-muted-foreground">{filtered.length} of {risks.length} IT risks · Internal IT governance, separate from Project Management</footer>
+    </section>
+    <Dialog open={creating || !!selectedId} onOpenChange={open => { if (!open) closeEditor(); }}>
+      <DialogContent className="max-h-[92dvh] max-w-5xl overflow-y-auto"><DialogHeader><DialogTitle>{creating ? "Create IT risk" : `${selected?.riskNumber ?? "IT risk"} · Assessment`}</DialogTitle><DialogDescription>Manage internal IT exposure, treatment and review evidence. No project association is required or available.</DialogDescription></DialogHeader>{(creating || selected) && <RiskEditor key={creating ? "new" : selected!.id} risk={creating ? undefined : selected} canManage={canManage} appetite={appetite} close={closeEditor} />}</DialogContent>
     </Dialog>
+    <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent><DialogHeader><DialogTitle>IT risk appetite</DialogTitle><DialogDescription>Residual scores at or above this threshold require documented, time-limited acceptance sign-off.</DialogDescription></DialogHeader><form className="space-y-4" onSubmit={event => { event.preventDefault(); saveSettings.mutate(); }}><label className="block space-y-2 text-sm">Appetite threshold (1–25)<Input type="text" inputMode="numeric" required pattern="([1-9]|1[0-9]|2[0-5])" value={thresholdDraft} onChange={event => setThresholdDraft(event.target.value)} /></label><Button type="submit" disabled={saveSettings.isPending}>Save appetite threshold</Button></form></DialogContent></Dialog>
   </main>;
 }

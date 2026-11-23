@@ -1,5 +1,5 @@
 import type { Express, RequestHandler } from "express";
-import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   assets, auditLogs, changes, cmdbApplications, itComponentComplianceReviews,
@@ -14,7 +14,6 @@ import {
   riskLinkTypeSchema, riskMitigationActionInputSchema, riskReviewInputSchema,
 } from "@shared/risk-management";
 import { db } from "./db";
-import { storage } from "./storage";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { respondWithApiError } from "./api-error-handler";
 
@@ -41,16 +40,9 @@ async function readAppetiteThreshold(): Promise<number> {
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 25 ? parsed : DEFAULT_IT_RISK_APPETITE;
 }
 
-async function reserveRiskNumber(): Promise<string> {
-  const result = await db.execute(sql`SELECT nextval('risk_register_number_seq')::text AS sequence`);
-  const sequence = Number(result.rows[0]?.sequence);
-  if (!Number.isSafeInteger(sequence) || sequence < 1) throw new Error("Could not allocate the next IT risk number");
-  return `IT-RSK-${String(sequence).padStart(3, "0")}`;
-}
-
-async function writeRiskAudit(req: any, action: string, risk: any, previous?: unknown, next?: unknown) {
+async function writeRiskAudit(req: any, action: string, risk: any, previous?: unknown, next?: unknown, executor: any = db) {
   const actorId = req.user?.id ?? null;
-  await db.insert(auditLogs).values({
+  await executor.insert(auditLogs).values({
     userId: actorId,
     action,
     tableName: "risk_register",
@@ -64,23 +56,24 @@ async function writeRiskAudit(req: any, action: string, risk: any, previous?: un
 }
 
 async function getRiskRows(riskId?: string) {
+  const itsmEnabled = await isFeatureEnabled("itsm");
   const query = db.select({
     risk: risks,
     ownerId: users.id,
     ownerUsername: users.username,
     ownerFirstName: users.firstName,
     ownerLastName: users.lastName,
-    linkedChangeId: changes.id,
-    linkedChangeNumber: changes.changeNumber,
-    linkedChangeTitle: changes.title,
   }).from(risks)
-    .leftJoin(users, eq(risks.ownerId, users.id))
-    .leftJoin(changes, eq(risks.changeId, changes.id));
+    .leftJoin(users, eq(risks.ownerId, users.id));
   const baseRows = riskId
     ? await query.where(eq(risks.id, riskId)).limit(1)
     : await query.orderBy(desc(risks.updatedAt), desc(risks.createdAt));
   if (!baseRows.length) return [];
   const ids = baseRows.map(row => row.risk.id);
+  const changeIds = baseRows.flatMap(row => row.risk.changeId ? [row.risk.changeId] : []);
+  const linkedChanges = itsmEnabled && changeIds.length ? await db.select({
+    id: changes.id, changeNumber: changes.changeNumber, title: changes.title,
+  }).from(changes).where(inArray(changes.id, changeIds)) : [];
   const [actions, reviews, applicationLinks, serverLinks, networkLinks, assetLinks, vendorLinks, complianceLinks, problemLinks, changeLinks] =
     await Promise.all([
       db.select().from(riskMitigationActions).where(inArray(riskMitigationActions.riskId, ids)).orderBy(desc(riskMitigationActions.createdAt)),
@@ -103,9 +96,7 @@ async function getRiskRows(riskId?: string) {
       id: row.ownerId, username: row.ownerUsername,
       firstName: row.ownerFirstName, lastName: row.ownerLastName,
     } : null,
-    change: row.linkedChangeId ? {
-      id: row.linkedChangeId, changeNumber: row.linkedChangeNumber, title: row.linkedChangeTitle,
-    } : null,
+    change: linkedChanges.find(change => change.id === row.risk.changeId) ?? null,
     mitigationActions: listFor(actions, row.risk.id).map(action => ({
       ...action,
       status: action.status !== "Completed" && action.dueDate && isoDate(action.dueDate)! < nowDate ? "Overdue" : action.status,
@@ -124,16 +115,95 @@ async function getRiskRows(riskId?: string) {
   }));
 }
 
+class RiskInputError extends Error {
+  constructor(message: string, readonly status = 400) { super(message); }
+}
+function riskFailure(res: any, error: unknown, operation: string) {
+  if (error instanceof RiskInputError) return res.status(error.status).json({ message: error.message });
+  return respondWithApiError(res, error, operation);
+}
+
+async function saveRiskAssessment(req: any, id?: string) {
+  const input = id ? riskAssessmentInputSchema.partial().strict().parse(req.body) : riskAssessmentInputSchema.parse(req.body);
+  if (!Object.keys(input).length) throw new RiskInputError("Provide an assessment field to update");
+  const threshold = await readAppetiteThreshold();
+  return db.transaction(async tx => {
+    const [previous] = id ? await tx.select().from(risks).where(eq(risks.id, id)).for("update") : [];
+    if (id && !previous) throw new RiskInputError("Risk not found", 404);
+    if (input.changeId) {
+      if (!await isFeatureEnabled("itsm")) throw new RiskInputError("ITSM is not enabled for change links", 403);
+      const [change] = await tx.select({ id: changes.id, projectId: changes.projectId }).from(changes).where(eq(changes.id, input.changeId));
+      if (!change || change.projectId) throw new RiskInputError("Only internal IT changes may be linked to this register");
+    }
+    if (input.ownerId) {
+      const [owner] = await tx.select({ id: users.id }).from(users).where(and(eq(users.id, input.ownerId), eq(users.isActive, true)));
+      if (!owner) throw new RiskInputError("Select an active risk owner");
+    }
+    const next = { ...previous, ...input };
+    const likelihood = next.likelihood!;
+    const impact = next.impact!;
+    const residual = (next.residualLikelihood ?? likelihood) * (next.residualImpact ?? impact);
+    const treatment = input.status === "accepted" && !input.treatmentStrategy ? "Accept" : next.treatmentStrategy ?? "Mitigate";
+    const justification = input.acceptanceJustification !== undefined ? input.acceptanceJustification :
+      input.acceptanceReason !== undefined ? input.acceptanceReason : previous?.acceptanceJustification ?? previous?.acceptanceReason ?? null;
+    if (treatment === "Accept" && residual >= threshold &&
+        (!justification?.trim() || !next.acceptanceExpiresAt || next.acceptanceExpiresAt <= today())) {
+      throw new RiskInputError(`Acceptance at or above risk appetite (${threshold}) requires justification and a future expiry date.`);
+    }
+    if (next.status === "accepted" && treatment !== "Accept") throw new RiskInputError("Accepted risks must use the Accept treatment strategy");
+    if (next.status === "accepted" && !justification?.trim()) throw new RiskInputError("An acceptance justification is required for accepted risks");
+    if ((next.targetImpact == null) !== (next.targetLikelihood == null)) throw new RiskInputError("Provide both target impact and target likelihood");
+    if ((next.residualImpact == null) !== (next.residualLikelihood == null)) throw new RiskInputError("Provide both residual impact and residual likelihood");
+    const actorId = req.user.id;
+    const accepting = treatment === "Accept";
+    const reSign = !previous || previous.treatmentStrategy !== "Accept" ||
+      ["acceptanceJustification", "acceptanceReason", "acceptanceExpiresAt", "impact", "likelihood", "residualImpact", "residualLikelihood"]
+        .some(key => key in input && (input as any)[key] !== (previous as any)[key]);
+    const values = {
+      ...input,
+      treatmentStrategy: treatment,
+      riskScore: impact * likelihood,
+      acceptanceJustification: accepting ? justification : null,
+      acceptanceReason: accepting ? justification : null,
+      acceptanceExpiresAt: accepting ? next.acceptanceExpiresAt ?? null : null,
+      acceptedByUserId: accepting ? reSign ? actorId : previous?.acceptedByUserId : null,
+      acceptedAt: accepting ? reSign ? new Date() : previous?.acceptedAt : null,
+      updatedAt: new Date(),
+    };
+    const [risk] = id
+      ? await tx.update(risks).set(values).where(eq(risks.id, id)).returning()
+      : await tx.insert(risks).values({ ...values, title: input.title!, category: input.category!, likelihood, impact, createdById: actorId }).returning();
+    await tx.insert(riskReviewHistory).values({
+      riskId: risk.id, reviewedById: actorId, eventType: previous ? "updated" : "created",
+      previousInherentScore: previous?.riskScore, inherentScore: risk.riskScore,
+      previousResidualScore: previous ? residualRiskScore(previous) : null, residualScore: residual,
+      previousStatus: previous?.status, status: risk.status,
+    });
+    await writeRiskAudit(req, previous ? "UPDATE" : "CREATE", risk, previous, risk, tx);
+    return risk;
+  });
+}
+
+async function mutateRisk<T>(req: any, action: string, mutate: (tx: any, risk: typeof risks.$inferSelect) => Promise<T>): Promise<T> {
+  return db.transaction(async tx => {
+    const [risk] = await tx.select().from(risks).where(eq(risks.id, req.params.riskId)).for("update");
+    if (!risk) throw new RiskInputError("Risk not found", 404);
+    const result = await mutate(tx, risk);
+    await writeRiskAudit(req, action, risk, risk, result, tx);
+    return result;
+  });
+}
+
 export function registerRiskManagementRoutes(
   app: Express,
   requireAuth: RequestHandler,
   requirePermission: MiddlewareFactory,
   requireModule: MiddlewareFactory,
 ) {
-  const manage = [requireAuth, requirePermission("change_manage"), requireModule("risk_management")];
-  const read = [requireAuth, requireModule("risk_management")];
+  const manage = [requireAuth, requirePermission("risk_manage", "change_manage", "system_admin"), requireModule("risk_management")];
+  const read = [requireAuth, requirePermission("risk_manage", "change_manage", "system_admin", "compliance_view", "audit_view"), requireModule("risk_management")];
 
-  app.get("/api/risk-users", ...manage, async (_req, res) => {
+  app.get("/api/risk-users", ...read, async (_req, res) => {
     try {
       res.json(await db.select({
         id: users.id, username: users.username, firstName: users.firstName, lastName: users.lastName,
@@ -141,7 +211,7 @@ export function registerRiskManagementRoutes(
     } catch (error) { respondWithApiError(res, error, "Failed to fetch risk owners"); }
   });
 
-  app.get("/api/risk-management/settings", ...manage, async (_req, res) => {
+  app.get("/api/risk-management/settings", ...read, async (_req, res) => {
     try { res.json({ appetiteThreshold: await readAppetiteThreshold() }); }
     catch (error) { respondWithApiError(res, error, "Failed to load IT risk settings"); }
   });
@@ -165,7 +235,7 @@ export function registerRiskManagementRoutes(
     } catch (error) { respondWithApiError(res, error, "Failed to update IT risk settings"); }
   });
 
-  app.get("/api/risks/options", ...manage, async (_req, res) => {
+  app.get("/api/risks/options", ...read, async (_req, res) => {
     try {
       const [cmdbEnabled, assetsEnabled, itsmEnabled] = await Promise.all([
         isFeatureEnabled("cmdb"), isFeatureEnabled("asset_management"), isFeatureEnabled("itsm"),
@@ -181,9 +251,10 @@ export function registerRiskManagementRoutes(
           name: sql<string>`concat_ws(' · ', ${itComponentComplianceReviews.baselineStandard}, ${itComponentComplianceReviews.componentType})`,
         }).from(itComponentComplianceReviews) : [],
         itsmEnabled ? db.select({ id: problems.id, name: problems.problemNumber, title: problems.title }).from(problems) : [],
-        itsmEnabled ? db.select({ id: changes.id, name: changes.changeNumber, title: changes.title }).from(changes) : [],
+        itsmEnabled ? db.select({ id: changes.id, name: changes.changeNumber, title: changes.title }).from(changes).where(isNull(changes.projectId)) : [],
       ]);
       res.json({
+        itsmEnabled,
         applications,
         servers: serverRows,
         networkDevices: networkRows.map(row => ({ id: row.id, name: row.name || row.hostname })),
@@ -210,186 +281,117 @@ export function registerRiskManagementRoutes(
   });
 
   app.post("/api/risks", ...manage, async (req, res) => {
-    const parsed = riskAssessmentInputSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid IT risk assessment", errors: parsed.error.flatten() });
-    try {
-      const input = parsed.data;
-      const residual = (input.residualLikelihood ?? input.likelihood) * (input.residualImpact ?? input.impact);
-      const threshold = await readAppetiteThreshold();
-      const treatment = input.treatmentStrategy ?? "Mitigate";
-      if (treatment === "Accept" && residual >= threshold &&
-          (!input.acceptanceJustification?.trim() || !input.acceptanceExpiresAt || input.acceptanceExpiresAt <= today())) {
-        return res.status(400).json({ message: `Acceptance above risk appetite (${threshold}) requires justification and a future expiry date.` });
-      }
-      if (input.status === "accepted" && !input.acceptanceReason?.trim() && !input.acceptanceJustification?.trim()) {
-        return res.status(400).json({ message: "An acceptance justification is required for accepted risks." });
-      }
-      const actorId = (req.user as any).id;
-      const riskNumber = await reserveRiskNumber();
-      const acceptance = treatment === "Accept" ? { acceptedByUserId: actorId, acceptedAt: new Date() } : {};
-      const [risk] = await db.insert(risks).values({
-        ...input,
-        riskNumber,
-        treatmentStrategy: treatment,
-        riskScore: input.impact * input.likelihood,
-        acceptedByUserId: "acceptedByUserId" in acceptance ? actorId : null,
-        acceptedAt: "acceptedAt" in acceptance ? acceptance.acceptedAt : null,
-        acceptanceJustification: input.acceptanceJustification ?? input.acceptanceReason ?? null,
-        acceptanceReason: input.acceptanceReason ?? input.acceptanceJustification ?? null,
-        createdById: actorId,
-      }).returning();
-      await db.insert(riskReviewHistory).values({
-        riskId: risk.id, reviewedById: actorId, eventType: "created",
-        inherentScore: risk.riskScore, residualScore: residual, status: risk.status,
-      });
-      await writeRiskAudit(req, "CREATE", risk, undefined, risk);
-      res.status(201).json(risk);
-    } catch (error) { respondWithApiError(res, error, "Failed to create IT risk"); }
+    try { res.status(201).json(await saveRiskAssessment(req)); }
+    catch (error) { riskFailure(res, error, "Failed to create IT risk"); }
   });
 
   app.put("/api/risks/:riskId", ...manage, async (req, res) => {
-    const parsed = riskAssessmentInputSchema.partial().strict().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid IT risk assessment", errors: parsed.error.flatten() });
-    try {
-      const [previous] = await db.select().from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!previous) return res.status(404).json({ message: "Risk not found" });
-      const input = parsed.data;
-      const likelihood = input.likelihood ?? previous.likelihood;
-      const impact = input.impact ?? previous.impact;
-      const residual = (input.residualLikelihood ?? previous.residualLikelihood ?? likelihood) *
-        (input.residualImpact ?? previous.residualImpact ?? impact);
-      const treatment = input.treatmentStrategy ?? previous.treatmentStrategy;
-      const threshold = await readAppetiteThreshold();
-      const justification = input.acceptanceJustification !== undefined
-        ? input.acceptanceJustification : previous.acceptanceJustification ?? previous.acceptanceReason;
-      const expiry = input.acceptanceExpiresAt !== undefined
-        ? input.acceptanceExpiresAt : isoDate(previous.acceptanceExpiresAt);
-      if (treatment === "Accept" && residual >= threshold &&
-          (!justification?.trim() || !expiry || expiry <= today())) {
-        return res.status(400).json({ message: `Acceptance above risk appetite (${threshold}) requires justification and a future expiry date.` });
-      }
-      if ((input.status ?? previous.status) === "accepted" && !justification?.trim()) {
-        return res.status(400).json({ message: "An acceptance justification is required for accepted risks." });
-      }
-      const actorId = (req.user as any).id;
-      const acceptanceFields = treatment === "Accept"
-        ? { acceptedByUserId: actorId, acceptedAt: new Date() }
-        : { acceptedByUserId: null, acceptedAt: null, acceptanceExpiresAt: null, acceptanceJustification: null };
-      const [risk] = await db.update(risks).set({
-        ...input,
-        ...acceptanceFields,
-        riskScore: likelihood * impact,
-        acceptanceJustification: treatment === "Accept" ? justification : null,
-        acceptanceReason: input.acceptanceReason ?? (treatment === "Accept" ? justification : null),
-        updatedAt: new Date(),
-      }).where(eq(risks.id, req.params.riskId)).returning();
-      await db.insert(riskReviewHistory).values({
-        riskId: risk.id, reviewedById: actorId, eventType: "updated",
-        previousInherentScore: previous.riskScore, inherentScore: risk.riskScore,
-        previousResidualScore: residualRiskScore(previous), residualScore: residual,
-        previousStatus: previous.status, status: risk.status,
-      });
-      await writeRiskAudit(req, "UPDATE", risk, previous, risk);
-      res.json(risk);
-    } catch (error) { respondWithApiError(res, error, "Failed to update IT risk"); }
+    try { res.json(await saveRiskAssessment(req, req.params.riskId)); }
+    catch (error) { riskFailure(res, error, "Failed to update IT risk"); }
   });
 
   app.delete("/api/risks/:riskId", ...manage, async (req, res) => {
     try {
-      const [risk] = await db.delete(risks).where(eq(risks.id, req.params.riskId)).returning();
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
-      await writeRiskAudit(req, "DELETE", risk, risk, undefined);
+      await mutateRisk(req, "DELETE", async (tx, risk) => {
+        await tx.delete(risks).where(eq(risks.id, risk.id));
+        return { deleted: true };
+      });
       res.json({ success: true });
-    } catch (error) { respondWithApiError(res, error, "Failed to delete IT risk"); }
+    } catch (error) { riskFailure(res, error, "Failed to delete IT risk"); }
   });
 
   app.post("/api/risks/:riskId/actions", ...manage, async (req, res) => {
     const parsed = riskMitigationActionInputSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid mitigation action", errors: parsed.error.flatten() });
     try {
-      const [risk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
-      const [action] = await db.insert(riskMitigationActions).values({
-        ...parsed.data,
-        riskId: risk.id,
-        completedAt: parsed.data.status === "Completed" ? new Date() : null,
-      }).returning();
-      await writeRiskAudit(req, "CREATE_MITIGATION_ACTION", risk, undefined, action);
+      const action = await mutateRisk(req, "CREATE_MITIGATION_ACTION", async (tx, risk) => {
+        const [action] = await tx.insert(riskMitigationActions).values({
+          ...parsed.data, riskId: risk.id, completedAt: parsed.data.status === "Completed" ? new Date() : null,
+        }).returning();
+        return action;
+      });
       res.status(201).json(action);
-    } catch (error) { respondWithApiError(res, error, "Failed to create mitigation action"); }
+    } catch (error) { riskFailure(res, error, "Failed to create mitigation action"); }
   });
 
   app.put("/api/risks/:riskId/actions/:actionId", ...manage, async (req, res) => {
     const parsed = riskMitigationActionInputSchema.partial().strict().safeParse(req.body);
     if (!parsed.success || !Object.keys(parsed.data ?? {}).length) return res.status(400).json({ message: "Invalid mitigation action", errors: parsed.success ? undefined : parsed.error.flatten() });
     try {
-      const [previous] = await db.select().from(riskMitigationActions).where(and(
+      const action = await mutateRisk(req, "UPDATE_MITIGATION_ACTION", async (tx) => {
+      const [previous] = await tx.select().from(riskMitigationActions).where(and(
         eq(riskMitigationActions.id, req.params.actionId), eq(riskMitigationActions.riskId, req.params.riskId),
       )).limit(1);
-      if (!previous) return res.status(404).json({ message: "Mitigation action not found" });
+      if (!previous) throw new RiskInputError("Mitigation action not found", 404);
       const completedAt = parsed.data.status === "Completed" ? previous.completedAt ?? new Date()
         : parsed.data.status ? null : undefined;
-      const [action] = await db.update(riskMitigationActions).set({
+      const [action] = await tx.update(riskMitigationActions).set({
         ...parsed.data,
         ...(completedAt !== undefined ? { completedAt } : {}),
         updatedAt: new Date(),
       }).where(eq(riskMitigationActions.id, previous.id)).returning();
-      await writeRiskAudit(req, "UPDATE_MITIGATION_ACTION", { ...previous, riskNumber: req.params.riskId }, previous, action);
+      return { ...action, previousValues: previous };
+      });
       res.json(action);
-    } catch (error) { respondWithApiError(res, error, "Failed to update mitigation action"); }
+    } catch (error) { riskFailure(res, error, "Failed to update mitigation action"); }
   });
 
   app.delete("/api/risks/:riskId/actions/:actionId", ...manage, async (req, res) => {
     try {
-      const [action] = await db.delete(riskMitigationActions).where(and(
+      await mutateRisk(req, "DELETE_MITIGATION_ACTION", async tx => {
+      const [action] = await tx.delete(riskMitigationActions).where(and(
         eq(riskMitigationActions.id, req.params.actionId), eq(riskMitigationActions.riskId, req.params.riskId),
       )).returning();
-      if (!action) return res.status(404).json({ message: "Mitigation action not found" });
-      await writeRiskAudit(req, "DELETE_MITIGATION_ACTION", { id: action.riskId, title: action.title }, action, undefined);
+      if (!action) throw new RiskInputError("Mitigation action not found", 404);
+      return { deleted: action };
+      });
       res.json({ success: true });
-    } catch (error) { respondWithApiError(res, error, "Failed to delete mitigation action"); }
+    } catch (error) { riskFailure(res, error, "Failed to delete mitigation action"); }
   });
 
   app.post("/api/risks/:riskId/reviews", ...manage, async (req, res) => {
     const parsed = riskReviewInputSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ message: "Invalid review", errors: parsed.error.flatten() });
     try {
-      const [risk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
+      const result = await mutateRisk(req, "REVIEW", async (tx, risk) => {
       const reviewedAt = new Date();
       const nextReviewDate = addReviewFrequency(reviewedAt, risk.reviewFrequency as typeof IT_RISK_REVIEW_FREQUENCIES[number])
         .toISOString().slice(0, 10);
       const residual = residualRiskScore(risk);
-      const [updated] = await db.update(risks).set({ lastReviewedAt: reviewedAt, nextReviewDate, updatedAt: reviewedAt })
+      const [updated] = await tx.update(risks).set({ lastReviewedAt: reviewedAt, nextReviewDate, updatedAt: reviewedAt })
         .where(eq(risks.id, risk.id)).returning();
-      const [history] = await db.insert(riskReviewHistory).values({
+      const [history] = await tx.insert(riskReviewHistory).values({
         riskId: risk.id, reviewedById: (req.user as any).id, eventType: "review",
         notes: parsed.data.notes ?? null, previousInherentScore: risk.riskScore,
         inherentScore: risk.riskScore, previousResidualScore: residual, residualScore: residual,
         previousStatus: risk.status, status: risk.status,
       }).returning();
-      await writeRiskAudit(req, "REVIEW", updated, risk, { ...updated, reviewNotes: parsed.data.notes });
-      res.status(201).json({ risk: updated, history });
-    } catch (error) { respondWithApiError(res, error, "Failed to record risk review"); }
+      return { risk: updated, history };
+      });
+      res.status(201).json(result);
+    } catch (error) { riskFailure(res, error, "Failed to record risk review"); }
   });
 
   app.post("/api/risks/:riskId/links", ...manage, async (req, res) => {
     const parsed = z.object({ type: riskLinkTypeSchema, targetId: z.string().uuid() }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Select a valid IT record to link", errors: parsed.error.flatten() });
     try {
-      const [risk] = await db.select({ id: risks.id, title: risks.title }).from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
       const { type, targetId } = parsed.data;
       const link = linkTypes[type] as any;
       if (!await isFeatureEnabled(link.module)) return sendFeatureNotEnabled(res, link.module);
       const targetTable = link.target as any;
       const [target] = await db.select({ id: targetTable.id }).from(targetTable).where(eq(targetTable.id, targetId)).limit(1);
       if (!target) return res.status(404).json({ message: "The selected linked record was not found" });
-      const inserted = await db.insert(link.table as any).values({ riskId: risk.id, [link.field]: targetId }).onConflictDoNothing().returning();
-      const created = Array.isArray(inserted) ? inserted[0] : undefined;
-      await writeRiskAudit(req, "LINK_RECORD", risk, undefined, { type, targetId });
-      res.status(created ? 201 : 200).json(created ?? { riskId: risk.id, type, targetId });
-    } catch (error) { respondWithApiError(res, error, "Failed to link IT record to risk"); }
+      if (type === "changes") {
+        const [change] = await db.select({ projectId: changes.projectId }).from(changes).where(eq(changes.id, targetId));
+        if (change?.projectId) return res.status(400).json({ message: "Project changes cannot be linked to the internal IT risk register" });
+      }
+      const result = await mutateRisk(req, "LINK_RECORD", async (tx, risk) => {
+        const [created] = await tx.insert(link.table).values({ riskId: risk.id, [link.field]: targetId }).onConflictDoNothing().returning();
+        return created ?? { riskId: risk.id, type, targetId };
+      });
+      res.status(201).json(result);
+    } catch (error) { riskFailure(res, error, "Failed to link IT record to risk"); }
   });
 
   app.delete("/api/risks/:riskId/links/:type/:targetId", ...manage, async (req, res) => {
@@ -399,20 +401,24 @@ export function registerRiskManagementRoutes(
     try {
       const link = linkTypes[typeParsed.data] as any;
       const targetColumn = (link.table as any)[link.field];
-      await db.delete(link.table as any).where(and(
+      await mutateRisk(req, "UNLINK_RECORD", async tx => {
+      await tx.delete(link.table).where(and(
         eq((link.table as any).riskId, req.params.riskId),
         eq(targetColumn, targetParsed.data),
       ));
-      await writeRiskAudit(req, "UNLINK_RECORD", { id: req.params.riskId, title: "Risk" }, undefined, { type: typeParsed.data, targetId: targetParsed.data });
+      return { type: typeParsed.data, targetId: targetParsed.data };
+      });
       res.json({ success: true });
-    } catch (error) { respondWithApiError(res, error, "Failed to unlink IT record"); }
+    } catch (error) { riskFailure(res, error, "Failed to unlink IT record"); }
   });
 
   app.post("/api/risks/:riskId/spawn-change", ...manage, requireModule("itsm"), async (req, res) => {
     try {
-      const [risk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
-      const change = await storage.createChange({
+      const change = await mutateRisk(req, "SPAWN_CHANGE", async (tx, risk) => {
+      const changeNumber = `CHG-${risk.riskNumber}`;
+      const [existing] = await tx.select().from(changes).where(eq(changes.changeNumber, changeNumber));
+      const [change] = existing ? [existing] : await tx.insert(changes).values({
+        changeNumber,
         title: `Risk response: ${risk.title}`,
         description: risk.description ?? `Change request created to address ${risk.riskNumber}.`,
         type: "normal",
@@ -425,19 +431,22 @@ export function registerRiskManagementRoutes(
         cabRequired: true,
         requestedById: (req.user as any).id,
         projectId: null,
+      }).returning();
+      await tx.insert(riskChangeLinks).values({ riskId: risk.id, changeId: change.id }).onConflictDoNothing();
+      if (!risk.changeId) await tx.update(risks).set({ changeId: change.id, updatedAt: new Date() }).where(eq(risks.id, risk.id));
+      return change;
       });
-      await db.insert(riskChangeLinks).values({ riskId: risk.id, changeId: change.id }).onConflictDoNothing();
-      if (!risk.changeId) await db.update(risks).set({ changeId: change.id, updatedAt: new Date() }).where(eq(risks.id, risk.id));
-      await writeRiskAudit(req, "SPAWN_CHANGE", risk, undefined, { id: change.id, changeNumber: change.changeNumber });
       res.status(201).json(change);
-    } catch (error) { respondWithApiError(res, error, "Failed to spawn change request"); }
+    } catch (error) { riskFailure(res, error, "Failed to spawn change request"); }
   });
 
   app.post("/api/risks/:riskId/spawn-problem", ...manage, requireModule("itsm"), async (req, res) => {
     try {
-      const [risk] = await db.select().from(risks).where(eq(risks.id, req.params.riskId)).limit(1);
-      if (!risk) return res.status(404).json({ message: "Risk not found" });
-      const problem = await storage.createProblem({
+      const problem = await mutateRisk(req, "SPAWN_PROBLEM", async (tx, risk) => {
+      const problemNumber = `PRB-${risk.riskNumber}`;
+      const [existing] = await tx.select().from(problems).where(eq(problems.problemNumber, problemNumber));
+      const [problem] = existing ? [existing] : await tx.insert(problems).values({
+        problemNumber,
         title: `Risk remediation: ${risk.title}`,
         description: risk.description,
         priority: risk.riskScore >= 16 ? "high" : "medium",
@@ -445,10 +454,11 @@ export function registerRiskManagementRoutes(
         rootCause: risk.vulnerability,
         workaround: risk.mitigation,
         createdById: (req.user as any).id,
+      }).returning();
+      await tx.insert(riskProblemLinks).values({ riskId: risk.id, problemId: problem.id }).onConflictDoNothing();
+      return problem;
       });
-      await db.insert(riskProblemLinks).values({ riskId: risk.id, problemId: problem.id }).onConflictDoNothing();
-      await writeRiskAudit(req, "SPAWN_PROBLEM", risk, undefined, { id: problem.id, problemNumber: problem.problemNumber });
       res.status(201).json(problem);
-    } catch (error) { respondWithApiError(res, error, "Failed to spawn problem record"); }
+    } catch (error) { riskFailure(res, error, "Failed to spawn problem record"); }
   });
 }

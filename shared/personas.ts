@@ -91,6 +91,9 @@ export function isPersonaPageAllowed(
   const readOnlyMutationPath = /\/(?:new|create|edit|manage)(?:\/|$)/i.test(path);
   if (isDemoViewer(roleNames)) return !readOnlyMutationPath && isDemoPageAllowed(requestedPath);
   if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;
+  if (path === "/risks" || path === "/risk-management") {
+    return permissions.some(permission => ["risk_manage", "change_manage", "compliance_view", "audit_view"].includes(permission));
+  }
 
   const personas = getPersonaRoleKeys(roleNames);
   if (personas.length === 0) return true; // Keep custom, legacy roles governed by their existing permissions.
@@ -203,6 +206,10 @@ export function isPersonaApiAllowed(
   const upperMethod = method.toUpperCase();
 
   if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
+  if (["/risks", "/risk-users", "/risk-management"].some(prefix => matchesPath(apiPath, prefix))) {
+    return permissions.some(permission => ["risk_manage", "change_manage"].includes(permission)) ||
+      (isReadMethod(upperMethod) && permissions.some(permission => ["compliance_view", "audit_view"].includes(permission)));
+  }
   return personas.some(persona => {
     if (persona === "end_user") {
       const projectChangeAccess = matchesPath(apiPath, "/changes") &&

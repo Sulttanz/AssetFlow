@@ -19,7 +19,7 @@ ALTER TABLE risk_register ADD COLUMN IF NOT EXISTS accepted_at timestamp;
 ALTER TABLE risk_register ADD COLUMN IF NOT EXISTS acceptance_expires_at date;
 
 UPDATE risk_register
-SET risk_number = 'IT-RSK-' || lpad(nextval('risk_register_number_seq')::text, 3, '0')
+SET risk_number = 'IT-RSK-' || regexp_replace('00' || nextval('risk_register_number_seq')::text, '^0+(?=[0-9]{3})', '')
 WHERE risk_number IS NULL;
 UPDATE risk_register
 SET category = CASE lower(category)
@@ -35,9 +35,31 @@ SET category = CASE lower(category)
   WHEN 'other' THEN 'Service Delivery & ITSM'
   ELSE category
 END
-WHERE category IN ('security','data','availability','compliance','vendor','backup','identity','schedule','operational','other');
+WHERE lower(category) IN ('security','data','availability','compliance','vendor','backup','identity','schedule','operational','other');
+
+-- Preserve historical acceptance text without inventing an approver or approval date.
+UPDATE risk_register SET treatment_strategy = 'Accept',
+  acceptance_justification = COALESCE(acceptance_justification, acceptance_reason)
+WHERE status = 'accepted';
+ALTER TABLE risk_register ALTER COLUMN category SET DEFAULT 'Service Delivery & ITSM';
+
+-- Existing historical exceptions remain readable; new/updated rows must satisfy the scoring contract.
+DO $risk_checks$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'risk_register'::regclass AND conname = 'risk_register_scores_check') THEN
+    ALTER TABLE risk_register ADD CONSTRAINT risk_register_scores_check CHECK (
+      likelihood BETWEEN 1 AND 5 AND impact BETWEEN 1 AND 5
+      AND (residual_likelihood IS NULL OR residual_likelihood BETWEEN 1 AND 5)
+      AND (residual_impact IS NULL OR residual_impact BETWEEN 1 AND 5)
+      AND (target_likelihood IS NULL OR target_likelihood BETWEEN 1 AND 5)
+      AND (target_impact IS NULL OR target_impact BETWEEN 1 AND 5)
+    ) NOT VALID;
+  END IF;
+END
+$risk_checks$;
 
 ALTER TABLE risk_register ALTER COLUMN risk_number SET NOT NULL;
+ALTER TABLE risk_register ALTER COLUMN risk_number SET DEFAULT ('IT-RSK-' || regexp_replace('00' || nextval('risk_register_number_seq')::text, '^0+(?=[0-9]{3})', ''));
 CREATE UNIQUE INDEX IF NOT EXISTS risk_register_number_uq ON risk_register(risk_number);
 CREATE INDEX IF NOT EXISTS risk_register_review_due_idx ON risk_register(next_review_date);
 CREATE INDEX IF NOT EXISTS risk_register_acceptance_expiry_idx ON risk_register(acceptance_expires_at);

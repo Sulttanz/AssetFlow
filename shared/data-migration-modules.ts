@@ -1,3 +1,5 @@
+import { IT_RISK_CATEGORIES } from "./risk-management";
+
 export type MigrationFieldKind = "string" | "email" | "date" | "number" | "integer" | "boolean" | "enum";
 
 export type MigrationField = {
@@ -309,7 +311,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
     fields: [
       { key: "title", header: "Risk Title*", required: true, sample: "Supplier delivery delay", note: "Required." },
       { key: "description", header: "Description", sample: "Critical hardware may arrive after the rollout window.", note: "Optional." },
-      { key: "category", header: "Category", kind: "enum", enumValues: ["security", "availability", "data", "schedule", "operational", "compliance", "vendor", "other"], sample: "operational", note: "Optional; defaults to operational." },
+      { key: "category", header: "Category", kind: "enum", enumValues: [...IT_RISK_CATEGORIES], sample: "Service Delivery & ITSM", note: "Optional; defaults to Service Delivery & ITSM." },
       { key: "likelihood", header: "Likelihood*", required: true, kind: "integer", sample: 3, note: "Required integer from 1 to 5." },
       { key: "impact", header: "Impact*", required: true, kind: "integer", sample: 4, note: "Required integer from 1 to 5." },
       { key: "mitigation", header: "Mitigation", sample: "Confirm lead times and secure a second source.", note: "Optional mitigation plan." },

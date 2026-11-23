@@ -184,6 +184,7 @@ const MODULE_API_PREFIXES: Array<[string, string]> = [
   ["/projects", "project_management"],
   ["/risks", "risk_management"],
   ["/risk-users", "risk_management"],
+  ["/risk-management", "risk_management"],
 ];
 
 export function moduleForApiPath(path: string): string | undefined {
@@ -10838,7 +10839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) { respondWithApiError(res, error, "Failed to create service request"); }
   });
 
-  registerRiskManagementRoutes(app, requireAuth, requirePermission, requireModule);
+  registerRiskManagementRoutes(app, requireAuth, requireAnyPermission, requireModule);
 
   // ── Change Management ────────────────────────────────────────────────────
   app.get("/api/changes/events", requireAuth, requireModule("itsm"), cabEventsHandler);

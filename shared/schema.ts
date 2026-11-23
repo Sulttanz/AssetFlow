@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, date, decimal, timestamp, integer, serial, boolean, real, unique, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, pgSequence, text, varchar, date, decimal, timestamp, integer, serial, boolean, real, unique, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { catalogFieldSchema, type CatalogField } from "./service-catalog";
@@ -3015,9 +3015,11 @@ export type InsertIncident = z.infer<typeof insertIncidentSchema>;
 export type ServiceRequest = typeof serviceRequests.$inferSelect;
 export type InsertServiceRequest = z.infer<typeof insertServiceRequestSchema>;
 
+export const riskRegisterNumberSequence = pgSequence("risk_register_number_seq", { startWith: 1 });
 export const risks = pgTable("risk_register", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  riskNumber: text("risk_number").notNull(),
+  riskNumber: text("risk_number").notNull()
+    .default(sql`'IT-RSK-' || regexp_replace('00' || nextval('risk_register_number_seq')::text, '^0+(?=[0-9]{3})', '')`),
   changeId: varchar("change_id").references(() => changes.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
@@ -3160,7 +3162,9 @@ export const riskChangeLinks = pgTable("risk_change_links", {
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 }, table => [uniqueIndex("risk_change_links_pair_uq").on(table.riskId, table.changeId)]);
 
-export const risksRelations = relations(risks, ({ many }) => ({
+export const risksRelations = relations(risks, ({ one, many }) => ({
+  owner: one(users, { fields: [risks.ownerId], references: [users.id], relationName: "itRiskOwner" }),
+  acceptedBy: one(users, { fields: [risks.acceptedByUserId], references: [users.id], relationName: "itRiskAcceptor" }),
   mitigationActions: many(riskMitigationActions),
   reviewHistory: many(riskReviewHistory),
   applicationLinks: many(riskApplicationLinks),
@@ -3171,6 +3175,46 @@ export const risksRelations = relations(risks, ({ many }) => ({
   complianceReviewLinks: many(riskComplianceReviewLinks),
   problemLinks: many(riskProblemLinks),
   changeLinks: many(riskChangeLinks),
+}));
+export const riskMitigationActionsRelations = relations(riskMitigationActions, ({ one }) => ({
+  risk: one(risks, { fields: [riskMitigationActions.riskId], references: [risks.id] }),
+  owner: one(users, { fields: [riskMitigationActions.ownerUserId], references: [users.id] }),
+}));
+export const riskReviewHistoryRelations = relations(riskReviewHistory, ({ one }) => ({
+  risk: one(risks, { fields: [riskReviewHistory.riskId], references: [risks.id] }),
+  reviewer: one(users, { fields: [riskReviewHistory.reviewedById], references: [users.id] }),
+}));
+export const riskApplicationLinksRelations = relations(riskApplicationLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskApplicationLinks.riskId], references: [risks.id] }),
+  application: one(cmdbApplications, { fields: [riskApplicationLinks.applicationId], references: [cmdbApplications.id] }),
+}));
+export const riskServerLinksRelations = relations(riskServerLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskServerLinks.riskId], references: [risks.id] }),
+  server: one(servers, { fields: [riskServerLinks.serverId], references: [servers.id] }),
+}));
+export const riskNetworkDeviceLinksRelations = relations(riskNetworkDeviceLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskNetworkDeviceLinks.riskId], references: [risks.id] }),
+  device: one(networkDevices, { fields: [riskNetworkDeviceLinks.networkDeviceId], references: [networkDevices.id] }),
+}));
+export const riskAssetLinksRelations = relations(riskAssetLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskAssetLinks.riskId], references: [risks.id] }),
+  asset: one(assets, { fields: [riskAssetLinks.assetId], references: [assets.id] }),
+}));
+export const riskVendorLinksRelations = relations(riskVendorLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskVendorLinks.riskId], references: [risks.id] }),
+  vendor: one(vendors, { fields: [riskVendorLinks.vendorId], references: [vendors.id] }),
+}));
+export const riskComplianceReviewLinksRelations = relations(riskComplianceReviewLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskComplianceReviewLinks.riskId], references: [risks.id] }),
+  review: one(itComponentComplianceReviews, { fields: [riskComplianceReviewLinks.complianceReviewId], references: [itComponentComplianceReviews.id] }),
+}));
+export const riskProblemLinksRelations = relations(riskProblemLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskProblemLinks.riskId], references: [risks.id] }),
+  problem: one(problems, { fields: [riskProblemLinks.problemId], references: [problems.id] }),
+}));
+export const riskChangeLinksRelations = relations(riskChangeLinks, ({ one }) => ({
+  risk: one(risks, { fields: [riskChangeLinks.riskId], references: [risks.id] }),
+  change: one(changes, { fields: [riskChangeLinks.changeId], references: [changes.id] }),
 }));
 
 export const changeRiskLinks = pgTable("change_risk_links", {

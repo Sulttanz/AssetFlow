@@ -1,4 +1,5 @@
 import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
+import { IT_RISK_CATEGORIES } from "@shared/risk-management";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -37,7 +38,7 @@ type RiskForm = {
   residualLikelihood: string; residualImpact: string; status: string; acceptanceReason: string;
 };
 const blankRisk: RiskForm = {
-  title: "", description: "", category: "operational", likelihood: "3", impact: "3",
+  title: "", description: "", category: "Service Delivery & ITSM", likelihood: "3", impact: "3",
   mitigation: "", contingency: "", ownerId: "", dueDate: "", residualLikelihood: "2",
   residualImpact: "2", status: "identified", acceptanceReason: "",
 };
@@ -138,7 +139,7 @@ export default function ChangeTracker() {
     setEditingRisk(risk);
     setRiskChangeId(risk.changeId ?? risk.change?.id ?? "");
     setRiskForm({
-      title: risk.title ?? "", description: risk.description ?? "", category: risk.category ?? "Operational",
+      title: risk.title ?? "", description: risk.description ?? "", category: risk.category ?? "Service Delivery & ITSM",
       likelihood: String(risk.likelihood ?? 3), impact: String(risk.impact ?? 3), mitigation: risk.mitigation ?? "",
       contingency: risk.contingency ?? "", ownerId: risk.ownerId ?? risk.owner?.id ?? "", dueDate: risk.dueDate?.slice(0, 10) ?? "",
       residualLikelihood: String(risk.residualLikelihood ?? 2), residualImpact: String(risk.residualImpact ?? 2),
@@ -308,7 +309,7 @@ export default function ChangeTracker() {
             <div className="grid gap-4 sm:grid-cols-2">
               {!editingRisk && <Field label="Linked change"><select className={selectClass} required value={riskChangeId} onChange={(event) => setRiskChangeId(event.target.value)}><option value="">Select a change…</option>{changes.map((change) => <option key={change.id} value={change.id}>{change.changeNumber} — {change.title}</option>)}</select>{(() => { const linkedChange = changes.find(change => change.id === riskChangeId); return linkedChange && (linkedChange.impactSummary?.services.length || linkedChange.impactSummary?.assets.length) ? <span className="block text-xs font-normal text-teal-800">Impact: {linkedChange.impactSummary?.services.join(", ") || "No services"} · {linkedChange.impactSummary?.assets.join(", ") || "No assets"}</span> : null; })()}</Field>}
               <Field label="Risk title" className={!editingRisk ? "" : "sm:col-span-2"}><Input required value={riskForm.title} onChange={(event) => setRiskField("title", event.target.value)} placeholder="e.g. Database failover exceeds window" /></Field>
-               <Field label="Category"><select className={selectClass} value={riskForm.category} onChange={(event) => setRiskField("category", event.target.value)}><option value="security">Security</option><option value="availability">Availability</option><option value="data">Data</option><option value="schedule">Schedule</option><option value="operational">Operational</option><option value="compliance">Compliance</option><option value="vendor">Vendor</option><option value="other">Other</option></select></Field>
+               <Field label="Category"><select className={selectClass} value={riskForm.category} onChange={(event) => setRiskField("category", event.target.value)}>{IT_RISK_CATEGORIES.map(category => <option key={category}>{category}</option>)}</select></Field>
               <Field label="Risk owner"><select className={selectClass} value={riskForm.ownerId} onChange={(event) => setRiskField("ownerId", event.target.value)}><option value="">Select owner…</option>{users.map((user) => <option key={user.id} value={user.id}>{personName(user)}</option>)}</select></Field>
               <Field label="Description" className="sm:col-span-2"><Textarea value={riskForm.description} onChange={(event) => setRiskField("description", event.target.value)} rows={2} placeholder="What could happen, and what service or outcome is exposed?" /></Field>
               <Field label="Mitigation plan"><Textarea value={riskForm.mitigation} onChange={(event) => setRiskField("mitigation", event.target.value)} rows={3} placeholder="Actions to reduce likelihood or impact" /></Field>

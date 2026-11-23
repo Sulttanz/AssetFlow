@@ -23,7 +23,7 @@
 - [CAB index benchmarking](cab-index-benchmarking.md) — partial-index updates can leave EXPLAIN WAL bytes unchanged; compare elapsed time and index size too.
 - [Deployment config edit guard](deployment-config-edit-guard.md) — direct .replit patches can be blocked; when deployment configuration is unavailable, use an existing build lifecycle hook if appropriate.
 - [Workspace and on-prem migration ledgers](workspace-sql-migration-ledger.md) — keep both ledgers outside Drizzle-managed schemas and keep their migration sources separate.
-- [Standalone ITSM risk management](change-risk-management.md) — risk records and their lifecycle are independent of Change Management.
+- [Internal IT risk scope](change-risk-management.md) — internal IT risks are isolated from Project Management; infrastructure and internal ITSM links stay optional.
 - [Wouter route reset in tests](wouter-test-route-reset.md) — tests that redirect through Wouter must reset browser history after cleanup to isolate later cases.
 - [Task suggestion timing](task-suggestion-timing.md) — hold suggested follow-up tasks until the user's main project tasks are complete, then ask whether to proceed.
 - [Software seat accounting](software-seat-accounting.md) — legacy used-seat totals can contain unnamed occupants; allocating employees must not reset that usage.

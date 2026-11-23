@@ -16,13 +16,29 @@ export const IT_RISK_CONTROL_EFFECTIVENESS = ["Effective", "Partially Effective"
 export const IT_RISK_STATUSES = ["identified", "mitigating", "accepted", "closed"] as const;
 export const DEFAULT_IT_RISK_APPETITE = 12;
 
+/** Accept legacy import labels while persisting only the internal IT taxonomy. */
+export function normalizeItRiskCategory(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const legacy: Record<string, typeof IT_RISK_CATEGORIES[number]> = {
+    security: "Cybersecurity & Vulnerability", data: "Cybersecurity & Vulnerability",
+    availability: "Infrastructure & High Availability", compliance: "Regulatory & Compliance",
+    vendor: "Third-Party & Vendor", backup: "Backup, DR & Continuity",
+    identity: "Identity, Access & Patching", schedule: "Service Delivery & ITSM",
+    operational: "Service Delivery & ITSM", other: "Service Delivery & ITSM",
+  };
+  return legacy[value.trim().toLowerCase()] ?? value;
+}
+
 export const ciaImpactSchema = z.object({
   confidentiality: z.boolean(),
   integrity: z.boolean(),
   availability: z.boolean(),
 }).strict();
 
-const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional();
+const optionalDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}, "Enter a valid calendar date").nullable().optional();
 
 export const riskAssessmentInputSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -83,9 +99,11 @@ export function residualRiskScore(risk: {
 
 export function addReviewFrequency(date: Date, frequency: typeof IT_RISK_REVIEW_FREQUENCIES[number]): Date {
   const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  if (frequency === "Monthly") next.setUTCMonth(next.getUTCMonth() + 1);
-  else if (frequency === "Quarterly") next.setUTCMonth(next.getUTCMonth() + 3);
-  else if (frequency === "Semi-Annual") next.setUTCMonth(next.getUTCMonth() + 6);
-  else next.setUTCFullYear(next.getUTCFullYear() + 1);
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  const months = { Monthly: 1, Quarterly: 3, "Semi-Annual": 6, Annual: 12 }[frequency] ?? 3;
+  next.setUTCMonth(next.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(day, lastDay));
   return next;
 }

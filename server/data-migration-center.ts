@@ -48,6 +48,7 @@ import { db } from "./db";
 import { storage } from "./storage";
 import { isFeatureEnabled, sendFeatureNotEnabled } from "./module-access";
 import { isSystemAdministrator } from "@shared/personas";
+import { normalizeItRiskCategory } from "@shared/risk-management";
 
 const MAX_ROWS = 5000;
 const PREVIEW_TTL_MS = 60 * 60 * 1000;
@@ -427,7 +428,10 @@ function buildNormalized(
 ): { normalized: Record<string, unknown> | null; errors: string[]; uniqueKeys: string[] } {
   const module = getDataMigrationModule(moduleKey)!;
   const errors: string[] = [];
-  const parsed = Object.fromEntries(module.fields.map(field => [field.key, parseField(field, values[field.key] ?? null, errors)]));
+  const parsed = Object.fromEntries(module.fields.map(field => {
+    const raw = moduleKey === "risks" && field.key === "category" ? normalizeItRiskCategory(values[field.key]) : values[field.key];
+    return [field.key, parseField(field, (raw ?? null) as CellValue, errors)];
+  }));
   const value = (key: string) => parsed[key];
   const optional = (keys: string[]) => Object.fromEntries(keys.filter(key => value(key) !== undefined).map(key => [key, value(key)]));
   const requireConditional = (key: string, message?: string) => {
@@ -738,7 +742,7 @@ function buildNormalized(
     normalized = {
       title: value("title"),
       description: value("description") ?? null,
-      category: value("category") ?? "operational",
+      category: value("category") ?? "Service Delivery & ITSM",
       likelihood,
       impact,
       riskScore: likelihood * impact,
