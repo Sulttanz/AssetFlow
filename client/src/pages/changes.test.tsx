@@ -1,6 +1,6 @@
 import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import Changes from "./changes";
@@ -88,6 +88,7 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("change list pages", () => {
@@ -605,6 +606,45 @@ describe("change detail CAB approvals", () => {
 
     await waitFor(() => expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull());
     expect(screen.getByRole("option", { name: "Alice" })).toBeTruthy();
+  });
+
+  it("removes a disabled account from an open picker and disables its selected assignment", async () => {
+    auth.isAdmin = true;
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const users = [
+      { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
+      { id: "reviewer", username: "reviewer", firstName: "Riley", lastName: "Reviewer", isActive: true },
+    ];
+    const { user, panel } = await openApprovals([], [], [], [], users);
+    let latestUsers = users;
+    const userRequests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/users") {
+        userRequests.push(url);
+        return { ok: true, json: async () => latestUsers };
+      }
+      if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
+      if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
+      if (url === "/api/changes/change-1") return { ok: true, json: async () => queryClient.getQueryData<{ changes: ReturnType<typeof change>[] }>(["/api/changes", 1, "", "all", "all"])?.changes[0] };
+      return { ok: true, json: async () => [] };
+    }));
+
+    await user.click(within(panel).getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "Riley Reviewer" }));
+    const addButton = within(panel).getByRole("button", { name: "Add Approver" }) as HTMLButtonElement;
+    expect(addButton.disabled).toBe(false);
+
+    await user.click(within(panel).getByRole("combobox"));
+    expect(await screen.findByRole("option", { name: "Riley Reviewer" })).toBeTruthy();
+    latestUsers = users.map(account => account.id === "reviewer" ? { ...account, isActive: false } : account);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+
+    expect(userRequests.length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(queryClient.getQueryData<UserSummaryFixture[]>(["/api/users"])?.find(account => account.id === "reviewer")?.isActive).toBe(false);
+      expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
+      expect(addButton.disabled).toBe(true);
+    });
   });
 
   it("hides self-assignment for a previously removed member", async () => {

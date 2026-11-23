@@ -627,6 +627,7 @@ export default function Changes() {
   const searchParams = useSearch();
   const isAdmin = useHasPermission("system_admin");
   const isChangeManager = useHasPermission("change_manage");
+  const canManageChange = isAdmin || isChangeManager;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -710,8 +711,11 @@ export default function Changes() {
     enabled: !!selectedChange,
     refetchInterval: 60_000,
   });
-  const canManageChange = isAdmin || isChangeManager;
-  const { data: allUsers = [], refetch: refetchUsers } = useQuery<UserSummary[]>({ queryKey: ["/api/users"], enabled: canManageChange });
+  const { data: allUsers = [], refetch: refetchUsers } = useQuery<UserSummary[]>({
+    queryKey: ["/api/users"],
+    enabled: canManageChange,
+    refetchInterval: canManageChange && selectedChange && detailTab === "approvals" ? 15_000 : false,
+  });
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange && isModuleEnabled("asset_management") });
 
   const form = useForm<FormData>({
@@ -870,7 +874,9 @@ export default function Changes() {
     ...(currentChange?.removedApproverIds ?? []),
     ...(currentChange?.removedApprovals?.map(a => a.originalApproverId) ?? []),
   ]);
-  const canAddSelectedApprover = !!addApproverUserId && !unavailableApproverIds.has(addApproverUserId);
+  const canAddSelectedApprover = !!addApproverUserId
+    && !unavailableApproverIds.has(addApproverUserId)
+    && allUsers.some(account => account.id === addApproverUserId && account.isActive === true);
   const isWorking = workflowMutation.isPending || assignMutation.isPending;
 
   // Workflow action buttons based on status
