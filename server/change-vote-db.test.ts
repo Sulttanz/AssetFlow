@@ -216,6 +216,99 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 ;
 
 
+  it("preserves captured CAB labels after approver and remover profile changes", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const activeApproverId = randomUUID();
+    const changeId = randomUUID();
+
+    await db.insert(users).values([
+      {
+        id: managerId,
+        username: `manager-${managerId}`,
+        email: `${managerId}@example.invalid`,
+        password: "test-only",
+        firstName: "Original",
+        lastName: "Manager",
+      },
+      {
+        id: approverId,
+        username: `approver-${approverId}`,
+        email: `${approverId}@example.invalid`,
+        password: "test-only",
+        firstName: "Original",
+        lastName: "Approver",
+      },
+      {
+        id: activeApproverId,
+        username: `approver-${activeApproverId}`,
+        email: `${activeApproverId}@example.invalid`,
+        password: "test-only",
+        firstName: "Active",
+        lastName: "Approver",
+      },
+    ]);
+    await db.insert(changes).values({
+      id: changeId,
+      changeNumber: `TEST-${changeId}`,
+      title: "CAB labels survive profile changes",
+      status: "submitted",
+    });
+
+    const removedApproval = await storage.createChangeApproval({
+      changeId,
+      approverId,
+      decision: "pending",
+    });
+    const activeApproval = await storage.createChangeApproval({
+      changeId,
+      approverId: activeApproverId,
+      decision: "pending",
+    });
+    expect(removedApproval.approverLabel).toBe("Original Approver");
+
+    const removed = await storage.removeChangeApproval(removedApproval.id, managerId);
+    expect(removed).toMatchObject({
+      id: removedApproval.id,
+      approverLabel: "Original Approver",
+      removedById: managerId,
+      removedByLabel: "Original Manager",
+    });
+
+    await storage.updateUser(approverId, { firstName: "Updated", lastName: "Approver" });
+    await storage.updateUser(managerId, { firstName: "Updated", lastName: "Manager" });
+
+    expect(await storage.getUser(approverId)).toMatchObject({
+      firstName: "Updated",
+      lastName: "Approver",
+    });
+    expect(await storage.getUser(managerId)).toMatchObject({
+      firstName: "Updated",
+      lastName: "Manager",
+    });
+
+    const history = await storage.getAllChangeApprovalRecords(changeId);
+    expect(history).toHaveLength(2);
+    expect(history.find(record => record.id === removedApproval.id)).toMatchObject({
+      approverId,
+      originalApproverId: approverId,
+      approverLabel: "Original Approver",
+      removedById: managerId,
+      removedByLabel: "Original Manager",
+    });
+    expect(history.find(record => record.id === activeApproval.id)).toMatchObject({
+      approverId: activeApproverId,
+      approverLabel: "Active Approver",
+      removedAt: null,
+    });
+    expect(await storage.getChangeApprovals(changeId)).toEqual([expect.objectContaining({
+      id: activeApproval.id,
+      approverId: activeApproverId,
+      approverLabel: "Active Approver",
+      removedAt: null,
+    })]);
+  });
+
   afterAll(async () => 
 {
 
