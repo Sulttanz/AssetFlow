@@ -131,8 +131,11 @@ sudo env ENABLE_HTTPS=true TLS_SERVER_NAME=192.168.6.1 \
   bash scripts/onprem-install.sh
 ```
 
-Use your real IPv4 address or DNS hostname, not the literal example. Without custom
-certificate paths, the helper generates a one-year self-signed certificate with an
+Use your real IPv4 address or DNS hostname, not the literal example. **When both
+`TLS_CERT_FILE` and `TLS_KEY_FILE` are omitted (or empty), HTTPS installation automatically
+generates the certificate and private key on the server if no existing pair is present.**
+No separate certificate-generation command or certificate download is required.
+The helper generates a one-year self-signed certificate with an
 IP or DNS **Subject Alternative Name**, matching the name you provided. Browsers will
 warn until that certificate is trusted through your organization's approved process.
 For production, prefer an organizational/public CA certificate and manage its renewal.
@@ -153,6 +156,24 @@ and existing valid certificates are reused on reruns. Supplied certificates are 
 for expiry, SAN/name match, and key match before activation. It refuses to overwrite an
 unmanaged site with the same filename. `nginx -t` runs before reload/start; validation
 failure restores the previous AssetFlow site and certificate/key files.
+
+The final certificate is `/etc/assetflow/tls/server.crt` (`root:root`, `0644`) and the
+private key is `/etc/assetflow/tls/server.key` (`root:root`, `0600`). A normal rerun
+validates and reuses this pair without rewriting the files or changing their contents.
+Expired, mismatched, or incomplete existing pairs fail clearly rather than being
+silently replaced. Provide both custom paths together if using an operator certificate.
+
+To **deliberately replace** the existing pair with a newly generated self-signed pair:
+
+```sh
+sudo env TLS_SERVER_NAME=192.168.6.1 TLS_REGENERATE=true \
+  bash /opt/assetflow/scripts/onprem-https.sh
+```
+
+The full installer also accepts `ENABLE_HTTPS=true TLS_REGENERATE=true`. Do not combine
+regeneration with custom certificate paths. Regeneration changes the key and certificate
+fingerprint, so clients that trust/pin the old self-signed certificate must trust the new
+one through the approved process. Nginx validation runs before enabling/start/reload.
 
 The proxy listens on **443** with TLS 1.2/1.3 and redirects matching port-80 requests
 to HTTPS. It forwards to `127.0.0.1:5000` (or the configured application port), preserves

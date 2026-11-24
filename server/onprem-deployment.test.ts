@@ -123,7 +123,8 @@ describe("on-prem deployment safeguards", () => {
     expect(installer).toContain('ENABLE_HTTPS="${ENABLE_HTTPS:-false}"');
     expect(installer).toContain('APP_HOST="${HOST:-127.0.0.1}"');
     expect(installer).toContain("scripts/onprem-https.sh");
-    expect(helper).toContain("subjectAltName=${SUBJECT_ALT_NAME}");
+    const certificateHelper = await readFile("scripts/onprem-tls.sh", "utf8");
+    expect(certificateHelper).toContain("subjectAltName=${subject_alt_name}");
     expect(helper).toContain('install -o root -g root -m 0600 "$WORK_DIR/server.key" "$KEY"');
     expect(helper).toContain("listen 443 ssl;");
     expect(helper).toContain("ssl_protocols TLSv1.2 TLSv1.3;");
@@ -131,6 +132,9 @@ describe("on-prem deployment safeguards", () => {
     expect(helper).toContain("proxy_set_header X-Forwarded-For \\$remote_addr;");
     expect(helper).not.toContain("$proxy_add_x_forwarded_for");
     expect(helper).toContain("if ! nginx -t;");
+    expect(helper.indexOf("if ! nginx -t;")).toBeLessThan(helper.indexOf("systemctl enable nginx"));
+    expect(helper.indexOf("if ! nginx -t;")).toBeLessThan(helper.indexOf("systemctl reload nginx"));
+    expect(helper).toContain('if [[ "$TLS_PAIR_REUSED" != true ]]; then');
     expect(helper).toContain("prior AssetFlow TLS configuration restored");
   });
 });

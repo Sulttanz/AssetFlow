@@ -44,6 +44,7 @@
 - [Request security design](request-security-design.md) — preserve legitimate technical content; generic input regexes are not a substitute for a verified CRS-compatible edge WAF.
 - [UI test layout boundary](ui-test-layout-boundary.md) — jsdom output tests cannot verify browser dimensions; isolate measurement dependencies rather than masking runtime failures.
 - [Preview cookie attributes](preview-cookie-attributes.md) — native Strict cookies differed from public preview responses; compare raw headers and verify production independently.
+- [On-prem TLS identity](onprem-tls-identity.md) — preserve certificate/key identity across installer reruns; rotation must be explicit because clients may trust or pin the existing certificate.
 - [Demo visitor boundary](demo-visitor-boundary.md) — visitors can explore operational views and executive analytics but must remain read-only and outside administration.
 - [Zod PATCH defaults](zod-patch-defaults.md) — partial creation schemas can still populate omitted defaults; redefine defaulted fields for safe updates.
 - [Zod schema composition](zod-refined-schema-composition.md) — apply field overrides before cross-field refinements; verify HTTP parsing, not compilation alone.

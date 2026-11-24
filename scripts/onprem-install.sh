@@ -386,6 +386,8 @@ OPEN_URL="http://${PRIMARY_IPV4}:${APP_PORT}"
 if [[ "$ENABLE_HTTPS" == "true" ]]; then
   TLS_SERVER_NAME="${TLS_SERVER_NAME:-$PRIMARY_IPV4}"
   TLS_SERVER_NAME="$TLS_SERVER_NAME" APP_PORT="$APP_PORT" \
+    TLS_CERT_FILE="${TLS_CERT_FILE:-}" TLS_KEY_FILE="${TLS_KEY_FILE:-}" \
+    TLS_REGENERATE="${TLS_REGENERATE:-false}" \
     bash "$APP_DIR/scripts/onprem-https.sh"
   OPEN_URL="https://${TLS_SERVER_NAME}"
 fi

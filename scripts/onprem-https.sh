@@ -7,6 +7,14 @@ umask 077
 [[ "${EUID}" -eq 0 ]] || { echo "Run this HTTPS helper as root." >&2; exit 1; }
 : "${TLS_SERVER_NAME:?Set TLS_SERVER_NAME to the server IPv4 address or DNS hostname}"
 APP_PORT="${APP_PORT:-5000}"
+TLS_REGENERATE="${TLS_REGENERATE:-false}"
+case "$TLS_REGENERATE" in
+  true|false) ;;
+  *) echo "TLS_REGENERATE must be true or false." >&2; exit 1 ;;
+esac
+if [[ "$TLS_REGENERATE" == true && ( -n "${TLS_CERT_FILE:-}" || -n "${TLS_KEY_FILE:-}" ) ]]; then
+  echo "Do not combine TLS_REGENERATE=true with supplied certificate paths." >&2; exit 1
+fi
 if [[ ! "$TLS_SERVER_NAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ || ${#TLS_SERVER_NAME} -gt 253 ]]; then
   echo "TLS_SERVER_NAME must be one IPv4 address or DNS hostname, without URL, port, or whitespace." >&2; exit 1
 fi
@@ -35,38 +43,10 @@ trap 'rm -rf -- "$WORK_DIR"' EXIT
 CERT="$TLS_DIR/server.crt"
 KEY="$TLS_DIR/server.key"
 
-if [[ -n "${TLS_CERT_FILE:-}" ]]; then
-  install -m 0600 "$TLS_CERT_FILE" "$WORK_DIR/server.crt"
-  install -m 0600 "$TLS_KEY_FILE" "$WORK_DIR/server.key"
-elif [[ -f "$CERT" && -f "$KEY" ]]; then
-  cp -- "$CERT" "$WORK_DIR/server.crt"
-  cp -- "$KEY" "$WORK_DIR/server.key"
-elif [[ -e "$CERT" || -e "$KEY" ]]; then
-  echo "Incomplete existing TLS files; supply a valid certificate/key pair rather than overwriting them." >&2
-  exit 1
-else
-  if [[ "$TLS_SERVER_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    SUBJECT_ALT_NAME="IP:$TLS_SERVER_NAME"
-  else
-    SUBJECT_ALT_NAME="DNS:$TLS_SERVER_NAME"
-  fi
-  openssl req -x509 -newkey rsa:3072 -sha256 -nodes -days 365 \
-    -subj "/CN=${TLS_SERVER_NAME}" -addext "subjectAltName=${SUBJECT_ALT_NAME}" \
-    -keyout "$WORK_DIR/server.key" -out "$WORK_DIR/server.crt"
-  echo "Generated a self-signed certificate. Distribute/trust it through your organization's approved process; browsers otherwise show a certificate warning."
-fi
-openssl x509 -in "$WORK_DIR/server.crt" -noout -checkend 0 >/dev/null
-openssl x509 -in "$WORK_DIR/server.crt" -noout -ext subjectAltName | grep -qE 'DNS:|IP Address:' || {
-  echo "TLS certificate must contain a Subject Alternative Name for the server." >&2; exit 1;
-}
-if [[ "$TLS_SERVER_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  openssl x509 -in "$WORK_DIR/server.crt" -noout -checkip "$TLS_SERVER_NAME" | grep -q 'does match certificate'
-else
-  openssl x509 -in "$WORK_DIR/server.crt" -noout -checkhost "$TLS_SERVER_NAME" | grep -q 'does match certificate'
-fi
-CERT_PUBLIC="$(openssl x509 -in "$WORK_DIR/server.crt" -pubkey -noout | openssl pkey -pubin -outform DER | openssl dgst -sha256)"
-KEY_PUBLIC="$(openssl pkey -in "$WORK_DIR/server.key" -passin pass: -pubout -outform DER | openssl dgst -sha256)"
-[[ "$CERT_PUBLIC" == "$KEY_PUBLIC" ]] || { echo "TLS certificate and private key do not match." >&2; exit 1; }
+# The full installer forwards optional certificate paths/regeneration explicitly.
+# Omitted paths mean generate a new pair only if no existing pair is present.
+source "$(dirname -- "${BASH_SOURCE[0]}")/onprem-tls.sh"
+prepare_assetflow_tls
 
 CONFIG="/etc/nginx/sites-available/assetflow-https.conf"
 LINK="/etc/nginx/sites-enabled/assetflow-https.conf"
@@ -115,12 +95,23 @@ server {
     }
 }
 EOF
-install -o root -g root -m 0644 "$WORK_DIR/server.crt" "$CERT"
-install -o root -g root -m 0600 "$WORK_DIR/server.key" "$KEY"
+if [[ "$TLS_PAIR_REUSED" != true ]]; then
+  install -o root -g root -m 0644 "$WORK_DIR/server.crt" "$CERT"
+  install -o root -g root -m 0600 "$WORK_DIR/server.key" "$KEY"
+else
+  # Preserve existing bytes, inode and mtime on reruns; repair permissions only.
+  chown root:root "$CERT" "$KEY"
+  chmod 0644 "$CERT"
+  chmod 0600 "$KEY"
+fi
 install -o root -g root -m 0644 "$WORK_DIR/site.conf" "$CONFIG"
 ln -sfn -- "$CONFIG" "$LINK"
 if ! nginx -t; then
-  for entry in "previous.conf:$CONFIG" "previous.crt:$CERT" "previous.key:$KEY"; do
+  restore_entries=("previous.conf:$CONFIG")
+  if [[ "$TLS_PAIR_REUSED" != true ]]; then
+    restore_entries+=("previous.crt:$CERT" "previous.key:$KEY")
+  fi
+  for entry in "${restore_entries[@]}"; do
     previous="${entry%%:*}"
     target="${entry#*:}"
     if [[ -f "$WORK_DIR/$previous" ]]; then cp -- "$WORK_DIR/$previous" "$target"; else rm -f -- "$target"; fi
