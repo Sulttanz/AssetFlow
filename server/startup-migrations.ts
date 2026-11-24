@@ -21,8 +21,53 @@ export type StartupMigrationFailureDiagnostic = {
   detail: string;
 };
 
-function safeFailureDetail(error: unknown): string {
-  const rawMessage = error instanceof Error ? error.message : String(error);
+export function safeFailureDetail(error: unknown): string {
+  const seen = new Set<object>();
+
+  const describe = (value: unknown, depth = 0): string => {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      return String(value);
+    }
+    if (typeof value !== "object") return "Unknown error";
+    if (seen.has(value)) return "[circular error cause]";
+    if (depth >= 5) return "[additional nested error details omitted]";
+    seen.add(value);
+
+    const fields = value as Record<string, unknown>;
+    const name = typeof fields.name === "string" ? fields.name : undefined;
+    const message = typeof fields.message === "string" ? fields.message : undefined;
+    const code = typeof fields.code === "string" || typeof fields.code === "number"
+      ? `code ${String(fields.code)}`
+      : undefined;
+    const detail = typeof fields.detail === "string" ? fields.detail : undefined;
+    const parts = [name, message, code, detail].filter((part): part is string => Boolean(part));
+
+    if (value instanceof AggregateError || Array.isArray(fields.errors)) {
+      const errors = Array.isArray(fields.errors) ? fields.errors : [];
+      const nested = errors.slice(0, 5).map((item) => describe(item, depth + 1));
+      if (nested.length) parts.push(`contained errors: ${nested.join("; ")}`);
+      if (errors.length > 5) parts.push(`${errors.length - 5} additional errors omitted`);
+    }
+
+    if (fields.cause !== undefined) {
+      parts.push(`caused by: ${describe(fields.cause, depth + 1)}`);
+    }
+
+    if (!parts.length) {
+      try {
+        const serialized = JSON.stringify(value);
+        if (serialized && serialized !== "{}") parts.push(serialized);
+      } catch {
+        // Keep the fallback readable and avoid leaking an unhelpful [object Object].
+      }
+    }
+    return parts.join(": ") || "Unknown object error";
+  };
+
+  const rawMessage = describe(error);
   const redacted = rawMessage
     .replace(/\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/)[^/\s@]+@/gi, "$1[REDACTED]@")
     .replace(

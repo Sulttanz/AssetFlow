@@ -4,6 +4,7 @@ import { Pool as PgPool } from "pg";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import ws from "ws";
 import * as schema from "@shared/schema";
+import { resolvePostgresDriver } from "./db-driver-selection";
 
 neonConfig.webSocketConstructor = ws;
 
@@ -16,11 +17,14 @@ if (!process.env.DATABASE_URL) {
 const connectionString = process.env.DATABASE_URL;
 const useNativePostgresForVitest =
   process.env.NODE_ENV === "test" && process.env.VITEST_NATIVE_PG === "1";
+const databaseDriver = useNativePostgresForVitest
+  ? "pg"
+  : resolvePostgresDriver(connectionString, process.env.DB_DRIVER);
 
 let activePool: InstanceType<typeof NeonPool> | PgPool;
 let activeDatabase: ReturnType<typeof drizzlePg>;
 
-if (useNativePostgresForVitest) {
+if (databaseDriver === "pg") {
   const pool = new PgPool({ connectionString });
   activePool = pool;
   activeDatabase = drizzlePg(pool, { schema });
@@ -30,7 +34,8 @@ if (useNativePostgresForVitest) {
   activeDatabase = drizzleNeon({ client: pool, schema }) as unknown as ReturnType<typeof drizzlePg>;
 }
 
-// The app uses Neon in normal operation. Full Vitest runs use a disposable local
-// PostgreSQL cluster and the native driver, never the app's Neon connection.
+// Standard PostgreSQL (including local and on-prem installations) uses node-postgres.
+// Neon is selected only by an explicit DB_DRIVER=neon setting or a Neon endpoint URL.
+// Full Vitest runs may force the native driver with VITEST_NATIVE_PG.
 export const pool = activePool as unknown as PgPool;
 export const db = activeDatabase;

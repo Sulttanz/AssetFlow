@@ -8,6 +8,7 @@ import {
   assertCabStreamLeasesTable,
   assertAdditiveMigration,
   compareAppVersions,
+  safeFailureDetail,
 } from "./startup-migrations";
 
 class MigrationClient {
@@ -43,6 +44,28 @@ afterEach(async () => {
 });
 
 describe("on-prem startup migrations", () => {
+  it("formats plain objects and nested aggregate connection failures readably", () => {
+    expect(safeFailureDetail({
+      message: "database refused connection",
+      code: "ECONNREFUSED",
+      cause: { message: "socket unavailable", code: "EHOSTUNREACH" },
+    })).toContain("database refused connection: code ECONNREFUSED: caused by: socket unavailable: code EHOSTUNREACH");
+
+    const detail = safeFailureDetail(new AggregateError(
+      [
+        Object.assign(new Error("connection timed out"), { code: "ETIMEDOUT" }),
+        { message: "postgres://operator:secret@db.example/app failed", code: "08006" },
+      ],
+      "all database endpoints failed",
+    ));
+    expect(detail).toContain("AggregateError");
+    expect(detail).toContain("connection timed out");
+    expect(detail).toContain("08006");
+    expect(detail).toContain("postgres://[REDACTED]@db.example/app");
+    expect(detail).not.toContain("secret");
+    expect(detail).not.toContain("[object Object]");
+  });
+
   it("applies an additive migration once and verifies its checksum on later boots", async () => {
     tempDirectory = await mkdtemp(path.join(os.tmpdir(), "onprem-migration-test-"));
     const filename = "20261019_system_version.sql";
