@@ -70,7 +70,7 @@ try {
 import { writeFileSync } from "node:fs";
 writeFileSync(process.env.BUILD_AUDIT_GATE_BUILD_MARKER, "build script ran");
 `;
-  for (const buildTool of ["vite", "esbuild"]) {
+  for (const buildTool of ["vite", "esbuild", "tsx"]) {
     const shimPath = path.join(shimDir, buildTool);
     await writeFile(shimPath, buildMarkerShim);
     await chmod(shimPath, 0o755);

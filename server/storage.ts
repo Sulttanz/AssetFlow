@@ -71,6 +71,20 @@ async function ensureApprovedProjectChangeTask(tx: any, changeId: string) {
   }).onConflictDoNothing();
 }
 
+async function requireActiveChangeAssignee(tx: any, userId?: string | null) {
+  if (!userId) return;
+  const [user] = await tx.select({ isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("update");
+  if (user?.isActive !== true) {
+    throw Object.assign(new Error("Only explicitly active accounts can be assigned to a change"), {
+      status: 400,
+      code: "CHANGE_ASSIGNEE_INACTIVE",
+    });
+  }
+}
+
 export async function computeTicketSlaDates(
   priority: string,
   from: Date,
@@ -4646,8 +4660,12 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
   async updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined> {
-    const result = await db.update(changes).set({ ...change, updatedAt: new Date() }).where(eq(changes.id, id)).returning();
-    return result[0];
+    return db.transaction(async tx => {
+      await requireActiveChangeAssignee(tx, change.assignedToId);
+      const [updated] = await tx.update(changes).set({ ...change, updatedAt: new Date() })
+        .where(eq(changes.id, id)).returning();
+      return updated;
+    });
   }
   async updateChangeWithCabStatusGuard(
     id: string,
@@ -4672,6 +4690,7 @@ export class DatabaseStorage implements IStorage {
       if (options?.allowedCurrentStatuses && !options.allowedCurrentStatuses.includes(current.status)) {
         return { change: undefined, cabPending: false, statusInvalid: true };
       }
+      await requireActiveChangeAssignee(tx, change.assignedToId);
 
       let guardedChange = change;
       const resultantType = change.type ?? current.type;
@@ -4836,6 +4855,7 @@ export class DatabaseStorage implements IStorage {
         .where(eq(changeEnvironmentStages.id, id))
         .for("update");
       if (!current) return undefined;
+      await requireActiveChangeAssignee(tx, data.assignedToId);
 
       const update = withStageRetryHistory(current, data);
       const [updated] = await tx.update(changeEnvironmentStages)

@@ -39,7 +39,7 @@ import
 
 import 
 {
- auditLogs, changeApprovals, changes, users
+ auditLogs, changeApprovals, changeEnvironmentStages, changes, users
 }
  from "@shared/schema"
 ;
@@ -215,6 +215,89 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 , 60_000)
 ;
 
+
+  it("rejects inactive and status-missing assignees for changes and environment stages", async () => {
+    const managerId = randomUUID();
+    const activeAssigneeId = randomUUID();
+    const inactiveAssigneeId = randomUUID();
+    const statusMissingAssigneeId = randomUUID();
+    const changeId = randomUUID();
+    const stageChangeId = randomUUID();
+    const stageId = randomUUID();
+
+    await db.insert(users).values([
+      {
+        id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "Change", lastName: "Manager",
+      },
+      {
+        id: activeAssigneeId, username: `active-${activeAssigneeId}`, email: `${activeAssigneeId}@example.invalid`,
+        password: "test-only", firstName: "Active", lastName: "Assignee", isActive: true,
+      },
+      {
+        id: inactiveAssigneeId, username: `inactive-${inactiveAssigneeId}`, email: `${inactiveAssigneeId}@example.invalid`,
+        password: "test-only", firstName: "Inactive", lastName: "Assignee", isActive: false,
+      },
+      {
+        id: statusMissingAssigneeId, username: `status-missing-${statusMissingAssigneeId}`,
+        email: `${statusMissingAssigneeId}@example.invalid`,
+        password: "test-only", firstName: "Status Missing", lastName: "Assignee", isActive: null,
+      },
+    ]);
+    await db.insert(changes).values([
+      {
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Direct change assignment",
+        status: "draft",
+      },
+      {
+        id: stageChangeId, changeNumber: `TEST-${stageChangeId}`, title: "Direct stage assignment",
+        status: "in_progress",
+      },
+    ]);
+    await db.insert(changeEnvironmentStages).values({
+      id: stageId, changeId: stageChangeId, environment: "development", order: 1,
+    });
+
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const headers = { "content-type": "application/json", "x-test-user": managerId };
+    const assignChange = (assignedToId: string) => fetch(`${baseUrl}/api/changes/${changeId}/assign`, {
+      method: "POST", headers, body: JSON.stringify({ assignedToId }),
+    });
+    const updateChangeAssignment = (assignedToId: string) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+      method: "PUT", headers, body: JSON.stringify({ assignedToId }),
+    });
+    const assignStage = (assignedToId: string) => fetch(`${baseUrl}/api/changes/${stageChangeId}/stages/${stageId}`, {
+      method: "PUT", headers, body: JSON.stringify({ assignedToId }),
+    });
+
+    try {
+      for (const assigneeId of [inactiveAssigneeId, statusMissingAssigneeId]) {
+        const changeResponse = await assignChange(assigneeId);
+        expect(changeResponse.status).toBe(400);
+        const changeUpdateResponse = await updateChangeAssignment(assigneeId);
+        expect(changeUpdateResponse.status).toBe(400);
+        const stageResponse = await assignStage(assigneeId);
+        expect(stageResponse.status).toBe(400);
+      }
+
+      const [unchangedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      const [unchangedStage] = await db.select().from(changeEnvironmentStages)
+        .where(eq(changeEnvironmentStages.id, stageId));
+      expect(unchangedChange.assignedToId).toBeNull();
+      expect(unchangedStage.assignedToId).toBeNull();
+
+      expect((await assignChange(activeAssigneeId)).status).toBe(200);
+      expect((await updateChangeAssignment(activeAssigneeId)).status).toBe(200);
+      expect((await assignStage(activeAssigneeId)).status).toBe(200);
+      const [assignedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      const [assignedStage] = await db.select().from(changeEnvironmentStages)
+        .where(eq(changeEnvironmentStages.id, stageId));
+      expect(assignedChange.assignedToId).toBe(activeAssigneeId);
+      expect(assignedStage.assignedToId).toBe(activeAssigneeId);
+    } finally {
+      permissionSpy.mockRestore();
+    }
+  }, 15_000);
 
   it("preserves captured CAB labels after approver and remover profile changes", async () => {
     const managerId = randomUUID();
