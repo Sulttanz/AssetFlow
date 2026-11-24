@@ -14,7 +14,9 @@ PostgreSQL, then clones or fast-forwards the official repository into `/opt/asse
 It keeps an already-installed supported Node.js LTS (20 or newer); otherwise it configures
 the signed NodeSource Node 22 repository and installs/upgrades Node.js from there. Before
 apt runs, it removes stale NodeSource list and keyring files so an obsolete repository entry
-cannot prevent package setup:
+cannot prevent package setup. Dependency installation uses the public npm registry; the
+lockfile contains public npm tarball URLs, and the installer clears inherited Replit-specific
+registry/proxy overrides before running `npm ci`:
 
 ```sh
 curl --fail --silent --show-error --location \

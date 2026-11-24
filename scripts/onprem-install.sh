@@ -224,7 +224,17 @@ mv -f "$ENV_TEMP" "$ENV_FILE"
 echo "Installing dependencies and building the production application..."
 rm -rf -- "$APP_DIR/node_modules" "$APP_DIR/dist"
 install -d -o assetflow -g assetflow -m 0750 "$APP_DIR/node_modules" "$APP_DIR/dist"
-runuser -u assetflow -- bash -c 'cd "$1" && npm ci && npm run build' _ "$APP_DIR"
+unset npm_config_registry npm_config_proxy npm_config_http_proxy npm_config_https_proxy
+unset NPM_CONFIG_PROXY NPM_CONFIG_HTTP_PROXY NPM_CONFIG_HTTPS_PROXY
+unset npm_config_userconfig NPM_CONFIG_USERCONFIG
+unset YARN_REGISTRY YARN_NPM_REGISTRY_SERVER
+unset REPLIT_NPM_REGISTRY REPLIT_NPM_PROXY REPLIT_PACKAGE_PROXY
+unset REPLIT_HTTP_PROXY REPLIT_HTTPS_PROXY REPLIT_PROXY
+export NPM_CONFIG_REGISTRY="https://registry.npmjs.org/"
+export npm_config_registry="$NPM_CONFIG_REGISTRY"
+runuser -u assetflow -- bash -c \
+  'cd "$1" && NPM_CONFIG_REGISTRY="https://registry.npmjs.org/" npm ci && npm run build' \
+  _ "$APP_DIR"
 
 # Make application code and dependencies read-only to the service account. Only
 # the explicit upload directories and its private home remain writable at runtime.
