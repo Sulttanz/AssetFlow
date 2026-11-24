@@ -48,11 +48,16 @@ import {
   FolderKanban,
   RotateCcw,
   Percent,
+  Palette,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -65,11 +70,13 @@ import { isDemoViewer } from "@shared/demo-viewer";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { activeNavigationHref } from "@/lib/navigation-active";
+import { appearanceThemes, useAppearance } from "@/hooks/use-appearance";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const search = useSearch();
   const { user, logoutMutation } = useAuth();
+  const { theme, setTheme } = useAppearance();
   const { data: catalogAccess } = useQuery<{ canManage: boolean; canApprove: boolean }>({
     queryKey: ["/api/service-catalog/options", user?.id],
     queryFn: async () => (await apiRequest("GET", "/api/service-catalog/options")).json(),
@@ -422,7 +429,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {/* Navigation Menu */}
-      <nav className="flex-1 space-y-5 overflow-y-auto p-3" data-testid="navigation-menu">
+      <nav className="flex-1 space-y-4 overflow-y-auto p-3.5" data-testid="navigation-menu">
         {navigationSections
           .map(section => ({ ...section, items: section.items.filter(isItemAllowed) }))
           .filter((section) => section.items.length > 0)
@@ -438,7 +445,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
                   aria-expanded={isSectionExpanded}
                 >
-                  <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
+                  <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
                     {section.title}
                   </h3>
                   {isSectionExpanded ? (
@@ -462,7 +469,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                 aria-current={location === item.href ? "page" : undefined}
                                 onClick={onNavigate}
                                 className={cn(
-                                  "flex min-w-0 flex-1 items-center space-x-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                                  "flex min-w-0 flex-1 items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
                                   item.current ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
                                 )}
                                 data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
@@ -534,7 +541,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                           aria-current={item.current ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                             "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                             "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
                             item.current
                                ? "border-primary bg-primary/10 text-primary"
                                : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -573,7 +580,23 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 <MoreVertical className="w-4 h-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                <Palette className="h-3.5 w-3.5" />
+                Appearance
+              </DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={theme} onValueChange={(value) => {
+                if (appearanceThemes.some((option) => option.id === value)) {
+                  setTheme(value as typeof theme);
+                }
+              }}>
+                {appearanceThemes.map((option) => (
+                  <DropdownMenuRadioItem key={option.id} value={option.id} className="min-h-10">
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => logoutMutation.mutate()}
                 className="text-destructive focus:text-destructive cursor-pointer"

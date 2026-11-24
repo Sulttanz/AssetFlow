@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
+import { useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { applyMobileTableLayout } from "./lib/mobile-table-layout";
 import { installOverlayInteractionRecovery } from "./lib/overlay-interaction-recovery";
@@ -14,6 +15,8 @@ import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
 import { getPersonaHomePath } from "@shared/personas";
 import { createRecoverableRoute } from "@/lib/recoverable-route";
+import { resetRouteScroll } from "@/lib/route-scroll";
+import { AppearanceProvider } from "@/hooks/use-appearance";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Projects = lazy(() => import("@/pages/projects"));
@@ -104,6 +107,14 @@ function HomeRedirect() {
 }
 
 function Router() {
+  const [location] = useLocation();
+
+  useLayoutEffect(() => {
+    resetRouteScroll();
+    const frame = window.requestAnimationFrame(() => resetRouteScroll());
+    return () => window.cancelAnimationFrame(frame);
+  }, [location]);
+
   return (
     <Switch>
       {/* Public routes */}
@@ -117,7 +128,7 @@ function Router() {
           return (
             <div className="app-workspace flex min-h-[100dvh] bg-background overflow-x-hidden">
               <Sidebar />
-              <div className="min-w-0 flex-1 overflow-auto pt-14 md:pt-0">
+              <div className="app-content min-w-0 flex-1 overflow-auto pt-14 md:pt-0" data-scroll-container>
                 <Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center text-sm text-muted-foreground" role="status">Loading workspace…</div>}>
                 <Switch>
                   <ProtectedRoute path="/" component={HomeRedirect} />
@@ -255,7 +266,9 @@ function App() {
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <AppearanceProvider>
+            <Router />
+          </AppearanceProvider>
         </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
