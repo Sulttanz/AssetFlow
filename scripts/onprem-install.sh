@@ -5,7 +5,7 @@ REPOSITORY_URL="https://github.com/Sulttanz/AssetFlow.git"
 APP_DIR="${APP_DIR:-/opt/assetflow}"
 APP_DB_NAME="${APP_DB_NAME:-}"
 APP_DB_USER="${APP_DB_USER:-}"
-APP_PORT="${PORT:-}"
+APP_PORT="${BIND_PORT:-${PORT:-}}"
 ENABLE_HTTPS="${ENABLE_HTTPS:-false}"
 case "$ENABLE_HTTPS" in
   true|false) ;;
@@ -181,6 +181,7 @@ APP_DB_NAME="${APP_DB_NAME:-$(read_env_value ASSETFLOW_DB_NAME)}"
 APP_DB_NAME="${APP_DB_NAME:-assetflow}"
 APP_DB_USER="${APP_DB_USER:-$(read_env_value ASSETFLOW_DB_USER)}"
 APP_DB_USER="${APP_DB_USER:-assetflow_app}"
+APP_PORT="${APP_PORT:-$(read_env_value BIND_PORT)}"
 APP_PORT="${APP_PORT:-$(read_env_value PORT)}"
 APP_PORT="${APP_PORT:-5000}"
 APP_TRUST_PROXY="${TRUST_PROXY:-$(read_env_value TRUST_PROXY)}"
@@ -189,12 +190,13 @@ APP_COOKIE_SECURE="${COOKIE_SECURE:-$(read_env_value COOKIE_SECURE)}"
 APP_COOKIE_SECURE="${APP_COOKIE_SECURE:-auto}"
 APP_COOKIE_SECURE="${APP_COOKIE_SECURE,,}"
 if [[ "$ENABLE_HTTPS" == "true" ]]; then
-  APP_HOST="${HOST:-127.0.0.1}"
+  APP_HOST="${BIND_HOST:-${HOST:-127.0.0.1}}"
   if [[ "$APP_HOST" != "127.0.0.1" && "$APP_HOST" != "0.0.0.0" ]]; then
     echo "The host-native HTTPS proxy requires HOST=127.0.0.1 or HOST=0.0.0.0." >&2; exit 1
   fi
 else
-  APP_HOST="${HOST:-$(read_env_value HOST)}"
+  APP_HOST="${BIND_HOST:-${HOST:-$(read_env_value BIND_HOST)}}"
+  APP_HOST="${APP_HOST:-$(read_env_value HOST)}"
   APP_HOST="${APP_HOST:-0.0.0.0}"
 fi
 if [[ ! "$APP_TRUST_PROXY" =~ ^[a-zA-Z0-9.,:/[:space:]-]+$ || "$APP_TRUST_PROXY" == *$'\n'* || "$APP_TRUST_PROXY" == *$'\r'* ]]; then

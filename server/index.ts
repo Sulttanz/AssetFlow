@@ -7,6 +7,7 @@ import { startCabEventListener } from "./cab-events";
 import { startContractRenewalChecker } from "./services/contract-renewal-checker";
 import { apiErrorMiddleware } from "./api-error-handler";
 import { runStartupMigrations, StartupMigrationError } from "./startup-migrations";
+import { resolveServerBindAddress } from "./server-bind";
 import {
   apiSecurityMiddleware,
   clearSystemDataRateLimit,
@@ -17,7 +18,7 @@ import {
 // Production startup logging
 console.log("🚀 Starting IT Asset Management System...");
 console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log(`🔧 Port: ${process.env.PORT || '5000'}`);
+console.log(`🔧 Bind address: ${process.env.BIND_HOST || process.env.HOST || (process.env.ENABLE_HTTPS === "true" ? "127.0.0.1" : "0.0.0.0")}:${process.env.BIND_PORT || process.env.PORT || "5000"}`);
 console.log(`💾 Database URL configured: ${!!process.env.DATABASE_URL}`);
 
 // Process error handlers to prevent crashes
@@ -184,9 +185,10 @@ app.use((req, res, next) => {
     }
     if (stopping) return;
 
-    // Explicit port and host configuration for Cloud Run
-    const port = parseInt(process.env.PORT || '5000', 10);
-    const host = process.env.HOST || '0.0.0.0';
+    // BIND_* can override service binding; HOST/PORT remain supported for
+    // existing Replit, container and on-prem installations. HTTPS-only
+    // deployments default to loopback so Nginx remains the network edge.
+    const { host, port } = resolveServerBindAddress();
     
     console.log(`🌐 Starting server on ${host}:${port}...`);
     

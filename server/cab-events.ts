@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Client } from "@neondatabase/serverless";
+import { Client as NeonClient } from "@neondatabase/serverless";
+import { Client as PgClient } from "pg";
 import type { Response } from "express";
 import { pool } from "./db";
+import { resolvePostgresDriver, type PostgresDriver } from "./db-driver-selection";
 import { registerShutdownTask } from "./graceful-shutdown";
 
 // Notifications contain no CAB data. The API remains the source of truth.
@@ -18,6 +20,13 @@ const streamLeaseCleanupIntervalMs = 60_000;
 const initialRetryDelayMs = 2_000;
 const maxRetryDelayMs = 30_000;
 const stableConnectionWindowMs = 60_000;
+const listenerHeartbeatIntervalMs = 20_000;
+type ListenerClient = {
+  connect: () => Promise<void>;
+  query: (query: string) => Promise<unknown>;
+  end: () => Promise<unknown>;
+  on: (event: string, listener: (...args: any[]) => void) => unknown;
+};
 type Subscriber = {
   res: Response;
   userId: string;
@@ -33,9 +42,10 @@ type Subscriber = {
 };
 const subscribers = new Set<Subscriber>();
 const streamsByUser = new Map<string, Set<Subscriber>>();
-let listener: Client | undefined;
+let listener: ListenerClient | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let leaseCleanupTimer: ReturnType<typeof setInterval> | undefined;
+let listenerHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let retryDelay = initialRetryDelayMs;
 let stableConnectionTimer: ReturnType<typeof setTimeout> | undefined;
 let hasConnectedBefore = false;
@@ -198,7 +208,29 @@ export function resolveCabListenerConnectionString(env: NodeJS.ProcessEnv = proc
   return url.toString();
 }
 
-function scheduleRetry(): void {
+export function resolveCabListenerDriver(env: NodeJS.ProcessEnv = process.env): PostgresDriver {
+  const dedicatedUrl = env.CAB_EVENTS_DATABASE_URL?.trim();
+  const rawUrl = dedicatedUrl || env.DATABASE_URL?.trim();
+  if (!rawUrl) throw new Error("DATABASE_URL or CAB_EVENTS_DATABASE_URL must be configured for the CAB listener");
+  const configuredDriver = env.CAB_EVENTS_DB_DRIVER?.trim() || (dedicatedUrl ? undefined : env.DB_DRIVER);
+  return resolvePostgresDriver(rawUrl, configuredDriver);
+}
+
+function describeListenerError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = "code" in error && error.code ? String(error.code) : undefined;
+    return `${code ? `PostgreSQL error ${code}: ` : ""}${error.message || "unknown error"}`;
+  }
+  if (typeof error === "object" && error !== null) {
+    const record = error as { message?: unknown; code?: unknown };
+    const code = record.code ? String(record.code) : undefined;
+    const message = typeof record.message === "string" ? record.message : "unknown error";
+    return `${code ? `PostgreSQL error ${code}: ` : ""}${message}`;
+  }
+  return typeof error === "string" && error ? error : "unknown error";
+}
+
+function scheduleRetry(reason: string): void {
   if (retryTimer || stopping) return;
   const delay = retryDelay;
   retryTimer = setTimeout(() => {
@@ -207,47 +239,58 @@ function scheduleRetry(): void {
   }, delay);
   retryTimer.unref();
   retryDelay = Math.min(retryDelay * 2, maxRetryDelayMs);
-  console.warn(`[CAB events] PostgreSQL listener retry scheduled in ${delay}ms`);
+  console.warn(`[CAB events] PostgreSQL LISTEN reconnect in ${delay}ms (${reason})`);
 }
 
 async function connectListener(): Promise<void> {
   if (stopping) return;
   let connectionString: string;
+  let driver: PostgresDriver;
   try {
     connectionString = resolveCabListenerConnectionString();
+    driver = resolveCabListenerDriver();
   } catch (error) {
-    console.error("[CAB events] Invalid direct-listener database configuration:", error);
-    scheduleRetry();
+    scheduleRetry(`invalid direct-listener database configuration: ${describeListenerError(error)}`);
     return;
   }
   const connectionUrl = new URL(connectionString);
-  let client: Client;
+  let client: ListenerClient;
   try {
-    client = new Client({ connectionString });
+    client = driver === "neon"
+      ? new NeonClient({ connectionString }) as unknown as ListenerClient
+      : new PgClient({
+          connectionString,
+          application_name: "assetflow-cab-events",
+          connectionTimeoutMillis: 10_000,
+          keepAlive: true,
+          keepAliveInitialDelayMillis: 10_000,
+        }) as unknown as ListenerClient;
   } catch (error) {
-    console.error("[CAB events] Could not create PostgreSQL listener client:", error);
-    scheduleRetry();
+    scheduleRetry(`could not create ${driver} listener client: ${describeListenerError(error)}`);
     return;
   }
   listener = client;
   let disconnected = false;
-  const reconnect = (error?: Error) => {
+  let heartbeatInFlight = false;
+  const clearHeartbeat = () => {
+    if (listenerHeartbeatTimer) clearInterval(listenerHeartbeatTimer);
+    listenerHeartbeatTimer = undefined;
+  };
+  const reconnect = (error?: unknown) => {
     if (disconnected) return;
     disconnected = true;
+    clearHeartbeat();
     if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
     stableConnectionTimer = undefined;
-    const code = error && "code" in error ? String(error.code) : undefined;
-    const cause = error
-      ? `${code ? `PostgreSQL error ${code}: ` : ""}${error.message}`
-      : "connection ended";
-    console.error(`[CAB events] PostgreSQL LISTEN connection disconnected: ${cause}`);
     if (listener === client) listener = undefined;
     // A failed connection can still own a socket; release it before retrying.
     void client.end().catch(() => {});
-    scheduleRetry();
+    if (!stopping) {
+      scheduleRetry(error ? describeListenerError(error) : "connection ended");
+    }
   };
   client.on("error", reconnect);
-  client.on("end", () => reconnect());
+  client.on("end", () => reconnect("connection ended"));
   client.on("notification", notification => {
     if (notification.payload === instanceId) return;
     if (notification.channel === channel) broadcast();
@@ -261,22 +304,38 @@ async function connectListener(): Promise<void> {
     if (disconnected || stopping) return;
     console.info(
       `[CAB events] PostgreSQL LISTEN listener ${hasConnectedBefore ? "re-established" : "connected"} ` +
-      `(host=${connectionUrl.hostname}, port=${connectionUrl.port || "default"})`,
+      `(driver=${driver}, host=${connectionUrl.hostname}, port=${connectionUrl.port || "default"})`,
     );
     hasConnectedBefore = true;
     stableConnectionTimer = setTimeout(() => {
       stableConnectionTimer = undefined;
+      const shouldLogReset = retryDelay > initialRetryDelayMs;
       retryDelay = initialRetryDelayMs;
-      console.info("[CAB events] PostgreSQL LISTEN connection stable; retry backoff reset");
+      if (shouldLogReset) {
+        console.info("[CAB events] PostgreSQL LISTEN connection stable; retry backoff reset");
+      }
     }, stableConnectionWindowMs);
     stableConnectionTimer.unref();
+    // Keep network paths alive and avoid server idle-session timeouts. A
+    // lightweight query is valid while LISTEN is active and keeps both native
+    // PostgreSQL and Neon direct sessions from silently aging out.
+    listenerHeartbeatTimer = setInterval(() => {
+      if (disconnected || stopping || heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      void client.query("SELECT 1")
+        .catch(reconnect)
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    }, listenerHeartbeatIntervalMs);
+    listenerHeartbeatTimer.unref();
     // Reconcile streams that stayed open while the shared listener was offline.
     broadcast();
     // Paused clients use a separate access stream and cannot hear the CAB
     // reconciliation. Wake them so they can recheck ITSM and session state.
     broadcastItsmEnabled();
   } catch (error) {
-    reconnect(error instanceof Error ? error : new Error(String(error)));
+    reconnect(error);
   }
 }
 
@@ -294,9 +353,11 @@ export async function stopCabEventListener(): Promise<void> {
   started = false;
   if (retryTimer) clearTimeout(retryTimer);
   if (leaseCleanupTimer) clearInterval(leaseCleanupTimer);
+  if (listenerHeartbeatTimer) clearInterval(listenerHeartbeatTimer);
   if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
   retryTimer = undefined;
   leaseCleanupTimer = undefined;
+  listenerHeartbeatTimer = undefined;
   stableConnectionTimer = undefined;
   const streams = Array.from(subscribers);
   await Promise.all(streams.map(async subscriber => {

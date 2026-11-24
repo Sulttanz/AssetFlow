@@ -11,6 +11,30 @@ const mockDatabase = vi.hoisted(() => ({
 }));
 const mockListenerState = vi.hoisted(() => ({ instances: [] as any[] }));
 vi.mock("./db", () => ({ pool: { query: mockDatabase.query, connect: mockDatabase.connect } }));
+vi.mock("pg", () => {
+  class MockPgListenerClient {
+    handlers = new Map<string, Array<(...args: any[]) => void>>();
+    connect = vi.fn().mockResolvedValue(undefined);
+    query = vi.fn().mockResolvedValue({ rows: [] });
+    end = vi.fn().mockResolvedValue(undefined);
+
+    constructor(readonly options: Record<string, unknown>) {
+      mockListenerState.instances.push(Object.assign(this, { driver: "pg" }));
+    }
+
+    on(event: string, handler: (...args: any[]) => void) {
+      const handlers = this.handlers.get(event) ?? [];
+      handlers.push(handler);
+      this.handlers.set(event, handlers);
+      return this;
+    }
+
+    emit(event: string, ...args: any[]) {
+      for (const handler of this.handlers.get(event) ?? []) handler(...args);
+    }
+  }
+  return { Client: MockPgListenerClient };
+});
 vi.mock("@neondatabase/serverless", () => {
   class MockListenerClient {
     handlers = new Map<string, Array<(...args: any[]) => void>>();
@@ -19,7 +43,7 @@ vi.mock("@neondatabase/serverless", () => {
     end = vi.fn().mockResolvedValue(undefined);
 
     constructor(readonly options: { connectionString: string }) {
-      mockListenerState.instances.push(this);
+      mockListenerState.instances.push(Object.assign(this, { driver: "neon" }));
     }
 
     on(event: string, handler: (...args: any[]) => void) {
@@ -141,7 +165,7 @@ describe("CAB stream backpressure", () => {
   });
 
 describe("CAB PostgreSQL listener recovery", () => {
-  it("uses a direct Neon endpoint and rejects configured transaction poolers", () => {
+  it("uses direct endpoints and rejects configured transaction poolers", () => {
     const direct = resolveCabListenerConnectionString({
       DATABASE_URL: "postgresql://app:secret@ep-example-pooler.us-east-2.aws.neon.tech/app?sslmode=require",
     });
@@ -156,11 +180,72 @@ describe("CAB PostgreSQL listener recovery", () => {
     })).toThrow(/known pooler/);
   });
 
+  it("uses native pg for standard PostgreSQL and retains Neon for explicitly selected Neon endpoints", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DATABASE_URL", "postgresql://app:secret@db.example.test/app");
+    vi.stubEnv("DB_DRIVER", "");
+    vi.stubEnv("CAB_EVENTS_DATABASE_URL", "");
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.resetModules();
+    const { startCabEventListener: startPg } = await import("./cab-events");
+    startPg();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const pgClient = mockListenerState.instances.at(-1);
+    expect(pgClient.driver).toBe("pg");
+    expect(pgClient.options).toMatchObject({
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+      application_name: "assetflow-cab-events",
+    });
+
+    vi.clearAllTimers();
+    mockListenerState.instances.length = 0;
+    vi.stubEnv("DATABASE_URL", "postgresql://app:secret@ep-example.us-east-2.aws.neon.tech/app?sslmode=require");
+    vi.resetModules();
+    const { startCabEventListener: startNeon } = await import("./cab-events");
+    startNeon();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockListenerState.instances.at(-1).driver).toBe("neon");
+  });
+
+  it("keeps the listener alive with a database heartbeat and reconnects if the heartbeat fails", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DATABASE_URL", "postgresql://app:secret@db.example.test/app");
+    vi.stubEnv("DB_DRIVER", "pg");
+    vi.stubEnv("CAB_EVENTS_DATABASE_URL", "");
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    const { startCabEventListener: start } = await import("./cab-events");
+    start();
+    const flushConnect = async () => {
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    };
+    await flushConnect();
+    const client = mockListenerState.instances.at(-1);
+    expect(client.driver).toBe("pg");
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(client.query).toHaveBeenCalledWith("SELECT 1");
+    client.query.mockRejectedValueOnce(Object.assign(new Error("server closed idle session"), { code: "57P01" }));
+    await vi.advanceTimersByTimeAsync(20_000);
+    await flushConnect();
+    expect(client.end).toHaveBeenCalledTimes(1);
+    expect(warnLog).toHaveBeenCalledWith(expect.stringContaining("reconnect in 2000ms"));
+    expect(warnLog).toHaveBeenCalledWith(expect.stringContaining("57P01"));
+  });
+
   it("progressively backs off across repeated short-lived drops and caps retries at 30 seconds", async () => {
     vi.useFakeTimers();
     vi.stubEnv("DATABASE_URL", "postgresql://app:secret@db.example.test/app");
     vi.stubEnv("CAB_EVENTS_DATABASE_URL", "");
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errorLog = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.resetModules();
@@ -220,6 +305,24 @@ describe("CAB PostgreSQL listener recovery", () => {
     await vi.advanceTimersByTimeAsync(1);
     await flushConnect();
     expect(mockListenerState.instances).toHaveLength(3);
+  });
+
+  it("logs one retry per disconnect even when error and end both fire", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DATABASE_URL", "postgresql://app:secret@db.example.test/app");
+    vi.stubEnv("DB_DRIVER", "pg");
+    vi.stubEnv("CAB_EVENTS_DATABASE_URL", "");
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    const { startCabEventListener: start } = await import("./cab-events");
+    start();
+    for (let i = 0; i < 6; i++) await Promise.resolve();
+    const client = mockListenerState.instances.at(-1);
+    client.emit("error", Object.assign(new Error("connection reset"), { code: "ECONNRESET" }));
+    client.emit("end");
+    expect(warnLog).toHaveBeenCalledTimes(1);
+    expect(client.end).toHaveBeenCalledTimes(1);
   });
 });
 

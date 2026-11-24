@@ -110,6 +110,13 @@ it does not automatically change firewall rules or configure scheduled backups.
 Use the upgrade procedure below for subsequent staged releases.
 
 PostgreSQL connection acquisition is bounded to 10 seconds for the native `pg` pool.
+The cross-instance CAB `LISTEN` connection uses `pg` for standard/local PostgreSQL
+and the Neon client only for Neon endpoints. Both use a direct, non-transaction-pooled
+connection; the listener also sends a lightweight `SELECT 1` heartbeat every 20 seconds
+and enables TCP keepalive for native PostgreSQL. This prevents idle network paths or
+PostgreSQL idle-session policies near 30 seconds from repeatedly dropping the listener.
+On a disconnect it logs one warning for that outage and retries with exponential backoff
+from 2 seconds up to 30 seconds, resetting only after a stable connection window.
 Health probes have connection and total-request timeouts within a 180-second installation
 readiness window. `systemctl start` alone is not a readiness signal (`Type=simple`); the
 installer and upgrade script check `/api/health` after startup. For unusually large
@@ -207,6 +214,8 @@ monitoring/renewal separately. Confirm DNS points at the server when using a hos
 | `COOKIE_SECURE=false` | Explicit HTTP compatibility; cookies lack `Secure`, even on HTTPS. Use only for controlled local/test environments. |
 | `TRUST_PROXY` | Application default: `1` proxy hop. Installer default: `loopback`, appropriate for host-native Nginx. Also accepts `false`/`0`, bounded hop counts, or comma-separated trusted IP/CIDR ranges. Avoid unrestricted `true`. |
 | `HOST` | HTTPS installer default: `127.0.0.1`; HTTP-only default: `0.0.0.0`. Explicit `HOST=0.0.0.0` permits controlled direct HTTP access alongside the proxy, subject to firewall restrictions. |
+| `PORT` | Existing application port setting; defaults to `5000`. The installer passes this same port to Nginx and the health check. |
+| `BIND_HOST` / `BIND_PORT` | Optional explicit server-bind aliases that take precedence over `HOST` / `PORT`. The installer normalizes these into its managed `HOST` / `PORT` values. Without an explicit host, `ENABLE_HTTPS=true` defaults the app to `127.0.0.1`; HTTP-only mode remains `0.0.0.0`. |
 | `HSTS_ENABLED=false` | Optional local/mixed-protocol override. By default production HTTPS responses send HSTS. Disable it only where intentionally testing HTTP on the same hostname; browsers retain earlier HSTS policy until it expires/is cleared. |
 
 `HttpOnly`, `SameSite=Strict`, server-side PostgreSQL sessions, Origin checks, password

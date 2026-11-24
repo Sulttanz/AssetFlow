@@ -121,7 +121,8 @@ describe("on-prem deployment safeguards", () => {
     const installer = await readFile("scripts/onprem-install.sh", "utf8");
     expect(spawnSync("bash", ["-n", "scripts/onprem-https.sh"]).status).toBe(0);
     expect(installer).toContain('ENABLE_HTTPS="${ENABLE_HTTPS:-false}"');
-    expect(installer).toContain('APP_HOST="${HOST:-127.0.0.1}"');
+    expect(installer).toContain('APP_HOST="${BIND_HOST:-${HOST:-127.0.0.1}}"');
+    expect(installer).toContain('APP_PORT="${BIND_PORT:-${PORT:-}}"');
     expect(installer).toContain("scripts/onprem-https.sh");
     const certificateHelper = await readFile("scripts/onprem-tls.sh", "utf8");
     expect(certificateHelper).toContain("subjectAltName=${subject_alt_name}");
@@ -136,6 +137,19 @@ describe("on-prem deployment safeguards", () => {
     expect(helper.indexOf("if ! nginx -t;")).toBeLessThan(helper.indexOf("systemctl reload nginx"));
     expect(helper).toContain('if [[ "$TLS_PAIR_REUSED" != true ]]; then');
     expect(helper).toContain("prior AssetFlow TLS configuration restored");
+  });
+
+  it("documents native PostgreSQL CAB listener keepalive and bind aliases", async () => {
+    const listener = await readFile("server/cab-events.ts", "utf8");
+    const runtime = await readFile("server/server-bind.ts", "utf8");
+    const docs = await readFile("DEPLOY_ONPREM.md", "utf8");
+    expect(listener).toContain('application_name: "assetflow-cab-events"');
+    expect(listener).toContain('client.query("SELECT 1")');
+    expect(listener).toContain("listenerHeartbeatIntervalMs = 20_000");
+    expect(runtime).toContain('env.BIND_HOST?.trim() || env.HOST?.trim()');
+    expect(runtime).toContain('env.BIND_PORT?.trim() || env.PORT?.trim()');
+    expect(docs).toContain("BIND_HOST` / `BIND_PORT");
+    expect(docs).toContain("lightweight `SELECT 1` heartbeat every 20 seconds");
   });
 });
 

@@ -20,9 +20,9 @@ const { query, connect, clients, leases } = vi.hoisted(() => ({
 }));
 vi.mock("../../../server/db", () => ({ pool: { query, connect } }));
 
-vi.mock("@neondatabase/serverless", async () => {
+vi.mock("pg", async () => {
   const { EventEmitter } = await import("node:events");
-  class FakeClient extends EventEmitter {
+  class FakePgClient extends EventEmitter {
     connect = vi.fn().mockResolvedValue(undefined);
     query = vi.fn().mockResolvedValue({});
     end = vi.fn().mockResolvedValue(undefined);
@@ -31,7 +31,21 @@ vi.mock("@neondatabase/serverless", async () => {
       clients.push(this);
     }
   }
-  return { Client: FakeClient };
+  return { Client: FakePgClient };
+});
+
+vi.mock("@neondatabase/serverless", async () => {
+  const { EventEmitter } = await import("node:events");
+  class FakeNeonClient extends EventEmitter {
+    connect = vi.fn().mockResolvedValue(undefined);
+    query = vi.fn().mockResolvedValue({});
+    end = vi.fn().mockResolvedValue(undefined);
+    constructor() {
+      super();
+      clients.push(this);
+    }
+  }
+  return { Client: FakeNeonClient };
 });
 
 beforeEach(() => {
@@ -62,6 +76,7 @@ beforeEach(() => {
     },
   }));
   process.env.DATABASE_URL ||= "postgres://test@localhost/test";
+  process.env.DB_DRIVER = "pg";
 });
 
 function streamResponse(): Response {
