@@ -9,9 +9,12 @@ dependencies, restarts the selected process manager, and waits for the database-
 ## Fresh Ubuntu/Debian installation
 
 For a new Ubuntu or Debian server, the repository includes a one-command installer. Run it
-from a trusted terminal as root (or through `sudo`); it installs Git, build tools, PostgreSQL,
-and the current Node.js LTS from the signed NodeSource apt repository, then clones or fast-
-forwards the official repository into `/opt/assetflow`:
+from a trusted terminal as root (or through `sudo`); it installs Git, build tools, and
+PostgreSQL, then clones or fast-forwards the official repository into `/opt/assetflow`.
+It keeps an already-installed supported Node.js LTS (20 or newer); otherwise it configures
+the signed NodeSource Node 22 repository and installs/upgrades Node.js from there. Before
+apt runs, it removes stale NodeSource list and keyring files so an obsolete repository entry
+cannot prevent package setup:
 
 ```sh
 curl --fail --silent --show-error --location \

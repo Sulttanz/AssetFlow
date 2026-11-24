@@ -29,21 +29,43 @@ if [[ "${ID:-}" != "ubuntu" && "${ID:-}" != "debian" ]]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+# Remove stale NodeSource entries before apt-get update: a broken legacy source
+# can make apt fail before the installer gets a chance to repair it.
+rm -f \
+  /etc/apt/sources.list.d/nodesource*.list \
+  /etc/apt/sources.list.d/nodesource*.sources \
+  /etc/apt/keyrings/nodesource*.gpg \
+  /usr/share/keyrings/nodesource*.gpg
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl gnupg git build-essential postgresql postgresql-contrib \
   openssl sudo iproute2
 
-# Install the current Node.js LTS from the signed NodeSource apt repository.
-install -d -m 0755 /etc/apt/keyrings
-curl --fail --silent --show-error --location https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-  | gpg --dearmor --yes --output /etc/apt/keyrings/nodesource.gpg
-chmod 0644 /etc/apt/keyrings/nodesource.gpg
-NODE_ARCH="$(dpkg --print-architecture)"
-printf 'deb [arch=%s signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_lts.x nodistro main\n' \
-  "$NODE_ARCH" > /etc/apt/sources.list.d/nodesource.list
-apt-get update
-apt-get install -y --no-install-recommends nodejs
+# Keep an already-installed supported Node.js LTS. Otherwise configure the
+# signed NodeSource Node 22 repository and install/upgrade nodejs from it.
+NODE_LTS_INSTALLED=false
+if command -v node >/dev/null 2>&1; then
+  INSTALLED_NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
+  INSTALLED_NODE_LTS="$(node -p 'process.release.lts || ""')"
+  if [[ "$INSTALLED_NODE_MAJOR" -ge 20 && -n "$INSTALLED_NODE_LTS" ]]; then
+    NODE_LTS_INSTALLED=true
+  fi
+fi
+
+if [[ "$NODE_LTS_INSTALLED" == "true" ]]; then
+  echo "Keeping installed Node.js LTS $(node --version); skipping NodeSource setup."
+else
+  # Ensure no stale list/keyring remains before the supported setup script runs.
+  rm -f \
+    /etc/apt/sources.list.d/nodesource*.list \
+    /etc/apt/sources.list.d/nodesource*.sources \
+    /etc/apt/keyrings/nodesource*.gpg \
+    /usr/share/keyrings/nodesource*.gpg
+  curl --fail --silent --show-error --location https://deb.nodesource.com/setup_22.x \
+    | bash -
+  apt-get update
+  apt-get install -y --no-install-recommends nodejs
+fi
 
 for tool in git curl psql openssl node npm systemctl runuser; do
   command -v "$tool" >/dev/null 2>&1 || {
@@ -53,8 +75,9 @@ for tool in git curl psql openssl node npm systemctl runuser; do
 done
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
-if [[ "$NODE_MAJOR" -lt 20 ]]; then
-  echo "Node.js 20 or newer is required; found $(node --version)." >&2
+NODE_LTS="$(node -p 'process.release.lts || ""')"
+if [[ "$NODE_MAJOR" -lt 20 || -z "$NODE_LTS" ]]; then
+  echo "A supported Node.js LTS version 20 or newer is required; found $(node --version)." >&2
   exit 1
 fi
 
