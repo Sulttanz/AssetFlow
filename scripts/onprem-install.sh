@@ -277,8 +277,11 @@ unset REPLIT_NPM_REGISTRY REPLIT_NPM_PROXY REPLIT_PACKAGE_PROXY
 unset REPLIT_HTTP_PROXY REPLIT_HTTPS_PROXY REPLIT_PROXY
 export NPM_CONFIG_REGISTRY="https://registry.npmjs.org/"
 export npm_config_registry="$NPM_CONFIG_REGISTRY"
+# A production shell makes npm ci omit devDependencies by default. The
+# dedicated build script explicitly includes them (vite, esbuild, tsx, etc.);
+# the systemd runtime still loads NODE_ENV=production from the protected .env.
 runuser -u assetflow -- bash -c \
-  'cd "$1" && NPM_CONFIG_REGISTRY="https://registry.npmjs.org/" npm ci && npm run build' \
+  'cd "$1" && NPM_CONFIG_REGISTRY="https://registry.npmjs.org/" npm run build:onprem' \
   _ "$APP_DIR"
 
 # Make application code and dependencies read-only to the service account. Only

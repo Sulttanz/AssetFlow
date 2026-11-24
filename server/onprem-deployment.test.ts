@@ -12,6 +12,37 @@ import { applyStartupMigrations } from "./startup-migrations";
 import { readEnvValue, unmanagedEnv } from "../scripts/onprem-env.mjs";
 
 describe("on-prem deployment safeguards", () => {
+  it("includes build tools even under production install defaults without weakening the runtime audit", async () => {
+    const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
+    const installer = await readFile("scripts/onprem-install.sh", "utf8");
+    expect(scripts["audit:security"]).toBe("npm audit --omit=dev --audit-level=high");
+    expect(installer).toContain('npm run build:onprem');
+    expect(installer).toContain('runuser -u assetflow -- bash -c');
+    expect(scripts["build:onprem"]).toContain("npm ci --include=dev");
+    // Exercise the actual build-phase command with a fake npm function rather
+    // than installing packages or touching the host's system configuration.
+    const result = spawnSync("bash", ["-eu", "-c", `
+      installed=false
+      npm() {
+        if [[ "$*" == "ci --include=dev" ]]; then
+          [[ "$NODE_ENV" == production && "$npm_config_omit" == dev ]]
+          installed=true
+        elif [[ "$*" == "run build" ]]; then
+          [[ "$installed" == true ]]
+          printf 'production-build-tools-ready'
+        else
+          return 1
+        fi
+      }
+      ${scripts["build:onprem"]}
+    `], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, NODE_ENV: "production", npm_config_omit: "dev" },
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("production-build-tools-ready");
+  });
+
   it("only bootstraps an empty schema and refuses partial installations", async () => {
     const load = vi.fn(async () => "CREATE TABLE baseline_test(id int)");
     const statements: string[] = [];

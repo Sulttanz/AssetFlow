@@ -15,6 +15,7 @@
     "test:build-audit-gate": "node scripts/build-audit-gate-check.mjs",
     "test:tailwind-selector-parser": "node scripts/check-tailwind-selector-parser.mjs",
     "audit:security": "npm audit --omit=dev --audit-level=high",
+    "build:onprem": "npm ci --include=dev && npm run build",
     "build": "npm run audit:security && vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --define:process.env.BUILD_TIMESTAMP=\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\" && tsx scripts/generate-onprem-bootstrap.ts",
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",

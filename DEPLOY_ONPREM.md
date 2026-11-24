@@ -29,6 +29,14 @@ secrets already in `/opt/assetflow/.env`, and preserves existing users and passw
 creates a dedicated PostgreSQL role/database, installs dependencies, builds the app,
 configures and starts `assetflow.service` **once**, and waits for `/api/health`.
 
+The installer runs `npm run build:onprem` as the unprivileged `assetflow` build user.
+That command uses `npm ci --include=dev` before `npm run build`, so Vite, esbuild,
+TypeScript tooling, and the `tsx` baseline generator remain available even when the
+calling environment exports `NODE_ENV=production` or omits development dependencies by
+default. These tools stay in `devDependencies`; the production security gate remains
+`npm audit --omit=dev --audit-level=high`, and systemd still runs with `NODE_ENV=production`.
+The existing post-build read-only code permissions and root-only `.env` are unchanged.
+
 The build generates `dist/onprem-bootstrap.sql` from the complete Drizzle schema. On the
 first startup, under the same advisory lock as the migration runner, the app checks the
 current application schema:
