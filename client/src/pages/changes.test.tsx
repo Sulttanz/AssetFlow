@@ -8,7 +8,7 @@ import { queryClient } from "@/lib/queryClient";
 
 const auth = vi.hoisted(() => ({ userId: "alice" as string | null, isAdmin: false }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: auth.userId ? { id: auth.userId } : null }),
+  useAuth: () => ({ user: auth.userId ? { id: auth.userId, permissions: auth.isAdmin ? ["system_admin"] : [] } : null }),
   useHasPermission: (permission: string) => permission === "system_admin" && auth.isAdmin,
 }));
 
@@ -21,6 +21,8 @@ type StageTimelineFixture = {
   startedAt: string | null;
   completedAt: string | null;
   attempts?: { status: "completed" | "failed"; startedAt: string | null; completedAt: string | null }[];
+  assignedToId?: string | null;
+  assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
 };
 type UserSummaryFixture = {
   id: string;
@@ -55,8 +57,9 @@ async function openApprovals(
     id, username: id, firstName: id, lastName: null, isActive: true,
   })),
   cabReviewVersion = 1,
+  changeOverrides: Record<string, unknown> = {},
 ) {
-  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [change(approvals, removedApproverIds, removedApprovals, stages, cabReviewVersion)], total: 1 });
+  queryClient.setQueryData(["/api/changes", 1, "", "all", "all"], { changes: [{ ...change(approvals, removedApproverIds, removedApprovals, stages, cabReviewVersion), ...changeOverrides }], total: 1 });
   queryClient.setQueryData(["/api/users"], users);
   queryClient.setQueryData(["/api/departments"], []);
   const user = userEvent.setup();
@@ -579,6 +582,61 @@ describe("change detail CAB approvals", () => {
     expect(screen.queryByRole("option", { name: "Inactive Reviewer" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Null Status Reviewer" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Missing Status Reviewer" })).toBeNull();
+  });
+
+  it("offers only active change and stage assignees while keeping saved inactive assignments visible", async () => {
+    auth.isAdmin = true;
+    const users = [
+      { id: "alice", username: "alice", firstName: "Alice", lastName: null, isActive: true },
+      { id: "active-user", username: "active", firstName: "Active", lastName: "Person", isActive: true },
+      { id: "inactive-user", username: "inactive", firstName: "Inactive", lastName: "Person", isActive: false },
+      { id: "null-status-user", username: "null-status", firstName: "Null Status", lastName: "Person", isActive: null },
+      { id: "missing-status-user", username: "missing-status", firstName: "Missing Status", lastName: "Person" },
+    ];
+    const inactiveAssignee = { id: "inactive-user", username: "inactive", firstName: "Inactive", lastName: "Person" };
+    const stages: StageTimelineFixture[] = [{
+      id: "stage-1", environment: "development", status: "pending", startedAt: null, completedAt: null,
+      assignedToId: inactiveAssignee.id, assignedTo: inactiveAssignee,
+    }];
+    const { user } = await openApprovals([], [], [], stages, users, 1, {
+      assignedToId: inactiveAssignee.id,
+      assignedTo: inactiveAssignee,
+    });
+
+    await user.click(screen.getByRole("tab", { name: "Details" }));
+    expect(screen.getAllByText("Inactive Person").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("tab", { name: /Environment/ }));
+    expect(screen.getAllByText("Inactive Person").length).toBeGreaterThan(0);
+
+    const reassignButtons = screen.getAllByRole("button", { name: "Reassign" });
+    await user.click(reassignButtons[reassignButtons.length - 1]);
+    const stageDialog = screen.getAllByRole("dialog").at(-1)!;
+    await user.click(within(stageDialog).getByRole("combobox"));
+    expect(screen.getByRole("option", { name: "Active Person" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Inactive Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Null Status Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Missing Status Person" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(within(stageDialog).getByRole("button", { name: "Cancel" }));
+
+    await user.click(screen.getAllByRole("button", { name: "Reassign" })[0]);
+    const changeAssignDialog = screen.getAllByRole("dialog").at(-1)!;
+    await user.click(within(changeAssignDialog).getAllByRole("combobox")[0]);
+    expect(screen.getByRole("option", { name: "Active Person" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Inactive Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Null Status Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Missing Status Person" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await user.click(within(changeAssignDialog).getByRole("button", { name: "Cancel" }));
+
+    queryClient.setQueryData(["/api/cmdb/change-options"], { applications: [], servers: [], assets: [] });
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const editDialog = screen.getByRole("dialog", { name: "Edit Change" });
+    await user.click(within(editDialog).getAllByRole("combobox")[4]);
+    expect(screen.getByRole("option", { name: "Active Person" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Inactive Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Null Status Person" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Missing Status Person" })).toBeNull();
   });
 
   it("refreshes account eligibility each time the CAB approver picker opens", async () => {

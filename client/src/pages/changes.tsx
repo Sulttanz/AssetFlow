@@ -226,6 +226,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
   const [stageEvidence, setStageEvidence]   = useState("");
   const [stageAssignee, setStageAssignee]   = useState("");
   const [stageDueDate, setStageDueDate]     = useState("");
+  const activeUsers = allUsers.filter(account => account.isActive === true);
 
   const updateStageMutation = useMutation({
     mutationFn: async (payload: { stageId: string; [k: string]: any }) => {
@@ -456,7 +457,7 @@ function StagePipeline({ stages, changeId, status: changeStatus, onUpdate, allUs
                 <SelectTrigger><SelectValue placeholder="Select person…" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Unassigned</SelectItem>
-                  {allUsers.map(u => (
+                  {activeUsers.map(u => (
                     <SelectItem key={u.id} value={u.id}>
                       {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
                     </SelectItem>
@@ -719,6 +720,7 @@ export default function Changes() {
     refetchInterval: canManageChange && selectedChange && detailTab === "approvals" ? 15_000 : false,
   });
   const allUsers = approverUsersQuery.data ?? [];
+  const activeUsers = allUsers.filter(account => account.isActive === true);
   const refetchUsers = approverUsersQuery.refetch;
   const { data: departments = [] } = useQuery<Department[]>({ queryKey: ["/api/departments"], enabled: canManageChange && isModuleEnabled("asset_management") });
 
@@ -1708,7 +1710,7 @@ export default function Changes() {
                 <SelectTrigger><SelectValue placeholder="Select user…" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Unassigned</SelectItem>
-                  {allUsers.map(u => (
+                  {activeUsers.map(u => (
                     <SelectItem key={u.id} value={u.id}>
                       {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
                     </SelectItem>
@@ -1834,7 +1836,7 @@ export default function Changes() {
                       <FormControl><SelectTrigger><SelectValue placeholder="Select implementer…" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="__none__">Unassigned</SelectItem>
-                        {allUsers.map(u => (
+                        {activeUsers.map(u => (
                           <SelectItem key={u.id} value={u.id}>
                             {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.username}
                           </SelectItem>
