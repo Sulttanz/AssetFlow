@@ -286,6 +286,7 @@ describe("CAB route notifications across signed-in sessions", () => {
         title: change.title,
         type: change.type,
         approverLabel: "Disabled Reviewer",
+        approverAccountStatus: "disabled",
       },
       {
         id: change.id,
@@ -293,6 +294,7 @@ describe("CAB route notifications across signed-in sessions", () => {
         title: change.title,
         type: change.type,
         approverLabel: "Former Reviewer",
+        approverAccountStatus: "deleted",
       },
     ]);
 
@@ -304,7 +306,7 @@ describe("CAB route notifications across signed-in sessions", () => {
         type: "cab",
         severity: "high",
         title: "Blocked CAB: CHG-000001",
-        message: "CHG-000001 — Upgrade network is blocked by a pending assignment for disabled CAB approvers Disabled Reviewer, Former Reviewer. Remove the assignment and add an active approver.",
+        message: "CHG-000001 — Upgrade network is blocked by a pending assignment for disabled CAB approver Disabled Reviewer and deleted CAB approver Former Reviewer. Remove the assignment and add an active approver.",
         changeId: "change-1",
         link: "/changes?approval=change-1",
       },

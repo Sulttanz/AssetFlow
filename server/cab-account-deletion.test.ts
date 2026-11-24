@@ -96,6 +96,15 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
       expect(await db.select().from(users).where(eq(users.id, approverId))).toEqual([]);
       expect(await db.select().from(users).where(eq(users.id, decidedApproverId))).toEqual([]);
 
+      expect(await storage.getDisabledCabAlertChanges()).toEqual([{
+        id: changeId,
+        changeNumber: `CAB-TEST-${suffix}`,
+        title: "CAB account deletion regression",
+        type: "normal",
+        approverLabel: "Casey Reviewer",
+        approverAccountStatus: "deleted",
+      }]);
+
       const history = await storage.getAllChangeApprovalRecords(changeId);
       expect(history).toHaveLength(2);
       const byId = new Map(history.map(approval => [approval.id, approval]));
@@ -129,6 +138,7 @@ describe.skipIf(!databaseIntegrationEnabled)("CAB approvals after an approver ac
       const remaining = await storage.getChangeApprovals(changeId);
       expect(remaining.map(approval => approval.id)).toEqual([decided!.id]);
       expect(cabApprovalsGranted(remaining)).toBe(true);
+      expect(await storage.getDisabledCabAlertChanges()).toEqual([]);
       expect((await storage.getAllChangeApprovalRecords(changeId))).toHaveLength(2);
       const details = await storage.getChange(changeId);
       expect(details?.approvals?.map(a => a.id)).toEqual([decided!.id]);

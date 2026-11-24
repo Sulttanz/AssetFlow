@@ -5975,23 +5975,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // clears the alert without maintaining a separate notification record.
       const disabledApproversByChange = new Map<string, {
         change: typeof disabledCabChanges[number];
-        approverLabels: Set<string>;
+        disabledApproverLabels: Set<string>;
+        deletedApproverLabels: Set<string>;
       }>();
       for (const row of disabledCabChanges) {
         let blockedChange = disabledApproversByChange.get(row.id);
         if (!blockedChange) {
-          blockedChange = { change: row, approverLabels: new Set() };
+          blockedChange = { change: row, disabledApproverLabels: new Set(), deletedApproverLabels: new Set() };
           disabledApproversByChange.set(row.id, blockedChange);
         }
-        blockedChange.approverLabels.add(row.approverLabel);
+        (row.approverAccountStatus === "deleted"
+          ? blockedChange.deletedApproverLabels
+          : blockedChange.disabledApproverLabels).add(row.approverLabel);
       }
-      disabledApproversByChange.forEach(({ change, approverLabels }) => {
-        const approvers = Array.from(approverLabels);
+      disabledApproversByChange.forEach(({ change, disabledApproverLabels, deletedApproverLabels }) => {
+        const disabledApprovers = Array.from(disabledApproverLabels);
+        const deletedApprovers = Array.from(deletedApproverLabels);
+        const blockedBy = [
+          disabledApprovers.length
+            ? `disabled CAB approver${disabledApprovers.length === 1 ? "" : "s"} ${disabledApprovers.join(", ")}`
+            : "",
+          deletedApprovers.length
+            ? `deleted CAB approver${deletedApprovers.length === 1 ? "" : "s"} ${deletedApprovers.join(", ")}`
+            : "",
+        ].filter(Boolean);
         alerts.push({
           type: "cab",
           severity: "high",
           title: `Blocked CAB: ${change.changeNumber}`,
-          message: `${change.changeNumber} — ${change.title} is blocked by a pending assignment for disabled CAB approver${approvers.length === 1 ? "" : "s"} ${approvers.join(", ")}. Remove the assignment and add an active approver.`,
+          message: `${change.changeNumber} — ${change.title} is blocked by a pending assignment for ${blockedBy.join(" and ")}. Remove the assignment and add an active approver.`,
           changeId: change.id,
           link: `/changes?approval=${encodeURIComponent(change.id)}`,
         });

@@ -30,7 +30,8 @@ describe("CAB alert storage query", () => {
     { id: "change-2", changeNumber: "CHG-000002", title: "Legacy null decision", type: "emergency", createdAt: new Date("2026-10-03T10:00:00Z") },
   ];
   const disabledApproverRows = [
-    { id: "change-3", changeNumber: "CHG-000003", title: "Blocked change", type: "normal", approverLabel: "Inactive Reviewer", createdAt: new Date("2026-10-02T10:00:00Z") },
+    { id: "change-3", changeNumber: "CHG-000003", title: "Blocked change", type: "normal", approverLabel: "Inactive Reviewer", approverId: "inactive-user", createdAt: new Date("2026-10-02T10:00:00Z") },
+    { id: "change-4", changeNumber: "CHG-000004", title: "Deleted approver change", type: "normal", approverLabel: "Former Reviewer", approverId: null, createdAt: new Date("2026-10-01T10:00:00Z") },
   ];
   let query: {
     selection?: Record<string, unknown>;
@@ -58,6 +59,11 @@ describe("CAB alert storage query", () => {
           return builder;
         },
         innerJoin(table: unknown, condition: Parameters<typeof dialect.sqlToQuery>[0]) {
+          query.joins ??= [];
+          query.joins.push({ table, condition, sql: dialect.sqlToQuery(condition).sql });
+          return builder;
+        },
+        leftJoin(table: unknown, condition: Parameters<typeof dialect.sqlToQuery>[0]) {
           query.joins ??= [];
           query.joins.push({ table, condition, sql: dialect.sqlToQuery(condition).sql });
           return builder;
@@ -133,7 +139,7 @@ describe("CAB alert storage query", () => {
     expect(query.orderBySql?.join(" ")).toContain('"changes"."id"');
   });
 
-  it("filters manager alerts to active pending assignments owned by disabled accounts", async () => {
+  it("includes pending assignments for disabled and deleted accounts, but excludes removed or resolved rows", async () => {
     const result = await new DatabaseStorage().getDisabledCabAlertChanges();
 
     expect(result).toEqual([
@@ -143,11 +149,21 @@ describe("CAB alert storage query", () => {
         title: "Blocked change",
         type: "normal",
         approverLabel: "Inactive Reviewer",
+        approverAccountStatus: "disabled",
+      },
+      {
+        id: "change-4",
+        changeNumber: "CHG-000004",
+        title: "Deleted approver change",
+        type: "normal",
+        approverLabel: "Former Reviewer",
+        approverAccountStatus: "deleted",
       },
     ]);
     expect(database.selectDistinct).toHaveBeenCalledTimes(1);
     expect(query.source).toBe(changes);
     expect(query.joins?.map(join => join.table)).toEqual([changeApprovals, users]);
+    expect(query.whereSql).toContain('"change_approvals"."approver_id" is null');
     expect(query.whereSql).toContain('"users"."is_active" = $1');
     expect(query.whereSql).toContain('"change_approvals"."removed_at" is null');
     expect(query.whereSql).toMatch(
