@@ -6,6 +6,11 @@ APP_DIR="${APP_DIR:-/opt/assetflow}"
 APP_DB_NAME="${APP_DB_NAME:-}"
 APP_DB_USER="${APP_DB_USER:-}"
 APP_PORT="${PORT:-}"
+ENABLE_HTTPS="${ENABLE_HTTPS:-false}"
+case "$ENABLE_HTTPS" in
+  true|false) ;;
+  *) echo "ENABLE_HTTPS must be true or false." >&2; exit 1 ;;
+esac
 SYSTEMD_UNIT="/etc/systemd/system/assetflow.service"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -178,6 +183,30 @@ APP_DB_USER="${APP_DB_USER:-$(read_env_value ASSETFLOW_DB_USER)}"
 APP_DB_USER="${APP_DB_USER:-assetflow_app}"
 APP_PORT="${APP_PORT:-$(read_env_value PORT)}"
 APP_PORT="${APP_PORT:-5000}"
+APP_TRUST_PROXY="${TRUST_PROXY:-$(read_env_value TRUST_PROXY)}"
+APP_TRUST_PROXY="${APP_TRUST_PROXY:-loopback}"
+APP_COOKIE_SECURE="${COOKIE_SECURE:-$(read_env_value COOKIE_SECURE)}"
+APP_COOKIE_SECURE="${APP_COOKIE_SECURE:-auto}"
+APP_COOKIE_SECURE="${APP_COOKIE_SECURE,,}"
+if [[ "$ENABLE_HTTPS" == "true" ]]; then
+  APP_HOST="${HOST:-127.0.0.1}"
+  if [[ "$APP_HOST" != "127.0.0.1" && "$APP_HOST" != "0.0.0.0" ]]; then
+    echo "The host-native HTTPS proxy requires HOST=127.0.0.1 or HOST=0.0.0.0." >&2; exit 1
+  fi
+else
+  APP_HOST="${HOST:-$(read_env_value HOST)}"
+  APP_HOST="${APP_HOST:-0.0.0.0}"
+fi
+if [[ ! "$APP_TRUST_PROXY" =~ ^[a-zA-Z0-9.,:/[:space:]-]+$ || "$APP_TRUST_PROXY" == *$'\n'* || "$APP_TRUST_PROXY" == *$'\r'* ]]; then
+  echo "TRUST_PROXY must be a boolean, hop count, or comma-separated IP/CIDR list." >&2; exit 1
+fi
+case "$APP_COOKIE_SECURE" in
+  auto|true|false) ;;
+  *) echo "COOKIE_SECURE must be auto, true, or false." >&2; exit 1 ;;
+esac
+if [[ ! "$APP_HOST" =~ ^[a-zA-Z0-9.:-]+$ ]]; then
+  echo "HOST must be a valid single hostname/IP binding." >&2; exit 1
+fi
 HEALTH_URL="http://127.0.0.1:${APP_PORT}/api/health"
 
 DB_PASSWORD="$(read_env_value ASSETFLOW_DB_PASSWORD)"
@@ -260,7 +289,9 @@ DATABASE_URL=postgresql://${APP_DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${APP_DB_
 SESSION_SECRET="${SESSION_SECRET_ENV}"
 NODE_ENV=production
 PORT=${APP_PORT}
-HOST=0.0.0.0
+HOST=${APP_HOST}
+TRUST_PROXY="${APP_TRUST_PROXY}"
+COOKIE_SECURE=${APP_COOKIE_SECURE}
 EOF
 chown root:root "$ENV_TEMP"
 chmod 0600 "$ENV_TEMP"
@@ -348,6 +379,17 @@ if [[ "$healthy" != "true" ]]; then
   exit 1
 fi
 
+PRIMARY_IPV4="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }' || true)"
+PRIMARY_IPV4="${PRIMARY_IPV4:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+PRIMARY_IPV4="${PRIMARY_IPV4:-127.0.0.1}"
+OPEN_URL="http://${PRIMARY_IPV4}:${APP_PORT}"
+if [[ "$ENABLE_HTTPS" == "true" ]]; then
+  TLS_SERVER_NAME="${TLS_SERVER_NAME:-$PRIMARY_IPV4}"
+  TLS_SERVER_NAME="$TLS_SERVER_NAME" APP_PORT="$APP_PORT" \
+    bash "$APP_DIR/scripts/onprem-https.sh"
+  OPEN_URL="https://${TLS_SERVER_NAME}"
+fi
+
 SYSTEM_STATUS="$(curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "http://127.0.0.1:${APP_PORT}/api/system/status")"
 NEEDS_SETUP="$(node -e 'const status = JSON.parse(process.argv[1]); process.stdout.write(status.needsSetup ? "yes" : "no")' "$SYSTEM_STATUS")"
 ADMIN_PASSWORD=""
@@ -372,14 +414,10 @@ else
   echo "An account already exists; preserving current user accounts and passwords."
 fi
 
-PRIMARY_IPV4="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1; i<=NF; i++) if ($i == "src") { print $(i+1); exit } }' || true)"
-PRIMARY_IPV4="${PRIMARY_IPV4:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
-PRIMARY_IPV4="${PRIMARY_IPV4:-127.0.0.1}"
-
 echo
 echo "============================================================"
 echo "AssetFlow installation is healthy."
-echo "Open:     http://${PRIMARY_IPV4}:${APP_PORT}"
+echo "Open:     ${OPEN_URL}"
 echo "Username: admin"
 if [[ -n "$ADMIN_PASSWORD" ]]; then
   echo "Password: ${ADMIN_PASSWORD}"

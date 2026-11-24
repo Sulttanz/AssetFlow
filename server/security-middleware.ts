@@ -111,7 +111,7 @@ export const securityHeaders: RequestHandler = (req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  if (process.env.NODE_ENV === "production" && req.secure) {
+  if (process.env.NODE_ENV === "production" && req.secure && process.env.HSTS_ENABLED !== "false") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000");
   }
   next();

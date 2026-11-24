@@ -91,9 +91,10 @@ cleanup operations. Symlinked path components are rejected unless the operator d
 sets `ALLOW_SYMLINK_APP_DIR=1`, in which case the canonical destination must still satisfy
 these restrictions. A symlinked `.env` is always rejected.
 
-The service listens on port `5000` by default and binds to all IPv4 interfaces.
-The final summary prints the detected primary IPv4 address and URL. Configure the host
-firewall and your organization's Nginx/ModSecurity policy before exposing the service publicly.
+The default HTTP-only installation listens on port `5000` and binds to all IPv4 interfaces.
+With `ENABLE_HTTPS=true`, the default binding is instead `127.0.0.1`, behind the optional
+host-native Nginx proxy described below. The final summary prints the appropriate HTTP or
+HTTPS URL. Configure the host firewall before exposing the service publicly.
 
 Useful service commands:
 
@@ -104,8 +105,9 @@ sudo systemctl restart assetflow
 ```
 
 The installer script is `scripts/onprem-install.sh`; inspect it before piping it to a root
-shell. It is intended for a fresh Ubuntu/Debian host and does not configure Nginx, TLS,
-firewall rules, or backups. Use the upgrade procedure below for subsequent staged releases.
+shell. It is intended for a fresh Ubuntu/Debian host. Nginx/TLS configuration is opt-in;
+it does not automatically change firewall rules or configure scheduled backups.
+Use the upgrade procedure below for subsequent staged releases.
 
 PostgreSQL connection acquisition is bounded to 10 seconds for the native `pg` pool.
 Health probes have connection and total-request timeouts within a 180-second installation
@@ -117,6 +119,119 @@ On `SIGTERM`/`SIGINT`, the app stops accepting requests, drains active HTTP requ
 stops its scheduled workers and CAB streams/listener, and closes the database pool.
 It has a 25-second internal deadline; the generated unit allows `TimeoutStopSec=30`.
 If drain fails or times out, it exits nonzero so the failure is visible to the service manager.
+
+## HTTPS and session cookies
+
+### Optional Ubuntu 24.04 / Debian Nginx proxy
+
+From a reviewed release checkout, opt into TLS when running the installer:
+
+```sh
+sudo env ENABLE_HTTPS=true TLS_SERVER_NAME=192.168.6.1 \
+  bash scripts/onprem-install.sh
+```
+
+Use your real IPv4 address or DNS hostname, not the literal example. Without custom
+certificate paths, the helper generates a one-year self-signed certificate with an
+IP or DNS **Subject Alternative Name**, matching the name you provided. Browsers will
+warn until that certificate is trusted through your organization's approved process.
+For production, prefer an organizational/public CA certificate and manage its renewal.
+
+To supply your own PEM full certificate chain and matching, unencrypted private key:
+
+```sh
+sudo env ENABLE_HTTPS=true TLS_SERVER_NAME=assetflow.example.internal \
+  TLS_CERT_FILE=/secure/path/fullchain.pem TLS_KEY_FILE=/secure/path/private-key.pem \
+  bash scripts/onprem-install.sh
+```
+
+`scripts/onprem-https.sh` installs Nginx if missing, copies the certificate/key to
+`/etc/assetflow/tls/`, and creates only the managed
+`/etc/nginx/sites-available/assetflow-https.conf` site and its enabled symlink.
+The TLS directory is root-only (`0700`), the private key is `root:root` mode `0600`,
+and existing valid certificates are reused on reruns. Supplied certificates are checked
+for expiry, SAN/name match, and key match before activation. It refuses to overwrite an
+unmanaged site with the same filename. `nginx -t` runs before reload/start; validation
+failure restores the previous AssetFlow site and certificate/key files.
+
+The proxy listens on **443** with TLS 1.2/1.3 and redirects matching port-80 requests
+to HTTPS. It forwards to `127.0.0.1:5000` (or the configured application port), preserves
+the Host header, replaces client-supplied forwarded headers, and disables response
+buffering for event streams. This host-native helper is **not** a ModSecurity/OWASP CRS
+installation; the separate `deployment/onprem/` WAF deployment remains available.
+Do not enable both proxies on the same host ports without adapting the deployment.
+
+For an existing installation, you can configure only the proxy without rebuilding or
+touching database credentials:
+
+```sh
+sudo env TLS_SERVER_NAME=192.168.6.1 APP_PORT=5000 \
+  bash /opt/assetflow/scripts/onprem-https.sh
+sudoedit /opt/assetflow/.env
+# Set HOST=127.0.0.1, TRUST_PROXY=loopback, COOKIE_SECURE=auto.
+# Preserve all other lines, especially DATABASE_URL and SESSION_SECRET.
+sudo systemctl restart assetflow
+```
+
+The standalone helper does not edit `.env` or restart AssetFlow. Repeat it with new
+`TLS_CERT_FILE` / `TLS_KEY_FILE` paths when replacing certificates, and arrange expiry
+monitoring/renewal separately. Confirm DNS points at the server when using a hostname.
+
+### Cookie and proxy environment settings
+
+| Variable | Values and behavior |
+| --- | --- |
+| `COOKIE_SECURE=auto` | Default. Session cookies carry `Secure` on HTTPS and omit it on HTTP. HTTPS is determined by Express `req.secure`, including forwarding headers **only from a configured trusted proxy**. |
+| `COOKIE_SECURE=true` | HTTPS-only. Login cannot establish a browser session over plain HTTP because no secure cookie is emitted there. Recommended after moving entirely to HTTPS. |
+| `COOKIE_SECURE=false` | Explicit HTTP compatibility; cookies lack `Secure`, even on HTTPS. Use only for controlled local/test environments. |
+| `TRUST_PROXY` | Application default: `1` proxy hop. Installer default: `loopback`, appropriate for host-native Nginx. Also accepts `false`/`0`, bounded hop counts, or comma-separated trusted IP/CIDR ranges. Avoid unrestricted `true`. |
+| `HOST` | HTTPS installer default: `127.0.0.1`; HTTP-only default: `0.0.0.0`. Explicit `HOST=0.0.0.0` permits controlled direct HTTP access alongside the proxy, subject to firewall restrictions. |
+| `HSTS_ENABLED=false` | Optional local/mixed-protocol override. By default production HTTPS responses send HSTS. Disable it only where intentionally testing HTTP on the same hostname; browsers retain earlier HSTS policy until it expires/is cleared. |
+
+`HttpOnly`, `SameSite=Strict`, server-side PostgreSQL sessions, Origin checks, password
+hashing, and login rate limiting remain enabled. None of these options changes the
+root-only `.env` ownership, generated database password, administrator password, or
+the unprivileged `assetflow` service account. Installer reruns retain existing
+`TRUST_PROXY` and `COOKIE_SECURE` settings unless explicitly overridden.
+
+Never expose port 5000 publicly while trusting arbitrary forwarded headers. With
+host-native Nginx use `TRUST_PROXY=loopback`; with Docker use a known proxy address/subnet
+or a private single-hop network with no externally published application port.
+Only trusted proxies should be able to assert `X-Forwarded-Proto: https`.
+
+### Firewall and plain HTTP compatibility
+
+For HTTPS-only deployments, keep SSH/management access allowed before changing UFW.
+Review existing rules and permit TCP **443**; TCP **80** is optional for HTTP redirects.
+Keep TCP **5000** blocked externally, or leave AssetFlow bound to loopback:
+
+```sh
+sudo ufw allow OpenSSH
+sudo ufw allow 443/tcp
+sudo ufw allow 80/tcp   # Optional redirect; not required for HTTPS itself.
+sudo ufw status numbered
+# Remove any existing public allow rule for port 5000; do not blindly enable UFW
+# or remove management rules on a remote server.
+```
+
+For an explicitly authorized HTTP-only LAN installation, configure
+`HOST=0.0.0.0`, `COOKIE_SECURE=auto` (or `false`), and `TRUST_PROXY=false` when no proxy
+is used. A restricted LAN rule could be:
+
+```sh
+sudo ufw allow from 192.168.6.0/24 to any port 5000 proto tcp
+```
+
+Then `http://192.168.6.1:5000` supports sign-in. HTTP transmits credentials/session cookies
+without encryption; it is not a secure substitute for HTTPS and must not be Internet-facing.
+Cookies are hostname-scoped, not port-scoped: prefer HTTPS-only for a hostname used in
+production rather than mixing protocols under it.
+
+To verify a deployment, sign in through the browser at the intended URL and inspect the
+Network responses: `POST /api/login` should return `200` with `Set-Cookie` (including
+`Secure` for HTTPS), and the following `GET /api/user` should return `200` with the
+authenticated user. Do not copy cookie values into logs or tickets. Confirm the TLS
+certificate/name is trusted; bypassing certificate warnings is not a production fix.
 
 ## Prerequisites
 

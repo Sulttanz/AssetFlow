@@ -115,6 +115,24 @@ describe("on-prem deployment safeguards", () => {
     expect(upgrade).toContain("set -o noclobber");
     expect(upgrade).toContain('dist/onprem-bootstrap.sql');
   });
+
+  it("keeps host-native TLS optional and constrains the generated proxy and private key", async () => {
+    const helper = await readFile("scripts/onprem-https.sh", "utf8");
+    const installer = await readFile("scripts/onprem-install.sh", "utf8");
+    expect(spawnSync("bash", ["-n", "scripts/onprem-https.sh"]).status).toBe(0);
+    expect(installer).toContain('ENABLE_HTTPS="${ENABLE_HTTPS:-false}"');
+    expect(installer).toContain('APP_HOST="${HOST:-127.0.0.1}"');
+    expect(installer).toContain("scripts/onprem-https.sh");
+    expect(helper).toContain("subjectAltName=${SUBJECT_ALT_NAME}");
+    expect(helper).toContain('install -o root -g root -m 0600 "$WORK_DIR/server.key" "$KEY"');
+    expect(helper).toContain("listen 443 ssl;");
+    expect(helper).toContain("ssl_protocols TLSv1.2 TLSv1.3;");
+    expect(helper).toContain("proxy_set_header X-Forwarded-Proto \\$scheme;");
+    expect(helper).toContain("proxy_set_header X-Forwarded-For \\$remote_addr;");
+    expect(helper).not.toContain("$proxy_add_x_forwarded_for");
+    expect(helper).toContain("if ! nginx -t;");
+    expect(helper).toContain("prior AssetFlow TLS configuration restored");
+  });
 });
 
 const integrationEnabled = process.env.RUN_DATABASE_INTEGRATION_TESTS === "1";

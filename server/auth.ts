@@ -12,6 +12,7 @@ import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { createDemoViewerGuard } from "./demo-viewer";
 import { registerShutdownTask } from "./graceful-shutdown";
+import { cookieSecureMode, trustProxySetting } from "./auth-transport";
 
 // Extend Express User type to match our User interface
 declare global {
@@ -45,6 +46,10 @@ const loginLimiter = rateLimit({
 });
 
 export function setupAuth(app: Express) {
+  const secure = cookieSecureMode();
+  // Do not set session.proxy=true: that would bypass Express's configured
+  // trusted-proxy boundary when interpreting X-Forwarded-Proto.
+  app.set("trust proxy", trustProxySetting());
   const PgStore = connectPg(session);
   const sessionStore = new PgStore({
     pool: pool as any,             // reuse the app's existing Neon WebSocket pool
@@ -62,15 +67,19 @@ export function setupAuth(app: Express) {
     saveUninitialized: false,
     store: sessionStore,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: "strict",
     },
   };
 
-  app.set("trust proxy", 1);
   app.use(session(sessionSettings));
+  app.use((req, _res, next) => {
+    // Also recalculate for existing sessions moving from HTTP to HTTPS.
+    if (req.session) req.session.cookie.secure = secure === "auto" ? req.secure : secure;
+    next();
+  });
   app.use(passport.initialize());
   app.use(passport.session());
   // Before ALL auth and feature handlers, including registration and exports.
@@ -174,7 +183,10 @@ export function setupAuth(app: Express) {
       if (err) return next(err);
       req.session.destroy((destroyErr) => {
         if (destroyErr) return next(destroyErr);
-        res.clearCookie("connect.sid");
+        res.clearCookie("connect.sid", {
+          path: "/", httpOnly: true, sameSite: "strict",
+          secure: secure === "auto" ? req.secure : secure,
+        });
         res.sendStatus(200);
       });
     });
