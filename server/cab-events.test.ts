@@ -64,6 +64,7 @@ import {
   publishCabChange,
   publishItsmEnabled,
   resolveCabListenerConnectionString,
+  resolveCabListenerDriver,
   startCabEventListener,
   subscribeToCabEvents,
   subscribeToItsmAccessEvents,
@@ -178,6 +179,15 @@ describe("CAB PostgreSQL listener recovery", () => {
     expect(() => resolveCabListenerConnectionString({
       DATABASE_URL: "postgresql://app:secret@db.example.test:6432/app",
     })).toThrow(/known pooler/);
+    expect(resolveCabListenerDriver({
+      DATABASE_URL: "postgresql://app:secret@ep-example.neon.tech/app",
+      DB_DRIVER: "neon",
+      CAB_EVENTS_DATABASE_URL: "postgresql://app:secret@127.0.0.1/app",
+    })).toBe("pg");
+    expect(resolveCabListenerDriver({
+      DATABASE_URL: "postgresql://app:secret@custom-neon-proxy.example.test/app",
+      CAB_EVENTS_DB_DRIVER: "neon",
+    })).toBe("neon");
   });
 
   it("uses native pg for standard PostgreSQL and retains Neon for explicitly selected Neon endpoints", async () => {
@@ -323,6 +333,37 @@ describe("CAB PostgreSQL listener recovery", () => {
     client.emit("end");
     expect(warnLog).toHaveBeenCalledTimes(1);
     expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds a stalled heartbeat and ignores late errors after deliberate shutdown", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DATABASE_URL", "postgresql://app:secret@db.example.test/app");
+    vi.stubEnv("DB_DRIVER", "pg");
+    vi.stubEnv("CAB_EVENTS_DATABASE_URL", "");
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.resetModules();
+    const { startCabEventListener: start, stopCabEventListener: stop } = await import("./cab-events");
+    start();
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    const first = mockListenerState.instances.at(-1);
+    first.query.mockImplementationOnce(() => new Promise(() => {}));
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(first.end).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(first.end).toHaveBeenCalledTimes(1);
+    expect(warnLog).toHaveBeenCalledWith(expect.stringContaining("ETIMEDOUT"));
+    await vi.advanceTimersByTimeAsync(2_000);
+    const recovered = mockListenerState.instances.at(-1);
+    expect(recovered).not.toBe(first);
+    warnLog.mockClear();
+    await stop();
+    recovered.emit("end");
+    recovered.emit("error", new Error("late close"));
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(recovered.end).toHaveBeenCalledTimes(1);
+    expect(warnLog).not.toHaveBeenCalled();
+    expect(mockListenerState.instances).toHaveLength(2);
   });
 });
 

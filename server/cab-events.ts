@@ -46,6 +46,8 @@ let listener: ListenerClient | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let leaseCleanupTimer: ReturnType<typeof setInterval> | undefined;
 let listenerHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+let listenerHeartbeatTimeout: ReturnType<typeof setTimeout> | undefined;
+let closeListener: (() => Promise<void>) | undefined;
 let retryDelay = initialRetryDelayMs;
 let stableConnectionTimer: ReturnType<typeof setTimeout> | undefined;
 let hasConnectedBefore = false;
@@ -257,11 +259,12 @@ async function connectListener(): Promise<void> {
   let client: ListenerClient;
   try {
     client = driver === "neon"
-      ? new NeonClient({ connectionString }) as unknown as ListenerClient
+      ? new NeonClient({ connectionString, connectionTimeoutMillis: 10_000, query_timeout: 10_000 }) as unknown as ListenerClient
       : new PgClient({
           connectionString,
           application_name: "assetflow-cab-events",
           connectionTimeoutMillis: 10_000,
+          query_timeout: 10_000,
           keepAlive: true,
           keepAliveInitialDelayMillis: 10_000,
         }) as unknown as ListenerClient;
@@ -274,17 +277,24 @@ async function connectListener(): Promise<void> {
   let heartbeatInFlight = false;
   const clearHeartbeat = () => {
     if (listenerHeartbeatTimer) clearInterval(listenerHeartbeatTimer);
+    if (listenerHeartbeatTimeout) clearTimeout(listenerHeartbeatTimeout);
     listenerHeartbeatTimer = undefined;
+    listenerHeartbeatTimeout = undefined;
   };
-  const reconnect = (error?: unknown) => {
-    if (disconnected) return;
+  const close = async () => {
     disconnected = true;
     clearHeartbeat();
     if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
     stableConnectionTimer = undefined;
     if (listener === client) listener = undefined;
+    if (closeListener === close) closeListener = undefined;
+    await client.end().catch(() => {});
+  };
+  closeListener = close;
+  const reconnect = (error?: unknown) => {
+    if (disconnected) return;
     // A failed connection can still own a socket; release it before retrying.
-    void client.end().catch(() => {});
+    void close();
     if (!stopping) {
       scheduleRetry(error ? describeListenerError(error) : "connection ended");
     }
@@ -298,10 +308,10 @@ async function connectListener(): Promise<void> {
   });
   try {
     await client.connect();
-    if (disconnected || stopping) return;
+    if (disconnected || stopping || listener !== client) return;
     await client.query(`LISTEN ${channel}`);
     await client.query(`LISTEN ${accessChannel}`);
-    if (disconnected || stopping) return;
+    if (disconnected || stopping || listener !== client) return;
     console.info(
       `[CAB events] PostgreSQL LISTEN listener ${hasConnectedBefore ? "re-established" : "connected"} ` +
       `(driver=${driver}, host=${connectionUrl.hostname}, port=${connectionUrl.port || "default"})`,
@@ -322,9 +332,16 @@ async function connectListener(): Promise<void> {
     listenerHeartbeatTimer = setInterval(() => {
       if (disconnected || stopping || heartbeatInFlight) return;
       heartbeatInFlight = true;
+      const deadline = setTimeout(() => {
+        reconnect(Object.assign(new Error("listener heartbeat timed out after 10000ms"), { code: "ETIMEDOUT" }));
+      }, 10_000);
+      deadline.unref();
+      listenerHeartbeatTimeout = deadline;
       void client.query("SELECT 1")
         .catch(reconnect)
         .finally(() => {
+          clearTimeout(deadline);
+          if (listenerHeartbeatTimeout === deadline) listenerHeartbeatTimeout = undefined;
           heartbeatInFlight = false;
         });
     }, listenerHeartbeatIntervalMs);
@@ -354,19 +371,19 @@ export async function stopCabEventListener(): Promise<void> {
   if (retryTimer) clearTimeout(retryTimer);
   if (leaseCleanupTimer) clearInterval(leaseCleanupTimer);
   if (listenerHeartbeatTimer) clearInterval(listenerHeartbeatTimer);
+  if (listenerHeartbeatTimeout) clearTimeout(listenerHeartbeatTimeout);
   if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
   retryTimer = undefined;
   leaseCleanupTimer = undefined;
   listenerHeartbeatTimer = undefined;
+  listenerHeartbeatTimeout = undefined;
   stableConnectionTimer = undefined;
   const streams = Array.from(subscribers);
   await Promise.all(streams.map(async subscriber => {
     await removeSubscriber(subscriber);
     subscriber.res.destroy();
   }));
-  const client = listener;
-  listener = undefined;
-  await client?.end().catch(() => {});
+  await closeListener?.();
 }
 
 // Browser tabs share a session cookie: leave existing streams active and reserve

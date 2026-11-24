@@ -115,8 +115,16 @@ and the Neon client only for Neon endpoints. Both use a direct, non-transaction-
 connection; the listener also sends a lightweight `SELECT 1` heartbeat every 20 seconds
 and enables TCP keepalive for native PostgreSQL. This prevents idle network paths or
 PostgreSQL idle-session policies near 30 seconds from repeatedly dropping the listener.
-On a disconnect it logs one warning for that outage and retries with exponential backoff
+Heartbeats have a 10-second deadline; failed or stalled connections are closed before
+reconnecting. The listener uses `CAB_EVENTS_DATABASE_URL` when provided, otherwise
+`DATABASE_URL`; known transaction-pooling endpoints are rejected (Neon's fallback
+`-pooler` host is converted to its direct endpoint). A dedicated URL selects its driver
+from that endpoint rather than inheriting an unrelated main-database driver. Only when
+using a custom Neon proxy, set `CAB_EVENTS_DB_DRIVER=neon` explicitly if needed.
+On a disconnect it logs one warning per reconnect attempt, not separate `error`/`end`
+warnings, and retries with exponential backoff
 from 2 seconds up to 30 seconds, resetting only after a stable connection window.
+Intentional shutdowns do not log disconnect/retry warnings.
 Health probes have connection and total-request timeouts within a 180-second installation
 readiness window. `systemctl start` alone is not a readiness signal (`Type=simple`); the
 installer and upgrade script check `/api/health` after startup. For unusually large

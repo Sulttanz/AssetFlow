@@ -91,6 +91,10 @@ describe("on-prem deployment safeguards", () => {
     expect(preserved).not.toContain("DATABASE_URL");
     expect(preserved).not.toContain("SESSION_SECRET");
     expect(() => readEnvValue('SESSION_SECRET="unterminated', "SESSION_SECRET")).toThrow(/Invalid quoted/);
+    // Bind aliases are normalized to managed HOST/PORT by the installer, not
+    // retained as stale overrides that could desynchronize Nginx and health.
+    expect(unmanagedEnv("BIND_HOST=0.0.0.0\nBIND_PORT=5050\nCUSTOM_FLAG=retained"))
+      .toBe("CUSTOM_FLAG=retained\n");
   });
 
   it("retains hard shell, path, runtime, timeout, backup, and single-start guards", async () => {

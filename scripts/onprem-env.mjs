@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 
 const managed = new Set([
   "DATABASE_URL", "ASSETFLOW_DB_NAME", "ASSETFLOW_DB_USER", "ASSETFLOW_DB_PASSWORD",
-  "SESSION_SECRET", "NODE_ENV", "PORT", "HOST", "TRUST_PROXY", "COOKIE_SECURE",
+  "SESSION_SECRET", "NODE_ENV", "PORT", "HOST", "BIND_PORT", "BIND_HOST", "TRUST_PROXY", "COOKIE_SECURE",
 ]);
 
 export function parseEnvLine(line) {

@@ -179,11 +179,26 @@ try {
   const selectedTests = process.argv.slice(2);
   const fullSuite = await runVitest(selectedTests.length
     ? selectedTests
-    : ["--exclude", "server/change-overview-plan.test.ts"], "full Vitest suite");
+    : [
+        "--exclude", "server/change-overview-plan.test.ts",
+        // This test changes the shared ITSM license flag. Run it after the
+        // parallel HTTP suites, which require ITSM to stay enabled.
+        "--exclude", "server/incident-sla-escalation.test.ts",
+      ], "full Vitest suite");
   if (fullSuite.error) throw fullSuite.error;
   if (fullSuite.status !== 0) {
     process.exitCode = fullSuite.status ?? 1;
   } else if (selectedTests.length === 0) {
+    console.log("Running the ITSM license-toggle escalation test without concurrent portal requests.");
+    const isolatedEscalationSuite = await runVitest(
+      ["server/incident-sla-escalation.test.ts"],
+      "isolated incident SLA escalation suite",
+    );
+    if (isolatedEscalationSuite.error) throw isolatedEscalationSuite.error;
+    if (isolatedEscalationSuite.status !== 0) {
+      process.exitCode = isolatedEscalationSuite.status ?? 1;
+      throw new Error("Isolated incident SLA escalation verification failed.");
+    }
     console.log("Running the CAB overview planner benchmark separately to avoid overlapping PostgreSQL snapshots.");
     const isolatedPlannerSuite = await runVitest(
       ["server/change-overview-plan.test.ts"],
