@@ -6,7 +6,6 @@ APP_DIR="${APP_DIR:-/opt/assetflow}"
 APP_DB_NAME="${APP_DB_NAME:-}"
 APP_DB_USER="${APP_DB_USER:-}"
 APP_PORT="${PORT:-}"
-ENV_FILE="${APP_DIR}/.env"
 SYSTEMD_UNIT="/etc/systemd/system/assetflow.service"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -17,6 +16,28 @@ if [[ "$APP_DIR" != /* || "$APP_DIR" == *[[:space:]]* ]]; then
   echo "APP_DIR must be an absolute path without whitespace." >&2
   exit 1
 fi
+# Resolve before any root-owned recursive operation. Reject symlinks in every
+# existing path component unless the operator explicitly opts into resolution.
+RAW_APP_DIR="$APP_DIR"
+APP_DIR="$(realpath -m -- "$APP_DIR")"
+case "$APP_DIR" in
+  /opt/?*|/srv/?*) ;;
+  *) echo "APP_DIR must be a dedicated directory below /opt or /srv, never a system root." >&2; exit 1 ;;
+esac
+if [[ ! "$APP_DIR" =~ ^/[a-zA-Z0-9_./-]+$ ]]; then
+  echo "APP_DIR contains unsupported path characters." >&2; exit 1
+fi
+if [[ "${ALLOW_SYMLINK_APP_DIR:-0}" != "1" ]]; then
+  path_component="$RAW_APP_DIR"
+  while [[ "$path_component" != "/" && "$path_component" != "." ]]; do
+    if [[ -L "$path_component" ]]; then
+      echo "Symlinked APP_DIR components are not allowed; use the canonical path or explicitly set ALLOW_SYMLINK_APP_DIR=1." >&2
+      exit 1
+    fi
+    path_component="$(dirname -- "$path_component")"
+  done
+fi
+ENV_FILE="${APP_DIR}/.env"
 if [[ ! -r /etc/os-release ]]; then
   echo "Cannot identify the operating system; this installer supports Ubuntu and Debian." >&2
   exit 1
@@ -47,7 +68,7 @@ NODE_LTS_INSTALLED=false
 if command -v node >/dev/null 2>&1; then
   INSTALLED_NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
   INSTALLED_NODE_LTS="$(node -p 'process.release.lts || ""')"
-  if [[ "$INSTALLED_NODE_MAJOR" -ge 20 && -n "$INSTALLED_NODE_LTS" ]]; then
+  if [[ "$INSTALLED_NODE_MAJOR" -ge 22 && -n "$INSTALLED_NODE_LTS" ]]; then
     NODE_LTS_INSTALLED=true
   fi
 fi
@@ -76,8 +97,8 @@ done
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
 NODE_LTS="$(node -p 'process.release.lts || ""')"
-if [[ "$NODE_MAJOR" -lt 20 || -z "$NODE_LTS" ]]; then
-  echo "A supported Node.js LTS version 20 or newer is required; found $(node --version)." >&2
+if [[ "$NODE_MAJOR" -lt 22 || -z "$NODE_LTS" ]]; then
+  echo "A supported Node.js LTS version 22 or newer is required; found $(node --version)." >&2
   exit 1
 fi
 
@@ -129,6 +150,10 @@ fi
 # Keep the running process from using files while the deployment is rebuilt.
 systemctl stop assetflow.service >/dev/null 2>&1 || true
 
+if [[ -L "$ENV_FILE" ]]; then
+  echo "Refusing to use a symlinked .env file." >&2
+  exit 1
+fi
 chown root:assetflow "$APP_DIR"
 chmod 0750 "$APP_DIR"
 find "$APP_DIR" -mindepth 1 -maxdepth 1 ! -name '.env*' -exec chown -R root:assetflow {} +
@@ -143,7 +168,7 @@ fi
 read_env_value() {
   local key="$1"
   if [[ -f "$ENV_FILE" ]]; then
-    awk -F= -v wanted="$key" '$1 == wanted { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE"
+    node "$APP_DIR/scripts/onprem-env.mjs" read "$ENV_FILE" "$key"
   fi
 }
 
@@ -156,13 +181,28 @@ APP_PORT="${APP_PORT:-5000}"
 HEALTH_URL="http://127.0.0.1:${APP_PORT}/api/health"
 
 DB_PASSWORD="$(read_env_value ASSETFLOW_DB_PASSWORD)"
+GENERATED_DB_PASSWORD=false
 if [[ -z "$DB_PASSWORD" ]]; then
+  if [[ -n "$(read_env_value DATABASE_URL)" ]]; then
+    echo "Existing DATABASE_URL has no ASSETFLOW_DB_PASSWORD; refusing to replace database credentials. Restore the installer-managed values first." >&2
+    exit 1
+  fi
   DB_PASSWORD="$(openssl rand -hex 32)"
+  GENERATED_DB_PASSWORD=true
 fi
 SESSION_SECRET="$(read_env_value SESSION_SECRET)"
-if [[ "${#SESSION_SECRET}" -lt 32 ]]; then
+if [[ -z "$SESSION_SECRET" ]]; then
   SESSION_SECRET="$(openssl rand -hex 48)"
+elif [[ "${#SESSION_SECRET}" -lt 32 ]]; then
+  echo "Existing SESSION_SECRET is too short; correct it explicitly instead of silently rotating sessions." >&2
+  exit 1
 fi
+if [[ "$SESSION_SECRET" == *$'\n'* || "$SESSION_SECRET" == *$'\r'* ]]; then
+  echo "SESSION_SECRET must be a single-line value." >&2
+  exit 1
+fi
+SESSION_SECRET_ENV="${SESSION_SECRET//\\/\\\\}"
+SESSION_SECRET_ENV="${SESSION_SECRET_ENV//\"/\\\"}"
 
 if [[ ! "$DB_PASSWORD" =~ ^[a-fA-F0-9]{64}$ ]]; then
   echo "ASSETFLOW_DB_PASSWORD in $ENV_FILE must be a 64-character hexadecimal secret." >&2
@@ -174,6 +214,12 @@ if [[ ! "$APP_DB_NAME" =~ ^[a-z][a-z0-9_]{0,62}$ || ! "$APP_DB_USER" =~ ^[a-z][a
 fi
 if [[ ! "$APP_PORT" =~ ^[0-9]{1,5}$ ]] || (( APP_PORT < 1 || APP_PORT > 65535 )); then
   echo "PORT must be a valid TCP port number." >&2
+  exit 1
+fi
+if [[ "$GENERATED_DB_PASSWORD" == "true" ]] && \
+  [[ "$(sudo -u postgres psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+      --command="SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '${APP_DB_USER}'")" == "1" ]]; then
+  echo "Database role already exists but its managed password is missing. Restore .env; refusing unexpected credential rotation." >&2
   exit 1
 fi
 
@@ -204,15 +250,14 @@ trap 'rm -f "${ENV_TEMP:-}" "${BOOTSTRAP_FILE:-}"' EXIT
 chmod 0600 "$ENV_TEMP"
 if [[ -f "$ENV_FILE" ]]; then
   # Preserve optional operator settings while replacing installer-managed values.
-  awk -F= '$1 !~ /^(DATABASE_URL|ASSETFLOW_DB_NAME|ASSETFLOW_DB_USER|ASSETFLOW_DB_PASSWORD|SESSION_SECRET|NODE_ENV|PORT|HOST)$/ { print }' \
-    "$ENV_FILE" > "$ENV_TEMP"
+  node "$APP_DIR/scripts/onprem-env.mjs" unmanaged "$ENV_FILE" > "$ENV_TEMP"
 fi
 cat >> "$ENV_TEMP" <<EOF
 ASSETFLOW_DB_NAME=${APP_DB_NAME}
 ASSETFLOW_DB_USER=${APP_DB_USER}
 ASSETFLOW_DB_PASSWORD=${DB_PASSWORD}
 DATABASE_URL=postgresql://${APP_DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${APP_DB_NAME}
-SESSION_SECRET=${SESSION_SECRET}
+SESSION_SECRET="${SESSION_SECRET_ENV}"
 NODE_ENV=production
 PORT=${APP_PORT}
 HOST=0.0.0.0
@@ -268,6 +313,7 @@ ExecStart=${NODE_BIN} ${APP_DIR}/dist/index.js
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=180
+TimeoutStopSec=30
 UMask=0027
 NoNewPrivileges=true
 PrivateTmp=true
@@ -277,17 +323,20 @@ WantedBy=multi-user.target
 EOF
 chmod 0644 "$SYSTEMD_UNIT"
 systemctl daemon-reload
-systemctl enable --now assetflow.service
-systemctl restart assetflow.service
+systemctl enable assetflow.service
+systemctl start assetflow.service
 
 echo "Waiting for database migrations and application health..."
 healthy=false
-for attempt in $(seq 1 60); do
-  if curl --fail --silent "$HEALTH_URL" >/dev/null; then
+HEALTH_DEADLINE=$((SECONDS + 180))
+while (( SECONDS < HEALTH_DEADLINE )); do
+  remaining=$((HEALTH_DEADLINE - SECONDS))
+  poll_timeout=$((remaining < 5 ? remaining : 5))
+  if curl --fail --silent --connect-timeout 2 --max-time "$poll_timeout" "$HEALTH_URL" >/dev/null; then
     healthy=true
     break
   fi
-  sleep 3
+  (( SECONDS >= HEALTH_DEADLINE )) || sleep 1
 done
 if [[ "$healthy" != "true" ]]; then
   systemctl status assetflow.service --no-pager || true
@@ -296,7 +345,7 @@ if [[ "$healthy" != "true" ]]; then
   exit 1
 fi
 
-SYSTEM_STATUS="$(curl --fail --silent --show-error "http://127.0.0.1:${APP_PORT}/api/system/status")"
+SYSTEM_STATUS="$(curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "http://127.0.0.1:${APP_PORT}/api/system/status")"
 NEEDS_SETUP="$(node -e 'const status = JSON.parse(process.argv[1]); process.stdout.write(status.needsSetup ? "yes" : "no")' "$SYSTEM_STATUS")"
 ADMIN_PASSWORD=""
 if [[ "$NEEDS_SETUP" == "yes" ]]; then
@@ -307,7 +356,7 @@ if [[ "$NEEDS_SETUP" == "yes" ]]; then
   chmod 0600 "$BOOTSTRAP_FILE"
   printf '{"username":"admin","email":"admin@assetflow.example.com","firstName":"System","lastName":"Administrator","password":"%s"}\n' \
     "$ADMIN_PASSWORD" > "$BOOTSTRAP_FILE"
-  if ! curl --fail --silent --show-error \
+  if ! curl --fail --silent --show-error --connect-timeout 2 --max-time 30 \
     --header "Content-Type: application/json" \
     --data-binary "@${BOOTSTRAP_FILE}" \
     "http://127.0.0.1:${APP_PORT}/api/system/seed-data" >/dev/null; then

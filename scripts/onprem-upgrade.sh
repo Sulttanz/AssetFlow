@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 RELEASE_DIR="${RELEASE_DIR:-$PWD}"
-BACKUP_DIR="${BACKUP_DIR:-$RELEASE_DIR/backups}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/assetflow}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:${PORT:-5000}/api/health}"
 SERVICE_MANAGER="${SERVICE_MANAGER:-systemd}"
 
@@ -13,16 +13,25 @@ for command_name in pg_dump npm curl date; do
   }
 done
 [[ -n "${DATABASE_URL:-}" ]] || { echo "DATABASE_URL must be configured in the service environment." >&2; exit 1; }
-[[ -f "$RELEASE_DIR/package.json" && -f "$RELEASE_DIR/dist/index.js" && -d "$RELEASE_DIR/docs/system-manual" ]] || {
-  echo "Run this script from a staged release directory containing package.json, dist/index.js, and docs/system-manual/." >&2
+[[ -f "$RELEASE_DIR/package.json" && -f "$RELEASE_DIR/dist/index.js" && -f "$RELEASE_DIR/dist/onprem-bootstrap.sql" && -d "$RELEASE_DIR/docs/system-manual" ]] || {
+  echo "Run this script from a complete built release containing package.json, dist/index.js, dist/onprem-bootstrap.sql, and docs/system-manual/." >&2
   exit 1
 }
 
 mkdir -p "$BACKUP_DIR"
+BACKUP_DIR="$(realpath -- "$BACKUP_DIR")"
+RELEASE_DIR="$(realpath -- "$RELEASE_DIR")"
+if [[ "$BACKUP_DIR" == "$RELEASE_DIR" || "$BACKUP_DIR" == "$RELEASE_DIR/"* ]]; then
+  echo "BACKUP_DIR must be outside the release directory on persistent storage." >&2; exit 1
+fi
 chmod 700 "$BACKUP_DIR"
 umask 077
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-backup_file="$BACKUP_DIR/pre-upgrade-${timestamp}.dump"
+# Reserve an exclusively created, private directory. Even concurrent runs in
+# the same second cannot select/overwrite the same dump.
+backup_run="$(mktemp -d "$BACKUP_DIR/pre-upgrade-${timestamp}-$$-XXXXXXXX")"
+backup_file="$backup_run/database.dump"
+[[ ! -e "$backup_file" ]] || { echo "Backup already exists; refusing overwrite." >&2; exit 1; }
 service_file="$(mktemp "$BACKUP_DIR/.pgservice-${timestamp}-XXXXXX")"
 trap 'rm -f "$service_file"' EXIT
 echo "Creating PostgreSQL backup: $backup_file"
@@ -46,8 +55,10 @@ const fields = {
 const body = ["[pre_upgrade_backup]", ...Object.entries(fields).map(([key, value]) => `${key}=${quote(value)}`)].join("\n") + "\n";
 writeFileSync(process.argv[2], body, { mode: 0o600 });
 NODE
-PGSERVICEFILE="$service_file" PGSERVICE=pre_upgrade_backup \
-  pg_dump --format=custom --file="$backup_file"
+( set -o noclobber
+  PGSERVICEFILE="$service_file" PGSERVICE=pre_upgrade_backup \
+    pg_dump --format=custom > "$backup_file"
+)
 
 cd "$RELEASE_DIR"
 echo "Installing locked production dependencies..."
@@ -85,12 +96,15 @@ case "$SERVICE_MANAGER" in
 esac
 
 echo "Waiting for the service to apply startup migrations and become healthy..."
-for attempt in $(seq 1 30); do
-  if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null 2>&1; then
+HEALTH_DEADLINE=$((SECONDS + 60))
+while (( SECONDS < HEALTH_DEADLINE )); do
+  remaining=$((HEALTH_DEADLINE - SECONDS))
+  poll_timeout=$((remaining < 5 ? remaining : 5))
+  if curl --fail --silent --show-error --connect-timeout 2 --max-time "$poll_timeout" "$HEALTH_URL" >/dev/null 2>&1; then
     echo "Upgrade completed; health endpoint is responding: $HEALTH_URL"
     exit 0
   fi
-  sleep 2
+  (( SECONDS >= HEALTH_DEADLINE )) || sleep 1
 done
 
 echo "Health check failed after restart. Backup retained at: $backup_file" >&2

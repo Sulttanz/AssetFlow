@@ -1,5 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import type { Server } from "node:http";
+import { createGracefulShutdown, registerShutdownTask, stopBackgroundTasks } from "./graceful-shutdown";
 import { setupVite, serveStatic, log } from "./vite";
 import { startCabEventListener } from "./cab-events";
 import { startContractRenewalChecker } from "./services/contract-renewal-checker";
@@ -37,16 +39,23 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
   }
 });
 
-// Graceful shutdown handler
-process.on('SIGTERM', () => {
-  console.log('⚠️  SIGTERM signal received: closing HTTP server');
-  process.exit(0);
+let httpServer: Server | undefined;
+let stopping = false;
+const shutdown = createGracefulShutdown({
+  server: () => httpServer,
+  stopTasks: stopBackgroundTasks,
+  closeDatabase: async () => {
+    const { pool } = await import("./db");
+    await pool.end();
+  },
+  exit: code => process.exit(code),
 });
-
-process.on('SIGINT', () => {
-  console.log('⚠️  SIGINT signal received: closing HTTP server');
-  process.exit(0);
-});
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    stopping = true;
+    void shutdown(signal);
+  });
+}
 
 const app = express();
 app.use(securityHeaders);
@@ -58,9 +67,11 @@ app.use("/api/data-migrations", dataMigrationRateLimit);
 app.use("/api/import", dataMigrationRateLimit);
 app.use("/api/system/clear-data", clearSystemDataRateLimit);
 app.get("/api/health", async (_req, res) => {
+  if (stopping) return void res.status(503).json({ status: "stopping" });
   try {
     const { pool } = await import("./db");
-    await pool.query("SELECT 1");
+    const readinessQuery = { text: "SELECT 1", query_timeout: 5_000 };
+    await pool.query(readinessQuery);
     res.status(200).json({ status: "ok" });
   } catch {
     res.status(503).json({ status: "unavailable" });
@@ -106,6 +117,7 @@ app.use((req, res, next) => {
     // applied. The runner uses its own ledger and excludes workspace history.
     console.log("🗃️  Applying on-prem database migrations...");
     await runStartupMigrations();
+    if (stopping) return;
     const { getSystemMigrationStatus, recordAppReleaseIfUpgraded } = await import("./app-release-history");
     const migrationStatus = await getSystemMigrationStatus();
     const release = await recordAppReleaseIfUpgraded(undefined, migrationStatus.schemaMigrationCount);
@@ -128,10 +140,14 @@ app.use((req, res, next) => {
     const { ensureDropdownIntegrity } = await import("./dropdown-integrity");
     const dropdownCleanup = await ensureDropdownIntegrity();
     console.log(`Dropdown integrity: ${dropdownCleanup.deleted} redundant options archived and removed.`);
+    if (stopping) return;
     
     // Register routes and setup authentication
     console.log("🛣️  Registering routes...");
     const server = await registerRoutes(app);
+    httpServer = server;
+    if (stopping) return;
+    server.once("close", () => { stopping = true; });
     console.log("✅ Routes registered successfully");
     startCabEventListener();
     startContractRenewalChecker();
@@ -166,6 +182,7 @@ app.use((req, res, next) => {
       serveStatic(app);
       console.log("✅ Static files configured");
     }
+    if (stopping) return;
 
     // Explicit port and host configuration for Cloud Run
     const port = parseInt(process.env.PORT || '5000', 10);
@@ -254,10 +271,15 @@ app.use((req, res, next) => {
     };
 
     // Run once after 30s startup delay, then every 5 minutes
-    setTimeout(() => {
-      runSlaEnforcement();
-      setInterval(runSlaEnforcement, SLA_JOB_INTERVAL_MS);
+    let slaInterval: ReturnType<typeof setInterval> | undefined;
+    const slaStartupTimer = setTimeout(() => {
+      void runSlaEnforcement();
+      slaInterval = setInterval(() => void runSlaEnforcement(), SLA_JOB_INTERVAL_MS);
     }, 30_000);
+    registerShutdownTask(() => {
+      clearTimeout(slaStartupTimer);
+      if (slaInterval) clearInterval(slaInterval);
+    });
     
     // Handle server startup errors
     server.on('error', (error: any) => {

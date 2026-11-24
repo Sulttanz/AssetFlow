@@ -12,6 +12,7 @@ import multer from "multer";
 import rateLimit from "express-rate-limit";
 import ExcelJS from "exceljs";
 import type { PoolClient } from "pg";
+import { registerShutdownTask } from "./graceful-shutdown";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema, departments,
@@ -629,6 +630,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     void expireDueEmployeeAccessRights();
     employeeAccessExpiryInterval = setInterval(() => void expireDueEmployeeAccessRights(), 5 * 60 * 1000);
     employeeAccessExpiryInterval.unref?.();
+    registerShutdownTask(() => {
+      if (employeeAccessExpiryInterval) clearInterval(employeeAccessExpiryInterval);
+      employeeAccessExpiryInterval = undefined;
+    });
   }
   // Setup authentication system
   setupAuth(app);

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { bootstrapFreshDatabase, repairLegacyRiskNumbers } from "./onprem-bootstrap";
 
 const MIGRATION_DIRECTORY = path.resolve(
   process.cwd(),
@@ -228,6 +229,7 @@ export async function applyStartupMigrations(
     query: (query: string, values?: unknown[]) => Promise<{ rows?: any[] }>;
   },
   directory = MIGRATION_DIRECTORY,
+  options: { bootstrapSql?: () => Promise<string> } = {},
 ): Promise<{ applied: string[]; alreadyApplied: string[] }> {
   const ledgerSchema = quoteSchemaIdentifier(LEDGER_SCHEMA);
   const ledgerTable = `${ledgerSchema}.sql_migrations`;
@@ -239,6 +241,13 @@ export async function applyStartupMigrations(
   try {
     await client.query(`SELECT pg_advisory_lock(${LOCK_ID})`);
     lockAcquired = true;
+    if (options.bootstrapSql) {
+      try {
+        await bootstrapFreshDatabase(client, options.bootstrapSql);
+      } catch (error) {
+        throw new StartupMigrationError("schema_verification", null, error);
+      }
+    }
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${ledgerSchema}`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS ${ledgerTable} (
@@ -272,6 +281,9 @@ export async function applyStartupMigrations(
             continue;
           }
 
+          if (name === IT_RISK_GOVERNANCE_MIGRATION) {
+            await repairLegacyRiskNumbers(client);
+          }
           await client.query(sql);
           await client.query(
             `INSERT INTO ${ledgerTable} (migration_name, checksum) VALUES ($1, $2)`,
@@ -313,7 +325,9 @@ export async function runStartupMigrations(): Promise<void> {
     const { pool } = await import("./db");
     const client = await pool.connect();
     try {
-      const result = await applyStartupMigrations(client);
+      const result = await applyStartupMigrations(client, MIGRATION_DIRECTORY, {
+        bootstrapSql: () => readFile(path.resolve(process.cwd(), "dist/onprem-bootstrap.sql"), "utf8"),
+      });
       try {
         await assertCabStreamLeasesTable(client);
       } catch (error) {

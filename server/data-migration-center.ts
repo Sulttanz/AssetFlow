@@ -1,3 +1,4 @@
+import { registerShutdownTask } from "./graceful-shutdown";
 import { respondWithApiError } from "./api-error-handler";
 import { getStandardRoleKey } from "@shared/role-catalog";
 import type { Express, Request, RequestHandler, Response } from "express";
@@ -1081,6 +1082,10 @@ export function registerDataMigrationRoutes(
       console.error("Failed to clear expired migration previews", error instanceof Error ? error.message : "Unknown error"),
     ), 15 * 60 * 1000);
     expirySweep.unref?.();
+    registerShutdownTask(() => {
+      if (expirySweep) clearInterval(expirySweep);
+      expirySweep = null;
+    });
   }
   const requireManagerOrAdmin: RequestHandler = async (req, res, next) => {
     if (!req.user?.id) return void res.status(401).json({ message: "Authentication required" });

@@ -11,7 +11,7 @@ dependencies, restarts the selected process manager, and waits for the database-
 For a new Ubuntu or Debian server, the repository includes a one-command installer. Run it
 from a trusted terminal as root (or through `sudo`); it installs Git, build tools, and
 PostgreSQL, then clones or fast-forwards the official repository into `/opt/assetflow`.
-It keeps an already-installed supported Node.js LTS (20 or newer); otherwise it configures
+It keeps an already-installed supported Node.js LTS (22 or newer); otherwise it configures
 the signed NodeSource Node 22 repository and installs/upgrades Node.js from there. Before
 apt runs, it removes stale NodeSource list and keyring files so an obsolete repository entry
 cannot prevent package setup. Dependency installation uses the public npm registry; the
@@ -26,9 +26,33 @@ curl --fail --silent --show-error --location \
 The installer is idempotent for an existing checkout and database: it refuses to overwrite
 an unrelated directory or pull over local Git changes, keeps the database and session
 secrets already in `/opt/assetflow/.env`, and preserves existing users and passwords. It
-creates a dedicated PostgreSQL role/database, installs dependencies, applies the normal
-startup migrations, builds the app, configures and starts `assetflow.service`, and waits for
-`/api/health`.
+creates a dedicated PostgreSQL role/database, installs dependencies, builds the app,
+configures and starts `assetflow.service` **once**, and waits for `/api/health`.
+
+The build generates `dist/onprem-bootstrap.sql` from the complete Drizzle schema. On the
+first startup, under the same advisory lock as the migration runner, the app checks the
+current application schema:
+
+- **Empty schema:** applies the complete baseline SQL in a transaction, then applies
+  `migrations/onprem/` in filename order.
+- **Existing schema with core tables:** skips the baseline entirely and runs only unapplied
+  additive migrations. No `drizzle-kit push` or destructive reconciliation runs on startup.
+- **Non-empty but incomplete schema:** fails with a readable diagnostic naming missing
+  core tables. Restore or repair that installation; automatic bootstrap will not overwrite
+  partially provisioned customer data.
+
+The migration ledger is in the separate `onprem_deploy` schema, with checksums and one
+transaction per migration. If a later migration fails, its transaction is rolled back;
+the completed baseline and recorded migrations remain safe to retry. Production does not
+need `drizzle-kit` or other development dependencies to bootstrap. Ship the entire `dist/`
+directory, **including `onprem-bootstrap.sql`**, with every built release.
+
+Before the original risk-governance migration runs for an unrecorded deployment, a
+transactional preflight assigns new numbers only to duplicate, null, or blank historical
+risk numbers. One row retains each existing number, all risk records are retained, and
+the original/replacement references are recorded in `onprem_deploy.risk_number_repairs`.
+The sequence is advanced past existing generated numbers. The historical SQL file remains
+unchanged so existing installations continue to pass their recorded checksum checks.
 
 On a fresh database only, it uses the application's one-time setup API to create the
 `admin` System Administrator. A new cryptographically random password is generated for that
@@ -44,7 +68,22 @@ and injects its values into the non-root `assetflow` process. The application di
 not writable by the service account after the build, so the process cannot replace the
 root-only `.env`; only its upload directories and private home are writable. Keep any
 operator-added environment variables in `.env`; the installer preserves unmanaged entries
-on reruns. The service listens on port `5000` by default and binds to all IPv4 interfaces.
+on reruns. Prefer one raw `KEY=value` assignment per line with no `export`, expansion, or
+multiline values. The installer can also read whitespace around assignments, `export`
+prefixes, single/double quoted single-line values, and trailing comments (after whitespace).
+It never executes or sources this file. Installer-managed values are rewritten in a
+consistent systemd-compatible format; session secrets are quoted safely. Malformed
+credentials fail with a diagnostic instead of being silently replaced. Existing role
+credentials cannot be regenerated if their managed password has been lost: restore the
+root-only environment file before retrying.
+
+`APP_DIR` defaults to `/opt/assetflow`. Custom paths must be a dedicated directory below
+`/opt/` or `/srv/`; the installer canonicalizes and validates the path before ownership or
+cleanup operations. Symlinked path components are rejected unless the operator deliberately
+sets `ALLOW_SYMLINK_APP_DIR=1`, in which case the canonical destination must still satisfy
+these restrictions. A symlinked `.env` is always rejected.
+
+The service listens on port `5000` by default and binds to all IPv4 interfaces.
 The final summary prints the detected primary IPv4 address and URL. Configure the host
 firewall and your organization's Nginx/ModSecurity policy before exposing the service publicly.
 
@@ -60,12 +99,23 @@ The installer script is `scripts/onprem-install.sh`; inspect it before piping it
 shell. It is intended for a fresh Ubuntu/Debian host and does not configure Nginx, TLS,
 firewall rules, or backups. Use the upgrade procedure below for subsequent staged releases.
 
+PostgreSQL connection acquisition is bounded to 10 seconds for the native `pg` pool.
+Health probes have connection and total-request timeouts within a 180-second installation
+readiness window. `systemctl start` alone is not a readiness signal (`Type=simple`); the
+installer and upgrade script check `/api/health` after startup. For unusually large
+upgrades, monitor the journal rather than repeatedly restarting a migration in progress.
+
+On `SIGTERM`/`SIGINT`, the app stops accepting requests, drains active HTTP requests,
+stops its scheduled workers and CAB streams/listener, and closes the database pool.
+It has a 25-second internal deadline; the generated unit allows `TimeoutStopSec=30`.
+If drain fails or times out, it exits nonzero so the failure is visible to the service manager.
+
 ## Prerequisites
 
 - PostgreSQL client utilities (`pg_dump`) compatible with the database server.
-- Node.js/npm versions supported by this release, `curl`, and an installed process manager.
+- Node.js **22+ LTS**, npm, `curl`, and an installed process manager.
 - The release artifact staged in its final directory, including `package.json`,
-  `package-lock.json`, `dist/index.js`, static assets, `migrations/onprem/`, and
+  `package-lock.json`, `dist/index.js`, `dist/onprem-bootstrap.sql`, static assets, `migrations/onprem/`, and
   `docs/system-manual/`.
 - A service environment file or secrets manager that provides `DATABASE_URL` and a
   `SESSION_SECRET` of at least 32 characters. Do not put secrets in this repository or
@@ -84,8 +134,9 @@ firewall rules, or backups. Use the upgrade procedure below for subsequent stage
    `pg_dump` so the connection password is not placed in the `pg_dump` command line.
 3. Run `scripts/onprem-upgrade.sh` as an operator authorized to create database backups
    and restart the application service. The script:
-   - creates a UTC-timestamped custom-format `pg_dump` backup with owner-only file
-     permissions before changing dependencies or restarting;
+   - creates a custom-format `pg_dump` backup with owner-only file permissions in an
+     exclusively created timestamp/PID/random directory before changing dependencies or
+     restarting. Existing backups are never overwritten;
    - runs `npm ci --omit=dev` from the staged release;
    - restarts the chosen systemd, PM2, or Docker process;
    - waits up to 60 seconds for `/api/health` to confirm the application connected to
@@ -93,6 +144,13 @@ firewall rules, or backups. Use the upgrade procedure below for subsequent stage
 4. If health checks fail, inspect service logs and leave the backup in place. Restore a
    backup only under the organization's approved recovery procedure; restoring overwrites
    database changes made after the backup.
+
+`BACKUP_DIR` defaults to `/var/backups/assetflow` and must be outside the canonical
+`RELEASE_DIR`. Provision it on persistent storage with sufficient space, writable only
+by the authorized deployment operator. Do not store backups in a replaced release directory
+or an ephemeral container. A failed `pg_dump` blocks deployment; any partial dump from that
+failed run must not be treated as a valid restore point. Configure independent retention,
+off-host copies, and restore testing for these backups.
 
 ### systemd (default)
 

@@ -5,6 +5,7 @@ import {
 import { formatDateDisplay, toDateInputValue } from "@shared/date-format";
 import { isFeatureEnabled } from "../module-access";
 import { db } from "../db";
+import { registerShutdownTask } from "../graceful-shutdown";
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 const INITIAL_DELAY_MS = 30 * 1000;
@@ -194,6 +195,12 @@ let checkerInterval: ReturnType<typeof setInterval> | undefined;
 
 export function startContractRenewalChecker() {
   if (initialTimeout || checkerInterval) return;
+  registerShutdownTask(() => {
+    if (initialTimeout) clearTimeout(initialTimeout);
+    if (checkerInterval) clearInterval(checkerInterval);
+    initialTimeout = undefined;
+    checkerInterval = undefined;
+  });
   const configuredInterval = Number(process.env.CONTRACT_RENEWAL_CHECK_INTERVAL_MS);
   const intervalMs = Number.isSafeInteger(configuredInterval) && configuredInterval >= 60_000
     ? configuredInterval

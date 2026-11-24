@@ -5,6 +5,12 @@ description: Keep persistent workspace migration bookkeeping separate from appli
 
 ## Migration ledger separation
 
+Fresh standalone installations should bootstrap from a complete, release-built Drizzle schema snapshot, then run the on-prem migration stream. Do not use runtime schema push to reconcile a non-empty, partially provisioned customer database.
+
+**Why:** The on-prem SQL stream upgrades existing base tables rather than creating every base table. A release may omit development tooling, and automatic reconciliation of a partial schema risks customer data.
+
+**How to apply:** Ship the generated baseline with each built release. Only apply it to a verified empty application schema under the startup migration lock; require an explicit restore/repair when a populated schema lacks core tables.
+
 Keep migration bookkeeping outside Drizzle-managed schemas. Workspace setup migrations use their own ledger and remain limited to development setup. On-prem application startup migrations use a separate ledger and only read additive, idempotent SQL from `migrations/onprem/`; do not replay the historical root-level SQL migrations at application startup.
 
 **Why:** Root-level migration files were created for workspace setup and include historical data backfills and constraint changes. A new on-prem database ledger cannot infer which of those were already applied, so replaying them could fail or affect customer data.

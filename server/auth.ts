@@ -11,6 +11,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { createDemoViewerGuard } from "./demo-viewer";
+import { registerShutdownTask } from "./graceful-shutdown";
 
 // Extend Express User type to match our User interface
 declare global {
@@ -51,6 +52,9 @@ export function setupAuth(app: Express) {
     createTableIfMissing: true,    // creates the table automatically if absent
     pruneSessionInterval: 60 * 15, // prune expired sessions every 15 min (seconds)
   });
+  // This store reuses the app pool: close only stops its pruning timer; the
+  // main shutdown handler ends the shared pool after HTTP requests drain.
+  registerShutdownTask(() => sessionStore.close());
 
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,

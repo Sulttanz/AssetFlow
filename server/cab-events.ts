@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Client } from "@neondatabase/serverless";
 import type { Response } from "express";
 import { pool } from "./db";
+import { registerShutdownTask } from "./graceful-shutdown";
 
 // Notifications contain no CAB data. The API remains the source of truth.
 const channel = "cab_changes";
@@ -39,6 +40,7 @@ let retryDelay = initialRetryDelayMs;
 let stableConnectionTimer: ReturnType<typeof setTimeout> | undefined;
 let hasConnectedBefore = false;
 let started = false;
+let stopping = false;
 
 async function acquireStreamLease(leaseId: string, userId: string, sessionId: string): Promise<boolean> {
   const client = await pool.connect();
@@ -197,7 +199,7 @@ export function resolveCabListenerConnectionString(env: NodeJS.ProcessEnv = proc
 }
 
 function scheduleRetry(): void {
-  if (retryTimer) return;
+  if (retryTimer || stopping) return;
   const delay = retryDelay;
   retryTimer = setTimeout(() => {
     retryTimer = undefined;
@@ -209,6 +211,7 @@ function scheduleRetry(): void {
 }
 
 async function connectListener(): Promise<void> {
+  if (stopping) return;
   let connectionString: string;
   try {
     connectionString = resolveCabListenerConnectionString();
@@ -252,10 +255,10 @@ async function connectListener(): Promise<void> {
   });
   try {
     await client.connect();
-    if (disconnected) return;
+    if (disconnected || stopping) return;
     await client.query(`LISTEN ${channel}`);
     await client.query(`LISTEN ${accessChannel}`);
-    if (disconnected) return;
+    if (disconnected || stopping) return;
     console.info(
       `[CAB events] PostgreSQL LISTEN listener ${hasConnectedBefore ? "re-established" : "connected"} ` +
       `(host=${connectionUrl.hostname}, port=${connectionUrl.port || "default"})`,
@@ -279,9 +282,30 @@ async function connectListener(): Promise<void> {
 
 export function startCabEventListener(): void {
   if (started) return;
+  stopping = false;
   started = true;
+  registerShutdownTask(stopCabEventListener);
   startStreamLeaseCleanup();
   void connectListener();
+}
+
+export async function stopCabEventListener(): Promise<void> {
+  stopping = true;
+  started = false;
+  if (retryTimer) clearTimeout(retryTimer);
+  if (leaseCleanupTimer) clearInterval(leaseCleanupTimer);
+  if (stableConnectionTimer) clearTimeout(stableConnectionTimer);
+  retryTimer = undefined;
+  leaseCleanupTimer = undefined;
+  stableConnectionTimer = undefined;
+  const streams = Array.from(subscribers);
+  await Promise.all(streams.map(async subscriber => {
+    await removeSubscriber(subscriber);
+    subscriber.res.destroy();
+  }));
+  const client = listener;
+  listener = undefined;
+  await client?.end().catch(() => {});
 }
 
 // Browser tabs share a session cookie: leave existing streams active and reserve

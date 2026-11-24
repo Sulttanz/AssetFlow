@@ -25,7 +25,7 @@ let activePool: InstanceType<typeof NeonPool> | PgPool;
 let activeDatabase: ReturnType<typeof drizzlePg>;
 
 if (databaseDriver === "pg") {
-  const pool = new PgPool({ connectionString });
+  const pool = new PgPool({ connectionString, connectionTimeoutMillis: 10_000 });
   activePool = pool;
   activeDatabase = drizzlePg(pool, { schema });
 } else {
