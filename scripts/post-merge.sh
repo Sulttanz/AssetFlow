@@ -12,7 +12,7 @@ fi
 export NODE_ENV=development
 
 echo "==> Installing dependencies..."
-npm install --legacy-peer-deps
+npm ci --legacy-peer-deps
 
 echo "==> Applying available development SQL migrations..."
 npm run db:sync:dev -- --defer-missing-schema
