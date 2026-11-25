@@ -205,6 +205,9 @@ export function isPersonaApiAllowed(
   const apiPath = path.split("?", 1)[0] || "/";
   const upperMethod = method.toUpperCase();
 
+  if (apiPath === "/profile") return ["GET", "PATCH"].includes(upperMethod);
+  if (apiPath === "/profile/password") return upperMethod === "POST";
+
   if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);
   if (["/risks", "/risk-users", "/risk-management"].some(prefix => matchesPath(apiPath, prefix))) {
     return permissions.some(permission => ["risk_manage", "change_manage"].includes(permission)) ||

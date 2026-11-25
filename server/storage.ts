@@ -2268,6 +2268,8 @@ export class MemStorage implements IStorage {
     const newUser: User = { 
       ...user, 
       id,
+      phone: user.phone ?? null,
+      jobTitle: user.jobTitle ?? null,
       employeeId: user.employeeId ?? null,
       createdAt: new Date(),
       isActive: user.isActive ?? true,

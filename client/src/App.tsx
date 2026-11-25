@@ -43,6 +43,7 @@ const Consumables = lazy(() => import("@/pages/consumables"));
 const Budgets = lazy(() => import("@/pages/budgets"));
 const Maintenance = lazy(() => import("@/pages/maintenance"));
 const Users = lazy(() => import("@/pages/users"));
+const Profile = lazy(() => import("@/pages/profile"));
 const Roles = lazy(() => import("@/pages/roles"));
 const Permissions = lazy(() => import("@/pages/permissions"));
 const AssignmentGroups = lazy(() => import("@/pages/admin/AssignmentGroups"));
@@ -146,6 +147,7 @@ function Router() {
                   <ProtectedRoute path="/network-topology" component={NetworkTopology} requiredModule="cmdb" requiredAnyPermission={["asset_update", "cmdb_view", "audit_view", "compliance_view", "system_admin"]} />
                   <ProtectedRoute path="/backup-schedules" component={BackupSchedules} requiredModule="cmdb" requiredAnyPermission={["asset_update", "audit_view", "compliance_view", "system_admin"]} />
                   <ProtectedRoute path="/users" component={Users} requiredPermission="user_view" />
+                  <ProtectedRoute path="/profile" component={Profile} />
                   <ProtectedRoute path="/roles" component={Roles} requiredPermission="role_view" />
                   <ProtectedRoute path="/permissions" component={Permissions} requiredPermission="permission_view" />
                   <ProtectedRoute path="/admin/assignment-groups" component={AssignmentGroups} requiredModule="itsm" requiresItsmWorkbench />

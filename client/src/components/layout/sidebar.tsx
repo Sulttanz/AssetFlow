@@ -73,7 +73,7 @@ import { activeNavigationHref } from "@/lib/navigation-active";
 import { appearanceThemes, useAppearance } from "@/hooks/use-appearance";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const search = useSearch();
   const { user, logoutMutation } = useAuth();
   const { theme, setTheme } = useAppearance();
@@ -445,7 +445,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
                   aria-expanded={isSectionExpanded}
                 >
-                  <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
                     {section.title}
                   </h3>
                   {isSectionExpanded ? (
@@ -541,7 +541,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                           aria-current={item.current ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                             "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
+                              "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-base font-medium transition-colors",
                             item.current
                                ? "border-primary bg-primary/10 text-primary"
                                : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -581,6 +581,18 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem
+                onClick={() => {
+                  navigate("/profile");
+                  onNavigate?.();
+                }}
+                className="min-h-11 cursor-pointer"
+                data-testid="my-profile-menu-item"
+              >
+                <User className="mr-2 h-4 w-4" />
+                My Profile
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                 <Palette className="h-3.5 w-3.5" />
                 Appearance

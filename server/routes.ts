@@ -2,11 +2,11 @@ import type { Express, RequestHandler } from "express";
 import { randomUUID } from "node:crypto";
 import { ensureDropdownIntegrity } from "./dropdown-integrity";
 import { dropdownIdentity, normalizeLookupKey } from "@shared/dropdown-utils";
-import { getStandardRoleKey, STANDARD_ROLE_DEFINITIONS } from "@shared/role-catalog";
+import { getRoleDisplayName, getStandardRoleKey, STANDARD_ROLE_DEFINITIONS } from "@shared/role-catalog";
 import { formatExportValue, toDateInputValue, toSpreadsheetDateInput } from "@shared/date-format";
 import { createServer, type Server } from "http";
 import { storage, computeTicketSlaDates } from "./storage";
-import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
+import { setupAuth, requireAuth, requirePermission, requireAnyPermission, hashPassword, comparePasswords, cabStreamHasAccess, cabStreamHasActiveAccount, invalidateUserSessions, withUserSessionLock } from "./auth";
 import { registerSystemClearDataRoute } from "./system-clear-data-route";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
@@ -78,6 +78,7 @@ import { respondWithApiError } from "./api-error-handler";
 import { registerRiskManagementRoutes } from "./risk-management";
 import { registerSystemUpdateCheckRoute } from "./system-update-check-route";
 import { registerSystemUpdateExecutionRoutes } from "./system-update-execution-route";
+import { registerProfileRoutes } from "./profile-routes";
 
 // Column order is part of the import format; both template and export use it.
 const assetSpreadsheetColumns = [
@@ -786,6 +787,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // --------------------
   // USER MANAGEMENT ROUTES
   // --------------------
+
+  registerProfileRoutes(app, requireAuth, {
+    getProfile: async (userId) => {
+      const user = await storage.getUser(userId);
+      if (!user) return null;
+      const [employee] = user.employeeId
+        ? await db.select({
+            department: departments.name,
+            legacyDepartment: employees.department,
+          }).from(employees)
+            .leftJoin(departments, eq(departments.id, employees.departmentId))
+            .where(eq(employees.id, user.employeeId))
+            .limit(1)
+        : [];
+      const userRoles = await storage.getUserRoles(userId);
+      return {
+        id: user.id,
+        username: user.username,
+        email: user.email ?? "",
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone ?? null,
+        jobTitle: user.jobTitle ?? null,
+        department: employee?.department ?? employee?.legacyDepartment ?? "",
+        status: user.isActive === false ? "Inactive" : "Active",
+        roleLabels: userRoles.map(role => getRoleDisplayName(role.name)),
+      };
+    },
+    updateProfile: async (userId, fields) => {
+      const updated = await storage.updateUser(userId, fields);
+      if (!updated) return null;
+      const [employee] = updated.employeeId
+        ? await db.select({
+            department: departments.name,
+            legacyDepartment: employees.department,
+          }).from(employees)
+            .leftJoin(departments, eq(departments.id, employees.departmentId))
+            .where(eq(employees.id, updated.employeeId))
+            .limit(1)
+        : [];
+      const userRoles = await storage.getUserRoles(userId);
+      return {
+        id: updated.id,
+        username: updated.username,
+        email: updated.email ?? "",
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        phone: updated.phone ?? null,
+        jobTitle: updated.jobTitle ?? null,
+        department: employee?.department ?? employee?.legacyDepartment ?? "",
+        status: updated.isActive === false ? "Inactive" : "Active",
+        roleLabels: userRoles.map(role => getRoleDisplayName(role.name)),
+      };
+    },
+    changePassword: async (userId, currentPassword, newPassword) => {
+      const user = await storage.getUser(userId);
+      if (!user) return "not_found";
+      if (!await comparePasswords(currentPassword, user.password)) return "invalid_current_password";
+      const password = await hashPassword(newPassword);
+      const updated = await storage.updateUser(userId, { password });
+      return updated ? "changed" : "not_found";
+    },
+    auditProfileUpdate: async (req, before, after) => {
+      const fields = (profile: typeof before) => ({
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        email: profile.email || null,
+        phone: profile.phone,
+        jobTitle: profile.jobTitle,
+      });
+      await logAudit(req.user?.id, "UPDATE", "users", before.id, before.username, fields(before), fields(after), req);
+    },
+    auditPasswordChange: async (req) => {
+      await logAudit(req.user?.id, "UPDATE", "users", req.user.id, req.user.username,
+        { passwordChanged: false }, { passwordChanged: true }, req);
+    },
+  });
 
   // Users CRUD routes
   app.get("/api/users", requireAuth, requirePermission('user_view'), async (req, res) => {
