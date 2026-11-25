@@ -3002,6 +3002,56 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   });
 
+  it.each(["approved", "in_progress"] as const)(
+    "blocks a manual %s transition while a disabled approver's vote is pending",
+    async status => {
+      const managerId = randomUUID();
+      const approverId = randomUUID();
+      const changeId = randomUUID();
+      const approvalId = randomUUID();
+      await db.insert(users).values([
+        { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Manager" },
+        { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+          password: "test-only", firstName: "CAB", lastName: "Approver" },
+      ]);
+      await db.insert(changes).values({
+        id: changeId, changeNumber: `TEST-${changeId}`, title: "Manual CAB status transition",
+        type: "standard", risk: "low", status: "submitted", cabRequired: true,
+      });
+      await db.insert(changeApprovals).values({
+        id: approvalId, changeId, approverId, originalApproverId: approverId,
+        approverLabel: "CAB Approver", decision: "pending",
+      });
+
+      const disabledApprover = await storage.updateUser(approverId, { isActive: false });
+      expect(disabledApprover?.isActive).toBe(false);
+      const [pendingBefore] = await db.select().from(changeApprovals)
+        .where(eq(changeApprovals.id, approvalId));
+      const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+      const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+
+      try {
+        const response = await fetch(`${baseUrl}/api/changes/${changeId}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", "x-test-user": managerId },
+          body: JSON.stringify({ status }),
+        });
+        expect(response.status).toBe(403);
+        expect(await response.json()).toMatchObject({ code: "CAB_PENDING" });
+
+        const [unchangedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(unchangedChange).toMatchObject({ status: "submitted", approvedAt: null });
+        const [unchangedApproval] = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.id, approvalId));
+        expect(unchangedApproval).toEqual(pendingBefore);
+      } finally {
+        permissionSpy.mockRestore();
+        auditSpy.mockRestore();
+      }
+    },
+  );
+
   it("rolls back CAB removal when its audit event cannot be stored", async () => {
     const managerId = randomUUID();
     const approverId = randomUUID();
