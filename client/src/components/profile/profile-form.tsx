@@ -40,6 +40,7 @@ export type ProfileAccount = {
 
 export type ProfileFormProps = {
   account: ProfileAccount;
+  readOnly?: boolean;
   isBusy?: boolean;
   error?: string | null;
   onSavePersonalFields: (
@@ -111,6 +112,7 @@ function Field({
 
 export function ProfileForm({
   account,
+  readOnly = false,
   isBusy = false,
   error,
   onSavePersonalFields,
@@ -129,6 +131,7 @@ export function ProfileForm({
     confirmPassword: "",
   });
   const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [personalError, setPersonalError] = useState<string | null>(null);
   const [passwordSaved, setPasswordSaved] = useState(false);
 
   const setPersonalField = (key: keyof ProfilePersonalFields, value: string) => {
@@ -140,9 +143,14 @@ export function ProfileForm({
     setPasswordSaved(false);
   };
 
-  const handlePersonalSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handlePersonalSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void onSavePersonalFields(personal);
+    setPersonalError(null);
+    try {
+      await onSavePersonalFields(personal);
+    } catch (failure) {
+      setPersonalError(failure instanceof Error ? failure.message : "Your personal details could not be saved. Try again.");
+    }
   };
 
   const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -171,8 +179,8 @@ export function ProfileForm({
         confirmPassword: "",
       });
       setPasswordSaved(true);
-    } catch {
-      setPasswordError("Password could not be changed. Check your current password and try again.");
+    } catch (failure) {
+      setPasswordError(failure instanceof Error ? failure.message : "Password could not be changed. Check your current password and try again.");
     }
   };
 
@@ -183,12 +191,17 @@ export function ProfileForm({
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 pb-8">
-      {error ? (
+      {readOnly ? (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground">
+          This demonstration account is view-only. Profile changes and password updates are disabled.
+        </div>
+      ) : null}
+      {error || personalError ? (
         <div
           role="alert"
           className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
         >
-          {error}
+          {error || personalError}
         </div>
       ) : null}
 
@@ -216,7 +229,7 @@ export function ProfileForm({
                     label="First name"
                     value={personal.firstName}
                     onChange={(value) => setPersonalField("firstName", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     autoComplete="given-name"
                   />
                   <Field
@@ -224,7 +237,7 @@ export function ProfileForm({
                     label="Last name"
                     value={personal.lastName}
                     onChange={(value) => setPersonalField("lastName", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     autoComplete="family-name"
                   />
                   <Field
@@ -232,7 +245,7 @@ export function ProfileForm({
                     label="Email"
                     value={personal.email}
                     onChange={(value) => setPersonalField("email", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     placeholder="name@organization.com"
                     type="email"
                     autoComplete="email"
@@ -242,7 +255,7 @@ export function ProfileForm({
                     label="Phone"
                     value={personal.phone}
                     onChange={(value) => setPersonalField("phone", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     placeholder="Add a contact number"
                     type="tel"
                     autoComplete="tel"
@@ -252,16 +265,16 @@ export function ProfileForm({
                     label="Job title"
                     value={personal.jobTitle}
                     onChange={(value) => setPersonalField("jobTitle", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     placeholder="Add your job title"
                     autoComplete="organization-title"
                   />
                 </div>
                 <div className="flex flex-col-reverse gap-3 border-t border-border/70 pt-5 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Only the fields in this section can be changed here.
+                    {readOnly ? "This account cannot change personal details." : "Only the fields in this section can be changed here."}
                   </p>
-                  <Button type="submit" disabled={isBusy}>
+                  <Button type="submit" disabled={isBusy || readOnly}>
                     {isBusy ? "Saving…" : "Save personal details"}
                   </Button>
                 </div>
@@ -294,7 +307,7 @@ export function ProfileForm({
                       onChange={(value) =>
                         setPasswordField("currentPassword", value)
                       }
-                      disabled={isBusy}
+                      disabled={isBusy || readOnly}
                       type="password"
                       autoComplete="current-password"
                     />
@@ -304,7 +317,7 @@ export function ProfileForm({
                     label="New password"
                     value={passwords.newPassword}
                     onChange={(value) => setPasswordField("newPassword", value)}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     type="password"
                     autoComplete="new-password"
                   />
@@ -315,7 +328,7 @@ export function ProfileForm({
                     onChange={(value) =>
                       setPasswordField("confirmPassword", value)
                     }
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     type="password"
                     autoComplete="new-password"
                   />
@@ -331,7 +344,7 @@ export function ProfileForm({
                   </p>
                 ) : null}
                 <div className="flex justify-end border-t border-border/70 pt-5">
-                  <Button type="submit" variant="outline" disabled={isBusy}>
+                  <Button type="submit" variant="outline" disabled={isBusy || readOnly}>
                     {isBusy ? "Updating…" : "Update password"}
                   </Button>
                 </div>

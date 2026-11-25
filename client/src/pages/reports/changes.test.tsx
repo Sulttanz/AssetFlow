@@ -230,7 +230,7 @@ describe("change report page", () => {
     expect(screen.getByText("1 pending")).toBeTruthy();
     expect(requests.some(url => new URL(url, "http://report.test").searchParams.get("page") === "2")).toBe(true);
 
-    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[0]);
     await user.click(screen.getByRole("option", { name: "Completed" }));
     expect(await screen.findByText("Report change 51")).toBeTruthy();
     expect(await screen.findByText((_, element) =>
@@ -413,7 +413,7 @@ describe("change report page", () => {
     await user.type(searchInput, "Export batch");
     const activeFilters = ["Completed", "Emergency", "High"];
     for (let index = 0; index < activeFilters.length; index += 1) {
-      await user.click(screen.getAllByRole("combobox")[index]);
+      await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[index]);
       await user.click(screen.getByRole("option", { name: activeFilters[index] }));
     }
     await user.type(screen.getByLabelText("Scheduled start from"), "01-10-2026");
@@ -607,11 +607,11 @@ describe("change report page", () => {
     expect(await screen.findByText("Include change 1")).toBeTruthy();
     const searchInput = screen.getByPlaceholderText("Search change #, title...");
     await user.type(searchInput, "Include change");
-    await user.click(screen.getAllByRole("combobox")[0]);
+    await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[0]);
     await user.click(screen.getByRole("option", { name: "Completed" }));
-    await user.click(screen.getAllByRole("combobox")[1]);
+    await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[1]);
     await user.click(screen.getByRole("option", { name: "Normal" }));
-    await user.click(screen.getAllByRole("combobox")[2]);
+    await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[2]);
     await user.click(screen.getByRole("option", { name: "Low" }));
     await waitFor(() => {
       expect(screen.getByText((_, element) =>

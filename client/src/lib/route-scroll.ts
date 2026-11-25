@@ -9,7 +9,9 @@ export function resetRouteScroll(root: ParentNode = document) {
 
   if (typeof document !== "undefined") {
     document.documentElement.scrollTop = 0;
+    document.documentElement.scrollLeft = 0;
     document.body.scrollTop = 0;
+    document.body.scrollLeft = 0;
   }
 
   root.querySelectorAll<HTMLElement>("main, .app-content, [data-scroll-container]").forEach((element) => {

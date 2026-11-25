@@ -68,4 +68,29 @@ describe("My Profile form", () => {
       confirmPassword: "New-strong-password-123",
     }));
   });
+
+  it("shows a rejected save without leaving an unhandled form promise", async () => {
+    render(
+      <ProfileForm
+        account={account}
+        onSavePersonalFields={vi.fn().mockRejectedValue(new Error("That email address is already used."))}
+        onChangePassword={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save personal details" }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "That email address is already used.");
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "another@example.test" } });
+    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("another@example.test");
+  });
+
+  it("keeps a demonstration account view-only instead of offering actions that the API denies", () => {
+    render(
+      <ProfileForm account={account} readOnly onSavePersonalFields={vi.fn()} onChangePassword={vi.fn()} />,
+    );
+    expect(screen.getByText(/This demonstration account is view-only/)).toBeTruthy();
+    expect((screen.getByLabelText("First name") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Current password") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save personal details" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Update password" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

@@ -87,7 +87,7 @@ export function isPersonaPageAllowed(
   assignedProjectIds: readonly string[] = [],
 ): boolean {
   const path = requestedPath.split(/[?#]/, 1)[0] || "/";
-  if (path === "/knowledge-base") return true;
+  if (path === "/knowledge-base" || path === "/profile") return true;
   const readOnlyMutationPath = /\/(?:new|create|edit|manage)(?:\/|$)/i.test(path);
   if (isDemoViewer(roleNames)) return !readOnlyMutationPath && isDemoPageAllowed(requestedPath);
   if (permissions.includes("system_admin") || roleNames.some(name => getStandardRoleKey(name) === "system_admin")) return true;

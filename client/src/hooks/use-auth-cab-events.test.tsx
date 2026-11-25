@@ -398,6 +398,31 @@ it.each(["/api/login", "/api/auth/verify-password"])(
   },
 );
 
+it("keeps this session and other tabs signed in after a wrong current profile password", async () => {
+  vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+  const otherTab = new QueryClient();
+  otherTab.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  otherTab.setQueryData(["/api/private"], { secret: "other tab data" });
+  const otherChannel = new FakeBroadcastChannel("session-revoked");
+  const unsubscribe = subscribeToSessionRevocation(otherTab, otherChannel);
+
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/private"], { secret: "current tab data" });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(400, { message: "Current password is incorrect." })));
+
+  await expect(apiRequest("POST", "/api/profile/password", {
+    currentPassword: "mistyped",
+    newPassword: "Valid-strong-password-123",
+  })).rejects.toThrow("400:");
+
+  expect(queryClient.getQueryData(["/api/user"])).toEqual({ id: "alice", isActive: true });
+  expect(queryClient.getQueryData(["/api/private"])).toEqual({ secret: "current tab data" });
+  expect(otherTab.getQueryData(["/api/user"])).toEqual({ id: "alice", isActive: true });
+  expect(otherTab.getQueryData(["/api/private"])).toEqual({ secret: "other tab data" });
+  expect(FakeBroadcastChannel.instances.flatMap(channel => channel.postedMessages)).toEqual([]);
+  unsubscribe();
+});
+
 it("keeps the session when a protected endpoint denies permission", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(403)));
   queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });

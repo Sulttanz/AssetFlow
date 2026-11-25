@@ -1,7 +1,7 @@
 import express from "express";
 import type { Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isPersonaApiAllowed } from "@shared/personas";
+import { isPersonaApiAllowed, isPersonaPageAllowed } from "@shared/personas";
 import {
   registerProfileRoutes,
   type SelfProfileView,
@@ -130,7 +130,7 @@ describe("self profile routes", () => {
       headers: { "x-user-id": "user-1" },
       body: JSON.stringify({ currentPassword: "wrong", newPassword: "New-strong-password-123" }),
     });
-    expect(invalidCurrent.status).toBe(401);
+    expect(invalidCurrent.status).toBe(400);
 
     const weak = await request("/api/profile/password", {
       method: "POST",
@@ -152,6 +152,7 @@ describe("self profile routes", () => {
 
   it("allows authenticated personas to use only the signed-in profile endpoints", () => {
     for (const role of ["end_user", "it_agent", "it_manager", "cab_member", "auditor"]) {
+      expect(isPersonaPageAllowed([role], [], "/profile")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/profile", "GET")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/profile", "PATCH")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/profile/password", "POST")).toBe(true);

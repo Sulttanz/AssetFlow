@@ -71,10 +71,11 @@ function authenticatedUserId(req: any): string | null {
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
-function postgresErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : undefined;
+function postgresErrorCode(error: unknown, seen = new Set<unknown>()): string | undefined {
+  if (!error || typeof error !== "object" || seen.has(error)) return undefined;
+  seen.add(error);
+  const detail = error as { code?: unknown; cause?: unknown };
+  return typeof detail.code === "string" ? detail.code : postgresErrorCode(detail.cause, seen);
 }
 
 export function registerProfileRoutes(
@@ -141,7 +142,7 @@ export function registerProfileRoutes(
       );
       if (result === "not_found") return res.status(404).json({ message: "Account not found" });
       if (result === "invalid_current_password") {
-        return res.status(401).json({ message: "Current password is incorrect." });
+        return res.status(400).json({ message: "Current password is incorrect." });
       }
       await services.auditPasswordChange?.(req);
       return res.json({ success: true });

@@ -8,10 +8,14 @@ import type {
   ProfilePersonalFields,
 } from "@/components/profile/profile-form";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { isDemoViewer } from "@shared/demo-viewer";
 
 export default function ProfilePage() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const readOnly = isDemoViewer(user?.roles?.map(role => role.name) ?? []);
   const profileQuery = useQuery<ProfileAccount>({
     queryKey: ["/api/profile"],
   });
@@ -61,6 +65,7 @@ export default function ProfilePage() {
         ) : profileQuery.data ? (
           <ProfileForm
             account={profileQuery.data}
+            readOnly={readOnly}
             isBusy={updateProfileMutation.isPending || changePasswordMutation.isPending}
             error={error}
             onSavePersonalFields={async (fields) => {

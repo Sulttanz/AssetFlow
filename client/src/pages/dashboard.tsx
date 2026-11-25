@@ -89,12 +89,12 @@ function Metric({
     slate: "bg-slate-100 text-slate-600",
   };
   return (
-    <div className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors duration-200 hover:border-blue-200">
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors duration-200 hover:border-blue-200 sm:p-5">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted-foreground">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{label}</p>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
       </div>
-      <p className="mt-3 font-mono text-[28px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
+      <p className="mt-3 font-mono text-[30px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
       {detail && <p className="mt-2 text-xs text-muted-foreground">{detail}</p>}
     </div>
   );
@@ -105,7 +105,7 @@ function SectionTitle({ kicker, title, aside }: { kicker: string; title: string;
     <div className="mb-4 flex items-end justify-between gap-4">
       <div>
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">{kicker}</p>
-        <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       {aside}
     </div>
