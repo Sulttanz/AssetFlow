@@ -7,6 +7,7 @@ import AuthPage from "./auth-page";
 const state = vi.hoisted(() => ({ user: null as UserWithDetails | null, query: vi.fn() }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user, isLoading: false, loginMutation: { mutate: vi.fn(), isPending: false } }) }));
 vi.mock("@/hooks/use-modules", () => ({ useModules: () => ({ isModuleEnabled: () => true }) }));
+vi.mock("@/lib/queryClient", () => ({ apiRequest: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: unknown) => {
     state.query(options);
@@ -40,11 +41,11 @@ describe("Post-login Dashboard landing", () => {
     render(<Dashboard />);
     expect(window.location.pathname).toBe("/dashboard");
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
-    expect(state.query).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["/api/dashboard/executive"], enabled: false }));
+    expect(state.query).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["/api/dashboard/executive", { days: 30 }], enabled: false }));
   });
   it("keeps executive analytics enabled for managers", () => {
     state.user = user("it_manager");
     render(<Dashboard />);
-    expect(state.query).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["/api/dashboard/executive"], enabled: true }));
+    expect(state.query).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["/api/dashboard/executive", { days: 30 }], enabled: true }));
   });
 });

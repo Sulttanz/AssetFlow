@@ -38,7 +38,8 @@
 - [Procurement settlement boundaries](procurement-settlement-boundary.md) — invoice confirmation must not duplicate stock; supplier debit notes reduce payables without counting as cash paid.
 - [Bulk import governance](bulk-import-governance.md) — migrating records must not bypass publication, approvals, or access authorization.
 - [System data reset boundary](system-data-reset-boundary.md) — preserve users, sessions, and all catalog records; detach links to deleted operations data and verify only in isolated tests.
-- [Common Dashboard landing](dashboard-landing-policy.md) — all users land at Dashboard; persona-specific content must preserve executive-data boundaries.
+- [Persona landing pages](dashboard-landing-policy.md) — End Users start in the portal; other roles use Dashboard; executive data remains independently authorized.
+- [Dashboard reporting windows](dashboard-reporting-windows.md) — timeframes apply to SLA resolutions, not current inventory or open queues; always disclose that distinction.
 - [Login visual direction](login-visual-direction.md) — preserve the original navy, white and blue enterprise styling; avoid serif typography and technical badge clutter.
 - [Internal design direction](internal-design-system.md) — align all internal modules with shared blue/slate styling, simple headers/filter bars and soft semantic accents.
 - [Request security design](request-security-design.md) — preserve legitimate technical content; generic input regexes are not a substitute for a verified CRS-compatible edge WAF.

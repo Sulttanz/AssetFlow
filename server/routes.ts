@@ -5689,7 +5689,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Executive analytics are available to IT Managers, CAB Members, and administrators" });
       }
 
+      const windowDays = z.enum(["7", "30", "90"]).optional().safeParse(req.query.days);
+      if (!windowDays.success) {
+        return res.status(400).json({
+          code: "INVALID_DASHBOARD_TIMEFRAME",
+          message: "Dashboard timeframe must be 7, 30, or 90 days.",
+        });
+      }
       const now = new Date();
+      const days = windowDays.data ? Number(windowDays.data) : null;
+      const reportingFrom = days ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000) : null;
       const today = toDateInputValue(now);
       const accessThroughDate = new Date(now);
       accessThroughDate.setDate(accessThroughDate.getDate() + 30);
@@ -5698,8 +5707,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       contractThrough.setDate(contractThrough.getDate() + 30);
       const contractThroughDate = toDateInputValue(contractThrough);
       const slaRiskThrough = new Date(now.getTime() + 4 * 60 * 60 * 1000);
-      const [assetEnabled, cmdbEnabled, itsmEnabled] = await Promise.all([
+      const [assetEnabled, cmdbEnabled, itsmEnabled, projectsEnabled] = await Promise.all([
         isFeatureEnabled("asset_management"), isFeatureEnabled("cmdb"), isFeatureEnabled("itsm"),
+        isFeatureEnabled("project_management"),
       ]);
 
       const [
@@ -5718,6 +5728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pendingOffboardings,
         pendingApprovals,
         expiredAccessItems,
+        projectCounts,
       ] = await Promise.all([
         assetEnabled ? db.select({
           activeEmployees: sql<number>`count(*) FILTER (WHERE ${employees.status} = 'active')::int`,
@@ -5746,6 +5757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).from(incidents).where(and(
           sql`${incidents.resolvedAt} IS NOT NULL`,
           sql`${incidents.resolveDueAt} IS NOT NULL`,
+          reportingFrom ? sql`${incidents.resolvedAt} >= ${reportingFrom} AND ${incidents.resolvedAt} <= ${now}` : undefined,
         )) : [],
         itsmEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(changeApprovals).where(and(
           isNull(changeApprovals.removedAt),
@@ -5811,6 +5823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             sql`${employeeAccessRights.expiresAt} IS NOT NULL AND ${employeeAccessRights.expiresAt} <= ${today}::date`,
           ),
         )).orderBy(asc(employeeAccessRights.expiresAt)).limit(8) : [],
+        projectsEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(projects) : [],
       ]);
 
       const [contractCount] = assetEnabled ? await db.select({ total: sql<number>`count(*)::int` })
@@ -5842,6 +5855,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).slice(0, 12);
 
       res.json({
+        reportingWindow: { days, from: reportingFrom?.toISOString() ?? null, through: now.toISOString() },
+        projects: { totalProjects: projectCounts[0]?.total ?? 0 },
         identity: {
           activeEmployees: identityCounts[0]?.activeEmployees ?? 0,
           pendingOffboardingClearances: pendingOffboardingCount[0]?.total ?? 0,

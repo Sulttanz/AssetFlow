@@ -55,9 +55,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -444,17 +441,17 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               <div key={section.title}>
                 <button
                   onClick={() => toggleSection(section.title)}
-                  className="group mb-1.5 flex w-full items-center justify-between rounded-lg px-3 py-1.5"
+                  className="group mb-1.5 flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-start"
                   data-testid={`section-toggle-${section.title.toLowerCase().replace(/\s+/g, '-')}`}
                   aria-expanded={isSectionExpanded}
                 >
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
+                   <h3 className="min-w-0 flex-1 text-start text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
                     {t(section.title)}
                   </h3>
                   {isSectionExpanded ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
+                     <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
                   ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
+                     <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
                   )}
                 </button>
                 {isSectionExpanded && (
@@ -583,7 +580,11 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 <MoreVertical className="w-4 h-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60">
+            <DropdownMenuContent align="end" className="w-60" onKeyDownCapture={(event) => {
+              // These native selects are form controls, not roving menu items.
+              // Allow Tab to reach them instead of Radix's menu Tab suppression.
+              if (event.key === "Tab") event.stopPropagation();
+            }}>
               <DropdownMenuItem
                 onClick={() => {
                   navigate("/profile");
@@ -596,32 +597,38 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 {t("My Profile")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                <Palette className="h-3.5 w-3.5" />
-                {t("Theme")}
-              </DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={theme} onValueChange={(value) => {
-                if (appearanceThemes.some((option) => option.id === value)) {
-                  setTheme(value as typeof theme);
-                }
-              }}>
-                {appearanceThemes.map((option) => (
-                  <DropdownMenuRadioItem key={option.id} value={option.id} className="min-h-10">
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              <div className="px-2 py-2">
+                <label htmlFor="user-theme-select" className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Palette className="h-3.5 w-3.5" />{t("Theme")}
+                </label>
+                <select
+                  id="user-theme-select"
+                  value={theme}
+                  onChange={(event) => setTheme(event.target.value as typeof theme)}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="user-theme-select"
+                >
+                  {appearanceThemes.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </div>
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                <Languages className="h-3.5 w-3.5" />
-                {t("Language")}
-              </DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={language} onValueChange={(value) => {
-                if (value === "en" || value === "ar") setLanguage(value);
-              }}>
-                <DropdownMenuRadioItem value="en" className="min-h-10">{t("English")}</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="ar" className="min-h-10">{t("العربية")}</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
+              <div className="px-2 py-2">
+                <label htmlFor="user-language-select" className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Languages className="h-3.5 w-3.5" />{t("Language")}
+                </label>
+                <select
+                  id="user-language-select"
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value as "en" | "ar")}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="user-language-select"
+                >
+                  <option value="en">{t("English")}</option>
+                  <option value="ar">{t("العربية")}</option>
+                </select>
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => logoutMutation.mutate()}
