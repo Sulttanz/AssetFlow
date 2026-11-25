@@ -22,7 +22,15 @@ import { formatDateTimeMinute } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { dataMigrationModules, type DataMigrationModule } from "@shared/data-migration-modules";
 
-type ValidationDetail = { rowNumber: number; identifier: string; field?: string; message: string };
+type ValidationDetail = {
+  rowNumber: number;
+  identifier: string;
+  field?: string;
+  message: string;
+  submittedValue?: string;
+  lookupLabel?: string;
+  validValues?: string[];
+};
 type PreviewRow = { rowNumber: number; identifier?: string; values: Record<string, unknown>; errors: string[] };
 type PreviewResult = {
   batchId: string;
@@ -106,6 +114,8 @@ export default function DataMigrationCenter() {
           message,
         })))
     : [];
+  const invalidCount = preview ? (preview.invalidCount ?? preview.invalidRows) : 0;
+  const validCount = preview ? (preview.validCount ?? preview.validRows) : 0;
 
   const downloadTemplate = async (moduleKey: string) => {
     setBusy("template");
@@ -326,23 +336,27 @@ export default function DataMigrationCenter() {
                 </div>
                 <div className="grid grid-cols-3 gap-2 sm:min-w-[300px]">
                   <div className="rounded-md border bg-background px-3 py-2"><p className="font-mono text-lg font-semibold">{preview.totalRows}</p><p className="text-[11px] text-muted-foreground">{t("Total rows")}</p></div>
-                  <div className="rounded-md border border-emerald-700/20 bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/20"><p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400">{preview.validCount ?? preview.validRows}</p><p className="text-[11px] text-muted-foreground">{t("Valid rows")}</p></div>
-                  <div className={`rounded-md border px-3 py-2 ${(preview.invalidCount ?? preview.invalidRows) ? "border-destructive/20 bg-destructive/5" : "bg-background"}`}><p className={`font-mono text-lg font-semibold ${(preview.invalidCount ?? preview.invalidRows) ? "text-destructive" : ""}`}>{preview.invalidCount ?? preview.invalidRows}</p><p className="text-[11px] text-muted-foreground">{t("Rows with errors")}</p></div>
+                  <div className="rounded-md border border-emerald-700/20 bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/20"><p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400">{validCount}</p><p className="text-[11px] text-muted-foreground">{t("Valid rows")}</p></div>
+                  <div className={`rounded-md border px-3 py-2 ${invalidCount ? "border-destructive/20 bg-destructive/5" : "bg-background"}`}><p className={`font-mono text-lg font-semibold ${invalidCount ? "text-destructive" : ""}`}>{invalidCount}</p><p className="text-[11px] text-muted-foreground">{t("Rows with errors")}</p></div>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {preview.totalRows > 0 && preview.validRows === 0 && (
+              {preview.totalRows > 0 && invalidCount > 0 && (
                 <div
                   role="alert"
                   data-testid="migration-no-valid-rows"
                   className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
                 >
                   <p className="font-semibold text-destructive">
-                    {t("None of the rows are ready to import. Nothing has been written to the database.")}
+                    {validCount === 0
+                      ? t("None of the rows are ready to import. Nothing has been written to the database.")
+                      : t("Some rows failed validation. Valid rows can still be imported; invalid rows will be skipped.")}
                   </p>
                   <p className="mt-1 text-muted-foreground">
-                    {t("Check the row-by-row validation details below. Review required fields, formats, allowed values, and linked-record references before importing again.")}
+                    {validCount === 0
+                      ? t("Fix the listed row errors below, then upload and validate the corrected file again.")
+                      : t("Review the expanded row-by-row errors below and correct rejected rows before importing again.")}
                   </p>
                 </div>
               )}
@@ -353,7 +367,7 @@ export default function DataMigrationCenter() {
                     <span className="text-xs text-muted-foreground">{validationIssues.length} {t("validation issue(s)")}</span>
                   </div>
                   <div
-                    className="max-h-72 overflow-y-auto rounded-md border border-destructive/20 bg-destructive/[0.025] p-3"
+                    className="rounded-md border border-destructive/20 bg-destructive/[0.025] p-3"
                     role="region"
                     aria-label={t("Validation details")}
                     aria-live="polite"
@@ -365,11 +379,33 @@ export default function DataMigrationCenter() {
                       {validationIssues.map((issue, index) => (
                         <li key={`${issue.rowNumber}-${issue.field}-${index}`} className="break-words leading-6">
                           <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Import row")}):</strong>{" "}
-                          {!issue.field
+                          {issue.lookupLabel ? (
+                            <span className="mt-1 block space-y-1">
+                              <span className="block font-medium">{t(issue.field ?? "Record")}</span>
+                              {issue.submittedValue != null && (
+                                <span className="block">
+                                  <span className="font-medium">{t("Submitted value")}:</span>{" "}
+                                  <code className="break-all rounded bg-background px-1 py-0.5">{issue.submittedValue}</code>
+                                </span>
+                              )}
+                              <span className="block">
+                                <span className="font-medium">{t("Reason")}:</span>{" "}
+                                {issue.submittedValue != null
+                                  ? <>{t(issue.field ?? "Record")} "{issue.submittedValue}" {t("was not found in system")} {t(issue.lookupLabel)}.</>
+                                  : t(issue.message)}
+                              </span>
+                              <span className="block">
+                                <span className="font-medium">{t("Valid system values")}:</span>{" "}
+                                {issue.validValues?.length
+                                  ? issue.validValues.map(value => t(value)).join(language === "ar" ? "، " : ", ")
+                                  : t("No matching system values are currently configured.")}
+                              </span>
+                            </span>
+                          ) : !issue.field
                             ? t(issue.message)
                             : issue.message === "Missing required field"
                             ? <>{t(issue.message)} "{t(issue.field)}"</>
-                            : <><span className="font-medium">{t(issue.field)}:</span> {t(issue.message)}</>}
+                            : <><span className="font-medium">{t(issue.field)}:</span> {t(issue.message)}{issue.submittedValue != null && <span className="block"><span className="font-medium">{t("Submitted value")}:</span> <code className="break-all">{issue.submittedValue}</code></span>}</>}
                         </li>
                       ))}
                     </ul>

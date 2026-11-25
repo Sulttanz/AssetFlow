@@ -291,6 +291,39 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     ]));
   });
 
+  it("returns exact unknown department/location values, spreadsheet rows, and configured options", async () => {
+    const preview = await previewCsv("employees", [{
+      employeeId: `${prefix}-unknown-lookups`,
+      firstName: "Lookup",
+      lastName: "Tester",
+      position: "Analyst",
+      departmentName: `${prefix}-missing-department`,
+      locationName: `${prefix}-missing-location`,
+    }]);
+
+    expect(preview).toMatchObject({ totalRows: 1, validRows: 0, validCount: 0, invalidRows: 1 });
+    expect(preview.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowNumber: 2,
+        identifier: `${prefix}-unknown-lookups - Lookup Tester`,
+        field: "Department",
+        submittedValue: `${prefix}-missing-department`,
+        lookupLabel: "Departments",
+        message: `Department "${prefix}-missing-department" was not found in system Departments.`,
+        validValues: expect.arrayContaining([departmentName]),
+      }),
+      expect.objectContaining({
+        rowNumber: 2,
+        identifier: `${prefix}-unknown-lookups - Lookup Tester`,
+        field: "Location",
+        submittedValue: `${prefix}-missing-location`,
+        lookupLabel: "Locations",
+        message: `Location "${prefix}-missing-location" was not found in system Locations.`,
+        validValues: expect.arrayContaining([locationName]),
+      }),
+    ]));
+  });
+
   it("previews errors without inserting records, imports only valid rows, and prevents replay", async () => {
     const tag = `${prefix}-asset`;
     const preview = await previewCsv("assets", [

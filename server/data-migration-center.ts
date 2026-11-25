@@ -95,6 +95,8 @@ type LookupContext = {
   zones: Map<string, { id: string; isActive: boolean }>;
   enabledFeatures: Set<string>;
   dropdowns: Map<string, Set<string>>;
+  dropdownValues: Map<string, string[]>;
+  referenceOptions: Record<string, string[]>;
   existing: Record<string, Set<string>>;
   reserved: Set<string>;
 };
@@ -340,10 +342,13 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
     }).from(serviceCatalogItems).where(eq(serviceCatalogItems.status, "Active")) : Promise.resolve([]),
   ]);
   const dropdowns = new Map<string, Set<string>>();
+  const dropdownValues = new Map<string, string[]>();
   dropdownRows.filter(row => row.isActive).forEach(row => {
     const key = normalizedKey(row.category);
     if (!dropdowns.has(key)) dropdowns.set(key, new Set());
     dropdowns.get(key)!.add(normalizedKey(row.value));
+    if (!dropdownValues.has(key)) dropdownValues.set(key, []);
+    dropdownValues.get(key)!.push(row.value);
   });
   const vendorsByName = new Map<string, { id: string; name: string; code: string | null }>();
   vendorRows.forEach(row => vendorsByName.set(normalizedKey(row.name), { id: row.id, name: row.name, code: row.code }));
@@ -379,6 +384,22 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
     zones,
     enabledFeatures,
     dropdowns,
+    dropdownValues,
+    referenceOptions: {
+      locations: locationRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      departments: departmentRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      warehouses: warehouseRows.map(row => row.code).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      vendors: vendorRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      vendorCodes: vendorRows.map(row => row.code).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
+      employeeEmails: employeeRows.map(row => row.email).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
+      userEmails: userRows.map(row => row.email).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
+      applications: applicationRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      servers: serverRows.map(row => row.hostname).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      zones: zoneRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+      assets: assetRows.map(row => row.assetTag).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
+      projects: Array.from(new Set(projectRows.flatMap(row => [row.title, row.name]).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b)),
+      serviceCatalogItems: catalogRows.map(row => row.title).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    },
     existing: {
       assetTag: new Set(assetRows.map(row => normalizedKey(row.assetTag)).filter(Boolean)),
       employeeId: new Set(employeeRows.map(row => normalizedKey(row.employeeId)).filter(Boolean)),
@@ -805,10 +826,18 @@ async function validateRecords(moduleKey: string, records: ParsedRecord[], actor
       });
     });
   }
-  return records;
+  return context;
 }
 
-type ValidationDetail = { rowNumber: number; identifier: string; field: string; message: string };
+type ValidationDetail = {
+  rowNumber: number;
+  identifier: string;
+  field: string;
+  message: string;
+  submittedValue?: string;
+  lookupLabel?: string;
+  validValues?: string[];
+};
 
 function recordIdentifier(moduleKey: string, values: Record<string, CellValue>): string {
   if (moduleKey === "employees") {
@@ -816,11 +845,86 @@ function recordIdentifier(moduleKey: string, values: Record<string, CellValue>):
     const name = [textValue(values.firstName), textValue(values.lastName)].filter(Boolean).join(" ");
     return [employeeId, name].filter(Boolean).join(" - ") || textValue(values.email) || "Employee row";
   }
-  return textValue(values.employeeId) || textValue(values.email) ||
-    textValue(values.name) || textValue(values.title) || textValue(values.hostname) || "Record";
+  if (moduleKey === "assets") return [textValue(values.assetTag), textValue(values.name)].filter(Boolean).join(" - ") || "Asset row";
+  if (moduleKey === "consumables") return [textValue(values.name), textValue(values.modelPartNumber)].filter(Boolean).join(" - ") || "Consumable row";
+  if (moduleKey === "servers") return textValue(values.hostname) || "Server row";
+  if (moduleKey === "network") return [textValue(values.hostname), textValue(values.name)].filter(Boolean).join(" - ") || "Network row";
+  if (moduleKey === "vendors") return [textValue(values.code), textValue(values.name)].filter(Boolean).join(" - ") || "Vendor row";
+  if (moduleKey === "finance") return textValue(values.poNumber) || textValue(values.budgetName) || "Finance row";
+  return textValue(values.title) || textValue(values.name) || textValue(values.hostname) ||
+    textValue(values.email) || "Record";
 }
 
-function validationDetails(moduleKey: string, records: ParsedRecord[]): ValidationDetail[] {
+function lookupReference(moduleKey: string, fieldKey: string, values: Record<string, CellValue>): { label: string; optionsKey: string } | undefined {
+  const references: Record<string, Record<string, { label: string; optionsKey: string }>> = {
+    employees: {
+      departmentName: { label: "Departments", optionsKey: "departments" },
+      locationName: { label: "Locations", optionsKey: "locations" },
+    },
+    assets: {
+      departmentName: { label: "Departments", optionsKey: "departments" },
+      locationName: { label: "Locations", optionsKey: "locations" },
+    },
+    consumables: {
+      warehouseCode: { label: "Active warehouses", optionsKey: "warehouses" },
+      vendorCode: { label: "Vendor codes", optionsKey: "vendorCodes" },
+    },
+    applications: {
+      businessOwnerEmail: { label: "Employee email addresses", optionsKey: "employeeEmails" },
+      technicalOwnerEmail: { label: "Employee email addresses", optionsKey: "employeeEmails" },
+    },
+    network: {
+      zoneName: { label: "Network zones", optionsKey: "zones" },
+    },
+    backups: {
+      targetName: normalizedKey(values.targetType) === "server"
+        ? { label: "Server hostnames", optionsKey: "servers" }
+        : { label: "Application names", optionsKey: "applications" },
+      ownerEmail: { label: "User email addresses", optionsKey: "userEmails" },
+    },
+    finance: {
+      vendorName: { label: "Vendor names", optionsKey: "vendors" },
+      departmentName: { label: "Departments", optionsKey: "departments" },
+      locationName: { label: "Locations", optionsKey: "locations" },
+    },
+    project_tasks: {
+      projectName: { label: "Projects", optionsKey: "projects" },
+      assigneeEmail: { label: "User email addresses", optionsKey: "userEmails" },
+    },
+    project_milestones: {
+      projectName: { label: "Projects", optionsKey: "projects" },
+    },
+    incidents: {
+      requesterEmail: { label: "User email addresses", optionsKey: "userEmails" },
+      projectName: { label: "Projects", optionsKey: "projects" },
+      assetTag: { label: "Asset tags", optionsKey: "assets" },
+    },
+    service_requests: {
+      requesterEmail: { label: "User email addresses", optionsKey: "userEmails" },
+      projectName: { label: "Projects", optionsKey: "projects" },
+      catalogItemTitle: { label: "Active service catalog items", optionsKey: "serviceCatalogItems" },
+    },
+    risks: {
+      ownerEmail: { label: "User email addresses", optionsKey: "userEmails" },
+    },
+  };
+  return references[moduleKey]?.[fieldKey];
+}
+
+function dropdownCategoryForField(moduleKey: string, fieldKey: string): { category: string; label: string } | undefined {
+  if (fieldKey === "category") {
+    return ({
+      applications: { category: "application_category", label: "Application categories" },
+      vendors: { category: "vendor_category", label: "Vendor categories" },
+      knowledge: { category: "kb_category", label: "Knowledge Base categories" },
+    } as Record<string, { category: string; label: string }>)[moduleKey];
+  }
+  if (moduleKey === "vendors" && fieldKey === "contractType") return { category: "contract_type", label: "Contract types" };
+  if (moduleKey === "assets" && fieldKey === "status") return { category: "status", label: "Asset statuses" };
+  return undefined;
+}
+
+function validationDetails(moduleKey: string, records: ParsedRecord[], context: LookupContext): ValidationDetail[] {
   const module = getDataMigrationModule(moduleKey);
   return records.flatMap(record => record.errors.map(error => {
     let field = module?.fields.find(candidate =>
@@ -840,14 +944,29 @@ function validationDetails(moduleKey: string, records: ParsedRecord[]): Validati
       else if (/must be a valid email address/i.test(error)) message = "Enter a valid email address.";
       else if (/duplicate employee email/i.test(error)) message = "Email address already exists.";
       else if (/duplicate employee id/i.test(error)) message = "Employee ID already exists.";
-      else if (/does not match an existing record/i.test(error) && label === "Department") message = "Department must match an existing department.";
-      else if (/does not match an existing record/i.test(error) && label === "Location") message = "Location must match an existing location.";
     }
+    const submittedValue = field ? textValue(record.values[field.key]) : undefined;
+    const reference = field && /does not match an existing record/i.test(error)
+      ? lookupReference(moduleKey, field.key, record.values)
+      : undefined;
+    let lookupLabel = reference?.label;
+    let validValues = reference
+      ? context.referenceOptions[reference.optionsKey] ?? []
+      : undefined;
+    const dropdown = field ? dropdownCategoryForField(moduleKey, field.key) : undefined;
+    if (!reference && field && dropdown && /dropdown value|must be one of:/i.test(error)) {
+      lookupLabel = dropdown.label;
+      validValues = context.dropdownValues.get(normalizedKey(dropdown.category)) ?? [];
+      if (/must be one of:/i.test(error) && field.enumValues) validValues = field.enumValues;
+    }
+    if (reference && submittedValue) message = `${label} "${submittedValue}" was not found in system ${reference.label}.`;
     return {
       rowNumber: record.rowNumber,
       identifier: recordIdentifier(moduleKey, record.values),
       field: label,
       message,
+      ...(submittedValue ? { submittedValue } : {}),
+      ...(lookupLabel ? { lookupLabel, validValues: validValues ?? [] } : {}),
     };
   }));
 }
@@ -1236,7 +1355,7 @@ export function registerDataMigrationRoutes(
       if (records.length === 0) {
         throw new Error(`No data rows were found in the ${module.title} worksheet. Add at least one row below the column headers and upload again.`);
       }
-      await validateRecords(module.key, records, req.user.id);
+      const lookupContext = await validateRecords(module.key, records, req.user.id);
       const validRows = records.filter(record => record.errors.length === 0).length;
       const invalidRows = records.length - validRows;
       const expiresAt = new Date(Date.now() + PREVIEW_TTL_MS);
@@ -1260,7 +1379,7 @@ export function registerDataMigrationRoutes(
         invalidRows,
         validCount: validRows,
         invalidCount: invalidRows,
-        errors: validationDetails(module.key, records),
+        errors: validationDetails(module.key, records, lookupContext),
         expiresAt,
         rows: [...records.filter(record => record.errors.length > 0), ...records.filter(record => !record.errors.length)]
           .slice(0, 100).map(({ rowNumber, values, errors }) => ({

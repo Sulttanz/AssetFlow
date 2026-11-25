@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn().mockResolvedValue(undefined),
   refetchHistory: vi.fn().mockResolvedValue(undefined),
   apiRequest: vi.fn(),
+  language: "en" as "en" | "ar",
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -42,8 +43,18 @@ vi.mock("@/components/layout/header", () => ({ default: ({ title }: { title: str
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 vi.mock("@/hooks/use-language", () => ({
   useLanguage: () => ({
-    language: "en",
-    t: (text: string) => text,
+    language: mocks.language,
+    t: (text: string) => mocks.language === "ar"
+      ? ({
+          "Submitted value": "القيمة المدخلة",
+          "Reason": "السبب",
+          "Valid system values": "القيم المتاحة في النظام",
+          "was not found in system": "غير موجود في النظام ضمن",
+          "Departments": "الأقسام",
+          "Locations": "المواقع",
+          "Some rows failed validation. Valid rows can still be imported; invalid rows will be skipped.": "تعذر التحقق من بعض الصفوف. يمكن استيراد الصفوف الصالحة، وسيتم تخطي الصفوف غير الصالحة.",
+        } as Record<string, string>)[text] ?? text
+      : text,
   }),
 }));
 vi.mock("@/lib/queryClient", () => ({
@@ -56,6 +67,7 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  mocks.language = "en";
 });
 
 describe("employee bulk import validation", () => {
@@ -161,6 +173,111 @@ describe("employee bulk import validation", () => {
     const details = await screen.findByTestId("migration-validation-details");
     expect(details.textContent).toContain("Row 2 (EMP-2 - Noor): Last Name* is required.");
     expect(screen.getByTestId("migration-no-valid-rows")).toBeTruthy();
+  });
+
+  it("shows actionable lookup failures with submitted values and available departments/locations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        batchId: "batch-lookups",
+        moduleKey: "employees",
+        fileName: "employees.xlsx",
+        totalRows: 1,
+        validRows: 0,
+        invalidRows: 1,
+        validCount: 0,
+        invalidCount: 1,
+        errors: [
+          {
+            rowNumber: 7,
+            identifier: "EMP-7 - Amina Example",
+            field: "Department",
+            submittedValue: "IT Ops",
+            lookupLabel: "Departments",
+            validValues: ["Information Technology", "Finance"],
+            message: 'Department "IT Ops" was not found in system Departments.',
+          },
+          {
+            rowNumber: 7,
+            identifier: "EMP-7 - Amina Example",
+            field: "Location",
+            submittedValue: "Riyadh HQ",
+            lookupLabel: "Locations",
+            validValues: ["Riyadh Office", "Jeddah Office"],
+            message: 'Location "Riyadh HQ" was not found in system Locations.',
+          },
+        ],
+        expiresAt: new Date().toISOString(),
+        rows: [{
+          rowNumber: 7,
+          identifier: "EMP-7 - Amina Example",
+          values: { employeeId: "EMP-7", firstName: "Amina", lastName: "Example", departmentName: "IT Ops", locationName: "Riyadh HQ" },
+          errors: ["Department does not match an existing record.", "Location does not match an existing record."],
+        }],
+        previewLimit: 100,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DataMigrationCenter />);
+    fireEvent.change(screen.getByLabelText("Upload and import XLSX or CSV for Employees (Directory Only)"), {
+      target: { files: [new File(["xlsx"], "employees.xlsx")] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
+
+    const details = await screen.findByTestId("migration-validation-details");
+    expect(details.textContent).toContain('Row 7 (EMP-7 - Amina Example)');
+    expect(details.textContent).toContain('Department "IT Ops"');
+    expect(details.textContent).toContain("IT Ops");
+    expect(details.textContent).toContain("Information Technology, Finance");
+    expect(details.textContent).toContain('Location "Riyadh HQ"');
+    expect(details.textContent).toContain("Riyadh Office, Jeddah Office");
+    expect(screen.getByTestId("migration-no-valid-rows").textContent).toContain("Fix the listed row errors");
+    expect(details.className).not.toContain("max-h-");
+  });
+
+  it("localizes and keeps lookup validation details readable in Arabic RTL", async () => {
+    mocks.language = "ar";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        batchId: "batch-arabic",
+        moduleKey: "employees",
+        fileName: "employees.xlsx",
+        totalRows: 1,
+        validRows: 1,
+        invalidRows: 1,
+        validCount: 1,
+        invalidCount: 1,
+        errors: [{
+          rowNumber: 2,
+          identifier: "EMP-2 - Noor",
+          field: "Department",
+          submittedValue: "Unknown team",
+          lookupLabel: "Departments",
+          validValues: ["IT"],
+          message: 'Department "Unknown team" was not found in system Departments.',
+        }],
+        expiresAt: new Date().toISOString(),
+        rows: [],
+        previewLimit: 100,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DataMigrationCenter />);
+    fireEvent.change(screen.getByLabelText("Upload and import XLSX or CSV for Employees (Directory Only)"), {
+      target: { files: [new File(["xlsx"], "employees.xlsx")] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
+
+    const details = await screen.findByTestId("migration-validation-details");
+    expect(details.getAttribute("dir")).toBe("rtl");
+    expect(details.textContent).toContain("القيمة المدخلة");
+    expect(details.textContent).toContain("السبب");
+    expect(details.textContent).toContain("القيم المتاحة في النظام");
+    expect(details.textContent).toContain("Unknown team");
+    expect(screen.getByTestId("migration-no-valid-rows").textContent).toContain("تعذر التحقق");
   });
 
   it("refreshes employee directory and dashboard counts after a successful employee import", async () => {
