@@ -7,7 +7,6 @@ import { checkedResponse } from "@/components/service-catalog/types";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -100,18 +99,18 @@ export function IncidentCatalogManager() {
       <div><h2 className="text-xl font-semibold">Incident templates</h2><p className="text-sm text-muted-foreground">Set global or project-specific intake choices and their default triage routing.</p></div>
       {canManage && <Button onClick={beginCreate}><Plus className="mr-2 h-4 w-4" />New incident template</Button>}
     </div>
-    {itemsQuery.isLoading ? <div className="h-24 animate-pulse rounded-xl bg-muted" /> : itemsQuery.isError ? <Card><CardContent className="p-6 text-sm text-destructive">Incident templates could not be loaded.</CardContent></Card> : !itemsQuery.data?.length ? <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No incident templates have been configured yet.</CardContent></Card> : <div className="grid gap-3">
-      {itemsQuery.data.map(item => <Card key={item.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
+    {itemsQuery.isLoading ? <div className="h-24 animate-pulse rounded-lg bg-muted" /> : itemsQuery.isError ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Incident templates could not be loaded.</div> : !itemsQuery.data?.length ? <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No incident templates have been configured yet.</div> : <div data-testid="incident-catalog-list" className="overflow-hidden rounded-lg border bg-card">
+      {itemsQuery.data.map(item => <div key={item.id} data-testid={`incident-catalog-row-${item.id}`} className="flex flex-col gap-3 border-b p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.name}</h3><Badge variant={item.isActive ? "default" : "secondary"}>{item.isActive ? "Active" : "Inactive"}</Badge><Badge variant="outline">{item.projectId ? item.projectName ?? "Project-scoped" : "Global"}</Badge></div>
-          <p className="mt-1 text-sm text-muted-foreground">{item.description || item.category}</p>
-          <p className="mt-2 text-xs text-muted-foreground">{item.category} · {item.defaultPriority} · Impact {item.defaultImpact} / Urgency {item.defaultUrgency}{item.defaultAssignmentGroup ? ` · ${item.defaultAssignmentGroup}` : ""}</p>
+          <p className="mt-1 truncate text-sm text-muted-foreground">{item.description || item.category}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{item.category} · {item.defaultPriority} · Impact {item.defaultImpact} / Urgency {item.defaultUrgency}{item.defaultAssignmentGroup ? ` · ${item.defaultAssignmentGroup}` : ""}</p>
         </div>
         {canManage && <div className="flex shrink-0 gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => beginEdit(item)}><Edit2 className="mr-1.5 h-4 w-4" />Edit</Button>
           {item.isActive && <Button type="button" variant="outline" size="sm" onClick={() => deactivate.mutate(item.id)} disabled={deactivate.isPending} aria-label={`Deactivate ${item.name}`}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
         </div>}
-      </CardContent></Card>)}
+      </div>)}
     </div>}
 
     {canManage && <Dialog open={open} onOpenChange={next => { setOpen(next); if (!next) setEditing(null); }}>

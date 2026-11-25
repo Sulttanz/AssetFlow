@@ -23,8 +23,8 @@ export type DataMigrationModule = {
 export const dataMigrationModules: DataMigrationModule[] = [
   {
     key: "assets",
-    title: "Assets & IT Components",
-    summary: "Hardware inventory, endpoint devices, serials, network identifiers, specifications, and audit baseline fields.",
+    title: "Assets",
+    summary: "Hardware inventory, endpoint devices, serials, specifications, and audit baseline fields.",
     featureKey: "asset_management",
     fields: [
       { key: "name", header: "Asset Name*", required: true, sample: "Sample laptop", note: "Required. Asset display name." },
@@ -58,8 +58,8 @@ export const dataMigrationModules: DataMigrationModule[] = [
   },
   {
     key: "consumables",
-    title: "Consumables & Spare Parts",
-    summary: "Part numbers, opening stock, reorder levels, warehouse location, and supplier references.",
+    title: "Consumables",
+    summary: "Consumable inventory with part numbers, opening stock, reorder levels, warehouse locations, and supplier references.",
     featureKey: "asset_management",
     fields: [
       { key: "name", header: "Item Name*", required: true, sample: "Sample toner cartridge", note: "Required item name." },

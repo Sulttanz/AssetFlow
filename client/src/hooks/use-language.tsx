@@ -164,6 +164,8 @@ const arabic: Record<string, string> = {
   "Last Name": "اسم العائلة",
   "Email": "البريد الإلكتروني",
   "Employees (Directory Only)": "الموظفون (الدليل فقط)",
+  "Import row": "صف الاستيراد",
+  "Check the row-by-row validation details below. Review required fields, formats, allowed values, and linked-record references before importing again.": "راجع تفاصيل التحقق لكل صف أدناه. تحقق من الحقول المطلوبة والتنسيقات والقيم المسموح بها ومراجع السجلات المرتبطة قبل إعادة الاستيراد.",
   "None of the rows are ready to import. Nothing has been written to the database.": "لا يوجد صف جاهز للاستيراد. لم تتم كتابة أي بيانات إلى قاعدة البيانات.",
   "Check the row-by-row validation details below. Department and Location must match existing records; Employee ID and Email must be unique when provided.": "راجع تفاصيل التحقق لكل صف أدناه. يجب أن يطابق القسم والموقع سجلات موجودة، ويجب أن يكون رقم الموظف والبريد الإلكتروني فريدين عند إدخالهما.",
   "Department": "القسم",

@@ -5,13 +5,27 @@ import { IncidentCatalogManager } from "./incident-catalog-manager";
 
 vi.mock("@tanstack/react-query", async importOriginal => ({
   ...await importOriginal<typeof import("@tanstack/react-query")>(),
-  useQuery: ({ queryKey }: { queryKey: string[] }) => ({
-    data: queryKey[0] === "/api/incidents/options"
-      ? { projects: [], managedAssignmentGroups: [] }
-      : [],
-    isLoading: false,
-    isError: false,
-  }),
+  useQuery: ({ queryKey }: { queryKey: string[] }) => queryKey[0] === "/api/incidents/options"
+    ? { data: { projects: [], managedAssignmentGroups: [] }, isLoading: false, isError: false }
+    : {
+        data: [{
+          id: "incident-template-1",
+          name: "Email issue",
+          description: "Email is unavailable",
+          category: "Email",
+          icon: null,
+          projectId: null,
+          projectName: null,
+          defaultImpact: "medium",
+          defaultUrgency: "medium",
+          defaultPriority: "P3",
+          defaultAssignmentGroup: null,
+          isActive: true,
+          scope: "Global",
+        }],
+        isLoading: false,
+        isError: false,
+      },
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -26,6 +40,13 @@ afterEach(() => {
 });
 
 describe("incident catalog add form", () => {
+  it("renders incident templates as compact list rows", () => {
+    render(<IncidentCatalogManager />);
+    expect(screen.getByTestId("incident-catalog-list")).toBeTruthy();
+    expect(screen.getByTestId("incident-catalog-row-incident-template-1").textContent).toContain("Email issue");
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+  });
+
   it.each([
     ["desktop", 1280],
     ["mobile", 390],

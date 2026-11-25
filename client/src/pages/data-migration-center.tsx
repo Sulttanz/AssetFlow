@@ -231,58 +231,54 @@ export default function DataMigrationCenter() {
             </div>
             <p className="text-sm text-muted-foreground">Templates include the supported columns and a Field Guide worksheet.</p>
           </div>
-          <div className="grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="overflow-hidden rounded-xl border bg-card">
             {modulesQuery.isLoading ? (
-              <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground" aria-live="polite">Loading enabled import modules…</div>
+              <div className="p-5 text-sm text-muted-foreground" aria-live="polite">Loading enabled import modules…</div>
             ) : modulesQuery.isError ? (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+              <div className="bg-destructive/5 p-5">
                 <p className="text-sm text-destructive">Available import modules could not be loaded.</p>
                 <Button size="sm" variant="outline" className="mt-3" onClick={() => void modulesQuery.refetch()}>Retry</Button>
               </div>
             ) : modules.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">No licensed modules are available for import.</div>
+              <div className="p-5 text-sm text-muted-foreground">No licensed modules are available for import.</div>
             ) : modules.map((module, index) => {
               const active = selectedModule === module.key;
               const moduleFile = active ? file : null;
               const isDragging = draggingModule === module.key;
               return (
-                <Card
+                <section
                   key={module.key}
                   data-testid={`migration-module-${module.key}`}
                   data-selected={active ? "true" : "false"}
-                  className={`flex flex-col overflow-hidden transition-colors ${active ? "border-primary/70 bg-primary/[0.025] ring-1 ring-primary/15" : "hover:border-border/90"}`}
+                  className={`border-b last:border-b-0 transition-colors ${active ? "bg-primary/[0.035]" : "hover:bg-muted/25"}`}
                 >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start gap-3">
-                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md font-mono text-xs font-semibold ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-4 sm:px-4">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md font-mono text-[11px] font-semibold ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <CardTitle className="text-base leading-5">{module.title}</CardTitle>
-                        <CardDescription className="mt-1.5 leading-5">{module.summary}</CardDescription>
+                        <h3 className="text-sm font-semibold leading-5">{module.title}</h3>
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{module.summary}</p>
                       </div>
                       <FileSpreadsheet className="mt-1 h-4 w-4 shrink-0 text-primary/80" aria-hidden="true" />
                     </div>
-                  </CardHeader>
-                  <CardContent className="mt-auto space-y-3">
-                    <div className="flex flex-col items-stretch gap-2 border-t pt-3">
-                      <span className="text-xs font-medium text-muted-foreground">Step 1 <span className="ml-1">Download template</span></span>
+
+                    <div className="flex flex-col gap-2 sm:w-[460px] sm:flex-row sm:items-center">
                       <Button
                         size="sm"
                         variant="outline"
-                        className="w-full"
+                        className="h-9 w-full shrink-0 sm:w-auto"
                         disabled={busy !== null}
                         aria-label={`Download Excel template for ${module.title}`}
                         onClick={() => void downloadTemplate(module.key)}
                       >
                         {busy === "template" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="mr-2 h-4 w-4" aria-hidden="true" />}
-                        Download Excel Template
+                        Template
                       </Button>
-                    </div>
-                    <div>
-                      <p className="mb-2 text-xs font-medium text-muted-foreground">Step 2 <span className="ml-1">Upload your completed file</span></p>
                       <label
-                        className={`group flex min-h-[92px] cursor-pointer items-center justify-center rounded-lg border border-dashed px-3 py-4 text-center transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 ${isDragging ? "border-primary bg-primary/5" : active ? "border-primary/45 bg-background hover:bg-primary/[0.035]" : "border-border bg-muted/25 hover:border-primary/40 hover:bg-muted/50"}`}
+                        className={`group flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-md border border-dashed px-3 text-start transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 ${isDragging ? "border-primary bg-primary/5" : active ? "border-primary/45 bg-background hover:bg-primary/[0.035]" : "border-border bg-muted/25 hover:border-primary/40 hover:bg-muted/50"}`}
+                        title={moduleFile?.name ?? "Upload a completed .xlsx or .csv file"}
                         onDragOver={event => { event.preventDefault(); setDraggingModule(module.key); }}
                         onDragLeave={event => {
                           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingModule(null);
@@ -299,34 +295,21 @@ export default function DataMigrationCenter() {
                             event.currentTarget.value = "";
                           }}
                         />
-                        <span className="flex flex-col items-center gap-1.5">
+                        {moduleFile ? <FileText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <Upload className={`h-4 w-4 shrink-0 ${isDragging ? "text-primary" : "text-muted-foreground"}`} aria-hidden="true" />}
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
                           {moduleFile ? (
-                            <>
-                              <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
-                              <span className="max-w-full truncate text-sm font-medium text-foreground">{moduleFile.name}</span>
-                              <span className="text-xs text-muted-foreground">{(moduleFile.size / 1024 / 1024).toFixed(2)} MB · Choose another file</span>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className={`h-5 w-5 ${isDragging ? "text-primary" : "text-muted-foreground"}`} aria-hidden="true" />
-                              <span className="text-sm font-medium">Upload &amp; Import</span>
-                              <span className="text-xs text-muted-foreground">Drop .xlsx or .csv here, or browse</span>
-                            </>
-                          )}
+                            `${moduleFile.name} · ${(moduleFile.size / 1024 / 1024).toFixed(2)} MB`
+                          ) : "Upload or drop .xlsx / .csv"}
                         </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">Browse</span>
                       </label>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] text-muted-foreground">Step 3 · Validate before import</span>
-                        {moduleFile && (
-                          <Button size="sm" onClick={() => void createPreview()} disabled={busy !== null} aria-label={`Validate ${moduleFile.name}`}>
-                            {busy === "preview" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <FileText className="mr-2 h-4 w-4" aria-hidden="true" />}
-                            Validate file
-                          </Button>
-                        )}
-                      </div>
+                      {moduleFile && <Button size="sm" className="h-9 w-full shrink-0 sm:w-auto" onClick={() => void createPreview()} disabled={busy !== null} aria-label={`Validate ${moduleFile.name}`}>
+                        {busy === "preview" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <FileText className="mr-2 h-4 w-4" aria-hidden="true" />}
+                        Validate
+                      </Button>}
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </section>
               );
             })}
           </div>
@@ -359,7 +342,7 @@ export default function DataMigrationCenter() {
                     {t("None of the rows are ready to import. Nothing has been written to the database.")}
                   </p>
                   <p className="mt-1 text-muted-foreground">
-                    {t("Check the row-by-row validation details below. Department and Location must match existing records; Employee ID and Email must be unique when provided.")}
+                    {t("Check the row-by-row validation details below. Review required fields, formats, allowed values, and linked-record references before importing again.")}
                   </p>
                 </div>
               )}
@@ -376,12 +359,12 @@ export default function DataMigrationCenter() {
                     aria-live="polite"
                     dir={language === "ar" ? "rtl" : "ltr"}
                     tabIndex={0}
-                    data-testid="employee-import-validation-details"
+                    data-testid="migration-validation-details"
                   >
                     <ul className="space-y-2 text-start text-sm">
                       {validationIssues.map((issue, index) => (
                         <li key={`${issue.rowNumber}-${issue.field}-${index}`} className="break-words leading-6">
-                          <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Employee row")}):</strong>{" "}
+                          <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Import row")}):</strong>{" "}
                           {!issue.field
                             ? t(issue.message)
                             : issue.message === "Missing required field"

@@ -19,6 +19,18 @@ vi.mock("@tanstack/react-query", () => ({
           summary: "Employee directory details. Access grants are not created by this import.",
           featureKey: "asset_management",
           fields: [],
+        }, {
+          key: "assets",
+          title: "Assets",
+          summary: "Hardware inventory",
+          featureKey: "asset_management",
+          fields: [],
+        }, {
+          key: "consumables",
+          title: "Consumables",
+          summary: "Consumable inventory",
+          featureKey: "asset_management",
+          fields: [],
         }],
         isLoading: false,
         isError: false,
@@ -89,7 +101,7 @@ describe("employee bulk import validation", () => {
     fireEvent.change(fileInput, { target: { files: [new File(["xlsx"], "employees.xlsx")] } });
     fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
 
-    const details = await screen.findByTestId("employee-import-validation-details");
+    const details = await screen.findByTestId("migration-validation-details");
     expect(details.getAttribute("dir")).toBe("ltr");
     expect(details.textContent).toContain('Row 109 (EMP-108 - Mahmoud): Missing required field "Last Name"');
     expect(screen.getByTestId("migration-no-valid-rows").textContent).toContain("Nothing has been written to the database");
@@ -107,6 +119,17 @@ describe("employee bulk import validation", () => {
     window.history.replaceState({}, "", "/import?module=employees");
     render(<DataMigrationCenter />);
     expect(screen.getByTestId("migration-module-employees").getAttribute("data-selected")).toBe("true");
+  });
+
+  it("shows inventory imports as separate compact asset and consumable rows only", () => {
+    render(<DataMigrationCenter />);
+    expect(screen.getByTestId("migration-module-assets").textContent).toContain("Assets");
+    expect(screen.getByTestId("migration-module-consumables").textContent).toContain("Consumables");
+    expect(screen.queryByText(/Assets & IT Components|Consumables & Spare Parts/i)).toBeNull();
+    expect(screen.queryByTestId("migration-module-components")).toBeNull();
+    expect(screen.queryByTestId("migration-module-spare_parts")).toBeNull();
+    expect(screen.getByRole("button", { name: "Download Excel template for Assets" })).toBeTruthy();
+    expect(screen.getByLabelText("Upload and import XLSX or CSV for Consumables")).toBeTruthy();
   });
 
   it("shows row errors even when an older preview response omits structured validation details", async () => {
@@ -135,7 +158,7 @@ describe("employee bulk import validation", () => {
     fireEvent.change(fileInput, { target: { files: [new File(["xlsx"], "employees.xlsx")] } });
     fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
 
-    const details = await screen.findByTestId("employee-import-validation-details");
+    const details = await screen.findByTestId("migration-validation-details");
     expect(details.textContent).toContain("Row 2 (EMP-2 - Noor): Last Name* is required.");
     expect(screen.getByTestId("migration-no-valid-rows")).toBeTruthy();
   });

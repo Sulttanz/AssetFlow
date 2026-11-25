@@ -126,10 +126,18 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     expect((await fetch(`${base}/api/import/modules`, { headers: headers(noRoleId) })).status).toBe(403);
   });
 
-  it("provides all fifteen guided templates and an additive staging migration", async () => {
+  it("provides all fifteen supported templates and an additive staging migration", async () => {
     const source = await readFile("migrations/onprem/20261109_data_migration_center.sql", "utf8");
     expect(() => assertAdditiveMigration(source, "data-migration-center")).not.toThrow();
     expect(dataMigrationModules).toHaveLength(15);
+    expect(dataMigrationModules.map(module => module.key)).toEqual([
+      "assets", "consumables", "employees", "applications", "servers", "network", "backups",
+      "vendors", "finance", "knowledge", "project_tasks", "project_milestones", "incidents",
+      "service_requests", "risks",
+    ]);
+    expect(dataMigrationModules.find(module => module.key === "assets")?.title).toBe("Assets");
+    expect(dataMigrationModules.find(module => module.key === "consumables")?.title).toBe("Consumables");
+    expect(dataMigrationModules.some(module => ["components", "spare_parts"].includes(module.key))).toBe(false);
     const enabledModules = await (await fetch(`${base}/api/import/modules`, { headers: headers() })).json();
     expect(enabledModules).toHaveLength(15);
     for (const module of dataMigrationModules) {
@@ -154,6 +162,30 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       body.append("file", new Blob([sample as BlobPart]), "sample.xlsx");
       const sampleResponse = await fetch(`${base}/api/data-migrations/${module.key}/preview`, { method: "POST", headers: headers(), body });
       expect(sampleResponse.status).toBe(400);
+    }
+  });
+
+  it("reports invalid rows for every supported import type and refuses to write invalid-only batches", async () => {
+    for (const module of dataMigrationModules) {
+      const typedField = module.fields.find(field => field.kind && field.kind !== "string");
+      if (!typedField) throw new Error(`${module.key} has no typed field for a malformed-row regression test.`);
+      const invalidValue = typedField.kind === "date" ? "31-02-2026"
+        : typedField.kind === "integer" || typedField.kind === "number" ? "not-a-number"
+        : typedField.kind === "boolean" ? "not-a-boolean"
+        : typedField.kind === "email" ? "not-an-email"
+        : "__invalid_enum__";
+      const preview = await previewCsv(module.key, [{ [typedField.key]: invalidValue }]);
+      expect(preview.moduleKey).toBe(module.key);
+      expect(preview, module.key).toMatchObject({ totalRows: 1, validRows: 0, invalidRows: 1 });
+      expect(preview.errors.length).toBeGreaterThan(0);
+
+      const commit = await post(`/api/import/${module.key}/${preview.batchId}/commit`, { confirm: true });
+      expect(commit.status, `${module.key}: invalid-only import should not write`).toBe(409);
+      expect(await commit.json()).toMatchObject({ message: "There are no valid rows to import." });
+
+      const [batch] = await db.select().from(dataMigrationBatches).where(eq(dataMigrationBatches.id, preview.batchId));
+      expect(batch).toMatchObject({ moduleKey: module.key, status: "preview", validRows: 0, invalidRows: 1 });
+      expect(batch.previewData).toBeTruthy();
     }
   });
 
