@@ -4511,4 +4511,55 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
       auditSpy.mockRestore();
     }
   }, 15_000);
+
+  it("records a late CAB rejection without reversing a started non-CAB change", async () => {
+    const managerId = randomUUID();
+    const approverId = randomUUID();
+    const changeId = randomUUID();
+    const approvalId = randomUUID();
+    await db.insert(users).values([
+      { id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+        password: "test-only", firstName: "Change", lastName: "Manager" },
+      { id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "CAB", lastName: "Approver" },
+    ]);
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Late optional CAB vote",
+      type: "standard", risk: "low", status: "approved", cabRequired: false,
+    });
+    await db.insert(changeApprovals).values({
+      id: approvalId, changeId, approverId, originalApproverId: approverId,
+      approverLabel: "CAB Approver", decision: "pending",
+    });
+
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    try {
+      const startResponse = await fetch(`${baseUrl}/api/changes/${changeId}/start`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      expect(startResponse.status).toBe(200);
+      expect(await startResponse.json()).toMatchObject({ status: "in_progress", cabRequired: false });
+
+      const voteResponse = await fetch(`${baseUrl}/api/changes/${changeId}/approvals/${approvalId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": approverId },
+        body: JSON.stringify({ decision: "rejected", comments: "Late rejection" }),
+      });
+      expect(voteResponse.status).toBe(200);
+      expect(await voteResponse.json()).toMatchObject({
+        decision: "rejected", comments: "Late rejection",
+      });
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      const [savedApproval] = await db.select().from(changeApprovals).where(eq(changeApprovals.id, approvalId));
+      expect(savedChange.status).toBe("in_progress");
+      expect(savedChange.actualStart).toBeInstanceOf(Date);
+      expect(savedApproval).toMatchObject({
+        decision: "rejected", comments: "Late rejection",
+      });
+    } finally {
+      permissionSpy.mockRestore();
+    }
+  }, 15_000);
 });

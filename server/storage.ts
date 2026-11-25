@@ -4977,6 +4977,7 @@ export class DatabaseStorage implements IStorage {
       // then serialize, so each status calculation sees the preceding vote.
       const [change] = await tx.select({
         id: changes.id,
+        status: changes.status,
         cabReviewVersion: changes.cabReviewVersion,
       }).from(changes)
         .where(eq(changes.id, changeId)).for("update");
@@ -5010,13 +5011,17 @@ export class DatabaseStorage implements IStorage {
           eq(changeApprovals.reviewVersion, change.cabReviewVersion),
           isNull(changeApprovals.removedAt),
         ));
-      if (active.some(a => a.decision === "rejected")) {
-        await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
-          .where(eq(changes.id, changeId));
-      } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
-        await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
-          .where(eq(changes.id, changeId));
-        await ensureApprovedProjectChangeTask(tx, changeId);
+      // Optional CAB assignments can still be pending when a non-CAB change
+      // starts. Record their late decision, but never let it undo implementation.
+      if (change.status !== "in_progress") {
+        if (active.some(a => a.decision === "rejected")) {
+          await tx.update(changes).set({ status: "rejected", approvedAt: null, updatedAt: new Date() })
+            .where(eq(changes.id, changeId));
+        } else if (active.length > 0 && active.every(a => a.decision === "approved")) {
+          await tx.update(changes).set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+            .where(eq(changes.id, changeId));
+          await ensureApprovedProjectChangeTask(tx, changeId);
+        }
       }
       return approval;
     });
