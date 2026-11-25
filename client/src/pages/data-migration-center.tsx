@@ -277,7 +277,7 @@ export default function DataMigrationCenter() {
                         Template
                       </Button>
                       <label
-                        className={`group flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-md border border-dashed px-3 text-start transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 ${isDragging ? "border-primary bg-primary/5" : active ? "border-primary/45 bg-background hover:bg-primary/[0.035]" : "border-border bg-muted/25 hover:border-primary/40 hover:bg-muted/50"}`}
+                        className={`group flex min-h-11 h-auto min-w-0 flex-1 flex-wrap cursor-pointer items-center gap-2 overflow-visible rounded-md border border-dashed px-3 py-2 text-start transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 md:h-9 md:min-h-9 md:flex-nowrap md:overflow-hidden md:py-0 ${isDragging ? "border-primary bg-primary/5" : active ? "border-primary/45 bg-background hover:bg-primary/[0.035]" : "border-border bg-muted/25 hover:border-primary/40 hover:bg-muted/50"}`}
                         title={moduleFile?.name ?? "Upload a completed .xlsx or .csv file"}
                         onDragOver={event => { event.preventDefault(); setDraggingModule(module.key); }}
                         onDragLeave={event => {
@@ -296,7 +296,7 @@ export default function DataMigrationCenter() {
                           }}
                         />
                         {moduleFile ? <FileText className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" /> : <Upload className={`h-4 w-4 shrink-0 ${isDragging ? "text-primary" : "text-muted-foreground"}`} aria-hidden="true" />}
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                        <span className="min-w-0 flex-1 break-all text-xs font-medium md:truncate md:break-normal">
                           {moduleFile ? (
                             `${moduleFile.name} · ${(moduleFile.size / 1024 / 1024).toFixed(2)} MB`
                           ) : "Upload or drop .xlsx / .csv"}

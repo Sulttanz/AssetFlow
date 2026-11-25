@@ -325,27 +325,27 @@ export default function PortalPage() {
         </DialogContent>
       </Dialog>
     <Dialog open={Boolean(receiptToAcknowledge)} onOpenChange={open => { if (!open) setReceiptToAcknowledge(null); }}>
-      <DialogContent aria-describedby={undefined} className="max-w-lg rounded-[22px] border-[#d4e2de] bg-[#fffdfa]">
-        <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#6d8982]">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-[#234343]">Review this handover</DialogTitle></DialogHeader>
+      <DialogContent aria-describedby={undefined} className="max-w-lg rounded-[22px] border-border bg-card text-foreground">
+        <DialogHeader><p className="text-xs font-semibold uppercase tracking-[.14em] text-primary">Confirm custody</p><DialogTitle className="text-2xl tracking-[-.04em] text-foreground">Review this handover</DialogTitle></DialogHeader>
         {receiptToAcknowledge && <div className="space-y-4">
-          <p className="text-sm leading-6 text-[#6c837d]">Confirm that the equipment details below match the item in your care. Your acknowledgement will be recorded under <strong className="font-semibold text-[#31564f]">{receiptToAcknowledge.employeeName}</strong>.</p>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-2xl border border-[#e2ebe6] bg-[#f6f9f6] p-4">
+          <p className="text-sm leading-6 text-muted-foreground">Confirm that the equipment details below match the item in your care. Your acknowledgement will be recorded under <strong className="font-semibold text-foreground">{receiptToAcknowledge.employeeName}</strong>.</p>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-4 rounded-2xl border border-border bg-muted/30 p-4 sm:grid-cols-2">
             <CustodyDetail label="Equipment" value={receiptToAcknowledge.assetName} /><CustodyDetail label="Asset tag" value={receiptToAcknowledge.assetTag} />
             <CustodyDetail label="Serial number" value={receiptToAcknowledge.serialNumber || "Not recorded"} /><CustodyDetail label="Handover date" value={dateLabel(receiptToAcknowledge.handoverDate)} />
             <CustodyDetail label="Condition" value={receiptToAcknowledge.condition} /><CustodyDetail label="Accessories" value={receiptToAcknowledge.includedAccessories?.length ? receiptToAcknowledge.includedAccessories.join(", ") : "None listed"} />
-            {receiptToAcknowledge.notes && <div className="col-span-2"><CustodyDetail label="Notes" value={receiptToAcknowledge.notes} /></div>}
+            {receiptToAcknowledge.notes && <div className="sm:col-span-2"><CustodyDetail label="Notes" value={receiptToAcknowledge.notes} /></div>}
           </div>
-          <p className="text-xs leading-5 text-[#82948e]">This is an explicit acknowledgement of the receipt. No drawn signature or name entry is required.</p>
+          <p className="text-xs leading-5 text-muted-foreground">This is an explicit acknowledgement of the receipt. No drawn signature or name entry is required.</p>
         </div>}
-        <DialogFooter className="mt-2 gap-2 sm:gap-2"><Button variant="outline" disabled={acknowledgeMutation.isPending} onClick={() => setReceiptToAcknowledge(null)} className="rounded-full border-[#d5e1db]">Not now</Button><Button disabled={!receiptToAcknowledge || acknowledgeMutation.isPending} onClick={() => receiptToAcknowledge && acknowledgeMutation.mutate(receiptToAcknowledge)} className="rounded-full bg-[#285f5d] hover:bg-[#1f514f]">{acknowledgeMutation.isPending ? "Recording…" : "Confirm acknowledgement"}</Button></DialogFooter>
-        {acknowledgeMutation.isError && <p role="alert" className="text-sm text-[#a15e49]">Could not record acknowledgement. Please try again.</p>}
+        <DialogFooter className="mt-2 flex-col-reverse gap-2 sm:flex-row sm:gap-2"><Button type="button" variant="outline" disabled={acknowledgeMutation.isPending} onClick={() => setReceiptToAcknowledge(null)} className="w-full sm:w-auto">Not now</Button><Button type="button" disabled={!receiptToAcknowledge || acknowledgeMutation.isPending} onClick={() => receiptToAcknowledge && acknowledgeMutation.mutate(receiptToAcknowledge)} className="w-full sm:w-auto">{acknowledgeMutation.isPending ? "Recording…" : "Confirm acknowledgement"}</Button></DialogFooter>
+        {acknowledgeMutation.isError && <p role="alert" className="text-sm text-destructive">Could not record acknowledgement. Please try again.</p>}
       </DialogContent>
     </Dialog>
   </main>;
 }
 
 function CustodyDetail({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#849690]">{label}</p><p className="mt-1 text-sm font-medium text-[#34514c]">{value || "—"}</p></div>;
+  return <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">{label}</p><p className="mt-1 break-words text-sm font-medium text-foreground">{value || "—"}</p></div>;
 }
 
 function SearchResults({ title, icon, loading, error, retry, empty, emptyLabel, children }: {

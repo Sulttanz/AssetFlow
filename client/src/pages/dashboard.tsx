@@ -486,11 +486,11 @@ export default function Dashboard() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-semibold text-foreground group-hover:text-primary">{item.title}</p>
+                          <p className="break-words text-sm font-semibold text-foreground group-hover:text-primary md:truncate">{item.title}</p>
                           <Badge variant="outline" className={`h-5 border px-1.5 text-[9px] font-bold uppercase tracking-[0.1em] ${priorityBadge(item.priority)}`}>{item.priority}</Badge>
                           <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{t(formatType(item.type))}</span>
                         </div>
-                        <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{item.description}</p>
+                        <p className="mt-1 break-words text-xs text-muted-foreground md:line-clamp-1">{item.description}</p>
                       </div>
                       <div className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
                         {item.createdAt && <><Clock3 className="h-3 w-3" />{formatRelative(item.createdAt)}</>}

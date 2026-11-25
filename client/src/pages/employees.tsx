@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import EmployeeOffboardingDialog from "@/components/employees/employee-offboarding-dialog";
-import { Edit, KeyRound, Upload, UserCheck, UserX, Users } from "lucide-react";
+import { Edit, Eye, KeyRound, Upload, UserCheck, UserX, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -37,6 +37,7 @@ export default function Employees() {
   const canApproveOffboarding = canManageEmployees || !!user?.permissions?.includes("offboarding_approve");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
+  const [viewedEmployee, setViewedEmployee] = useState<EmployeeWithDetails | null>(null);
   const [offboardingEmployee, setOffboardingEmployee] = useState<EmployeeWithDetails | null>(null);
   const [reactivationEmployee, setReactivationEmployee] = useState<EmployeeWithDetails | null>(null);
   const [reactivationReason, setReactivationReason] = useState("");
@@ -82,6 +83,7 @@ export default function Employees() {
     return (
       employee.firstName.toLowerCase().includes(searchLower) ||
       employee.lastName.toLowerCase().includes(searchLower) ||
+      (employee.employeeId ?? "").toLowerCase().includes(searchLower) ||
       (employee.email ?? "").toLowerCase().includes(searchLower) ||
       departmentName.toLowerCase().includes(searchLower) ||
       employee.position.toLowerCase().includes(searchLower) ||
@@ -123,6 +125,8 @@ export default function Employees() {
     setEmployeeFormTab(tab);
     setIsFormOpen(true);
   };
+
+  const handleViewEmployee = (employee: EmployeeWithDetails) => setViewedEmployee(employee);
 
   const handleOffboardEmployee = (employee: EmployeeWithDetails) => {
     setOffboardingEmployee(employee);
@@ -166,9 +170,9 @@ export default function Employees() {
         )}
       </Header>
 
-      <main className="p-6" data-testid="employees-content">
+      <main className="min-w-0 p-3 sm:p-4 md:p-6" data-testid="employees-content">
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-3 sm:p-6">
             <Tabs
               value={employeeView}
               onValueChange={value => {
@@ -176,11 +180,11 @@ export default function Employees() {
                 setCurrentPage(1);
               }}
             >
-              <TabsList className="grid w-full max-w-xl grid-cols-2">
-                <TabsTrigger value="active" className="gap-2">
+              <TabsList className="grid h-auto w-full max-w-xl grid-cols-2 gap-1 p-1">
+                <TabsTrigger value="active" className="h-auto min-h-10 gap-1 whitespace-normal px-2 py-2 text-xs sm:gap-2 sm:text-sm">
                   Active Employees <Badge variant="secondary">{employees?.filter(employee => employee.status !== "disabled").length ?? 0}</Badge>
                 </TabsTrigger>
-                <TabsTrigger value="disabled" className="gap-2">
+                <TabsTrigger value="disabled" className="h-auto min-h-10 gap-1 whitespace-normal px-2 py-2 text-xs sm:gap-2 sm:text-sm">
                   Disabled / Offboarded History <Badge variant="secondary">{employees?.filter(employee => employee.status === "disabled").length ?? 0}</Badge>
                 </TabsTrigger>
               </TabsList>
@@ -206,19 +210,25 @@ export default function Employees() {
                   </TableHeader>
                   <TableBody>
                     {paginatedEmployees.length > 0 ? paginatedEmployees.map((employee) => (
-                      <TableRow key={employee.id} className="h-10" data-testid={`employee-row-${employee.id}`}>
+                      <TableRow
+                        key={employee.id}
+                        className="cursor-pointer hover:bg-muted/30 focus-within:bg-muted/30"
+                        data-testid={`employee-row-${employee.id}`}
+                        onClick={() => handleViewEmployee(employee)}
+                      >
                         <TableCell
-                          className={`px-2 py-1.5 text-xs font-medium ${String(employee.employeeId ?? "").length > 20 ? "break-all" : "whitespace-nowrap"}`}
+                          className="break-all px-2 py-1.5 text-xs font-medium md:whitespace-nowrap"
                           data-testid={`employee-id-${employee.id}`}
                           title={employee.employeeId ?? undefined}
                         >
                           {employee.employeeId || "-"}
                         </TableCell>
-                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5 font-medium" title={`${employee.firstName} ${employee.lastName}`}>
-                          {employee.firstName} {employee.lastName}
+                        <TableCell className="min-w-0 break-words px-2 py-1.5 font-medium md:truncate md:whitespace-nowrap" title={`${employee.firstName} ${employee.lastName}`}>
+                          <span>{employee.firstName} {employee.lastName}</span>
+                          <span className="mt-0.5 block break-words text-xs font-normal text-muted-foreground md:hidden">{employee.position}</span>
                         </TableCell>
-                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" title={employee.email ?? undefined}>{employee.email || "—"}</TableCell>
-                        <TableCell className="truncate whitespace-nowrap px-2 py-1.5" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
+                        <TableCell className="min-w-0 break-words px-2 py-1.5 md:truncate md:whitespace-nowrap" title={employee.email ?? undefined}>{employee.email || "—"}</TableCell>
+                        <TableCell className="min-w-0 break-words px-2 py-1.5 md:truncate md:whitespace-nowrap" data-testid={`employee-department-${employee.id}`} title={employee.departmentDetails?.name || employee.department || undefined}>
                           {employee.departmentDetails?.name || employee.department || "-"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap px-2 py-1.5">
@@ -229,8 +239,20 @@ export default function Employees() {
                             {employee.status === "disabled" ? "Disabled" : "Active"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap px-2 py-1.5">
-                          <div className="flex flex-nowrap items-center justify-end gap-1">
+                        <TableCell className="whitespace-nowrap px-2 py-1.5" onClick={event => event.stopPropagation()}>
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 p-0 2xl:w-auto 2xl:px-2"
+                              aria-label={`View ${employee.firstName} ${employee.lastName}`}
+                              title="View employee details"
+                              onClick={() => handleViewEmployee(employee)}
+                              data-testid={`view-employee-${employee.id}`}
+                            >
+                              <Eye className="h-3.5 w-3.5 2xl:mr-1" /><span className="hidden 2xl:inline">View</span>
+                            </Button>
                             {canManageEmployees && <Button
                               variant="outline"
                               size="sm"
@@ -308,7 +330,7 @@ export default function Employees() {
                 </div>
                 
                 <Pagination>
-                  <PaginationContent>
+                  <PaginationContent className="flex-wrap justify-center">
                     <PaginationItem>
                       <PaginationPrevious 
                         onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
@@ -350,6 +372,35 @@ export default function Employees() {
             </Tabs>
           </CardContent>
         </Card>
+
+        <Dialog open={Boolean(viewedEmployee)} onOpenChange={open => { if (!open) setViewedEmployee(null); }}>
+          <DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] max-w-xl overflow-y-auto" data-testid="employee-details-dialog">
+            <DialogHeader>
+              <DialogTitle>
+                {viewedEmployee ? `${viewedEmployee.firstName} ${viewedEmployee.lastName}` : "Employee details"}
+              </DialogTitle>
+              <DialogDescription>Employee directory details and current lifecycle status.</DialogDescription>
+            </DialogHeader>
+            {viewedEmployee && (
+              <dl className="grid min-w-0 grid-cols-1 gap-x-5 gap-y-4 text-sm sm:grid-cols-2">
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Employee ID</dt><dd className="mt-1 break-all font-medium">{viewedEmployee.employeeId || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Status</dt><dd className="mt-1"><Badge variant={viewedEmployee.status === "disabled" ? "secondary" : "default"}>{viewedEmployee.status === "disabled" ? "Disabled" : "Active"}</Badge></dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Email</dt><dd className="mt-1 break-words">{viewedEmployee.email || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Mobile</dt><dd className="mt-1 break-words">{viewedEmployee.mobile || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Phone</dt><dd className="mt-1 break-words">{viewedEmployee.phone || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Department</dt><dd className="mt-1 break-words">{viewedEmployee.departmentDetails?.name || viewedEmployee.department || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Job title</dt><dd className="mt-1 break-words">{viewedEmployee.position || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Location</dt><dd className="mt-1 break-words">{viewedEmployee.locationDetails?.name || "—"}</dd></div>
+                <div className="min-w-0"><dt className="text-xs font-medium text-muted-foreground">Start date</dt><dd className="mt-1">{viewedEmployee.startDate ? formatDateDisplay(viewedEmployee.startDate) : "—"}</dd></div>
+                {viewedEmployee.status === "disabled" && <div className="min-w-0 sm:col-span-2"><dt className="text-xs font-medium text-muted-foreground">Offboarding details</dt><dd className="mt-1 break-words">{[viewedEmployee.offboardedDate ? formatDateDisplay(viewedEmployee.offboardedDate) : null, viewedEmployee.offboardedReason].filter(Boolean).join(" · ") || "No additional details"}</dd></div>}
+              </dl>
+            )}
+            <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setViewedEmployee(null)}>Close</Button>
+              {canManageEmployees && viewedEmployee && <Button type="button" className="w-full sm:w-auto" onClick={() => { const employee = viewedEmployee; setViewedEmployee(null); handleEditEmployee(employee); }}><Edit className="mr-2 h-4 w-4" />Edit employee</Button>}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Employee Form Dialog */}
         <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>

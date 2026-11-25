@@ -1007,18 +1007,19 @@ export default function Changes() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="border-b bg-card px-3 py-3 text-foreground md:px-6 md:py-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           <GitMerge className="h-6 w-6 text-teal-600" />
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-semibold">Change Management</h1>
-            <p className="text-sm text-muted-foreground">Full lifecycle — from request to production deployment</p>
+            <p className="break-words text-sm text-muted-foreground">Full lifecycle — from request to production deployment</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end md:gap-3">
           <Popover open={pendingVotesOpen} onOpenChange={setPendingVotesOpen}>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative" aria-label={`Pending CAB votes: ${myPendingChanges.length}`}>
+              <Button type="button" variant="ghost" size="icon" className="relative" aria-label={`Pending CAB votes: ${myPendingChanges.length}`}>
                 <Bell className="h-5 w-5" />
                 {myPendingChanges.length > 0 && (
                   <Badge className="absolute -top-1 -right-1 h-5 min-w-5 justify-center px-1 text-[10px]">
@@ -1027,7 +1028,7 @@ export default function Changes() {
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 p-2">
+            <PopoverContent align="end" className="w-[calc(100vw-2rem)] max-w-80 p-2">
               <p className="px-2 py-1 text-sm font-semibold">My pending CAB votes</p>
               {myPendingChanges.length === 0 ? (
                 <p className="px-2 py-3 text-sm text-muted-foreground">No votes pending</p>
@@ -1043,11 +1044,12 @@ export default function Changes() {
               ))}
             </PopoverContent>
           </Popover>
-          {(isAdmin || isChangeManager) && <Button asChild className="gap-2"><Link href="/changes/new"><Plus className="h-4 w-4" />Propose Change</Link></Button>}
+          {(isAdmin || isChangeManager) && <Button asChild className="min-h-11 w-full gap-2 md:w-auto"><Link href="/changes/new"><Plus className="h-4 w-4" />Propose Change</Link></Button>}
+        </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
+      <div className="min-w-0 flex-1 overflow-auto p-3 md:p-6 space-y-4">
         {alertLinkUnavailable && (
           <div role="alert" className="flex items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             <div className="flex items-start gap-2">
@@ -1160,7 +1162,20 @@ export default function Changes() {
                   </TableHeader>
                   <TableBody>
                     {changes.map(c => (
-                      <TableRow key={c.id} className="cursor-pointer hover:bg-muted/30" onClick={() => { setAlertLinkUnavailable(false); setDetailTab("details"); setSelectedChange(c); }}>
+                      <TableRow
+                        key={c.id}
+                        className="cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        tabIndex={0}
+                        aria-label={`Open change ${c.changeNumber}: ${c.title}`}
+                        onKeyDown={event => {
+                          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                          event.preventDefault();
+                          setAlertLinkUnavailable(false);
+                          setDetailTab("details");
+                          setSelectedChange(c);
+                        }}
+                        onClick={() => { setAlertLinkUnavailable(false); setDetailTab("details"); setSelectedChange(c); }}
+                      >
                         <TableCell className="font-mono text-sm">{c.changeNumber}</TableCell>
                         <TableCell className="font-medium max-w-[200px] truncate">{c.title}</TableCell>
                         <TableCell><Badge className={TYPE_COLORS[c.type] ?? ""}>{c.type}</Badge></TableCell>
@@ -1260,7 +1275,7 @@ export default function Changes() {
                 <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Impact</p>
                 <p className="text-sm">{currentChange?.impact || "—"}</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div><p className="text-xs font-medium text-muted-foreground uppercase mb-1">Requested By</p><p className="text-sm flex items-center gap-1"><User className="h-3.5 w-3.5 text-muted-foreground" />{userLabel(currentChange?.requestedBy)}</p></div>
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Assigned To</p>
@@ -1283,7 +1298,7 @@ export default function Changes() {
                   <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-1.5">
                     <UserCheck className="h-3.5 w-3.5" />Change Advisory Board
                   </p>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                     <div>
                       <p className="text-xs text-muted-foreground">CAB Meeting Scheduled</p>
                       <p className="font-medium">{currentChange.cabScheduledFor ? appFormatDate(currentChange.cabScheduledFor) : "Not yet scheduled"}</p>

@@ -386,11 +386,11 @@ export default function ProjectsPage() {
 
             <div className="space-y-3 p-3 md:hidden">
               {projects.map(project => (
-                <article key={project.id} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+               <article key={project.id} className="space-y-3 rounded-xl border border-border bg-card p-4 text-foreground">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <button className="line-clamp-2 text-left font-semibold text-blue-700" onClick={() => void openDetails(project)}>{project.title}</button>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{project.description || "No description"}</p>
+                       <button type="button" className="break-words text-start font-semibold text-primary" onClick={() => void openDetails(project)}>{project.title}</button>
+                       <p className="mt-1 break-words text-sm text-muted-foreground">{project.description || "No description"}</p>
                     </div>
                     <Badge variant="outline" className={`shrink-0 ${projectStatusClass(project.status)}`}>{project.status}</Badge>
                   </div>
@@ -399,7 +399,7 @@ export default function ProjectsPage() {
                     <Badge variant="secondary">{money(project.budget)}</Badge>
                   </div>
                   <ProjectOwnership project={project} />
-                  <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                   <dl className="grid grid-cols-1 gap-x-3 gap-y-2 text-sm sm:grid-cols-2">
                     <div><dt className="text-xs text-muted-foreground">Schedule</dt><dd>{date(project.startDate)} – {date(project.targetEndDate)}</dd></div>
                   </dl>
                   <div className="flex flex-wrap gap-2 border-t pt-3">

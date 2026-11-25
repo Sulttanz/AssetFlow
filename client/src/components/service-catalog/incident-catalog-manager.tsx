@@ -103,7 +103,7 @@ export function IncidentCatalogManager() {
       {itemsQuery.data.map(item => <div key={item.id} data-testid={`incident-catalog-row-${item.id}`} className="flex flex-col gap-3 border-b p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:px-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.name}</h3><Badge variant={item.isActive ? "default" : "secondary"}>{item.isActive ? "Active" : "Inactive"}</Badge><Badge variant="outline">{item.projectId ? item.projectName ?? "Project-scoped" : "Global"}</Badge></div>
-          <p className="mt-1 truncate text-sm text-muted-foreground">{item.description || item.category}</p>
+          <p className="mt-1 break-words text-sm text-muted-foreground md:truncate">{item.description || item.category}</p>
           <p className="mt-1 text-xs text-muted-foreground">{item.category} · {item.defaultPriority} · Impact {item.defaultImpact} / Urgency {item.defaultUrgency}{item.defaultAssignmentGroup ? ` · ${item.defaultAssignmentGroup}` : ""}</p>
         </div>
         {canManage && <div className="flex shrink-0 gap-2">

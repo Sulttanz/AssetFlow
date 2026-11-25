@@ -227,15 +227,15 @@ export default function ConsumablesPage() {
   return <main className="space-y-5 p-4 md:p-8" data-testid="consumables-page">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-2xl font-bold">Consumables Inventory</h1><p className="mt-1 text-sm text-muted-foreground">Track supply levels across warehouses, issue items, and prepare replenishment orders.</p></div>
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={openLocationCreate}><Warehouse className="mr-2 h-4 w-4" />Add location</Button>
-        {view === "inventory" && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Add consumable</Button>}
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <Button className="w-full sm:w-auto" variant="outline" onClick={openLocationCreate}><Warehouse className="mr-2 h-4 w-4" />Add location</Button>
+        {view === "inventory" && <Button className="w-full sm:w-auto" onClick={openCreate}><Plus className="mr-2 h-4 w-4" />Add consumable</Button>}
       </div>
     </header>
 
-    <div className="flex gap-2 border-b">
-      <button className={`border-b-2 px-3 py-2 text-sm font-medium ${view === "inventory" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`} onClick={() => setView("inventory")}>Inventory</button>
-      <button className={`border-b-2 px-3 py-2 text-sm font-medium ${view === "locations" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`} onClick={() => setView("locations")}>Warehouse locations</button>
+      <div className="flex flex-wrap gap-2 border-b">
+        <button type="button" className={`min-h-11 border-b-2 px-3 py-2 text-start text-sm font-medium ${view === "inventory" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`} onClick={() => setView("inventory")}>Inventory</button>
+        <button type="button" className={`min-h-11 border-b-2 px-3 py-2 text-start text-sm font-medium ${view === "locations" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`} onClick={() => setView("locations")}>Warehouse locations</button>
     </div>
 
     {view === "inventory" ? <>
@@ -244,10 +244,10 @@ export default function ConsumablesPage() {
         <Card><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">Units in stock</p><p className="mt-1 text-2xl font-semibold">{totalUnits.toLocaleString()}</p></div><PackagePlus className="h-5 w-5 text-primary" /></CardContent></Card>
         <Card className={lowStockCount ? "border-amber-300" : ""}><CardContent className="flex items-center justify-between p-4"><div><p className="text-xs text-muted-foreground">Below reorder level</p><p className="mt-1 text-2xl font-semibold">{lowStockCount}</p></div><AlertTriangle className={`h-5 w-5 ${lowStockCount ? "text-amber-600" : "text-green-600"}`} /></CardContent></Card>
       </section>
-      <section className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[220px] flex-1 sm:max-w-md"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search name, part number, vendor, or location" aria-label="Search consumables" /></div>
-         <Select value={categoryFilter} onValueChange={setCategoryFilter}><SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{filterCategories.map(category => <SelectItem key={category.value} value={category.value}>{category.label}</SelectItem>)}</SelectContent></Select>
-        <Button variant={lowOnly ? "default" : "outline"} onClick={() => setLowOnly(value => !value)} aria-pressed={lowOnly}><AlertTriangle className="mr-2 h-4 w-4" />Low stock ({lowStockCount})</Button>
+      <section className="grid min-w-0 grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <div className="relative min-w-0 w-full sm:max-w-md sm:flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search name, part number, vendor, or location" aria-label="Search consumables" /></div>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}><SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{filterCategories.map(category => <SelectItem key={category.value} value={category.value}>{category.label}</SelectItem>)}</SelectContent></Select>
+        <Button className="w-full sm:w-auto" variant={lowOnly ? "default" : "outline"} onClick={() => setLowOnly(value => !value)} aria-pressed={lowOnly}><AlertTriangle className="mr-2 h-4 w-4" />Low stock ({lowStockCount})</Button>
       </section>
       <Card className="overflow-hidden">
         <div className="overflow-x-auto"><Table>

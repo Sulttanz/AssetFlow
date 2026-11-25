@@ -338,7 +338,7 @@ export default function UsersPage() {
           </DialogHeader>
           {selectedUser && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                 <div>
                   <label className="font-medium text-muted-foreground">Name</label>
                   <div className="font-medium" data-testid="view-name">

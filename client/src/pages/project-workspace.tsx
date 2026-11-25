@@ -72,10 +72,10 @@ export default function ProjectWorkspacePage() {
   });
 
   if (projectQuery.isLoading) {
-    return <main className="min-h-full space-y-4 bg-[#F8FAFC] p-4 md:p-6"><Skeleton className="h-12 w-64" /><Skeleton className="h-20 w-full" /><Skeleton className="h-96 w-full" /></main>;
+    return <main className="min-h-full space-y-4 bg-background p-4 text-foreground md:p-6"><Skeleton className="h-12 w-64" /><Skeleton className="h-20 w-full" /><Skeleton className="h-96 w-full" /></main>;
   }
   if (projectQuery.isError || !project) {
-    return <main className="min-h-full bg-[#F8FAFC] p-4 md:p-6"><Card className="mx-auto max-w-2xl border-rose-200 bg-white"><CardContent className="space-y-3 p-6"><h1 className="text-lg font-semibold">Project workspace unavailable</h1><p className="text-sm text-muted-foreground">{projectQuery.error?.message ?? "This project could not be found or you do not have permission to view it."}</p><Button className="min-h-11" variant="outline" onClick={() => setLocation("/projects")}><ArrowLeft className="mr-2 h-4 w-4" />Back to projects</Button></CardContent></Card></main>;
+    return <main className="min-h-full bg-background p-4 text-foreground md:p-6"><Card className="mx-auto max-w-2xl border-rose-200 bg-card"><CardContent className="space-y-3 p-6"><h1 className="text-lg font-semibold">Project workspace unavailable</h1><p className="text-sm text-muted-foreground">{projectQuery.error?.message ?? "This project could not be found or you do not have permission to view it."}</p><Button className="min-h-11" variant="outline" onClick={() => setLocation("/projects")}><ArrowLeft className="mr-2 h-4 w-4" />Back to projects</Button></CardContent></Card></main>;
   }
 
   const healthTone = project.healthStatus === "On Track"
@@ -85,13 +85,13 @@ export default function ProjectWorkspacePage() {
       : "border-rose-200 bg-rose-50 text-rose-700";
 
   return (
-    <main className="min-h-full space-y-5 bg-[#F8FAFC] p-4 md:p-6">
+    <main className="min-h-full space-y-5 bg-background p-4 text-foreground md:p-6">
       <header className="space-y-4">
         <Button variant="ghost" className="min-h-11 -ml-3" onClick={() => setLocation("/projects")}><ArrowLeft className="mr-2 h-4 w-4" />Project portfolio</Button>
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2"><Badge variant="outline" className={statusTone(project.status)}>{project.status}</Badge><Badge variant="outline" className={healthTone}>{project.healthStatus}</Badge></div>
-            <h1 className="break-words text-2xl font-semibold tracking-tight text-[#0F172A] md:text-3xl">{project.title}</h1>
+            <h1 className="break-words text-2xl font-semibold tracking-tight text-foreground md:text-3xl">{project.title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{project.description || "Project command center for scope, delivery, risks, change, and documentation."}</p>
           </div>
           {canManage && <Button className="min-h-11 shrink-0" onClick={() => setEditorOpen(true)}><Pencil className="mr-2 h-4 w-4" />Edit project baseline</Button>}
@@ -99,7 +99,7 @@ export default function ProjectWorkspacePage() {
       </header>
 
       <Tabs defaultValue={new URLSearchParams(window.location.search).get("tab") === "risks" ? "risks" : "overview"} className="space-y-4">
-        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-white p-1">
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-card p-1">
           <TabsTrigger value="overview" className="min-h-11"><Workflow className="mr-2 h-4 w-4" />Overview &amp; financials</TabsTrigger>
           <TabsTrigger value="tasks" className="min-h-11"><ClipboardList className="mr-2 h-4 w-4" />Task board</TabsTrigger>
           <TabsTrigger value="risks" className="min-h-11"><ShieldAlert className="mr-2 h-4 w-4" />Risk register</TabsTrigger>

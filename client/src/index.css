@@ -555,7 +555,9 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
   :is(.app-workspace, [data-radix-dialog-content], [data-radix-alert-dialog-content], [data-mobile-sheet]) form [class*="grid-cols-4"] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
+}
 
+@media (max-width: 767px) {
   div:has(> table[data-mobile-cards="true"]) {
     overflow-x: visible !important;
     border-color: transparent;
@@ -593,7 +595,9 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
     display: block;
     width: 100%;
     min-width: 0;
-    overflow: hidden;
+    height: auto !important;
+    min-height: 0;
+    overflow: visible;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--card);
@@ -611,9 +615,33 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
     min-width: 0 !important;
     max-width: 100%;
     overflow-wrap: anywhere;
+    white-space: normal !important;
     border: 0;
     padding: 6px 0;
-    text-align: left;
+    text-align: start !important;
+  }
+
+  table[data-mobile-cards="true"] tbody td.truncate,
+  table[data-mobile-cards="true"] tfoot td.truncate,
+  table[data-mobile-cards="true"] tbody td.whitespace-nowrap,
+  table[data-mobile-cards="true"] tfoot td.whitespace-nowrap,
+  table[data-mobile-cards="true"] tbody td :is(.truncate, .whitespace-nowrap),
+  table[data-mobile-cards="true"] tfoot td :is(.truncate, .whitespace-nowrap) {
+    max-width: 100%;
+    overflow: visible !important;
+    overflow-wrap: anywhere;
+    text-overflow: clip !important;
+    white-space: normal !important;
+  }
+
+  table[data-mobile-cards="true"] tbody td :is(.line-clamp-1, .line-clamp-2),
+  table[data-mobile-cards="true"] tfoot td :is(.line-clamp-1, .line-clamp-2) {
+    display: block;
+    overflow: visible !important;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: initial !important;
+    -webkit-line-clamp: unset !important;
+    line-clamp: unset !important;
   }
 
   table[data-mobile-cards="true"] tbody td::before,
@@ -624,6 +652,7 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
     font-weight: 600;
     line-height: 1.35;
     overflow-wrap: anywhere;
+    text-align: start;
   }
 
   table[data-mobile-cards="true"] tbody td[data-mobile-wide="true"],
