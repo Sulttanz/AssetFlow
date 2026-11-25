@@ -4030,11 +4030,11 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
   );
 
   it.each([
-    { name: "risk", update: { risk: "critical" } },
-    { name: "type", update: { type: "emergency" } },
+    { name: "risk", firstUpdate: { risk: "medium" }, update: { risk: "critical" } },
+    { name: "type", firstUpdate: { type: "normal" }, update: { type: "emergency" } },
   ])(
-    "requires fresh votes after unanimous approvals and a $name escalation",
-    async ({ update }) => {
+    "preserves every prior review after consecutive $name escalations",
+    async ({ firstUpdate, update }) => {
       const managerId = randomUUID();
       const approverIds = [randomUUID(), randomUUID()];
       const changeId = randomUUID();
@@ -4061,15 +4061,16 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 
       const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
       const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+      const escalate = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "x-test-user": managerId },
+        body: JSON.stringify(body),
+      });
       try {
-        const response = await fetch(`${baseUrl}/api/changes/${changeId}`, {
-          method: "PUT",
-          headers: { "content-type": "application/json", "x-test-user": managerId },
-          body: JSON.stringify(update),
-        });
-        expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({
-          ...update,
+        const firstEscalation = await escalate(firstUpdate);
+        expect(firstEscalation.status).toBe(200);
+        expect(await firstEscalation.json()).toMatchObject({
+          ...firstUpdate,
           status: "submitted",
           cabRequired: true,
           cabReviewVersion: 2,
@@ -4077,11 +4078,7 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
           cabReviewMessage: expect.stringMatching(/prior CAB decisions remain in history/i),
         });
 
-        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
-        expect(savedChange).toMatchObject({
-          ...update, status: "submitted", cabRequired: true, cabReviewVersion: 2, approvedAt: null,
-        });
-        const activeApprovals = await db.select().from(changeApprovals)
+        let activeApprovals = await db.select().from(changeApprovals)
           .where(eq(changeApprovals.changeId, changeId));
         expect(activeApprovals).toHaveLength(2);
         for (const approval of activeApprovals) {
@@ -4092,6 +4089,8 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
             decision: "approved",
             reviewVersion: 1,
             comments: expect.stringMatching(/^Approved vote/),
+            decidedAt: decidedAt.toISOString(),
+            supersededAt: expect.any(String),
             reason: expect.stringMatching(/escalated from low \/ standard/),
           })]);
         }
@@ -4103,9 +4102,65 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
         expect((await approvalsResponse.json()).map((approval: { decision: string }) => approval.decision))
           .toEqual(["pending", "pending"]);
 
-        // A request that captured the old review version cannot cast a vote
-        // into the new review after the escalation commits.
+        const secondReviewDecisions = [];
+        for (let index = 0; index < approvalIds.length; index++) {
+          const decision = await storage.updateChangeApproval(
+            changeId, approvalIds[index], "approved", `Review 2 vote ${index + 1}`, 2,
+          );
+          expect(decision).toBeDefined();
+          secondReviewDecisions.push(decision!);
+        }
+        const [approvedSecondReview] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(approvedSecondReview).toMatchObject({ status: "approved", cabReviewVersion: 2 });
+
+        const secondEscalation = await escalate(update);
+        expect(secondEscalation.status).toBe(200);
+        expect(await secondEscalation.json()).toMatchObject({
+          ...update,
+          status: "submitted",
+          cabRequired: true,
+          cabReviewVersion: 3,
+          cabReviewReset: true,
+          cabReviewMessage: expect.stringMatching(/prior CAB decisions remain in history/i),
+        });
+
+        const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(savedChange).toMatchObject({
+          ...update, status: "submitted", cabRequired: true, cabReviewVersion: 3, approvedAt: null,
+        });
+        activeApprovals = await db.select().from(changeApprovals)
+          .where(eq(changeApprovals.changeId, changeId));
+        expect(activeApprovals).toHaveLength(2);
+        for (const approval of activeApprovals) {
+          const index = approverIds.indexOf(approval.approverId!);
+          expect(index).toBeGreaterThanOrEqual(0);
+          expect(approval).toMatchObject({
+            decision: "pending", comments: null, decidedAt: null, reviewVersion: 3,
+          });
+          expect(approval.decisionHistory).toEqual([
+            expect.objectContaining({
+              decision: "approved",
+              reviewVersion: 1,
+              comments: `Approved vote ${index + 1}`,
+              decidedAt: decidedAt.toISOString(),
+              supersededAt: expect.any(String),
+              reason: expect.stringMatching(/escalated from low \/ standard/),
+            }),
+            expect.objectContaining({
+              decision: "approved",
+              reviewVersion: 2,
+              comments: `Review 2 vote ${index + 1}`,
+              decidedAt: secondReviewDecisions[index].decidedAt!.toISOString(),
+              supersededAt: expect.any(String),
+              reason: expect.stringMatching(/escalated from/),
+            }),
+          ]);
+        }
+
+        // Votes captured against either superseded review cannot affect review 3.
         expect(await storage.updateChangeApproval(changeId, approvalIds[0], "approved", "stale vote", 1))
+          .toBeUndefined();
+        expect(await storage.updateChangeApproval(changeId, approvalIds[1], "approved", "stale vote", 2))
           .toBeUndefined();
 
         const attemptedApproval = await fetch(`${baseUrl}/api/changes/${changeId}`, {
@@ -4115,6 +4170,21 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
         });
         expect(attemptedApproval.status).toBe(403);
         expect(await attemptedApproval.json()).toMatchObject({ code: "CAB_PENDING" });
+
+        const firstCurrentVote = await storage.updateChangeApproval(
+          changeId, approvalIds[0], "approved", "Review 3 vote 1", 3,
+        );
+        expect(firstCurrentVote).toBeDefined();
+        const [stillSubmitted] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(stillSubmitted).toMatchObject({ status: "submitted", cabReviewVersion: 3 });
+
+        const finalCurrentVote = await storage.updateChangeApproval(
+          changeId, approvalIds[1], "approved", "Review 3 vote 2", 3,
+        );
+        expect(finalCurrentVote).toBeDefined();
+        const [finallyApproved] = await db.select().from(changes).where(eq(changes.id, changeId));
+        expect(finallyApproved).toMatchObject({ status: "approved", cabReviewVersion: 3 });
+        expect(finallyApproved?.approvedAt).toBeInstanceOf(Date);
       } finally {
         permissionSpy.mockRestore();
         auditSpy.mockRestore();
