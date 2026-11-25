@@ -34,6 +34,8 @@ describe("Demo Viewer restrictions", () => {
     expect(isDemoApiAllowed("/api/dropdowns/options/application_category", "GET")).toBe(true);
     expect(isDemoApiAllowed("/api/report-exports/xlsx", "POST")).toBe(true);
     expect(isDemoApiAllowed("/api/logout", "POST")).toBe(true);
+    expect(isDemoApiAllowed("/api/profile/preferences", "PATCH")).toBe(true);
+    expect(isDemoApiAllowed("/api/profile", "PATCH")).toBe(false);
   });
 
   it("enforces the deny before a route handler, regardless of other assigned roles", async () => {

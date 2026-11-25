@@ -206,6 +206,7 @@ export function isPersonaApiAllowed(
   const upperMethod = method.toUpperCase();
 
   if (apiPath === "/profile") return ["GET", "PATCH"].includes(upperMethod);
+  if (apiPath === "/profile/preferences") return ["GET", "PATCH"].includes(upperMethod);
   if (apiPath === "/profile/password") return upperMethod === "POST";
 
   if (COMMON_API_PREFIXES.some(prefix => matchesPath(apiPath, prefix))) return isReadMethod(upperMethod);

@@ -29,12 +29,6 @@ type LoginData = Pick<InsertUser, "username" | "password">;
 const ITSM_ACCESS_RECHECK_INTERVAL_MS = 30_000;
 const AUTH_SESSION_RECHECK_INTERVAL_MS = 5 * 60_000;
 
-function markOutgoingApiActivity() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("assetflow:api-activity"));
-  }
-}
-
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -87,15 +81,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user?.id) return;
+    let lastKeepAlive = Date.now();
     return installIdleLogout(() => {
-      void apiRequest("POST", "/api/logout")
+      const abort = new AbortController();
+      const timeout = setTimeout(() => abort.abort(), 5000);
+      void apiRequest("POST", "/api/logout", undefined, { signal: abort.signal })
         .catch(() => undefined)
         .finally(() => {
+          clearTimeout(timeout);
           queryClient.setQueryData(["/api/user"], null);
           queryClient.clear();
           window.location.replace("/auth?reason=idle");
         });
-    });
+    }, 10 * 60_000, () => {
+      if (Date.now() - lastKeepAlive < 2 * 60_000) return;
+      lastKeepAlive = Date.now();
+      // Renew active readers' sessions even on pages with no polling or writes.
+      void apiRequest("GET", "/api/user").catch(() => undefined);
+    }, `assetflow_activity_${user.id}`);
   }, [user?.id]);
 
   useEffect(() => {

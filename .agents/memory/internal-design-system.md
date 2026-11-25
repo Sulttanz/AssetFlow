@@ -14,3 +14,9 @@ Semantic badge colors should not reinterpret arbitrary category names, counts or
 **Why:** Global status consistency must not turn unrelated category labels into misleading success, warning or critical indicators.
 
 **How to apply:** Any automatic status treatment should recognize exact status labels only.
+
+Use Daylight Clean on desktop and Midnight Command on mobile only when no manual theme is saved. Keep Hybrid Navy Rail available, and preserve each account's chosen theme across logout and devices.
+
+**Why:** The user requested device-aware defaults without overriding a person's explicit choice or sharing one user's theme with another.
+
+**How to apply:** Treat themes as personal preferences, not tenant settings. English/Arabic switching should preserve the same colors, spacing, and typography; Arabic uses RTL with English fallback for untranslated technical labels.

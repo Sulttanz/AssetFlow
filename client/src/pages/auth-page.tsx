@@ -122,8 +122,8 @@ export default function AuthPage() {
               <span />
             </div>
             <div>
-              <div className="auth-brand-name">YOUR ORGANIZATION</div>
-              <div className="auth-brand-caption">ENTERPRISE OPERATIONS PLATFORM</div>
+              <div className="auth-brand-name">AssetFlow</div>
+              <div className="auth-brand-caption">v2.1.0</div>
             </div>
           </div>
 

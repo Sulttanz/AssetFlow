@@ -184,6 +184,7 @@ describe("self profile routes", () => {
       expect(isPersonaApiAllowed([role], [], "/profile", "GET")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/profile", "PATCH")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/profile/password", "POST")).toBe(true);
+      expect(isPersonaApiAllowed([role], [], "/profile/preferences", "PATCH")).toBe(true);
       expect(isPersonaApiAllowed([role], [], "/users", "POST")).toBe(false);
     }
   });

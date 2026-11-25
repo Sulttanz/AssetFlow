@@ -100,10 +100,14 @@ describe.runIf(process.env.RUN_DATABASE_INTEGRATION_TESTS === "1")("PostgreSQL-b
     }
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Strict");
+    const expires = /Expires=([^;]+)/i.exec(setCookie!)?.[1];
+    expect(expires).toBeTruthy();
+    expect(Math.abs(new Date(expires!).getTime() - Date.now() - 10 * 60_000)).toBeLessThan(10_000);
     expect(/;\s*Secure\b/i.test(setCookie!)).toBe(secure);
     headers.cookie = setCookie!.split(";")[0];
     const currentUser = await fetch(`${baseUrl}/api/user`, { headers });
     expect(currentUser.status).toBe(200);
+    expect(currentUser.headers.get("set-cookie")).toContain("connect.sid=");
     const body = await currentUser.json();
     expect(body.id).toBe(userId);
     expect(body.username).toBe(username);

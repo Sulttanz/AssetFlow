@@ -1,6 +1,13 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppearanceProvider, appearanceThemes, useAppearance } from "./use-appearance";
+
+const authState = vi.hoisted(() => ({ user: null as null | { id: string; themePreference?: string | null } }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: authState.user }) }));
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: vi.fn().mockResolvedValue({ json: async () => ({ themePreference: "hybrid-navy" }) }),
+  queryClient: { setQueryData: vi.fn() },
+}));
 
 function ThemeProbe() {
   const { theme, setTheme } = useAppearance();
@@ -23,6 +30,7 @@ describe("appearance themes", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
     delete document.documentElement.dataset.theme;
     document.documentElement.style.colorScheme = "";
+    authState.user = null;
   });
 
   it("defaults to Daylight on desktop and applies manual changes immediately and persistently", async () => {
@@ -78,5 +86,27 @@ describe("appearance themes", () => {
     window.localStorage.setItem("assetflow-appearance-theme", "unknown");
     render(<AppearanceProvider><ThemeProbe /></AppearanceProvider>);
     expect(screen.getByTestId("current-theme").textContent).toBe("daylight");
+  });
+
+  it("restores server preferences per account rather than leaking another user's theme", async () => {
+    authState.user = { id: "user-a", themePreference: "midnight" };
+    const { rerender } = render(<AppearanceProvider><ThemeProbe /></AppearanceProvider>);
+    expect(screen.getByTestId("current-theme").textContent).toBe("midnight");
+    expect(localStorage.getItem("assetflow_theme_user-a")).toBe("midnight");
+    authState.user = { id: "user-b", themePreference: "daylight" };
+    rerender(<AppearanceProvider><ThemeProbe /></AppearanceProvider>);
+    expect(screen.getByTestId("current-theme").textContent).toBe("daylight");
+    expect(localStorage.getItem("assetflow_theme_user-b")).toBe("daylight");
+  });
+
+  it("saves a signed-in selection locally and through the self-only preferences API", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    authState.user = { id: "user-theme", themePreference: null };
+    render(<AppearanceProvider><ThemeProbe /></AppearanceProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Hybrid Navy Rail" }));
+    expect(localStorage.getItem("assetflow_theme_user-theme")).toBe("hybrid-navy");
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("PATCH", "/api/profile/preferences", {
+      themePreference: "hybrid-navy",
+    }));
   });
 });

@@ -15,6 +15,7 @@ export type SelfProfileView = SelfProfileFields & {
   department: string;
   status: string;
   roleLabels: string[];
+  themePreference: string | null;
 };
 
 const optionalContact = (maxLength: number) => z.preprocess(

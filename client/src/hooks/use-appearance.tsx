@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export const appearanceThemes = [
   { id: "daylight", label: "Daylight Clean" },
@@ -38,7 +39,10 @@ function normalizeTheme(value: unknown): AppearanceTheme | null {
 
 function readStoredTheme(key: string): AppearanceTheme | null {
   try {
-    return normalizeTheme(window.localStorage.getItem(key));
+    const raw = window.localStorage.getItem(key);
+    const normalized = normalizeTheme(raw);
+    if (normalized && raw !== normalized) window.localStorage.setItem(key, normalized);
+    return normalized;
   } catch {
     return null;
   }
@@ -46,11 +50,15 @@ function readStoredTheme(key: string): AppearanceTheme | null {
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const activeUserId = useRef(user?.id);
+  activeUserId.current = user?.id;
+  const saveQueue = useRef(Promise.resolve());
   const [theme, setThemeState] = useState<AppearanceTheme>(() => readStoredTheme(LEGACY_STORAGE_KEY) ?? deviceDefaultTheme());
   const [hasManualChoice, setHasManualChoice] = useState(() => readStoredTheme(LEGACY_STORAGE_KEY) !== null);
   const [initializedUserId, setInitializedUserId] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!user?.id) {
       setInitializedUserId(null);
       return;
@@ -88,16 +96,25 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       // Keep the in-memory preference active if storage is unavailable.
     }
     if (userId) {
-      void apiRequest("PATCH", "/api/profile/preferences", { themePreference: selected })
-        .then(async response => {
-          const result = await response.json() as { themePreference: AppearanceTheme };
-          window.dispatchEvent(new CustomEvent("assetflow:theme-saved", { detail: result }));
-        })
+      // Serialize writes so a slow older request cannot overwrite a newer choice.
+      saveQueue.current = saveQueue.current.then(async () => {
+        if (activeUserId.current !== userId) return;
+        await apiRequest("PATCH", "/api/profile/preferences", { themePreference: selected });
+        if (activeUserId.current !== userId) return;
+        queryClient.setQueryData(["/api/user"], (current: typeof user) =>
+          current?.id === userId ? { ...current, themePreference: selected } : current);
+      })
         .catch(() => {
-          // Local per-user preference remains available if offline.
-        });
+          if (activeUserId.current !== userId) return;
+          toast({
+            title: "Theme saved on this device",
+            description: "We could not sync your theme to your account. Choose it again when the connection is restored.",
+            variant: "destructive",
+          });
+        })
+        .then(() => undefined);
     }
-  }, [theme, user?.id]);
+  }, [theme, toast, user?.id]);
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -112,20 +129,11 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   }, [hasManualChoice, initializedUserId, theme, user?.id]);
 
   useEffect(() => {
-    if (hasManualChoice || user?.id || typeof window === "undefined") return;
+    if (hasManualChoice || typeof window === "undefined") return;
     const updateDefaultForViewport = () => setThemeState(deviceDefaultTheme());
     window.addEventListener("resize", updateDefaultForViewport);
     return () => window.removeEventListener("resize", updateDefaultForViewport);
   }, [hasManualChoice, user?.id]);
-
-  useEffect(() => {
-    const applySavedPreference = (event: Event) => {
-      const saved = normalizeTheme((event as CustomEvent<{ themePreference?: unknown }>).detail?.themePreference);
-      if (saved) setThemeState(saved);
-    };
-    window.addEventListener("assetflow:theme-saved", applySavedPreference);
-    return () => window.removeEventListener("assetflow:theme-saved", applySavedPreference);
-  }, []);
 
   const value = useMemo(() => ({ theme, setTheme }), [theme, setTheme]);
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;

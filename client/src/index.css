@@ -271,6 +271,45 @@ html[dir="rtl"] .pl-2 { padding-left: 0; padding-right: calc(var(--spacing) * 2)
 html[dir="rtl"] .border-l { border-left-width: 0; border-right-width: 1px; }
 html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
 
+/* Keep compact operations metrics readable regardless of the selected workspace theme. */
+.executive-dashboard .metric-card {
+  min-height: 112px;
+}
+
+.executive-dashboard [data-dashboard-tone="blue"] {
+  background: hsl(213 80% 95%);
+  color: hsl(216 70% 34%);
+}
+
+.executive-dashboard [data-dashboard-tone="amber"] {
+  background: hsl(42 90% 93%);
+  color: hsl(30 77% 32%);
+}
+
+.executive-dashboard [data-dashboard-tone="red"] {
+  background: hsl(350 78% 94%);
+  color: hsl(346 72% 38%);
+}
+
+.executive-dashboard [data-dashboard-tone="slate"] {
+  background: hsl(213 25% 92%);
+  color: hsl(215 24% 38%);
+}
+
+[data-theme="midnight"] .executive-dashboard [data-dashboard-tone],
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-blue,
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-amber,
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-neutral {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-blue p,
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-amber p,
+[data-theme="midnight"] .executive-dashboard .dashboard-tint-neutral p {
+  color: inherit;
+}
+
 /* Several older views use literal light-theme utility colors. Route those
    surfaces through the selected tokens so all three appearances stay coherent. */
 [data-theme="midnight"] .app-workspace :is(
@@ -284,17 +323,17 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
   [class*="bg-[#f5f8fb]"],
   [class*="bg-[#f2f7f5]"]
 ) {
-  background-color: hsl(var(--card)) !important;
-  color: hsl(var(--card-foreground));
+  background-color: var(--card) !important;
+  color: var(--card-foreground);
 }
 
 [data-theme="midnight"] .app-workspace main[class*="bg-[#"] {
-  background-color: hsl(var(--background)) !important;
+  background-color: var(--background) !important;
 }
 
 [data-theme="midnight"] .app-workspace :is([class~="bg-gray-200"], [class~="bg-slate-200"]) {
-  background-color: hsl(var(--secondary)) !important;
-  color: hsl(var(--secondary-foreground));
+  background-color: var(--secondary) !important;
+  color: var(--secondary-foreground);
 }
 
 [data-theme="midnight"] .app-workspace :is(
@@ -309,31 +348,52 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
   [class*="text-[#193638]"],
   [class*="text-[#193c3d]"]
 ) {
-  color: hsl(var(--foreground)) !important;
+  color: var(--foreground) !important;
+}
+
+[data-theme="hybrid-navy"] [data-testid="sidebar"],
+[data-theme="hybrid-navy"] #mobile-navigation {
+  color: var(--sidebar-foreground);
+}
+
+[data-theme="hybrid-navy"] [data-testid="sidebar"] .text-foreground,
+[data-theme="hybrid-navy"] #mobile-navigation .text-foreground {
+  color: var(--sidebar-foreground);
+}
+
+[data-theme="hybrid-navy"] [data-testid="sidebar"] .text-muted-foreground,
+[data-theme="hybrid-navy"] #mobile-navigation .text-muted-foreground {
+  color: hsl(215 22% 73%);
+}
+
+[data-theme="hybrid-navy"] [data-testid="sidebar"] .hover\:bg-accent:hover,
+[data-theme="hybrid-navy"] #mobile-navigation .hover\:bg-accent:hover {
+  background-color: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
 }
 
 [data-theme="hybrid-navy"] .app-content > [data-testid="page-header"] {
-  background: hsl(222 45% 10%);
-  color: hsl(210 40% 96%);
-  border-bottom: 1px solid hsl(222 28% 20%);
+  background: var(--card);
+  color: var(--foreground);
+  border-bottom: 1px solid var(--border);
 }
 
 [data-theme="hybrid-navy"] .app-content > [data-testid="page-header"] [data-testid="page-title"],
 [data-theme="hybrid-navy"] .app-content > [data-testid="page-header"] [data-testid="notifications-button"] {
-  color: hsl(210 40% 96%);
+  color: var(--foreground);
 }
 
 [data-theme="hybrid-navy"] .app-content > [data-testid="page-header"] [data-testid="page-description"] {
-  color: hsl(215 20% 76%);
+  color: var(--muted-foreground);
 }
 
 [data-theme="hybrid-navy"] .app-content > [data-testid="page-header"] [data-slot="filter-bar"] {
-  color: hsl(222 47% 11%);
+  color: var(--foreground);
 }
 
 .sidebar-active {
-  background-color: hsl(var(--primary) / 0.08);
-  border-left: 2px solid hsl(var(--primary));
+  background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-inline-start: 2px solid var(--primary);
 }
 
 @media (max-width: 767px) {

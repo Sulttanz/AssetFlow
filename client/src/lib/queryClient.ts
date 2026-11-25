@@ -107,7 +107,8 @@ export async function apiRequest(
   data?: unknown | undefined,
   options?: Pick<RequestInit, "signal">,
 ): Promise<Response> {
-  markOutgoingActivity();
+  // Polling reads must not keep an otherwise idle browser signed in forever.
+  if (!["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) markOutgoingActivity();
   const res = await fetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
@@ -127,7 +128,6 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    markOutgoingActivity();
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
     });

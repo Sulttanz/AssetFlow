@@ -419,14 +419,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Logo/Header */}
-      <div className="border-b border-sidebar-border p-5 pr-10 md:pr-5">
+      <div className="border-b border-sidebar-border p-5 pe-10 md:pe-5">
         <div className="flex items-center space-x-3">
            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary shadow-sm">
             <Network className="text-primary-foreground w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate font-semibold text-base text-foreground leading-tight">AssetFlow</h1>
-            <p className="text-xs text-muted-foreground">v2.1.0</p>
+             <h1 className="truncate font-semibold text-base text-sidebar-foreground leading-tight">AssetFlow</h1>
+             <p className="text-xs text-sidebar-foreground/70">v2.1.0</p>
           </div>
         </div>
       </div>
@@ -472,8 +472,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                 aria-current={location === item.href ? "page" : undefined}
                                 onClick={onNavigate}
                                 className={cn(
-                                  "flex min-w-0 flex-1 items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
-                                  item.current ? "border-primary bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+                                   "flex min-w-0 flex-1 items-center gap-3 rounded-lg border-s-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
+                                   item.current ? "border-sidebar-primary bg-sidebar-primary/15 text-sidebar-primary" : "border-transparent text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                                 )}
                                 data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                               >
@@ -483,9 +483,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                               <button
                                 type="button"
                                 onClick={() => setReportsExpanded(!reportsExpanded)}
-                                className="grid min-h-11 min-w-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                 className="grid min-h-11 min-w-11 place-items-center rounded-lg text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                                 data-testid="nav-reports-toggle"
-                                aria-label="Toggle report categories"
+                                 aria-label={t("Toggle report categories")}
                                 aria-expanded={isExpanded}
                                 aria-controls="reports-navigation-categories"
                               >
@@ -493,15 +493,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                               </button>
                             </div>
                             {isExpanded && item.submenu && (
-                              <div id="reports-navigation-categories" className="ml-4 mt-0.5 space-y-0.5">
+                              <div id="reports-navigation-categories" className="ms-4 mt-0.5 space-y-0.5">
                                 {item.submenu.map((category: any) => (
                                   <div key={category.key}>
                                     <button
                                       type="button"
                                       onClick={() => setExpandedReportCategories(current => ({ ...current, [category.key]: !current[category.key] }))}
                                       className={cn(
-                                        "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-start text-xs font-semibold transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                                        category.current ? "text-primary" : "text-muted-foreground",
+                                         "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-start text-xs font-semibold transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                                         category.current ? "text-sidebar-primary" : "text-sidebar-foreground/75",
                                       )}
                                       aria-expanded={Boolean(expandedReportCategories[category.key])}
                                       aria-controls={`report-navigation-${category.key}`}
@@ -511,7 +511,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                       {expandedReportCategories[category.key] ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                                     </button>
                                     {expandedReportCategories[category.key] ? (
-                                      <div id={`report-navigation-${category.key}`} className="ml-2 space-y-0.5 border-l border-sidebar-border pl-2">
+                                       <div id={`report-navigation-${category.key}`} className="ms-2 space-y-0.5 border-s border-sidebar-border ps-2">
                                         {category.items.map((subitem: any) => (
                                           <Link
                                             key={subitem.name}
@@ -519,8 +519,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                             aria-current={subitem.current ? "page" : undefined}
                                             onClick={onNavigate}
                                             className={cn(
-                                              "flex min-h-9 items-center rounded-lg px-3 py-2 text-xs transition-colors",
-                                              subitem.current ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                               "flex min-h-9 items-center rounded-lg px-3 py-2 text-xs transition-colors",
+                                               subitem.current ? "bg-sidebar-primary/15 font-medium text-sidebar-primary" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                                             )}
                                             data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
                                           >
@@ -544,10 +544,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                           aria-current={item.current ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                              "flex items-center space-x-3 rounded-lg border-l-2 px-3 py-[0.7rem] text-base font-medium transition-colors",
+                              "flex items-center gap-3 rounded-lg border-s-2 px-3 py-[0.7rem] text-[0.9375rem] font-medium transition-colors",
                             item.current
-                               ? "border-primary bg-primary/10 text-primary"
-                               : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                               ? "border-sidebar-primary bg-sidebar-primary/15 text-sidebar-primary"
+                               : "border-transparent text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           )}
                           data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                         >
@@ -566,8 +566,8 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       {/* User Profile */}
       <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center space-x-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <User className="text-primary-foreground w-4 h-4" />
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-primary/15 text-sidebar-primary">
+            <User className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground truncate" data-testid="user-name">
@@ -577,7 +577,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               {getRoleDisplayName(user?.roles?.[0]?.name) || 'User'}
             </p>
           </div>
-          <DropdownMenu>
+          <DropdownMenu dir={language === "ar" ? "rtl" : "ltr"}>
             <DropdownMenuTrigger asChild>
               <button className="text-muted-foreground hover:text-foreground p-1" data-testid="user-menu-button">
                 <MoreVertical className="w-4 h-4" />
@@ -641,6 +641,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export default function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { language, t } = useLanguage();
 
   return (
     <>
@@ -648,8 +649,8 @@ export default function Sidebar() {
       <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 shadow-sm md:hidden">
         <button
           onClick={() => setMobileOpen(true)}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent"
-          aria-label="Open menu"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-sidebar-foreground/75 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+           aria-label={t("Open menu")}
           aria-expanded={mobileOpen}
           aria-controls="mobile-navigation"
         >
@@ -660,23 +661,23 @@ export default function Sidebar() {
             <Network className="text-primary-foreground w-4 h-4" />
           </div>
           <div className="min-w-0 leading-tight">
-            <span className="block truncate font-semibold text-sm text-foreground">AssetFlow</span>
-            <span className="block text-[10px] text-muted-foreground">v2.1.0</span>
+             <span className="block truncate font-semibold text-sm text-sidebar-foreground">AssetFlow</span>
+             <span className="block text-[10px] text-sidebar-foreground/70">v2.1.0</span>
           </div>
         </div>
       </div>
 
       {/* ── Mobile drawer ── */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent id="mobile-navigation" side="left" className="w-72 border-r p-0">
-          <SheetTitle className="sr-only">Main navigation</SheetTitle>
-          <SheetDescription className="sr-only">Browse your authorized workspaces and reports. Select a destination to close this menu.</SheetDescription>
+         <SheetContent id="mobile-navigation" side={language === "ar" ? "right" : "left"} className="w-72 border-e p-0">
+          <SheetTitle className="sr-only">{t("Main navigation")}</SheetTitle>
+          <SheetDescription className="sr-only">{t("Browse your authorized workspaces and reports. Select a destination to close this menu.")}</SheetDescription>
           <NavContent onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>
 
       {/* ── Desktop sidebar ── */}
-      <div className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex" data-testid="sidebar">
+      <div className="hidden w-64 shrink-0 flex-col border-e border-sidebar-border bg-sidebar md:flex" data-testid="sidebar">
         <NavContent />
       </div>
     </>

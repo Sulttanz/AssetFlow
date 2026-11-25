@@ -25,6 +25,8 @@ export function isDemoApiAllowed(path: string, method: string): boolean {
   const verb = method.toUpperCase();
   // These POSTs end a session or format already-supplied report data only.
   if (verb === "POST" && ["/logout", "/report-exports/xlsx"].includes(apiPath)) return true;
+  // Personal appearance does not change operational records or permissions.
+  if (verb === "PATCH" && apiPath === "/profile/preferences") return true;
   if (!["GET", "HEAD", "OPTIONS"].includes(verb)) return false;
   if (matches(apiPath, "/dropdowns/options")) return true;
   if (matches(apiPath, "/system")) return ["/system/status", "/system/modules", "/system/version"].includes(apiPath);

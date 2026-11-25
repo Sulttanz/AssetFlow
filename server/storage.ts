@@ -2298,7 +2298,8 @@ export class MemStorage implements IStorage {
       lastLogin: null,
       createdBy: user.createdBy ?? null,
       twoFactorEnabled: user.twoFactorEnabled ?? false,
-      twoFactorSecret: user.twoFactorSecret ?? null
+      twoFactorSecret: user.twoFactorSecret ?? null,
+      themePreference: user.themePreference ?? null,
     };
     this.users.set(id, newUser);
     return newUser;
