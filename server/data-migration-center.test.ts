@@ -142,7 +142,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
         const importSheet = workbook.getWorksheet("Import Data");
         expect(importSheet).toBeTruthy();
         expect((importSheet!.getRow(1).values as string[]).slice(1)).toEqual([
-          "Employee ID", "First Name*", "Last Name*", "Email*", "Department", "Job Title*", "Phone", "Start Date", "Location",
+          "Employee ID", "First Name*", "Last Name*", "Email", "Department", "Job Title*", "Phone", "Start Date", "Location",
         ]);
         expect((importSheet!.getRow(1).values as string[]).some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
         expect(workbook.getWorksheet("Field Guide")?.getColumn(1).values.some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
@@ -195,6 +195,28 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     });
     expect(employee.departmentId).toBeTruthy();
     expect(employee.locationId).toBeTruthy();
+  });
+
+  it("allows an employee row without email and returns a clear error for a header-only workbook", async () => {
+    const preview = await previewCsv("employees", [{
+      employeeId: `${prefix}-no-email`,
+      firstName: "No",
+      lastName: "Email",
+      position: "Analyst",
+      email: "",
+    }]);
+    expect(preview).toMatchObject({ totalRows: 1, validRows: 1, invalidRows: 0 });
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Import Data");
+    sheet.addRow(dataMigrationModules.find(module => module.key === "employees")!.fields.map(field => field.header));
+    const body = new FormData();
+    body.append("file", new Blob([await workbook.xlsx.writeBuffer()]), "empty-employees.xlsx");
+    const response = await fetch(`${base}/api/import/employees/preview`, { method: "POST", headers: headers(), body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      message: expect.stringContaining("No data rows were found in the Employees (Directory Only) worksheet"),
+    });
   });
 
   it("reports translated-ready employee row errors with exact XLSX row, identifier, field and reason", async () => {

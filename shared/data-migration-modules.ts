@@ -75,14 +75,14 @@ export const dataMigrationModules: DataMigrationModule[] = [
   },
   {
     key: "employees",
-    title: "Employees & Access Governance",
-    summary: "Employee directory details. Access grants are not created by this import.",
+    title: "Employees (Directory Only)",
+    summary: "Imports employee directory details only. It does not create login accounts or access grants; manage those separately after import. Email is optional and must be valid and unique when supplied.",
     featureKey: "asset_management",
     fields: [
       { key: "employeeId", header: "Employee ID", sample: "EMP-0001", note: "Optional unique employee identifier." },
       { key: "firstName", header: "First Name*", required: true, sample: "Sam", note: "Required." },
       { key: "lastName", header: "Last Name*", required: true, sample: "Example", note: "Required." },
-      { key: "email", header: "Email*", required: true, kind: "email", sample: "sam.example@example.invalid", note: "Required, valid, and unique email address." },
+      { key: "email", header: "Email", kind: "email", sample: "sam.example@example.invalid", note: "Optional; if supplied, must be valid and unique. Leave blank for an employee without an email address." },
       { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department name." },
       { key: "position", header: "Job Title*", required: true, sample: "IT Analyst", note: "Required job title." },
       { key: "phone", header: "Phone", sample: "+10000000000", note: "Optional telephone." },

@@ -22,7 +22,7 @@ import { formatDateTimeMinute } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { DataMigrationModule } from "@shared/data-migration-modules";
 
-type ValidationDetail = { rowNumber: number; identifier: string; field: string; message: string };
+type ValidationDetail = { rowNumber: number; identifier: string; field?: string; message: string };
 type PreviewRow = { rowNumber: number; identifier?: string; values: Record<string, unknown>; errors: string[] };
 type PreviewResult = {
   batchId: string;
@@ -33,7 +33,7 @@ type PreviewResult = {
   invalidRows: number;
   validCount?: number;
   invalidCount?: number;
-  errors: ValidationDetail[];
+  errors?: ValidationDetail[];
   expiresAt: string;
   rows: PreviewRow[];
   previewLimit: number;
@@ -92,6 +92,15 @@ export default function DataMigrationCenter() {
   const modules = modulesQuery.data ?? [];
   const historyQuery = useQuery<HistoryRow[]>({ queryKey: ["/api/import/history"] });
   const activeModule = modules.find(module => module.key === selectedModule);
+  const validationIssues: ValidationDetail[] = preview
+    ? preview.errors?.length
+      ? preview.errors
+      : preview.rows.flatMap(row => row.errors.map(message => ({
+          rowNumber: row.rowNumber,
+          identifier: row.identifier ?? "",
+          message,
+        })))
+    : [];
 
   const downloadTemplate = async (moduleKey: string) => {
     setBusy("template");
@@ -333,6 +342,50 @@ export default function DataMigrationCenter() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {preview.totalRows > 0 && preview.validRows === 0 && (
+                <div
+                  role="alert"
+                  data-testid="migration-no-valid-rows"
+                  className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+                >
+                  <p className="font-semibold text-destructive">
+                    {t("None of the rows are ready to import. Nothing has been written to the database.")}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {t("Check the row-by-row validation details below. Department and Location must match existing records; Employee ID and Email must be unique when provided.")}
+                  </p>
+                </div>
+              )}
+              {validationIssues.length > 0 && (
+                <section className="space-y-2" aria-labelledby="validation-details-title">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 id="validation-details-title" className="text-sm font-semibold text-destructive">{t("Validation details")}</h3>
+                    <span className="text-xs text-muted-foreground">{validationIssues.length} {t("validation issue(s)")}</span>
+                  </div>
+                  <div
+                    className="max-h-72 overflow-y-auto rounded-md border border-destructive/20 bg-destructive/[0.025] p-3"
+                    role="region"
+                    aria-label={t("Validation details")}
+                    aria-live="polite"
+                    dir={language === "ar" ? "rtl" : "ltr"}
+                    tabIndex={0}
+                    data-testid="employee-import-validation-details"
+                  >
+                    <ul className="space-y-2 text-start text-sm">
+                      {validationIssues.map((issue, index) => (
+                        <li key={`${issue.rowNumber}-${issue.field}-${index}`} className="break-words leading-6">
+                          <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Employee row")}):</strong>{" "}
+                          {!issue.field
+                            ? t(issue.message)
+                            : issue.message === "Missing required field"
+                            ? <>{t(issue.message)} "{t(issue.field)}"</>
+                            : <><span className="font-medium">{t(issue.field)}:</span> {t(issue.message)}</>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
               <div className="max-h-[420px] overflow-auto rounded-md border" role="region" aria-label="Validation row preview" tabIndex={0}>
                 <Table>
                   <TableHeader>
@@ -365,34 +418,6 @@ export default function DataMigrationCenter() {
                   </TableBody>
                 </Table>
               </div>
-              {preview.errors?.length > 0 && (
-                <section className="space-y-2" aria-labelledby="validation-details-title">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h3 id="validation-details-title" className="text-sm font-semibold text-destructive">{t("Validation details")}</h3>
-                    <span className="text-xs text-muted-foreground">{preview.errors.length} {t("validation issue(s)")}</span>
-                  </div>
-                  <div
-                    className="max-h-72 overflow-y-auto rounded-md border border-destructive/20 bg-destructive/[0.025] p-3"
-                    role="region"
-                    aria-label={t("Validation details")}
-                    aria-live="polite"
-                    dir={language === "ar" ? "rtl" : "ltr"}
-                    tabIndex={0}
-                    data-testid="employee-import-validation-details"
-                  >
-                    <ul className="space-y-2 text-start text-sm">
-                      {preview.errors.map((issue, index) => (
-                        <li key={`${issue.rowNumber}-${issue.field}-${index}`} className="break-words leading-6">
-                          <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Employee row")}):</strong>{" "}
-                          {issue.message === "Missing required field"
-                            ? <>{t(issue.message)} "{t(issue.field)}"</>
-                            : <><span className="font-medium">{t(issue.field)}:</span> {t(issue.message)}</>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </section>
-              )}
               {preview.totalRows > preview.previewLimit && <p className="text-xs text-muted-foreground">Showing the first {preview.previewLimit} rows. Counts include all {preview.totalRows} rows in the file.</p>}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-3">

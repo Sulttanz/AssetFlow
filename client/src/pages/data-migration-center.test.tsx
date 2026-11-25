@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DataMigrationCenter from "./data-migration-center";
+import { dataMigrationModules } from "@shared/data-migration-modules";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock("@tanstack/react-query", () => ({
     ? {
         data: [{
           key: "employees",
-          title: "Employees & Access Governance",
+          title: "Employees (Directory Only)",
           summary: "Employee directory details. Access grants are not created by this import.",
           featureKey: "asset_management",
           fields: [],
@@ -83,13 +84,53 @@ describe("employee bulk import validation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<DataMigrationCenter />);
-    const fileInput = screen.getByLabelText("Upload and import XLSX or CSV for Employees & Access Governance");
+    const fileInput = screen.getByLabelText("Upload and import XLSX or CSV for Employees (Directory Only)");
     fireEvent.change(fileInput, { target: { files: [new File(["xlsx"], "employees.xlsx")] } });
     fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
 
     const details = await screen.findByTestId("employee-import-validation-details");
     expect(details.getAttribute("dir")).toBe("ltr");
     expect(details.textContent).toContain('Row 109 (EMP-108 - Mahmoud): Missing required field "Last Name"');
+    expect(screen.getByTestId("migration-no-valid-rows").textContent).toContain("Nothing has been written to the database");
+  });
+
+  it("documents that employee imports do not create access and permits blank email fields", () => {
+    const employeeModule = dataMigrationModules.find(module => module.key === "employees")!;
+    const emailField = employeeModule.fields.find(field => field.key === "email")!;
+    expect(employeeModule.summary).toContain("does not create login accounts or access grants");
+    expect(emailField.required).not.toBe(true);
+    expect(emailField.header).toBe("Email");
+  });
+
+  it("shows row errors even when an older preview response omits structured validation details", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        batchId: "batch-legacy",
+        moduleKey: "employees",
+        fileName: "employees.xlsx",
+        totalRows: 1,
+        validRows: 0,
+        invalidRows: 1,
+        rows: [{
+          rowNumber: 2,
+          identifier: "EMP-2 - Noor",
+          values: { employeeId: "EMP-2", firstName: "Noor", lastName: "" },
+          errors: ["Last Name* is required."],
+        }],
+        previewLimit: 100,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<DataMigrationCenter />);
+    const fileInput = screen.getByLabelText("Upload and import XLSX or CSV for Employees (Directory Only)");
+    fireEvent.change(fileInput, { target: { files: [new File(["xlsx"], "employees.xlsx")] } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
+
+    const details = await screen.findByTestId("employee-import-validation-details");
+    expect(details.textContent).toContain("Row 2 (EMP-2 - Noor): Last Name* is required.");
+    expect(screen.getByTestId("migration-no-valid-rows")).toBeTruthy();
   });
 
   it("refreshes employee directory and dashboard counts after a successful employee import", async () => {
@@ -120,7 +161,7 @@ describe("employee bulk import validation", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(<DataMigrationCenter />);
-    const fileInput = screen.getByLabelText("Upload and import XLSX or CSV for Employees & Access Governance");
+    const fileInput = screen.getByLabelText("Upload and import XLSX or CSV for Employees (Directory Only)");
     fireEvent.change(fileInput, { target: { files: [new File(["xlsx"], "employees.xlsx")] } });
     fireEvent.click(screen.getByRole("button", { name: "Validate employees.xlsx" }));
     await screen.findByText("Import Valid Rows (1)");

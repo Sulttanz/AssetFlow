@@ -1233,6 +1233,9 @@ export function registerDataMigrationRoutes(
     try {
       await expirePreviews();
       const { module, records } = await parseUpload(req.file, req.params.moduleKey);
+      if (records.length === 0) {
+        throw new Error(`No data rows were found in the ${module.title} worksheet. Add at least one row below the column headers and upload again.`);
+      }
       await validateRecords(module.key, records, req.user.id);
       const validRows = records.filter(record => record.errors.length === 0).length;
       const invalidRows = records.length - validRows;
