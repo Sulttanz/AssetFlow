@@ -55,6 +55,25 @@ async function previewCsv(moduleKey: string, rows: Array<Record<string, unknown>
   return response.json();
 }
 
+async function previewEmployeeWorkbook(workbook: ExcelJS.Workbook, fileName = `${prefix}-employees.xlsx`) {
+  const body = new FormData();
+  body.append("file", new Blob([await workbook.xlsx.writeBuffer()]), fileName);
+  const response = await fetch(`${base}/api/import/employees/preview`, {
+    method: "POST",
+    headers: headers(),
+    body,
+  });
+  return { response, result: await response.json() };
+}
+
+function setByHeader(sheet: ExcelJS.Worksheet, rowNumber: number, header: string, value: unknown) {
+  const headerRow = sheet.getRow(1);
+  const column = Array.from({ length: sheet.columnCount }, (_, index) => index + 1)
+    .find(index => String(headerRow.getCell(index).value ?? "").trim().replace(/\*+$/, "").trim().toLowerCase() === header.toLowerCase());
+  if (!column) throw new Error(`Missing test column "${header}".`);
+  sheet.getRow(rowNumber).getCell(column).value = value as ExcelJS.CellValue;
+}
+
 async function importRows(moduleKey: string, rows: Array<Record<string, unknown>>) {
   const preview = await previewCsv(moduleKey, rows);
   expect(preview.rows.flatMap((row: any) => row.errors)).toEqual([]);
@@ -119,6 +138,15 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
       expect((workbook.worksheets[0].getRow(1).values as string[]).slice(1)).toEqual(module.fields.map(field => field.header));
+      if (module.key === "employees") {
+        const importSheet = workbook.getWorksheet("Import Data");
+        expect(importSheet).toBeTruthy();
+        expect((importSheet!.getRow(1).values as string[]).slice(1)).toEqual([
+          "Employee ID", "First Name*", "Last Name*", "Email*", "Department", "Job Title*", "Phone", "Start Date", "Location",
+        ]);
+        expect((importSheet!.getRow(1).values as string[]).some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
+        expect(workbook.getWorksheet("Field Guide")?.getColumn(1).values.some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
+      }
       expect(workbook.worksheets[0].getCell("A2").text).toContain("__SAMPLE__");
       expect(workbook.getWorksheet("Field Guide")?.rowCount).toBe(module.fields.length + 1);
       const body = new FormData();
@@ -127,6 +155,82 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       const sampleResponse = await fetch(`${base}/api/data-migrations/${module.key}/preview`, { method: "POST", headers: headers(), body });
       expect(sampleResponse.status).toBe(400);
     }
+  });
+
+  it("imports a completed employee XLSX template and safely ignores a legacy Salary column", async () => {
+    const templateResponse = await fetch(`${base}/api/import/employees/template`, { headers: headers() });
+    expect(templateResponse.status).toBe(200);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.from(await templateResponse.arrayBuffer()));
+    const sheet = workbook.getWorksheet("Import Data")!;
+    const email = `${prefix}-xlsx-employee@example.test`;
+    setByHeader(sheet, 2, "Employee ID", `${prefix}-xlsx-employee`);
+    setByHeader(sheet, 2, "First Name", "  Amina  ");
+    setByHeader(sheet, 2, "Last Name", "  Tester ");
+    setByHeader(sheet, 2, "Email", email);
+    setByHeader(sheet, 2, "Department", departmentName);
+    setByHeader(sheet, 2, "Job Title", "Systems Analyst");
+    setByHeader(sheet, 2, "Phone", "+10000000123");
+    setByHeader(sheet, 2, "Start Date", "15-03-2026");
+    setByHeader(sheet, 2, "Location", locationName);
+    sheet.getCell(1, 10).value = "Salary";
+    sheet.getCell(2, 10).value = 999999;
+
+    const { response, result: preview } = await previewEmployeeWorkbook(workbook, "employees-import-template.xlsx");
+    expect(response.status, JSON.stringify(preview)).toBe(201);
+    expect(preview).toMatchObject({ totalRows: 1, validRows: 1, invalidRows: 0, validCount: 1, invalidCount: 0, errors: [] });
+
+    const commit = await post(`/api/import/employees/${preview.batchId}/commit`, { confirm: true });
+    const result = await commit.json();
+    expect(commit.status, JSON.stringify(result)).toBe(200);
+    expect(result).toMatchObject({ importedRows: 1, failedRows: 0, invalidRows: 0 });
+    const [employee] = await db.select().from(employees).where(eq(employees.email, email));
+    expect(employee).toMatchObject({
+      employeeId: `${prefix}-xlsx-employee`,
+      firstName: "Amina",
+      lastName: "Tester",
+      position: "Systems Analyst",
+      startDate: "2026-03-15",
+      salary: null,
+    });
+    expect(employee.departmentId).toBeTruthy();
+    expect(employee.locationId).toBeTruthy();
+  });
+
+  it("reports translated-ready employee row errors with exact XLSX row, identifier, field and reason", async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.addWorksheet("Field Guide").addRow(["Column", "Guidance"]);
+    const sheet = workbook.addWorksheet("Employee Upload");
+    sheet.addRow([" Employee ID ", "First Name *", "Last Name*", "Email *", "Department", "Job Title*", "Phone", "Start Date", "Location"]);
+    const duplicateEmail = `${prefix}-duplicate@example.test`;
+    sheet.addRow([`${prefix}-good`, "Valid", "Employee", duplicateEmail, "", "Analyst", "", "", ""]);
+    sheet.addRow([`${prefix}-duplicate`, "Second", "Employee", duplicateEmail, "", "Analyst", "", "", ""]);
+    sheet.addRow([`${prefix}-missing-last`, "Mahmoud", "", `${prefix}-missing-last@example.test`, "", "Analyst", "", "", ""]);
+    sheet.addRow([`${prefix}-bad-email`, "Invalid", "Email", "not-an-email", "", "Analyst", "", "", ""]);
+
+    const { response, result } = await previewEmployeeWorkbook(workbook, "legacy-employees.xlsx");
+    expect(response.status, JSON.stringify(result)).toBe(201);
+    expect(result).toMatchObject({ totalRows: 4, validRows: 1, invalidRows: 3, validCount: 1, invalidCount: 3 });
+    expect(result.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowNumber: 3,
+        identifier: `${prefix}-duplicate - Second Employee`,
+        field: "Email",
+        message: "Email address already exists.",
+      }),
+      expect.objectContaining({
+        rowNumber: 4,
+        identifier: `${prefix}-missing-last - Mahmoud`,
+        field: "Last Name",
+        message: "Missing required field",
+      }),
+      expect.objectContaining({
+        rowNumber: 5,
+        identifier: `${prefix}-bad-email - Invalid Email`,
+        field: "Email",
+        message: "Enter a valid email address.",
+      }),
+    ]));
   });
 
   it("previews errors without inserting records, imports only valid rows, and prevents replay", async () => {

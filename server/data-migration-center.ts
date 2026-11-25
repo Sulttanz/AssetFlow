@@ -103,6 +103,7 @@ let expirySweep: NodeJS.Timeout | null = null;
 class MigrationFeatureError extends Error {}
 
 const normalizedKey = (value: unknown) => String(value ?? "").trim().toLocaleLowerCase();
+const normalizedHeader = (value: unknown) => normalizedKey(value).replace(/\*+\s*$/, "").trim().replace(/\s+/g, " ");
 const textValue = (value: unknown) => {
   if (value == null) return "";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -113,11 +114,12 @@ const slugify = (value: string) => value.normalize("NFKD").toLowerCase().replace
 function cellValue(value: unknown): CellValue {
   if (value == null || value === "") return null;
   if (value instanceof Date) return value;
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return value;
   if (typeof value === "object" && value && "result" in value) return cellValue((value as { result: unknown }).result);
   if (typeof value === "object" && value && "text" in value) return textValue((value as { text: unknown }).text);
   if (typeof value === "object" && value && "richText" in value) {
-    return (value as { richText: { text: string }[] }).richText.map(part => part.text).join("");
+    return (value as { richText: { text: string }[] }).richText.map(part => part.text).join("").trim();
   }
   return String(value);
 }
@@ -176,7 +178,8 @@ async function parseUpload(file: Express.Multer.File, moduleKey: string) {
   } else {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer);
-    const sheet = workbook.worksheets[0];
+    const sheet = workbook.getWorksheet("Import Data") ??
+      workbook.worksheets.find(candidate => normalizedKey(candidate.name) !== "field guide");
     if (!sheet) throw new Error("The workbook does not contain a worksheet.");
     headers = (sheet.getRow(1).values as unknown[]).slice(1).map(textValue);
     rows = [];
@@ -189,17 +192,19 @@ async function parseUpload(file: Express.Multer.File, moduleKey: string) {
   const headerIndexes = new Map<string, number>();
   const duplicateHeaders = new Set<string>();
   headers.forEach((header, index) => {
-    const key = normalizedKey(header).replace(/\s+/g, " ");
+    const key = normalizedHeader(header);
     if (key && headerIndexes.has(key)) duplicateHeaders.add(textValue(header));
     else if (key) headerIndexes.set(key, index);
   });
   if (duplicateHeaders.size) throw new Error(`Duplicate column(s): ${Array.from(duplicateHeaders).join(", ")}`);
-  const expectedKeys = new Set(module.fields.map(field => normalizedKey(field.header).replace(/\s+/g, " ")));
-  const unknownHeaders = headers.map(header => textValue(header)).filter(header =>
-    header.trim() && !expectedKeys.has(normalizedKey(header).replace(/\s+/g, " ")),
-  );
+  const expectedKeys = new Set(module.fields.map(field => normalizedHeader(field.header)));
+  const legacyIgnoredHeaders = moduleKey === "employees" ? new Set(["salary"]) : new Set<string>();
+  const unknownHeaders = headers.map(header => textValue(header)).filter(header => {
+    const key = normalizedHeader(header);
+    return key && !expectedKeys.has(key) && !legacyIgnoredHeaders.has(key);
+  });
   const missingHeaders = module.fields.filter(field => field.required &&
-    !headerIndexes.has(normalizedKey(field.header).replace(/\s+/g, " ")),
+    !headerIndexes.has(normalizedHeader(field.header)),
   ).map(field => field.header);
   if (unknownHeaders.length) throw new Error(`Unexpected column(s): ${unknownHeaders.join(", ")}`);
   if (missingHeaders.length) throw new Error(`Missing required column(s): ${missingHeaders.join(", ")}`);
@@ -207,7 +212,7 @@ async function parseUpload(file: Express.Multer.File, moduleKey: string) {
   const records: ParsedRecord[] = [];
   rows.forEach(({ rowNumber, values: row }) => {
     const values = Object.fromEntries(module.fields.map(field => {
-      const column = headerIndexes.get(normalizedKey(field.header).replace(/\s+/g, " "));
+      const column = headerIndexes.get(normalizedHeader(field.header));
       return [field.key, column == null ? null : (row[column] ?? null)];
     }));
     if (sampleColumn && String(values[sampleColumn.key] ?? "").startsWith("__SAMPLE__")) return;
@@ -484,7 +489,7 @@ function buildNormalized(
     if (value("email")) uniqueKeys.push(`employeeEmail:${value("email")}`);
     if (value("employeeId")) uniqueKeys.push(`employeeId:${value("employeeId")}`);
     normalized = {
-      ...optional(["employeeId", "firstName", "lastName", "email", "position", "phone", "startDate", "salary"]),
+      ...optional(["employeeId", "firstName", "lastName", "email", "position", "phone", "startDate"]),
       department: value("departmentName") ?? null,
       departmentId: department ?? null,
       locationId: location ?? null,
@@ -801,6 +806,50 @@ async function validateRecords(moduleKey: string, records: ParsedRecord[], actor
     });
   }
   return records;
+}
+
+type ValidationDetail = { rowNumber: number; identifier: string; field: string; message: string };
+
+function recordIdentifier(moduleKey: string, values: Record<string, CellValue>): string {
+  if (moduleKey === "employees") {
+    const employeeId = textValue(values.employeeId);
+    const name = [textValue(values.firstName), textValue(values.lastName)].filter(Boolean).join(" ");
+    return [employeeId, name].filter(Boolean).join(" - ") || textValue(values.email) || "Employee row";
+  }
+  return textValue(values.employeeId) || textValue(values.email) ||
+    textValue(values.name) || textValue(values.title) || textValue(values.hostname) || "Record";
+}
+
+function validationDetails(moduleKey: string, records: ParsedRecord[]): ValidationDetail[] {
+  const module = getDataMigrationModule(moduleKey);
+  return records.flatMap(record => record.errors.map(error => {
+    let field = module?.fields.find(candidate =>
+      error.toLocaleLowerCase().startsWith(candidate.header.toLocaleLowerCase()) ||
+      error.toLocaleLowerCase().startsWith(candidate.key.toLocaleLowerCase()),
+    );
+    if (moduleKey === "employees" && /duplicate employee email/i.test(error)) {
+      field = module?.fields.find(candidate => candidate.key === "email");
+    }
+    if (moduleKey === "employees" && /duplicate employee id/i.test(error)) {
+      field = module?.fields.find(candidate => candidate.key === "employeeId");
+    }
+    const label = field?.header.replace(/\*+$/, "").trim() ?? "Record";
+    let message = error.replace(/\*+/g, "");
+    if (moduleKey === "employees") {
+      if (/is required\.?$/i.test(error)) message = "Missing required field";
+      else if (/must be a valid email address/i.test(error)) message = "Enter a valid email address.";
+      else if (/duplicate employee email/i.test(error)) message = "Email address already exists.";
+      else if (/duplicate employee id/i.test(error)) message = "Employee ID already exists.";
+      else if (/does not match an existing record/i.test(error) && label === "Department") message = "Department must match an existing department.";
+      else if (/does not match an existing record/i.test(error) && label === "Location") message = "Location must match an existing location.";
+    }
+    return {
+      rowNumber: record.rowNumber,
+      identifier: recordIdentifier(moduleKey, record.values),
+      field: label,
+      message,
+    };
+  }));
 }
 
 async function expirePreviews() {
@@ -1186,6 +1235,7 @@ export function registerDataMigrationRoutes(
       const { module, records } = await parseUpload(req.file, req.params.moduleKey);
       await validateRecords(module.key, records, req.user.id);
       const validRows = records.filter(record => record.errors.length === 0).length;
+      const invalidRows = records.length - validRows;
       const expiresAt = new Date(Date.now() + PREVIEW_TTL_MS);
       const [batch] = await db.insert(dataMigrationBatches).values({
         moduleKey: module.key,
@@ -1193,7 +1243,7 @@ export function registerDataMigrationRoutes(
         status: "preview",
         totalRows: records.length,
         validRows,
-        invalidRows: records.length - validRows,
+        invalidRows,
         previewData: records as unknown as Record<string, unknown>[],
         createdById: req.user.id,
         expiresAt,
@@ -1204,10 +1254,18 @@ export function registerDataMigrationRoutes(
         fileName: req.file.originalname,
         totalRows: records.length,
         validRows,
-        invalidRows: records.length - validRows,
+        invalidRows,
+        validCount: validRows,
+        invalidCount: invalidRows,
+        errors: validationDetails(module.key, records),
         expiresAt,
         rows: [...records.filter(record => record.errors.length > 0), ...records.filter(record => !record.errors.length)]
-          .slice(0, 100).map(({ rowNumber, values, errors }) => ({ rowNumber, values, errors })),
+          .slice(0, 100).map(({ rowNumber, values, errors }) => ({
+            rowNumber,
+            identifier: recordIdentifier(module.key, values),
+            values,
+            errors,
+          })),
         previewLimit: 100,
       });
     } catch (error) {

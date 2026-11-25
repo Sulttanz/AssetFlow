@@ -17,11 +17,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/hooks/use-language";
 import { formatDateTimeMinute } from "@/lib/date-utils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { DataMigrationModule } from "@shared/data-migration-modules";
 
-type PreviewRow = { rowNumber: number; values: Record<string, unknown>; errors: string[] };
+type ValidationDetail = { rowNumber: number; identifier: string; field: string; message: string };
+type PreviewRow = { rowNumber: number; identifier?: string; values: Record<string, unknown>; errors: string[] };
 type PreviewResult = {
   batchId: string;
   moduleKey: string;
@@ -29,11 +31,15 @@ type PreviewResult = {
   totalRows: number;
   validRows: number;
   invalidRows: number;
+  validCount?: number;
+  invalidCount?: number;
+  errors: ValidationDetail[];
   expiresAt: string;
   rows: PreviewRow[];
   previewLimit: number;
 };
 type ImportResult = { importedRows: number; failedRows: number; invalidRows: number; rowErrors: { rowNumber: number; error: string }[] };
+type FileValidationError = { fileName: string; message: string };
 type HistoryRow = {
   id: string;
   fileName: string;
@@ -56,6 +62,13 @@ async function responseError(response: Response) {
   }
 }
 
+function localizedFileError(message: string, t: (text: string) => string) {
+  for (const prefix of ["Unexpected column(s)", "Missing required column(s)", "Duplicate column(s)"]) {
+    if (message.startsWith(`${prefix}:`)) return `${t(prefix)}: ${message.slice(prefix.length + 1).trim()}`;
+  }
+  return t(message);
+}
+
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -70,9 +83,11 @@ export default function DataMigrationCenter() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [fileError, setFileError] = useState<FileValidationError | null>(null);
   const [busy, setBusy] = useState<"template" | "preview" | "import" | null>(null);
   const [draggingModule, setDraggingModule] = useState<string | null>(null);
   const { toast } = useToast();
+  const { t, language } = useLanguage();
   const modulesQuery = useQuery<DataMigrationModule[]>({ queryKey: ["/api/import/modules"] });
   const modules = modulesQuery.data ?? [];
   const historyQuery = useQuery<HistoryRow[]>({ queryKey: ["/api/import/history"] });
@@ -102,6 +117,7 @@ export default function DataMigrationCenter() {
     setFile(selected);
     setPreview(null);
     setResult(null);
+    setFileError(null);
   };
 
   const handleDrop = (event: DragEvent<HTMLLabelElement>, moduleKey: string) => {
@@ -125,12 +141,16 @@ export default function DataMigrationCenter() {
       if (!response.ok) throw new Error(await responseError(response));
       const data = await response.json() as PreviewResult;
       setPreview(data);
+      setFileError(null);
       toast({
-        title: "Validation complete",
-        description: `${data.validRows} valid and ${data.invalidRows} invalid row(s).`,
+        title: t("Validation complete"),
+        description: `${t("Valid rows")}: ${data.validCount ?? data.validRows} · ${t("Rows with errors")}: ${data.invalidCount ?? data.invalidRows}`,
       });
     } catch (error) {
-      toast({ title: "Preview failed", description: error instanceof Error ? error.message : "Please check the file.", variant: "destructive" });
+      const message = error instanceof Error ? error.message : "Please check the file.";
+      setPreview(null);
+      setFileError({ fileName: file?.name ?? "", message });
+      toast({ title: t("Preview failed"), description: message, variant: "destructive" });
     } finally {
       setBusy(null);
     }
@@ -146,6 +166,11 @@ export default function DataMigrationCenter() {
       setResult(data);
       setPreview(null);
       setFile(null);
+      setFileError(null);
+      if (preview.moduleKey === "employees") {
+        await queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/dashboard/executive"] });
+      }
       await historyQuery.refetch();
       toast({
         title: "Import completed",
@@ -301,9 +326,9 @@ export default function DataMigrationCenter() {
                   <CardDescription className="mt-1">Inspect row-level results below. Invalid rows are excluded from this import.</CardDescription>
                 </div>
                 <div className="grid grid-cols-3 gap-2 sm:min-w-[300px]">
-                  <div className="rounded-md border bg-background px-3 py-2"><p className="font-mono text-lg font-semibold">{preview.totalRows}</p><p className="text-[11px] text-muted-foreground">Total rows</p></div>
-                  <div className="rounded-md border border-emerald-700/20 bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/20"><p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400">{preview.validRows}</p><p className="text-[11px] text-muted-foreground">Valid rows</p></div>
-                  <div className={`rounded-md border px-3 py-2 ${preview.invalidRows ? "border-destructive/20 bg-destructive/5" : "bg-background"}`}><p className={`font-mono text-lg font-semibold ${preview.invalidRows ? "text-destructive" : ""}`}>{preview.invalidRows}</p><p className="text-[11px] text-muted-foreground">Rows with errors</p></div>
+                  <div className="rounded-md border bg-background px-3 py-2"><p className="font-mono text-lg font-semibold">{preview.totalRows}</p><p className="text-[11px] text-muted-foreground">{t("Total rows")}</p></div>
+                  <div className="rounded-md border border-emerald-700/20 bg-emerald-50/60 px-3 py-2 dark:bg-emerald-950/20"><p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400">{preview.validCount ?? preview.validRows}</p><p className="text-[11px] text-muted-foreground">{t("Valid rows")}</p></div>
+                  <div className={`rounded-md border px-3 py-2 ${(preview.invalidCount ?? preview.invalidRows) ? "border-destructive/20 bg-destructive/5" : "bg-background"}`}><p className={`font-mono text-lg font-semibold ${(preview.invalidCount ?? preview.invalidRows) ? "text-destructive" : ""}`}>{preview.invalidCount ?? preview.invalidRows}</p><p className="text-[11px] text-muted-foreground">{t("Rows with errors")}</p></div>
                 </div>
               </div>
             </CardHeader>
@@ -312,10 +337,10 @@ export default function DataMigrationCenter() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-16">Row #</TableHead>
-                      <TableHead className="w-24">Result</TableHead>
-                      <TableHead>Record values</TableHead>
-                      <TableHead>Validation errors</TableHead>
+                    <TableHead className="w-16">{t("Row #")}</TableHead>
+                    <TableHead className="w-24">{t("Result")}</TableHead>
+                    <TableHead>{t("Record values")}</TableHead>
+                    <TableHead>{t("Validation errors")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -324,8 +349,8 @@ export default function DataMigrationCenter() {
                         <TableCell className="font-mono text-xs">{row.rowNumber}</TableCell>
                         <TableCell>
                           {row.errors.length
-                            ? <Badge variant="destructive">Invalid</Badge>
-                            : <Badge className="bg-emerald-600 hover:bg-emerald-600">Valid</Badge>}
+                            ? <Badge variant="destructive">{t("Invalid")}</Badge>
+                            : <Badge className="bg-emerald-600 hover:bg-emerald-600">{t("Valid")}</Badge>}
                         </TableCell>
                         <TableCell className="max-w-[420px] whitespace-normal text-xs leading-5">
                           {Object.entries(row.values).filter(([, value]) => value != null && String(value).trim()).slice(0, 8).map(([key, value]) => (
@@ -340,6 +365,34 @@ export default function DataMigrationCenter() {
                   </TableBody>
                 </Table>
               </div>
+              {preview.errors?.length > 0 && (
+                <section className="space-y-2" aria-labelledby="validation-details-title">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 id="validation-details-title" className="text-sm font-semibold text-destructive">{t("Validation details")}</h3>
+                    <span className="text-xs text-muted-foreground">{preview.errors.length} {t("validation issue(s)")}</span>
+                  </div>
+                  <div
+                    className="max-h-72 overflow-y-auto rounded-md border border-destructive/20 bg-destructive/[0.025] p-3"
+                    role="region"
+                    aria-label={t("Validation details")}
+                    aria-live="polite"
+                    dir={language === "ar" ? "rtl" : "ltr"}
+                    tabIndex={0}
+                    data-testid="employee-import-validation-details"
+                  >
+                    <ul className="space-y-2 text-start text-sm">
+                      {preview.errors.map((issue, index) => (
+                        <li key={`${issue.rowNumber}-${issue.field}-${index}`} className="break-words leading-6">
+                          <strong>{t("Row")} {issue.rowNumber} ({issue.identifier || t("Employee row")}):</strong>{" "}
+                          {issue.message === "Missing required field"
+                            ? <>{t(issue.message)} "{t(issue.field)}"</>
+                            : <><span className="font-medium">{t(issue.field)}:</span> {t(issue.message)}</>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              )}
               {preview.totalRows > preview.previewLimit && <p className="text-xs text-muted-foreground">Showing the first {preview.previewLimit} rows. Counts include all {preview.totalRows} rows in the file.</p>}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-3">
@@ -352,6 +405,23 @@ export default function DataMigrationCenter() {
                   {busy === "import" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                   Import Valid Rows ({preview.validRows})
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {fileError && (
+          <Card className="border-destructive/30" role="alert" data-testid="import-file-validation-error">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                {t("File-level validation error")}
+              </CardTitle>
+              <CardDescription>{fileError.fileName}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-48 overflow-y-auto rounded-md border border-destructive/20 bg-destructive/[0.025] p-3 text-start text-sm" dir={language === "ar" ? "rtl" : "ltr"}>
+                {localizedFileError(fileError.message, t)}
               </div>
             </CardContent>
           </Card>
