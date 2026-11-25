@@ -486,6 +486,78 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     expect(edited.submittedAt?.getTime()).toBe(submitted.submittedAt!.getTime());
   });
 
+  it("preserves the first submission time when manual submitted updates race", async () => {
+    const userId = randomUUID();
+    const changeId = randomUUID();
+    const previousSubmission = new Date("2025-01-01T00:00:00.000Z");
+
+    await db.insert(users).values({
+      id: userId, username: `manager-${userId}`, email: `${userId}@example.invalid`,
+      password: "test-only", firstName: "Change", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Concurrent manual submission",
+      type: "standard", status: "rejected", risk: "low", submittedAt: previousSubmission,
+    });
+
+    const update = () => fetch(`${baseUrl}/api/changes/${changeId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": userId },
+      body: JSON.stringify({ status: "submitted" }),
+    });
+
+    let operationCount = 0;
+    let releaseBothOperations!: () => void;
+    const bothOperationsStarted = new Promise<void>(resolve => { releaseBothOperations = resolve; });
+    const waitForBothOperations = async () => {
+      if (++operationCount === 2) releaseBothOperations();
+      await bothOperationsStarted;
+    };
+    let releaseSecond!: () => void;
+    const firstCommitted = new Promise<void>(resolve => { releaseSecond = resolve; });
+    let firstSubmittedAt: Date | undefined;
+    const originalUpdate = storage.updateChangeWithCabStatusGuard.bind(storage);
+    const updateSpy = vi.spyOn(storage, "updateChangeWithCabStatusGuard").mockImplementation(async (...args) => {
+      const operation = operationCount + 1;
+      await waitForBothOperations();
+      if (operation === 2) {
+        await firstCommitted;
+        // Ensure a buggy repeated submission would produce a visibly newer timestamp.
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
+      try {
+        const result = await originalUpdate(...args);
+        if (operation === 1) firstSubmittedAt = result.change?.submittedAt;
+        return result;
+      } finally {
+        if (operation === 1) releaseSecond();
+      }
+    });
+
+    try {
+      const responses = await Promise.all([update(), update()]);
+      expect(responses.map(response => response.status)).toEqual([200, 200]);
+      const responseChanges = await Promise.all(
+        responses.map(response => response.json() as Promise<{ status: string; submittedAt: string }>),
+      );
+      expect(firstSubmittedAt).toBeInstanceOf(Date);
+      expect(firstSubmittedAt!.getTime()).toBeGreaterThan(previousSubmission.getTime());
+      expect(responseChanges).toEqual([
+        expect.objectContaining({ status: "submitted", submittedAt: firstSubmittedAt!.toISOString() }),
+        expect.objectContaining({ status: "submitted", submittedAt: firstSubmittedAt!.toISOString() }),
+      ]);
+
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+      expect(savedChange.status).toBe("submitted");
+      expect(savedChange.submittedAt?.getTime()).toBe(firstSubmittedAt!.getTime());
+    } finally {
+      updateSpy.mockRestore();
+      await db.delete(changes).where(eq(changes.id, changeId));
+      await db.delete(users).where(eq(users.id, userId));
+    }
+  }, 15_000);
+
   it("persists the submission time when a project change is created for review", async () => {
     const requesterId = randomUUID();
     const approverId = randomUUID();
