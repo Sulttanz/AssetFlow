@@ -4,13 +4,38 @@ import { isModuleTransportError } from "@shared/route-load-errors";
 type PageModule = { default: ComponentType };
 type PageLoader = () => Promise<PageModule>;
 
+/** Never turn an error message into an arbitrary cross-origin script import. */
+export function routeRetryUrl(error: unknown, attempt: number): string | null {
+  if (!isModuleTransportError(error)) return null;
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? "");
+  const match = message.match(/https?:\/\/[^\s"'<>]+/);
+  if (!match) return null;
+  try {
+    const url = new URL(match[0]);
+    if (url.origin !== window.location.origin ||
+      !/^\/(?:src\/(?:pages|components)\/.+\.[jt]sx?|assets\/[^/]+\.js)$/.test(url.pathname)) return null;
+    url.searchParams.set("route-retry", `${Date.now()}-${attempt}`);
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 /** Retry only transient module transport failures, never application exceptions. */
-export async function loadRouteModule(loader: PageLoader, delays = [250, 750]): Promise<PageModule> {
+export async function loadRouteModule(
+  loader: PageLoader,
+  delays = [250, 750],
+  importRetry: (url: string) => Promise<PageModule> = url => import(/* @vite-ignore */ url),
+): Promise<PageModule> {
+  let retryUrl: string | null = null;
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await loader();
+      return await (retryUrl ? importRetry(retryUrl) : loader());
     } catch (error) {
       if (!isModuleTransportError(error) || attempt >= delays.length) throw error;
+      // Browsers can cache rejected import URLs. Repeating loader() alone then
+      // repeats the rejection without ever requesting the corrected page.
+      retryUrl = routeRetryUrl(error, attempt + 1);
       await new Promise(resolve => setTimeout(resolve, delays[attempt]));
     }
   }

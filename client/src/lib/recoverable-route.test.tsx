@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRecoverableLazyRoute, createRecoverableRoute, loadRouteModule } from "./recoverable-route";
+import { createRecoverableLazyRoute, createRecoverableRoute, loadRouteModule, routeRetryUrl } from "./recoverable-route";
 import { isHandledPurchaseOrderLoadError, isHandledRouteLoadError } from "@shared/route-load-errors";
 
 // React's development build also dispatches caught errors to window in jsdom.
@@ -15,6 +15,36 @@ afterEach(() => {
 });
 
 describe("recoverable workspace loading", () => {
+  it("recovers a cached KPI import failure through a fresh same-origin URL", async () => {
+    const url = `${window.location.origin}/src/pages/kpis.tsx`;
+    const loader = vi.fn().mockRejectedValue(new TypeError(`Failed to fetch dynamically imported module: ${url}`));
+    const page = { default: () => <div>KPI dashboard</div> };
+    const importer = vi.fn().mockResolvedValue(page);
+    expect(await loadRouteModule(loader, [0], importer)).toBe(page);
+    expect(loader).toHaveBeenCalledTimes(1);
+    const retry = new URL(importer.mock.calls[0][0]);
+    expect(retry.origin).toBe(window.location.origin);
+    expect(retry.pathname).toBe("/src/pages/kpis.tsx");
+    expect(retry.searchParams.has("route-retry")).toBe(true);
+  });
+
+  it("never imports external URLs, APIs, or application errors from error text", () => {
+    for (const url of ["https://untrusted.example/src/pages/kpis.tsx", `${window.location.origin}/api/user`]) {
+      expect(routeRetryUrl(new TypeError(`Failed to fetch dynamically imported module: ${url}`), 1)).toBeNull();
+    }
+    expect(routeRetryUrl(new Error(`Invalid hook call ${window.location.origin}/src/pages/kpis.tsx`), 1)).toBeNull();
+  });
+
+  it("bounds fresh-URL attempts when the page remains unavailable", async () => {
+    const error = new TypeError(`Failed to fetch dynamically imported module: ${window.location.origin}/assets/kpis-123.js`);
+    const loader = vi.fn().mockRejectedValue(error);
+    const importer = vi.fn().mockRejectedValue(error);
+    await expect(loadRouteModule(loader, [0, 0], importer)).rejects.toBe(error);
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(importer).toHaveBeenCalledTimes(2);
+    expect(importer.mock.calls[0][0]).not.toBe(importer.mock.calls[1][0]);
+  });
+
   it("recognizes route transport failures without hiding application exceptions", () => {
     for (const path of ["/src/pages/assets.tsx", "/src/pages/dashboard.tsx", "/src/components/service-contracts/service-contracts-register.tsx", "/assets/assets-abc123.js"]) {
       expect(isHandledRouteLoadError(new TypeError(`Failed to fetch dynamically imported module: https://example.test${path}`))).toBe(true);

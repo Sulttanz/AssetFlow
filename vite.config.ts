@@ -6,6 +6,12 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { isHandledRouteLoadError } from "./shared/route-load-errors";
 
 export default defineConfig({
+  // Keep the live dev optimizer separate from Vitest/build tooling caches.
+  // Missing optimized files otherwise return 504 and break lazy page imports.
+  cacheDir: path.resolve(import.meta.dirname, "node_modules/.cache/assetflow-vite"),
+  optimizeDeps: {
+    include: ["date-fns"],
+  },
   plugins: [
     tailwindcss(),
     react(),
