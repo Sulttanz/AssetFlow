@@ -20,7 +20,13 @@ vi.mock("@tanstack/react-query", () => ({ useQuery: (options: unknown) => {
   return { data: state.data, isLoading: false, isError: false, refetch: vi.fn() };
 } }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...args: unknown[]) => state.request(...args) }));
-vi.mock("@/components/layout/header", () => ({ default: () => <h1>Executive dashboard</h1> }));
+vi.mock("@/components/layout/header", () => ({
+  default: ({ title, description, children, compactTitleActions }: any) => (
+    <header data-testid="dashboard-header" data-compact={compactTitleActions ? "true" : "false"}>
+      <h1>{title}</h1><p>{description}</p>{children}
+    </header>
+  ),
+}));
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({ children }: any) => children,
   BarChart: ({ children, data }: any) => <div data-testid="priority-chart" data-values={JSON.stringify(data)}>{children}</div>,
@@ -49,6 +55,9 @@ afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 describe("compact executive dashboard controls", () => {
   it("preserves every existing analytical section and adds a linked Total Projects card", () => {
     render(<Dashboard />);
+    expect(screen.getByTestId("dashboard-header").getAttribute("data-compact")).toBe("true");
+    expect(screen.getByText("Operational posture across your enabled workspaces.")).toBeTruthy();
+    expect(screen.getByText("Timeframe applies to SLA resolutions; inventory and open queues show current totals.")).toBeTruthy();
     for (const title of ["Identity exposure", "Infrastructure health", "Service desk pressure",
       "Access expiry posture", "Criticality mix", "Spend and commitments", "Attention queue"]) {
       expect(screen.getByRole("heading", { name: title })).toBeTruthy();

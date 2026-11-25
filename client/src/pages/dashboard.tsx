@@ -242,7 +242,20 @@ export default function Dashboard() {
         description="Operational posture across your enabled workspaces."
         showAddButton={false}
         showSearch={false}
-      />
+        compactTitleActions
+      >
+        <div className="flex min-w-0 flex-col gap-1.5 text-start lg:items-end">
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <span className="me-1 text-xs font-semibold text-muted-foreground">{t("Timeframe")}</span>
+            {([7, 30, 90] as const).map((days) => <Button key={days} type="button" size="sm" variant={timeframe === days ? "default" : "outline"} className="h-11 min-w-11 px-3" aria-pressed={timeframe === days} onClick={() => setTimeframe(days)}>{days}d</Button>)}
+            <label className="ms-auto flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-foreground lg:ms-1">
+              <input type="checkbox" checked={hideZeroRows} onChange={(event) => setHideZeroRows(event.target.checked)} className="h-4 w-4 accent-primary" />
+              {t("Hide zero rows")}
+            </label>
+          </div>
+          <p className="text-start text-[11px] text-muted-foreground lg:text-end">{t("Timeframe applies to SLA resolutions; inventory and open queues show current totals.")}</p>
+        </div>
+      </Header>
 
       {isLoading ? <LoadingDashboard /> : isError || !data ? (
         <main className="p-4 md:p-6">
@@ -259,15 +272,6 @@ export default function Dashboard() {
         </main>
       ) : (
         <main className="space-y-2.5 p-3 pb-5 sm:p-4 lg:space-y-3 lg:p-4" data-testid="executive-dashboard">
-          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
-            <span className="me-1 text-xs font-semibold text-muted-foreground">{t("Timeframe")}</span>
-            {([7, 30, 90] as const).map((days) => <Button key={days} type="button" size="sm" variant={timeframe === days ? "default" : "outline"} className="h-11 min-w-11 px-3" aria-pressed={timeframe === days} onClick={() => setTimeframe(days)}>{days}d</Button>)}
-            <label className="ms-auto flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
-              <input type="checkbox" checked={hideZeroRows} onChange={(event) => setHideZeroRows(event.target.checked)} className="h-4 w-4 accent-primary" />
-              {t("Hide zero rows")}
-            </label>
-            <p className="basis-full text-[11px] text-muted-foreground">{t("Timeframe applies to SLA resolutions; inventory and open queues show current totals.")}</p>
-          </div>
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label={t("Operational snapshot")}>
             {assetEnabled && snapshotCard("Active employees", safeNumber(data.identity?.activeEmployees), metricLink("Active employees"))}
             {itsmEnabled && snapshotCard("Open incidents", Object.values(data.serviceDesk?.openIncidentsByPriority ?? {}).reduce((sum, n) => sum + safeNumber(n), 0), metricLink("Open incidents"))}

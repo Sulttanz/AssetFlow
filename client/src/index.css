@@ -276,6 +276,27 @@ html[dir="rtl"] .border-l-2 { border-left-width: 0; border-right-width: 2px; }
   min-height: 96px;
 }
 
+.executive-dashboard-header-panel {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--border));
+  background: color-mix(in srgb, var(--card) 95%, var(--primary) 5%);
+}
+
+[data-theme="daylight"] .executive-dashboard-header-panel {
+  border-color: hsl(221 83% 68%);
+  background: color-mix(in srgb, #ffffff 94%, #2563eb 6%);
+}
+
+[data-theme="hybrid-navy"] .executive-dashboard-header-panel {
+  border-color: hsl(222 45% 25%);
+  background: #ffffff;
+}
+
+[data-theme="midnight"] .executive-dashboard-header-panel {
+  border-color: hsl(229 82% 61%);
+  background: hsl(222 47% 12%);
+}
+
 .executive-dashboard [data-testid="executive-dashboard"] > section,
 .executive-dashboard [data-testid="executive-dashboard"] > div {
   min-width: 0;

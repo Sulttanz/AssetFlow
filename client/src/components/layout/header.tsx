@@ -32,6 +32,7 @@ interface HeaderProps {
   addButtonText?: string;
   showAddButton?: boolean;
   showSearch?: boolean;
+  compactTitleActions?: boolean;
   searchPlaceholder?: string;
   onSearch?: (query: string) => void;
   children?: React.ReactNode;
@@ -75,6 +76,7 @@ export default function Header({
   addButtonText = "Add Item",
   showAddButton = true,
   showSearch = true,
+  compactTitleActions = false,
   searchPlaceholder = "Search...",
   onSearch,
   children,
@@ -104,20 +106,30 @@ export default function Header({
   }
 
   return (
-    <header className="bg-card px-4 py-5 md:px-8 md:py-6" data-testid="page-header">
+    <header
+      className={compactTitleActions ? "bg-background px-3 py-3 sm:px-4" : "bg-card px-4 py-5 md:px-8 md:py-6"}
+      data-testid="page-header"
+    >
       {/* Row 1: Title + Bell (always visible) */}
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[1.35rem] font-bold tracking-tight text-foreground leading-tight md:text-2xl" data-testid="page-title">
+      <div className={compactTitleActions
+        ? "executive-dashboard-header-panel flex flex-col items-stretch gap-3 rounded-xl border px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between"
+        : "flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between"}
+        data-testid={compactTitleActions ? "executive-dashboard-header-panel" : undefined}
+      >
+        <div className={`min-w-0 flex-1 ${compactTitleActions ? "text-start" : ""}`}>
+          <h1 className={`font-bold tracking-tight text-foreground leading-tight ${compactTitleActions ? "text-xl md:text-2xl" : "text-[1.35rem] md:text-2xl"}`} data-testid="page-title">
             {t(title)}
           </h1>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground" data-testid="page-description">
+          <p className={`mt-1 text-sm leading-relaxed text-muted-foreground ${compactTitleActions ? "text-start" : ""}`} data-testid="page-description">
             {t(description)}
           </p>
         </div>
 
         {/* Bell always stays in the top-right corner on mobile */}
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:shrink-0">
+        <div className={compactTitleActions
+          ? "flex w-full min-w-0 flex-col items-stretch gap-2 lg:w-auto lg:flex-row lg:items-center lg:shrink-0"
+          : "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto sm:shrink-0"}>
+          {compactTitleActions && children && <div className="min-w-0 flex-1 lg:max-w-[650px]">{children}</div>}
           {showAddButton && onAddClick && (
               <Button onClick={onAddClick} aria-label={t(addButtonText)} data-testid="add-button" size="sm" className="col-span-2 w-full sm:col-span-1 sm:w-auto sm:shrink-0">
               <Plus className="h-4 w-4" />
@@ -127,7 +139,7 @@ export default function Header({
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <button
-                className="relative h-11 w-11 shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className={`relative h-11 w-11 shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${compactTitleActions ? "self-end lg:self-auto" : ""}`}
                 data-testid="notifications-button"
                 aria-label={badgeCount > 0 ? `${t("Notifications")}, ${badgeCount} ${t("alerts")}` : t("Notifications")}
               >
@@ -193,7 +205,7 @@ export default function Header({
       </div>
 
       {/* Row 2: Existing search and page controls share one responsive toolbar. */}
-      {(showSearch && onSearch || children) && <div className="mt-5 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-background p-3 sm:flex-row sm:flex-wrap sm:items-center">
+      {!compactTitleActions && (showSearch && onSearch || children) && <div className="mt-5 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-background p-3 sm:flex-row sm:flex-wrap sm:items-center">
         {showSearch && onSearch && <div className="relative min-w-0 flex-1 basis-full sm:basis-56">
           <Search className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
           <Input type="text" placeholder={t(searchPlaceholder)} className="w-full border-transparent bg-card ps-10 pe-4 shadow-none focus-visible:border-ring" onChange={(e) => onSearch(e.target.value)} data-testid="search-input" />
