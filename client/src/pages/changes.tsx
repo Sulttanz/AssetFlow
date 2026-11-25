@@ -52,6 +52,15 @@ interface ChangeStage {
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
   deployedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
 }
+interface ChangeEscalationHistoryEntry {
+  escalatedAt: string;
+  previousRisk: string | null;
+  resultingRisk: string | null;
+  previousType: string;
+  resultingType: string;
+  previousReviewVersion: number;
+  reviewVersion: number;
+}
 interface ChangeWithDetails {
   id: string; changeNumber: string; title: string; description: string | null;
   projectId?: string | null;
@@ -63,6 +72,7 @@ interface ChangeWithDetails {
   assignedAt: string | null; submittedAt: string | null; approvedAt: string | null;
   cabRequired: boolean | null; cabScheduledFor: string | null;
   cabReviewVersion?: number;
+  cabEscalationHistory?: ChangeEscalationHistoryEntry[];
   requestedById: string | null; assignedToId: string | null; departmentId: string | null;
   requestedBy?: { id: string; username: string; firstName: string | null; lastName: string | null };
   assignedTo?: { id: string; username: string; firstName: string | null; lastName: string | null };
@@ -511,6 +521,13 @@ function ChangeTimeline({ change }: { change: ChangeWithDetails }) {
         ts: a.removedAt, color: "bg-gray-400", icon: UserCog,
       }] : []),
     ]),
+    ...(change.cabEscalationHistory ?? []).map(escalation => ({
+      label: `CAB review reset: Review ${escalation.reviewVersion}`,
+      ts: escalation.escalatedAt,
+      color: "bg-amber-500",
+      icon: AlertTriangle,
+      comment: `Risk: ${escalation.previousRisk ?? "low"} → ${escalation.resultingRisk ?? "low"} · Type: ${escalation.previousType} → ${escalation.resultingType} · Review ${escalation.previousReviewVersion} → ${escalation.reviewVersion}`,
+    })),
     { label: "Work started", ts: change.actualStart, color: "bg-orange-500", icon: Play },
     ...(change.stages?.flatMap(s => {
       const stageLabel = STAGE_META[s.environment]?.label ?? s.environment;

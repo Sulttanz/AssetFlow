@@ -70,6 +70,8 @@ describe.each(cases)("$name insert/schema parity", ({ table, input, create, name
           const expression = new PgDialect().sqlToQuery(column.default).sql;
           if (expression === "gen_random_uuid()") {
             expect(value, key).toMatch(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i);
+          } else if (expression === "'[]'::jsonb") {
+            expect(value, key).toEqual([]);
           } else {
             expect(expression, `unhandled SQL default for ${key}`).toBe("now()");
             expect(value, key).toEqual(now);

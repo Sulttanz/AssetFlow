@@ -4123,6 +4123,55 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     15_000,
   );
 
+  it("persists every CAB review reset even when no approvers have been assigned", async () => {
+    const managerId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values({
+      id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+      password: "test-only", firstName: "CAB", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Unassigned CAB escalation history",
+      type: "standard", risk: "low", status: "submitted", cabRequired: false,
+    });
+
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const auditSpy = vi.spyOn(storage, "createAuditLog").mockResolvedValue(undefined as never);
+    const update = (body: Record<string, unknown>) => fetch(`${baseUrl}/api/changes/${changeId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-test-user": managerId },
+      body: JSON.stringify(body),
+    });
+    try {
+      const first = await update({ type: "normal" });
+      expect(first.status).toBe(200);
+      const second = await update({ risk: "critical" });
+      expect(second.status).toBe(200);
+
+      const savedChange = await storage.getChange(changeId);
+      expect(savedChange?.cabEscalationHistory).toHaveLength(2);
+      expect(savedChange?.cabEscalationHistory).toEqual([
+        expect.objectContaining({
+          previousRisk: "low", resultingRisk: "low",
+          previousType: "standard", resultingType: "normal",
+          previousReviewVersion: 1, reviewVersion: 2,
+          escalatedAt: expect.any(String),
+        }),
+        expect.objectContaining({
+          previousRisk: "low", resultingRisk: "critical",
+          previousType: "normal", resultingType: "normal",
+          previousReviewVersion: 2, reviewVersion: 3,
+          escalatedAt: expect.any(String),
+        }),
+      ]);
+      expect(savedChange?.approvals).toEqual([]);
+      expect(savedChange?.cabReviewVersion).toBe(3);
+    } finally {
+      permissionSpy.mockRestore();
+      auditSpy.mockRestore();
+    }
+  }, 15_000);
+
   it.each([
     { targetStatus: "approved", clearCabOptIn: false },
     { targetStatus: "in_progress", clearCabOptIn: false },

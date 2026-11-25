@@ -2856,6 +2856,7 @@ export class MemStorage implements IStorage {
       risk: change.risk === undefined ? "low" : change.risk,
       cabRequired: change.cabRequired === undefined ? false : change.cabRequired,
       cabReviewVersion: change.cabReviewVersion ?? 1,
+      cabEscalationHistory: [],
       description: change.description ?? null,
       rollbackPlan: change.rollbackPlan ?? null,
       implementationPlan: change.implementationPlan ?? null,
@@ -4714,6 +4715,7 @@ export class DatabaseStorage implements IStorage {
         status: changes.status,
         cabRequired: changes.cabRequired,
         cabReviewVersion: changes.cabReviewVersion,
+        cabEscalationHistory: changes.cabEscalationHistory,
         type: changes.type,
         risk: changes.risk,
         actualStart: changes.actualStart,
@@ -4726,7 +4728,7 @@ export class DatabaseStorage implements IStorage {
       }
       await requireActiveChangeAssignee(tx, change.assignedToId);
 
-      let guardedChange = change;
+      let guardedChange: Partial<InsertChange> & { cabEscalationHistory?: Change["cabEscalationHistory"] } = change;
       const resultantType = change.type ?? current.type;
       const resultantRisk = change.risk ?? current.risk;
       // Product rule: any upward type/risk tier change on a CAB-required
@@ -4756,6 +4758,19 @@ export class DatabaseStorage implements IStorage {
         }
 
         cabReviewVersion += 1;
+        const escalatedAt = new Date();
+        const cabEscalationHistory = [
+          ...(current.cabEscalationHistory ?? []),
+          {
+            escalatedAt: escalatedAt.toISOString(),
+            previousRisk: current.risk,
+            resultingRisk: resultantRisk,
+            previousType: current.type,
+            resultingType: resultantType,
+            previousReviewVersion: current.cabReviewVersion,
+            reviewVersion: cabReviewVersion,
+          },
+        ];
         const activeApprovals = await tx.select({
           id: changeApprovals.id,
           decision: changeApprovals.decision,
@@ -4765,7 +4780,7 @@ export class DatabaseStorage implements IStorage {
           decisionHistory: changeApprovals.decisionHistory,
         }).from(changeApprovals)
           .where(and(eq(changeApprovals.changeId, id), isNull(changeApprovals.removedAt)));
-        const now = new Date();
+        const now = escalatedAt;
         for (const approval of activeApprovals) {
           const history = approval.decision === "approved" || approval.decision === "rejected"
             ? [
@@ -4795,6 +4810,7 @@ export class DatabaseStorage implements IStorage {
           ...guardedChange,
           cabRequired: true,
           cabReviewVersion,
+          cabEscalationHistory,
           ...(
             ["approved", "rejected"].includes(current.status) ||
             ["approved", "in_progress", "completed"].includes(change.status ?? "")

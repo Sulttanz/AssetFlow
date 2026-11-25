@@ -176,6 +176,16 @@ export const projectAssets = pgTable("project_assets", {
 
 // ITSM change requests are defined before project tasks so their optional
 // cross-module relationship can be represented as a real SET NULL foreign key.
+export type ChangeEscalationHistoryEntry = {
+  escalatedAt: string;
+  previousRisk: string | null;
+  resultingRisk: string | null;
+  previousType: string;
+  resultingType: string;
+  previousReviewVersion: number;
+  reviewVersion: number;
+};
+
 export const changes = pgTable("changes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   changeNumber: text("change_number").notNull().unique(),
@@ -198,6 +208,7 @@ export const changes = pgTable("changes", {
   approvedAt: timestamp("approved_at"),
   cabRequired: boolean("cab_required").default(false),
   cabReviewVersion: integer("cab_review_version").notNull().default(1),
+  cabEscalationHistory: jsonb("cab_escalation_history").$type<ChangeEscalationHistoryEntry[]>().notNull().default(sql`'[]'::jsonb`),
   cabScheduledFor: timestamp("cab_scheduled_for"),
   requestedById: varchar("requested_by_id").references(() => users.id, { onDelete: "set null" }),
   assignedToId: varchar("assigned_to_id").references(() => users.id, { onDelete: "set null" }),
@@ -3372,7 +3383,9 @@ export const changePIRs = pgTable("change_pirs", {
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });
 
-export const insertChangeSchema = createInsertSchema(changes).omit({ id: true, changeNumber: true, createdAt: true, updatedAt: true });
+export const insertChangeSchema = createInsertSchema(changes).omit({
+  id: true, changeNumber: true, cabEscalationHistory: true, createdAt: true, updatedAt: true,
+});
 export const insertRiskSchema = createInsertSchema(risks).omit({
   id: true, riskNumber: true, riskScore: true, createdAt: true, updatedAt: true,
   createdById: true, acceptedByUserId: true, acceptedAt: true,

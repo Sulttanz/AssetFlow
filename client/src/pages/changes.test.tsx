@@ -474,6 +474,43 @@ describe("change detail CAB approvals", () => {
     expect(screen.getByRole("tab", { name: "Approvals (1)" })).toBeTruthy();
   });
 
+  it("shows every CAB review reset in the timeline without adding approval records", async () => {
+    const firstEscalation = {
+      escalatedAt: "2026-06-02T14:30:00.000Z",
+      previousRisk: "low",
+      resultingRisk: "high",
+      previousType: "standard",
+      resultingType: "normal",
+      previousReviewVersion: 1,
+      reviewVersion: 2,
+    };
+    const secondEscalation = {
+      escalatedAt: "2026-06-03T14:30:00.000Z",
+      previousRisk: "high",
+      resultingRisk: "critical",
+      previousType: "normal",
+      resultingType: "emergency",
+      previousReviewVersion: 2,
+      reviewVersion: 3,
+    };
+    const { user } = await openApprovals([], [], [], [], undefined, 3, {
+      cabEscalationHistory: [firstEscalation, secondEscalation],
+    });
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    const timeline = screen.getByRole("tabpanel", { name: "Timeline" });
+    const resetEvents = within(timeline).getAllByText(/^CAB review reset:/);
+    expect(resetEvents.map(event => event.textContent)).toEqual([
+      "CAB review reset: Review 2",
+      "CAB review reset: Review 3",
+    ]);
+    expect(within(timeline).getByText(/Risk: low → high · Type: standard → normal · Review 1 → 2/)).toBeTruthy();
+    expect(within(timeline).getByText(/Risk: high → critical · Type: normal → emergency · Review 2 → 3/)).toBeTruthy();
+    expect(within(timeline).getByText(new RegExp(appFormatDateTime(firstEscalation.escalatedAt)))).toBeTruthy();
+    expect(within(timeline).getByText(new RegExp(appFormatDateTime(secondEscalation.escalatedAt)))).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Approvals (0)" })).toBeTruthy();
+  });
+
   it("shows CAB approval and rejection decisions in chronological order with saved labels, times, and comments", async () => {
     const approved = {
       ...approval("Current", "approved", "dave", "Reviewed and approved"),
