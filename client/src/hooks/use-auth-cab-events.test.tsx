@@ -158,6 +158,32 @@ it("signs out and hides an open protected page when its API request is unauthori
   expect(screen.getByText("Sign-in page")).toBeTruthy();
 });
 
+it("signs out and redirects when the Executive Dashboard snapshot request returns 401", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(401)));
+  queryClient.setQueryData(["/api/user"], { id: "alice", isActive: true });
+  queryClient.setQueryData(["/api/dashboard/executive", { days: 30 }], { presence: { activeUsersNow: 3 } });
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <ProtectedRoute path="/" component={PrivatePage} />
+        <Route path="/auth"><div>Sign-in page</div></Route>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+
+  await act(async () => {
+    await expect(apiRequest("GET", "/api/dashboard/executive?days=30")).rejects.toThrow("401:");
+  });
+
+  await waitFor(() => {
+    expect(queryClient.getQueryData(["/api/user"])).toBeNull();
+    expect(queryClient.getQueryData(["/api/dashboard/executive", { days: 30 }])).toBeUndefined();
+    expect(screen.getByText("Sign-in page")).toBeTruthy();
+  });
+});
+
 it("signs out and hides an open protected page when an idle session is revoked", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   const fetchSession = vi.fn().mockResolvedValue(response(401));

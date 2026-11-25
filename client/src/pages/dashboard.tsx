@@ -262,7 +262,7 @@ export default function Dashboard() {
         </div>
       </Header>
 
-      {isLoading ? <LoadingDashboard /> : isError || !data ? (
+      {isLoading && !data ? <LoadingDashboard /> : !data ? (
         <main className="p-4 md:p-6">
           <Card className="mx-auto max-w-2xl border-rose-200 bg-rose-50">
             <CardContent className="flex flex-col items-center px-6 py-12 text-center">
@@ -277,6 +277,23 @@ export default function Dashboard() {
         </main>
       ) : (
         <main className="space-y-2.5 p-3 pb-5 sm:p-4 lg:space-y-3 lg:p-4" data-testid="executive-dashboard">
+          {isError && (
+            <div
+              role="status"
+              aria-live="polite"
+              data-testid="dashboard-stale-indicator"
+              className="flex flex-col justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-foreground sm:flex-row sm:items-center"
+            >
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+                <span>{t("Showing the last loaded snapshot. Refresh failed; retrying automatically.")}</span>
+              </div>
+              <Button type="button" size="sm" variant="outline" className="min-h-11 w-full gap-2 sm:w-auto" onClick={() => void refetch()}>
+                <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden="true" />
+                {t("Retry now")}
+              </Button>
+            </div>
+          )}
           <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label={t("Operational snapshot")}>
             {snapshotCard(
               "Users active now",

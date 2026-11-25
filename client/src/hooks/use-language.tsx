@@ -150,6 +150,8 @@ const arabic: Record<string, string> = {
   "Current": "الحالي",
   "Users active now": "المستخدمون النشطون الآن",
   "Unique signed-in users in the 10-minute idle window; separate from Active employees.": "المستخدمون المسجلون خلال نافذة خمول مدتها 10 دقائق؛ مستقلون عن عدد الموظفين النشطين.",
+  "Showing the last loaded snapshot. Refresh failed; retrying automatically.": "يتم عرض آخر لقطة تم تحميلها. فشل التحديث؛ ستتم إعادة المحاولة تلقائياً.",
+  "Retry now": "أعد المحاولة الآن",
   "Priority": "الأولوية",
   "Validation complete": "اكتمل التحقق",
   "Validation details": "تفاصيل التحقق",

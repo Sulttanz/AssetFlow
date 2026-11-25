@@ -6,6 +6,10 @@ const state = vi.hoisted(() => ({
   data: undefined as any,
   options: undefined as any,
   disabled: new Set<string>(),
+  isLoading: false,
+  isError: false,
+  isFetching: false,
+  refetch: vi.fn(),
   request: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({
@@ -17,7 +21,13 @@ vi.mock("@/hooks/use-modules", () => ({ useModules: () => ({
 }) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: (options: unknown) => {
   state.options = options;
-  return { data: state.data, isLoading: false, isError: false, refetch: vi.fn() };
+  return {
+    data: state.data,
+    isLoading: state.isLoading,
+    isError: state.isError,
+    isFetching: state.isFetching,
+    refetch: state.refetch,
+  };
 } }));
 vi.mock("@/lib/queryClient", () => ({ apiRequest: (...args: unknown[]) => state.request(...args) }));
 vi.mock("@/components/layout/header", () => ({
@@ -49,6 +59,10 @@ const fixture = () => ({
 beforeEach(() => {
   state.data = fixture();
   state.disabled.clear();
+  state.isLoading = false;
+  state.isError = false;
+  state.isFetching = false;
+  state.refetch.mockReset();
   state.request.mockReset().mockResolvedValue({ json: async () => state.data });
 });
 afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
@@ -124,6 +138,31 @@ describe("compact executive dashboard controls", () => {
     expect(within(snapshot).getByRole("link", { name: "Users active now 0" })).toBeTruthy();
     expect(within(snapshot).getByRole("link", { name: "Open incidents 0" })).toBeTruthy();
     expect(within(snapshot).getByRole("link", { name: "Total Projects 0" })).toBeTruthy();
+  });
+  it("keeps the previous snapshot visible during a failed background poll and clears the stale notice after recovery", () => {
+    state.isError = true;
+    const view = render(<Dashboard />);
+    expect(screen.getByTestId("executive-dashboard")).toBeTruthy();
+    expect(screen.getByTestId("dashboard-stale-indicator").textContent).toContain(
+      "Showing the last loaded snapshot. Refresh failed; retrying automatically.",
+    );
+    expect(state.options.refetchInterval).toBe(15_000);
+    fireEvent.click(screen.getByRole("button", { name: "Retry now" }));
+    expect(state.refetch).toHaveBeenCalledOnce();
+
+    state.data.presence.activeUsersNow = 9;
+    state.isError = false;
+    view.rerender(<Dashboard />);
+    expect(screen.queryByTestId("dashboard-stale-indicator")).toBeNull();
+    expect(screen.getByRole("link", { name: "Users active now 9" })).toBeTruthy();
+  });
+  it("uses the unavailable-and-retry card only when no snapshot data has loaded", () => {
+    state.data = undefined;
+    state.isError = true;
+    render(<Dashboard />);
+    expect(screen.getByText("Executive data is unavailable")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+    expect(screen.queryByTestId("dashboard-stale-indicator")).toBeNull();
   });
   it("shows explicit empty breakdown messages rather than removing sections", () => {
     state.data.serviceDesk.openIncidentsByPriority = { P1: 0, P2: 0, P3: 0, P4: 0 };
