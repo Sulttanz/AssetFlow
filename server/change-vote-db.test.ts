@@ -39,7 +39,7 @@ import
 
 import 
 {
- auditLogs, changeApprovals, changeEnvironmentStages, changes, users
+ auditLogs, changeApprovals, changeEnvironmentStages, changes, projectTeamMembers, projects, roles, userRoles, users
 }
  from "@shared/schema"
 ;
@@ -484,6 +484,57 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     expect(editResponse.status).toBe(200);
     const [edited] = await db.select().from(changes).where(eq(changes.id, changeId));
     expect(edited.submittedAt?.getTime()).toBe(submitted.submittedAt!.getTime());
+  });
+
+  it("persists the submission time when a project change is created for review", async () => {
+    const requesterId = randomUUID();
+    const approverId = randomUUID();
+    const projectId = randomUUID();
+
+    await db.insert(users).values([
+      {
+        id: requesterId, username: `requester-${requesterId}`, email: `${requesterId}@example.invalid`,
+        password: "test-only", firstName: "Project", lastName: "Requester",
+      },
+      {
+        id: approverId, username: `approver-${approverId}`, email: `${approverId}@example.invalid`,
+        password: "test-only", firstName: "Project", lastName: "Approver",
+      },
+    ]);
+    const [endUserRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, "end_user"));
+    const [adminRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, "system_admin"));
+    expect(endUserRole).toBeDefined();
+    expect(adminRole).toBeDefined();
+    await db.insert(userRoles).values([
+      { userId: requesterId, roleId: endUserRole!.id },
+      { userId: approverId, roleId: adminRole!.id },
+    ]);
+    await db.insert(projects).values({
+      id: projectId, name: `Submission project ${projectId}`, title: "Submission project",
+    });
+    await db.insert(projectTeamMembers).values({ projectId, userId: requesterId });
+
+    const response = await fetch(`${baseUrl}/api/changes`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-user": requesterId },
+      body: JSON.stringify({
+        title: "Submitted project change",
+        type: "standard",
+        risk: "low",
+        status: "submitted",
+        projectId,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const responseChange = await response.json() as { id: string; status: string; submittedAt: string };
+    const [savedChange] = await db.select().from(changes).where(eq(changes.id, responseChange.id));
+
+    expect(responseChange.status).toBe("submitted");
+    expect(responseChange.submittedAt).toBeTruthy();
+    expect(savedChange.status).toBe("submitted");
+    expect(savedChange.submittedAt).toBeInstanceOf(Date);
+    expect(new Date(responseChange.submittedAt).getTime()).toBe(savedChange.submittedAt!.getTime());
   });
 
   it.each([
