@@ -13,11 +13,12 @@ import { Textarea } from "@/components/ui/textarea";
 import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import EmployeeOffboardingDialog from "@/components/employees/employee-offboarding-dialog";
-import { Edit, KeyRound, UserCheck, UserX, Users } from "lucide-react";
+import { Edit, KeyRound, Upload, UserCheck, UserX, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { EmployeeWithDetails } from "@shared/schema";
+import { useLocation } from "wouter";
 import {
   Pagination,
   PaginationContent,
@@ -31,6 +32,7 @@ const ITEMS_PER_PAGE = 10;
 
 export default function Employees() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const canManageEmployees = !!user?.permissions?.includes("employee_update");
   const canApproveOffboarding = canManageEmployees || !!user?.permissions?.includes("offboarding_approve");
   const [searchQuery, setSearchQuery] = useState("");
@@ -149,7 +151,20 @@ export default function Employees() {
         showAddButton={canManageEmployees}
         searchPlaceholder="Search employees..."
         onSearch={setSearchQuery}
-      />
+      >
+        {canManageEmployees && (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 w-full gap-2 sm:w-auto"
+            onClick={() => navigate("/import?module=employees")}
+            data-testid="button-import-employees"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            Import Employees
+          </Button>
+        )}
+      </Header>
 
       <main className="p-6" data-testid="employees-content">
         <Card>

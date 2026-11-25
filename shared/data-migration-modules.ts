@@ -85,6 +85,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
       { key: "email", header: "Email", kind: "email", sample: "sam.example@example.invalid", note: "Optional; if supplied, must be valid and unique. Leave blank for an employee without an email address." },
       { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department name." },
       { key: "position", header: "Job Title*", required: true, sample: "IT Analyst", note: "Required job title." },
+      { key: "mobile", header: "Mobile", sample: "+10000000001", note: "Optional mobile number." },
       { key: "phone", header: "Phone", sample: "+10000000000", note: "Optional telephone." },
       { key: "startDate", header: "Start Date", kind: "date", sample: "15-03-2026", note: "Optional date; DD-MM-YYYY or YYYY-MM-DD." },
       { key: "locationName", header: "Location", sample: "Sample Office", note: "Optional; must match an existing location name." },

@@ -169,6 +169,7 @@ const arabic: Record<string, string> = {
   "Department": "القسم",
   "Job Title": "المسمى الوظيفي",
   "Phone": "الهاتف",
+  "Mobile": "الجوال",
   "Start Date": "تاريخ البدء",
   "Location": "الموقع",
   "Missing required field": "حقل مطلوب مفقود",

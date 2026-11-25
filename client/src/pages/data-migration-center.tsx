@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 import { formatDateTimeMinute } from "@/lib/date-utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { DataMigrationModule } from "@shared/data-migration-modules";
+import { dataMigrationModules, type DataMigrationModule } from "@shared/data-migration-modules";
 
 type ValidationDetail = { rowNumber: number; identifier: string; field?: string; message: string };
 type PreviewRow = { rowNumber: number; identifier?: string; values: Record<string, unknown>; errors: string[] };
@@ -79,7 +79,12 @@ function saveBlob(blob: Blob, filename: string) {
 }
 
 export default function DataMigrationCenter() {
-  const [selectedModule, setSelectedModule] = useState<string | null>(null);
+  const [selectedModule, setSelectedModule] = useState<string | null>(() => {
+    const requestedModule = new URLSearchParams(window.location.search).get("module");
+    return requestedModule && dataMigrationModules.some(module => module.key === requestedModule)
+      ? requestedModule
+      : null;
+  });
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -243,6 +248,8 @@ export default function DataMigrationCenter() {
               return (
                 <Card
                   key={module.key}
+                  data-testid={`migration-module-${module.key}`}
+                  data-selected={active ? "true" : "false"}
                   className={`flex flex-col overflow-hidden transition-colors ${active ? "border-primary/70 bg-primary/[0.025] ring-1 ring-primary/15" : "hover:border-border/90"}`}
                 >
                   <CardHeader className="pb-3">

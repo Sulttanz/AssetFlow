@@ -41,6 +41,7 @@ vi.mock("@/lib/queryClient", () => ({
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState({}, "", "/");
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -100,6 +101,12 @@ describe("employee bulk import validation", () => {
     expect(employeeModule.summary).toContain("does not create login accounts or access grants");
     expect(emailField.required).not.toBe(true);
     expect(emailField.header).toBe("Email");
+  });
+
+  it("preselects the employee directory import when linked from the Employees page", () => {
+    window.history.replaceState({}, "", "/import?module=employees");
+    render(<DataMigrationCenter />);
+    expect(screen.getByTestId("migration-module-employees").getAttribute("data-selected")).toBe("true");
   });
 
   it("shows row errors even when an older preview response omits structured validation details", async () => {

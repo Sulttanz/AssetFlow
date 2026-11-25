@@ -225,7 +225,7 @@ async function parseUpload(file: Express.Multer.File, moduleKey: string) {
     });
   });
   if (records.length > MAX_ROWS) throw new Error(`The file contains ${records.length} rows. The maximum is ${MAX_ROWS}.`);
-  if (!records.length) throw new Error("No data rows were detected. Remove the template sample row and add data.");
+  if (!records.length) throw new Error(`No data rows were detected in ${module.title}. Remove the template sample row and add data.`);
   return { module, records };
 }
 
@@ -489,7 +489,7 @@ function buildNormalized(
     if (value("email")) uniqueKeys.push(`employeeEmail:${value("email")}`);
     if (value("employeeId")) uniqueKeys.push(`employeeId:${value("employeeId")}`);
     normalized = {
-      ...optional(["employeeId", "firstName", "lastName", "email", "position", "phone", "startDate"]),
+      ...optional(["employeeId", "firstName", "lastName", "email", "position", "mobile", "phone", "startDate"]),
       department: value("departmentName") ?? null,
       departmentId: department ?? null,
       locationId: location ?? null,

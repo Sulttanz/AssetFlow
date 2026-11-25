@@ -142,7 +142,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
         const importSheet = workbook.getWorksheet("Import Data");
         expect(importSheet).toBeTruthy();
         expect((importSheet!.getRow(1).values as string[]).slice(1)).toEqual([
-          "Employee ID", "First Name*", "Last Name*", "Email", "Department", "Job Title*", "Phone", "Start Date", "Location",
+          "Employee ID", "First Name*", "Last Name*", "Email", "Department", "Job Title*", "Mobile", "Phone", "Start Date", "Location",
         ]);
         expect((importSheet!.getRow(1).values as string[]).some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
         expect(workbook.getWorksheet("Field Guide")?.getColumn(1).values.some(value => String(value ?? "").toLowerCase().includes("salary"))).toBe(false);
@@ -170,11 +170,13 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     setByHeader(sheet, 2, "Email", email);
     setByHeader(sheet, 2, "Department", departmentName);
     setByHeader(sheet, 2, "Job Title", "Systems Analyst");
+    setByHeader(sheet, 2, "Mobile", "+10000000444");
     setByHeader(sheet, 2, "Phone", "+10000000123");
     setByHeader(sheet, 2, "Start Date", "15-03-2026");
     setByHeader(sheet, 2, "Location", locationName);
-    sheet.getCell(1, 10).value = "Salary";
-    sheet.getCell(2, 10).value = 999999;
+    const legacySalaryColumn = sheet.columnCount + 1;
+    sheet.getCell(1, legacySalaryColumn).value = "Salary";
+    sheet.getCell(2, legacySalaryColumn).value = 999999;
 
     const { response, result: preview } = await previewEmployeeWorkbook(workbook, "employees-import-template.xlsx");
     expect(response.status, JSON.stringify(preview)).toBe(201);
@@ -190,6 +192,8 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
       firstName: "Amina",
       lastName: "Tester",
       position: "Systems Analyst",
+      mobile: "+10000000444",
+      phone: "+10000000123",
       startDate: "2026-03-15",
       salary: null,
     });
@@ -215,7 +219,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     const response = await fetch(`${base}/api/import/employees/preview`, { method: "POST", headers: headers(), body });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
-      message: expect.stringContaining("No data rows were found in the Employees (Directory Only) worksheet"),
+      message: expect.stringContaining("No data rows were detected in Employees (Directory Only)"),
     });
   });
 
