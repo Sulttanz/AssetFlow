@@ -11923,6 +11923,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const ch = await storage.getChange(req.params.id);
       if (!ch) return res.status(404).json({ message: "Change not found" });
+      if (ch.status === "in_progress") {
+        await storage.createDefaultChangeStages(req.params.id);
+        return res.json(await storage.getChange(req.params.id));
+      }
       if (ch.status !== "approved") return res.status(400).json({ message: "Change must be approved before starting" });
       const user = req.user as any;
       const result = await storage.updateChangeWithCabStatusGuard(
@@ -11933,9 +11937,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           assignedToId: ch.assignedToId || user.id,
           assignedAt: ch.assignedAt || new Date(),
         } as any,
-        { allowedCurrentStatuses: ["approved"] },
+        { allowedCurrentStatuses: ["approved"], ensureDefaultStages: true },
       );
       if (result.statusInvalid) {
+        const latest = await storage.getChange(req.params.id);
+        if (latest?.status === "in_progress") {
+          await storage.createDefaultChangeStages(req.params.id);
+          return res.json(await storage.getChange(req.params.id));
+        }
         return res.status(400).json({ message: "Change must be approved before starting" });
       }
       if (result.cabPending) {
@@ -11950,10 +11959,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
       }
       if (!result.change) return res.status(404).json({ message: "Change not found" });
-
-      // Create default environment stages only after the guarded transition succeeds.
-      const existing = await storage.getChangeStages(req.params.id);
-      if (existing.length === 0) await storage.createDefaultChangeStages(req.params.id);
       res.json(await storage.getChange(req.params.id));
     } catch (e) { console.error(e); respondWithApiError(res, e, "Failed to start change"); }
   });
@@ -11989,10 +11994,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/changes/:id/stages/init", requireAuth, requireModule("itsm"), requirePermission("change_manage"), async (req, res) => {
     try {
-      const existing = await storage.getChangeStages(req.params.id);
-      if (existing.length > 0) return res.json(existing);
+      const hadStages = (await storage.getChangeStages(req.params.id)).length > 0;
       const stages = await storage.createDefaultChangeStages(req.params.id);
-      res.status(201).json(stages);
+      res.status(hadStages ? 200 : 201).json(stages);
     } catch (error) { respondWithApiError(res, error, "Failed to initialize stages"); }
   });
 

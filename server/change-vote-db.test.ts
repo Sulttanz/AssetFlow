@@ -4350,6 +4350,90 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
     }
   }, 15_000);
 
+  it("rolls back a failed stage setup and repairs it on a start retry", async () => {
+    const managerId = randomUUID();
+    const changeId = randomUUID();
+    await db.insert(users).values({
+      id: managerId, username: `manager-${managerId}`, email: `${managerId}@example.invalid`,
+      password: "test-only", firstName: "Change", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Retry stage setup",
+      type: "standard", risk: "low", status: "approved", cabRequired: false,
+    });
+
+    const permissionSpy = vi.spyOn(storage, "getUserPermissions").mockResolvedValue(["change_manage"]);
+    const dropFailureTrigger = async () => {
+      await appPool.query("DROP TRIGGER IF EXISTS fail_default_change_stage_setup ON change_environment_stages");
+      await appPool.query("DROP FUNCTION IF EXISTS reject_default_change_stage_setup()");
+    };
+
+    try {
+      await appPool.query(`
+        CREATE FUNCTION reject_default_change_stage_setup() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.environment = 'testing' THEN
+            RAISE EXCEPTION 'simulated stage setup failure';
+          END IF;
+          RETURN NEW;
+        END;
+        $$;
+      `);
+      await appPool.query(`
+        CREATE TRIGGER fail_default_change_stage_setup
+        BEFORE INSERT ON change_environment_stages
+        FOR EACH ROW EXECUTE FUNCTION reject_default_change_stage_setup();
+      `);
+
+      const failedStart = await fetch(`${baseUrl}/api/changes/${changeId}/start`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      expect(failedStart.status).toBe(500);
+      expect((await db.select().from(changes).where(eq(changes.id, changeId)))[0])
+        .toMatchObject({ status: "approved", actualStart: null });
+      expect(await db.select().from(changeEnvironmentStages)
+        .where(eq(changeEnvironmentStages.changeId, changeId))).toHaveLength(0);
+
+      await dropFailureTrigger();
+      const retryStart = await fetch(`${baseUrl}/api/changes/${changeId}/start`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      expect(retryStart.status).toBe(200);
+      expect(await retryStart.json()).toMatchObject({ status: "in_progress" });
+
+      const developmentStage = await appPool.query(
+        "SELECT id FROM change_environment_stages WHERE change_id = $1 AND environment = 'development'",
+        [changeId],
+      );
+      await appPool.query(
+        "UPDATE change_environment_stages SET status = 'completed' WHERE id = $1",
+        [developmentStage.rows[0].id],
+      );
+      await appPool.query(
+        "DELETE FROM change_environment_stages WHERE change_id = $1 AND environment <> 'development'",
+        [changeId],
+      );
+
+      const initResponse = await fetch(`${baseUrl}/api/changes/${changeId}/stages/init`, {
+        method: "POST",
+        headers: { "x-test-user": managerId },
+      });
+      expect(initResponse.status).toBe(200);
+      const repairedStages = await initResponse.json();
+      expect(repairedStages).toHaveLength(4);
+      expect(repairedStages.filter((stage: { environment: string }) =>
+        stage.environment === "development")).toMatchObject([
+        { id: developmentStage.rows[0].id, status: "completed" },
+      ]);
+    } finally {
+      await dropFailureTrigger();
+      permissionSpy.mockRestore();
+    }
+  }, 15_000);
+
   it("does not allow a CAB assignment to add a pending vote after start commits", async () => {
     const managerId = randomUUID();
     const approverId = randomUUID();

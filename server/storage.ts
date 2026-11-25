@@ -71,6 +71,27 @@ async function ensureApprovedProjectChangeTask(tx: any, changeId: string) {
   }).onConflictDoNothing();
 }
 
+async function ensureDefaultChangeStagesInTransaction(tx: any, changeId: string) {
+  const defaults = [
+    { environment: "development", order: 1 },
+    { environment: "testing", order: 2 },
+    { environment: "staging", order: 3 },
+    { environment: "production", order: 4 },
+  ];
+  const existing = await tx.select({ environment: changeEnvironmentStages.environment })
+    .from(changeEnvironmentStages)
+    .where(eq(changeEnvironmentStages.changeId, changeId));
+  const existingEnvironments = new Set(existing.map((stage: { environment: string }) => stage.environment));
+  const missing = defaults.filter(stage => !existingEnvironments.has(stage.environment));
+  if (missing.length > 0) {
+    await tx.insert(changeEnvironmentStages)
+      .values(missing.map(stage => ({ changeId, ...stage, status: "pending" })));
+  }
+  return tx.select().from(changeEnvironmentStages)
+    .where(eq(changeEnvironmentStages.changeId, changeId))
+    .orderBy(changeEnvironmentStages.order);
+}
+
 async function requireActiveChangeAssignee(tx: any, userId?: string | null) {
   if (!userId) return;
   const [user] = await tx.select({ isActive: users.isActive })
@@ -406,6 +427,7 @@ export interface IStorage {
   updateChange(id: string, change: Partial<InsertChange>): Promise<Change | undefined>;
   updateChangeWithCabStatusGuard(id: string, change: Partial<InsertChange>, options?: {
     allowedCurrentStatuses?: string[];
+    ensureDefaultStages?: boolean;
   }): Promise<{
     change: Change | undefined;
     cabPending: boolean;
@@ -4682,7 +4704,7 @@ export class DatabaseStorage implements IStorage {
   async updateChangeWithCabStatusGuard(
     id: string,
     change: Partial<InsertChange>,
-    options?: { allowedCurrentStatuses?: string[] },
+    options?: { allowedCurrentStatuses?: string[]; ensureDefaultStages?: boolean },
   ) {
     return db.transaction(async tx => {
       // CAB votes lock this same parent row before changing a decision. Locking
@@ -4835,6 +4857,9 @@ export class DatabaseStorage implements IStorage {
         .where(eq(changes.id, id))
         .returning();
       if (updated?.status === "approved") await ensureApprovedProjectChangeTask(tx, updated.id);
+      if (updated && options?.ensureDefaultStages) {
+        await ensureDefaultChangeStagesInTransaction(tx, updated.id);
+      }
       return { change: updated, cabPending: false, cabReviewReset };
     });
   }
@@ -4850,16 +4875,16 @@ export class DatabaseStorage implements IStorage {
       .orderBy(changeEnvironmentStages.order);
   }
   async createDefaultChangeStages(changeId: string): Promise<ChangeEnvironmentStage[]> {
-    const envs = [
-      { environment: "development", order: 1 },
-      { environment: "testing",     order: 2 },
-      { environment: "staging",     order: 3 },
-      { environment: "production",  order: 4 },
-    ];
-    const rows = await db.insert(changeEnvironmentStages)
-      .values(envs.map(e => ({ changeId, ...e, status: "pending" })))
-      .returning();
-    return rows;
+    return db.transaction(async tx => {
+      // Serialize setup for a change so concurrent retries only create each
+      // default environment once and preserve any stages already in progress.
+      const [change] = await tx.select({ id: changes.id })
+        .from(changes)
+        .where(eq(changes.id, changeId))
+        .for("update");
+      if (!change) return [];
+      return ensureDefaultChangeStagesInTransaction(tx, changeId);
+    });
   }
   async updateChangeStage(id: string, data: Partial<InsertChangeEnvironmentStage> & { deployedById?: string | null }): Promise<ChangeEnvironmentStage | undefined> {
     return db.transaction(async tx => {
