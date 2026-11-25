@@ -56,6 +56,10 @@ describe("compact executive dashboard controls", () => {
     const snapshot = screen.getByRole("region", { name: "Operational snapshot" });
     expect(within(snapshot).getByText("Active employees")).toBeTruthy();
     expect(within(snapshot).getByText("Open incidents")).toBeTruthy();
+    expect(within(snapshot).getAllByText("Live database count · outside SLA timeframe")).toHaveLength(3);
+    expect(snapshot.className).toContain("grid-cols-1");
+    expect(snapshot.className).toContain("sm:grid-cols-2");
+    expect(snapshot.className).toContain("lg:grid-cols-3");
     const project = within(snapshot).getByRole("link", { name: "Total Projects 17" });
     expect(project.getAttribute("href")).toBe("/projects");
     expect(screen.getByRole("link", { name: /Hardware valuation/ }).getAttribute("href")).toBe("/assets");
@@ -64,6 +68,8 @@ describe("compact executive dashboard controls", () => {
   it("uses a separate query cache and a real API parameter for each timeframe", async () => {
     render(<Dashboard />);
     expect(state.options.queryKey).toEqual(["/api/dashboard/executive", { days: 30 }]);
+    expect(state.options.refetchOnMount).toBe("always");
+    expect(state.options.refetchOnWindowFocus).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "7d" }));
     expect(state.options.queryKey).toEqual(["/api/dashboard/executive", { days: 7 }]);
     expect(screen.getByRole("button", { name: "7d" }).getAttribute("aria-pressed")).toBe("true");
@@ -94,6 +100,16 @@ describe("compact executive dashboard controls", () => {
     state.disabled.add("project_management");
     view.rerender(<Dashboard />);
     expect(screen.queryByText("Total Projects")).toBeNull();
+  });
+  it("renders safe zero values when live database counts are missing or invalid", () => {
+    state.data.identity.activeEmployees = undefined;
+    state.data.serviceDesk.openIncidentsByPriority.P1 = Number.NaN;
+    state.data.projects.totalProjects = Number.POSITIVE_INFINITY;
+    render(<Dashboard />);
+    const snapshot = screen.getByRole("region", { name: "Operational snapshot" });
+    expect(within(snapshot).getByRole("link", { name: "Active employees 0" })).toBeTruthy();
+    expect(within(snapshot).getByRole("link", { name: "Open incidents 0" })).toBeTruthy();
+    expect(within(snapshot).getByRole("link", { name: "Total Projects 0" })).toBeTruthy();
   });
   it("shows explicit empty breakdown messages rather than removing sections", () => {
     state.data.serviceDesk.openIncidentsByPriority = { P1: 0, P2: 0, P3: 0, P4: 0 };

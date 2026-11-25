@@ -31,6 +31,7 @@ const arabic: Record<string, string> = {
   "Hide zero rows": "إخفاء الصفوف ذات القيمة صفر",
   "Timeframe applies to SLA resolutions; inventory and open queues show current totals.": "تنطبق الفترة على معالجة الحوادث وفق اتفاقية مستوى الخدمة؛ تعرض المخزونات وقوائم العمل المفتوحة الإجماليات الحالية.",
   "Total Projects": "إجمالي المشاريع",
+  "Live database count · outside SLA timeframe": "عدد مباشر من قاعدة البيانات · خارج فترة اتفاقية مستوى الخدمة",
   "No non-zero priority rows to show.": "لا توجد أولويات ذات قيم غير صفرية لعرضها.",
   "No non-zero access rows to show.": "لا توجد سجلات وصول ذات قيم غير صفرية لعرضها.",
   "No non-zero criticality rows to show.": "لا توجد مستويات أهمية ذات قيم غير صفرية لعرضها.",

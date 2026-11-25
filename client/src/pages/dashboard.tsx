@@ -74,6 +74,15 @@ const currencyFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
+function safeNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 function Metric({
   label,
   value,
@@ -95,7 +104,7 @@ function Metric({
     slate: "bg-slate-100 text-slate-600",
   };
   const content = (
-    <div className="metric-card min-w-0 rounded-xl border border-border bg-card p-3 shadow-sm transition-colors duration-200 hover:border-primary/40">
+    <div className="metric-card min-w-0 rounded-xl border border-border bg-card p-2.5 shadow-sm transition-colors duration-200 hover:border-primary/40">
       <div className="flex items-start justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{t(label)}</p>
         <span data-dashboard-tone={tone} className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
@@ -132,12 +141,14 @@ function LoadingDashboard() {
 
 function BreakdownBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
   const { t } = useLanguage();
-  const percent = total > 0 ? (value / total) * 100 : 0;
+  const safeValue = safeNumber(value);
+  const safeTotal = safeNumber(total);
+  const percent = safeTotal > 0 ? (safeValue / safeTotal) * 100 : 0;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{t(label)}</span>
-        <span className="font-mono font-semibold text-foreground">{numberFormat.format(value)} <span className="font-sans font-normal text-muted-foreground">· {percent.toFixed(0)}%</span></span>
+        <span className="font-mono font-semibold text-foreground">{numberFormat.format(safeValue)} <span className="font-sans font-normal text-muted-foreground">· {percent.toFixed(0)}%</span></span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
         <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(percent, 100)}%`, backgroundColor: color }} />
@@ -174,6 +185,8 @@ export default function Dashboard() {
     queryFn: () => apiRequest("GET", `/api/dashboard/executive?days=${timeframe}`).then((response) => response.json()),
     enabled: isExecutiveViewer && !isAuthLoading && !isModulesLoading,
     refetchInterval: 15_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
   const canNavigate = (href: string, moduleKey: string, permission?: string | string[]) =>
     isModuleEnabled(moduleKey) &&
@@ -208,14 +221,16 @@ export default function Dashboard() {
     return href ? <Link key={props.label} href={href} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{metric}</Link> : <div key={props.label}>{metric}</div>;
   };
   const snapshotCard = (label: string, value: number, href?: string) => {
-    const content = <><p className="text-xs font-semibold text-muted-foreground">{t(label)}</p><p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(value)}</p></>;
+    const safeValue = safeNumber(value);
+    const content = <><p className="text-xs font-semibold text-muted-foreground">{t(label)}</p><p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(safeValue)}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{t("Live database count · outside SLA timeframe")}</p></>;
     return href
-      ? <Link key={label} href={href} className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</Link>
+      ? <Link key={label} href={href} aria-label={`${t(label)} ${numberFormat.format(safeValue)}`} className="min-w-0 rounded-xl border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</Link>
       : <div key={label} className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm">{content}</div>;
   };
-  const filteredPriorityData = data ? priorityData(data.serviceDesk.openIncidentsByPriority).filter((item) => !hideZeroRows || item.value > 0) : [];
+  const filteredPriorityData = data ? priorityData(data.serviceDesk?.openIncidentsByPriority).filter((item) => !hideZeroRows || item.value > 0) : [];
   const filteredAccessData = data ? accessData(data.accessExpiry, t).filter((item) => !hideZeroRows || item.value > 0) : [];
-  const visibleCriticalities = data ? (["P1", "P2", "P3", "P4"] as const).filter((priority) => !hideZeroRows || data.applicationCriticality[priority] > 0) : [];
+  const attentionQueue = Array.isArray(data?.attentionQueue) ? data.attentionQueue : [];
+  const visibleCriticalities = data ? (["P1", "P2", "P3", "P4"] as const).filter((priority) => !hideZeroRows || safeNumber(data.applicationCriticality?.[priority]) > 0) : [];
 
   if (isAuthLoading || isModulesLoading) return <LoadingDashboard />;
   if (!isExecutiveViewer && user) return <PersonaDashboard user={user} />;
@@ -243,7 +258,7 @@ export default function Dashboard() {
           </Card>
         </main>
       ) : (
-        <main className="space-y-3 p-3 pb-6 sm:p-4 lg:space-y-4 lg:p-4" data-testid="executive-dashboard">
+        <main className="space-y-2.5 p-3 pb-5 sm:p-4 lg:space-y-3 lg:p-4" data-testid="executive-dashboard">
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
             <span className="me-1 text-xs font-semibold text-muted-foreground">{t("Timeframe")}</span>
             {([7, 30, 90] as const).map((days) => <Button key={days} type="button" size="sm" variant={timeframe === days ? "default" : "outline"} className="h-11 min-w-11 px-3" aria-pressed={timeframe === days} onClick={() => setTimeframe(days)}>{days}d</Button>)}
@@ -253,29 +268,29 @@ export default function Dashboard() {
             </label>
             <p className="basis-full text-[11px] text-muted-foreground">{t("Timeframe applies to SLA resolutions; inventory and open queues show current totals.")}</p>
           </div>
-          <section className="grid grid-cols-2 gap-2 sm:max-w-3xl lg:grid-cols-3" aria-label={t("Operational snapshot")}>
-            {assetEnabled && snapshotCard("Active employees", data.identity.activeEmployees, metricLink("Active employees"))}
-            {itsmEnabled && snapshotCard("Open incidents", Object.values(data.serviceDesk.openIncidentsByPriority).reduce((sum, n) => sum + n, 0), metricLink("Open incidents"))}
-            {isModuleEnabled("project_management") && snapshotCard("Total Projects", data.projects?.totalProjects ?? 0, metricLink("Total Projects"))}
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label={t("Operational snapshot")}>
+            {assetEnabled && snapshotCard("Active employees", safeNumber(data.identity?.activeEmployees), metricLink("Active employees"))}
+            {itsmEnabled && snapshotCard("Open incidents", Object.values(data.serviceDesk?.openIncidentsByPriority ?? {}).reduce((sum, n) => sum + safeNumber(n), 0), metricLink("Open incidents"))}
+            {isModuleEnabled("project_management") && snapshotCard("Total Projects", safeNumber(data.projects?.totalProjects), metricLink("Total Projects"))}
           </section>
 
           {assetEnabled && <section>
             <SectionTitle kicker="01 / People & access" title="Identity exposure" />
             <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-              {renderMetric({ label: "Active employees", value: numberFormat.format(data.identity.activeEmployees), detail: "Current workforce", icon: BriefcaseBusiness, tone: "slate" })}
-              {renderMetric({ label: "Offboarding clearance", value: numberFormat.format(data.identity.pendingOffboardingClearances), detail: "Pending removal checks", icon: ShieldCheck, tone: data.identity.pendingOffboardingClearances ? "amber" : "blue" })}
-              {renderMetric({ label: "Grants expiring", value: numberFormat.format(data.identity.expiringAccessGrants), detail: "Access due to expire", icon: Clock3, tone: data.identity.expiringAccessGrants ? "amber" : "blue" })}
-              {renderMetric({ label: "Expired grants", value: numberFormat.format(data.identity.expiredAccessGrants), detail: "Require review", icon: LockKeyhole, tone: data.identity.expiredAccessGrants ? "red" : "blue" })}
+              {renderMetric({ label: "Active employees", value: numberFormat.format(safeNumber(data.identity?.activeEmployees)), detail: "Current workforce", icon: BriefcaseBusiness, tone: "slate" })}
+              {renderMetric({ label: "Offboarding clearance", value: numberFormat.format(safeNumber(data.identity?.pendingOffboardingClearances)), detail: "Pending removal checks", icon: ShieldCheck, tone: data.identity?.pendingOffboardingClearances ? "amber" : "blue" })}
+              {renderMetric({ label: "Grants expiring", value: numberFormat.format(safeNumber(data.identity?.expiringAccessGrants)), detail: "Access due to expire", icon: Clock3, tone: data.identity?.expiringAccessGrants ? "amber" : "blue" })}
+              {renderMetric({ label: "Expired grants", value: numberFormat.format(safeNumber(data.identity?.expiredAccessGrants)), detail: "Require review", icon: LockKeyhole, tone: data.identity?.expiredAccessGrants ? "red" : "blue" })}
             </div>
           </section>}
 
           {cmdbEnabled && <section>
             <SectionTitle kicker="02 / Technology estate" title="Infrastructure health" />
             <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-              {renderMetric({ label: "Server estate", value: numberFormat.format(data.infrastructure.totalServers), detail: `${numberFormat.format(data.infrastructure.serversOnline)} online`, icon: Server, tone: "slate" })}
-              {renderMetric({ label: "In maintenance", value: numberFormat.format(data.infrastructure.serversMaintenance), detail: "Servers under maintenance", icon: Wrench, tone: "amber" })}
-              {renderMetric({ label: "Offline servers", value: numberFormat.format(data.infrastructure.serversOffline), detail: "Outside expected state", icon: CloudCog, tone: data.infrastructure.serversOffline ? "red" : "blue" })}
-              {renderMetric({ label: "Active applications", value: numberFormat.format(data.infrastructure.activeApplications), detail: `${numberFormat.format(data.infrastructure.configurationFiles)} configuration files`, icon: Boxes, tone: "blue" })}
+              {renderMetric({ label: "Server estate", value: numberFormat.format(safeNumber(data.infrastructure?.totalServers)), detail: `${numberFormat.format(safeNumber(data.infrastructure?.serversOnline))} online`, icon: Server, tone: "slate" })}
+              {renderMetric({ label: "In maintenance", value: numberFormat.format(safeNumber(data.infrastructure?.serversMaintenance)), detail: "Servers under maintenance", icon: Wrench, tone: "amber" })}
+              {renderMetric({ label: "Offline servers", value: numberFormat.format(safeNumber(data.infrastructure?.serversOffline)), detail: "Outside expected state", icon: CloudCog, tone: data.infrastructure?.serversOffline ? "red" : "blue" })}
+              {renderMetric({ label: "Active applications", value: numberFormat.format(safeNumber(data.infrastructure?.activeApplications)), detail: `${numberFormat.format(safeNumber(data.infrastructure?.configurationFiles))} configuration files`, icon: Boxes, tone: "blue" })}
             </div>
           </section>}
 
@@ -286,7 +301,7 @@ export default function Dashboard() {
                 <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
                   <div>
                     <p className="mb-3 text-xs font-semibold text-muted-foreground">{t("Open incidents by priority")}</p>
-                    <div className="h-36 w-full min-w-0 sm:h-40">
+                    <div className="h-32 w-full min-w-0 sm:h-36">
                       {filteredPriorityData.some((n) => n.value > 0) ? (
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart data={filteredPriorityData} margin={{ top: 4, right: 4, bottom: 0, left: -22 }}>
@@ -303,31 +318,31 @@ export default function Dashboard() {
                     </div>
                     {hideZeroRows && filteredPriorityData.length === 0 && <p className="mt-1 text-center text-xs text-muted-foreground">{t("No non-zero priority rows to show.")}</p>}
                   </div>
-                  <div className="space-y-4">
+                    <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2">
                       <DashboardLink href={metricLink("CAB approvals")} className="dashboard-tint-blue block rounded-lg bg-blue-50 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700">{t("CAB approvals")}</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold text-slate-900">{numberFormat.format(data.serviceDesk.pendingCabApprovals)}</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold text-slate-900">{numberFormat.format(safeNumber(data.serviceDesk.pendingCabApprovals))}</p>
                         <p className="text-[11px] text-slate-500">{t("awaiting decision")}</p>
                       </DashboardLink>
                       <DashboardLink href={metricLink("SLA breach risk")} className="dashboard-tint-amber block rounded-lg bg-amber-50 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">{t("SLA breach risk")}</p>
-                        <p className="mt-1 font-mono text-2xl font-semibold text-amber-800">{numberFormat.format(data.serviceDesk.slaBreachRiskCount)}</p>
+                        <p className="mt-1 font-mono text-2xl font-semibold text-amber-800">{numberFormat.format(safeNumber(data.serviceDesk.slaBreachRiskCount))}</p>
                         <p className="text-[11px] text-amber-700/70">{t("at-risk incidents")}</p>
                       </DashboardLink>
                     </div>
                     <div className="rounded-lg border border-border p-2.5">
-                      <div className="mb-3 flex items-center justify-between">
+                      <div className="mb-2 flex items-center justify-between">
                         <p className="text-xs font-semibold text-muted-foreground">{t("Resolution SLA")}</p>
-                        <span className="font-mono text-sm font-semibold text-foreground">{percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}% {t("within SLA")}</span>
+                        <span className="font-mono text-sm font-semibold text-foreground">{percent(safeNumber(data.serviceDesk.resolutionSla?.withinSla), safeNumber(data.serviceDesk.resolutionSla?.withinSla) + safeNumber(data.serviceDesk.resolutionSla?.breached))}% {t("within SLA")}</span>
                       </div>
                       <div className="flex h-2 overflow-hidden rounded-full bg-rose-100">
-                        <div className="bg-emerald-600 transition-[width] duration-500" style={{ width: `${percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}%` }} />
+                        <div className="bg-emerald-600 transition-[width] duration-500" style={{ width: `${percent(safeNumber(data.serviceDesk.resolutionSla?.withinSla), safeNumber(data.serviceDesk.resolutionSla?.withinSla) + safeNumber(data.serviceDesk.resolutionSla?.breached))}%` }} />
                       </div>
-                      <div className="mt-3 flex justify-between text-[11px]">
-                        {(!hideZeroRows || data.serviceDesk.resolutionSla.withinSla > 0) && <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{numberFormat.format(data.serviceDesk.resolutionSla.withinSla)} {t("within")}</span>}
-                        {(!hideZeroRows || data.serviceDesk.resolutionSla.breached > 0) && <span className="flex items-center gap-1.5 text-rose-700"><span className="h-1.5 w-1.5 rounded-full bg-rose-600" />{numberFormat.format(data.serviceDesk.resolutionSla.breached)} {t("breached")}</span>}
-                        {hideZeroRows && data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached === 0 && <span className="text-muted-foreground">{t("No resolutions in the selected timeframe.")}</span>}
+                      <div className="mt-2 flex justify-between text-[11px]">
+                        {(!hideZeroRows || safeNumber(data.serviceDesk.resolutionSla?.withinSla) > 0) && <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{numberFormat.format(safeNumber(data.serviceDesk.resolutionSla?.withinSla))} {t("within")}</span>}
+                        {(!hideZeroRows || safeNumber(data.serviceDesk.resolutionSla?.breached) > 0) && <span className="flex items-center gap-1.5 text-rose-700"><span className="h-1.5 w-1.5 rounded-full bg-rose-600" />{numberFormat.format(safeNumber(data.serviceDesk.resolutionSla?.breached))} {t("breached")}</span>}
+                        {hideZeroRows && safeNumber(data.serviceDesk.resolutionSla?.withinSla) + safeNumber(data.serviceDesk.resolutionSla?.breached) === 0 && <span className="text-muted-foreground">{t("No resolutions in the selected timeframe.")}</span>}
                       </div>
                     </div>
                   </div>
@@ -338,13 +353,13 @@ export default function Dashboard() {
             {assetEnabled && <Card className="min-w-0 border-border bg-card shadow-sm">
               <CardContent className="p-3 md:p-4">
                 <SectionTitle kicker="04 / Access governance" title="Access expiry posture" aside={<LockKeyhole className="h-4 w-4 text-primary" />} />
-                <div className="grid min-w-0 items-center gap-4 sm:grid-cols-[minmax(128px,160px)_minmax(0,1fr)]">
+                <div className="grid min-w-0 items-center gap-3 sm:grid-cols-[minmax(112px,140px)_minmax(0,1fr)]">
                   <div className="flex flex-col items-center gap-1.5">
-                    <div className="relative mx-auto h-32 w-32 sm:h-36 sm:w-36">
-                      {data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired > 0 && (!hideZeroRows || filteredAccessData.some((entry) => entry.value > 0)) ? (
+                    <div className="relative mx-auto h-28 w-28 sm:h-32 sm:w-32">
+                      {safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired) > 0 && (!hideZeroRows || filteredAccessData.some((entry) => entry.value > 0)) ? (
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie data={filteredAccessData} dataKey="value" nameKey="name" innerRadius={44} outerRadius={62} stroke="none" paddingAngle={3}>
+                          <Pie data={filteredAccessData} dataKey="value" nameKey="name" innerRadius={38} outerRadius={54} stroke="none" paddingAngle={3}>
                             {filteredAccessData.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
                           </Pie>
                           <Tooltip contentStyle={{ border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12 }} />
@@ -352,18 +367,18 @@ export default function Dashboard() {
                       </ResponsiveContainer>
                       ) : <div className="absolute inset-2 rounded-full border-[12px] border-secondary" aria-label={t("No access grants reported.")} />}
                       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="font-mono text-xl font-semibold text-foreground">{numberFormat.format(data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired)}</span>
+                        <span className="font-mono text-xl font-semibold text-foreground">{numberFormat.format(safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired))}</span>
                         <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">{t("grants")}</span>
                       </div>
                     </div>
-                    {data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired === 0 && (
+                    {safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired) === 0 && (
                       <p className="text-center text-[11px] font-medium text-muted-foreground">{t("No access grants reported.")}</p>
                     )}
                   </div>
                   <div className="space-y-3">
-                    {(!hideZeroRows || data.accessExpiry.valid > 0) && <BreakdownBar label="Valid" value={data.accessExpiry.valid} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#059669" />}
-                    {(!hideZeroRows || data.accessExpiry.expiring > 0) && <BreakdownBar label="Expiring" value={data.accessExpiry.expiring} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#d97706" />}
-                    {(!hideZeroRows || data.accessExpiry.expired > 0) && <BreakdownBar label="Expired" value={data.accessExpiry.expired} total={data.accessExpiry.valid + data.accessExpiry.expiring + data.accessExpiry.expired} color="#e11d48" />}
+                    {(!hideZeroRows || safeNumber(data.accessExpiry?.valid) > 0) && <BreakdownBar label="Valid" value={safeNumber(data.accessExpiry?.valid)} total={safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired)} color="#059669" />}
+                    {(!hideZeroRows || safeNumber(data.accessExpiry?.expiring) > 0) && <BreakdownBar label="Expiring" value={safeNumber(data.accessExpiry?.expiring)} total={safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired)} color="#d97706" />}
+                    {(!hideZeroRows || safeNumber(data.accessExpiry?.expired) > 0) && <BreakdownBar label="Expired" value={safeNumber(data.accessExpiry?.expired)} total={safeNumber(data.accessExpiry?.valid) + safeNumber(data.accessExpiry?.expiring) + safeNumber(data.accessExpiry?.expired)} color="#e11d48" />}
                     {hideZeroRows && filteredAccessData.length === 0 && <p className="text-xs text-muted-foreground">{t("No non-zero access rows to show.")}</p>}
                   </div>
                 </div>
@@ -371,20 +386,20 @@ export default function Dashboard() {
             </Card>}
           </div>}
 
-          {(cmdbEnabled || assetEnabled) && <section className={`grid gap-3.5 xl:gap-4 ${cmdbEnabled && assetEnabled ? "xl:grid-cols-[0.9fr_1.1fr]" : ""}`}>
+          {(cmdbEnabled || assetEnabled) && <section className={`grid gap-3 xl:gap-3.5 ${cmdbEnabled && assetEnabled ? "xl:grid-cols-[0.9fr_1.1fr]" : ""}`}>
             {cmdbEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-3 md:p-4">
                 <SectionTitle kicker="05 / Application portfolio" title="Criticality mix" aside={<FileCode2 className="h-4 w-4 text-primary" />} />
                 <div className="space-y-3">
                   {visibleCriticalities.map((priority) => (
-                    <BreakdownBar key={priority} label={`${priority} · ${priorityLabel(priority)}`} value={data.applicationCriticality[priority]} total={Object.values(data.applicationCriticality).reduce((sum, count) => sum + count, 0)} color={PRIORITY_COLORS[priority]} />
+                    <BreakdownBar key={priority} label={`${priority} · ${priorityLabel(priority)}`} value={safeNumber(data.applicationCriticality?.[priority])} total={Object.values(data.applicationCriticality ?? {}).reduce((sum, count) => sum + safeNumber(count), 0)} color={PRIORITY_COLORS[priority]} />
                   ))}
                   {hideZeroRows && visibleCriticalities.length === 0 && <p className="text-xs text-muted-foreground">{t("No non-zero criticality rows to show.")}</p>}
                 </div>
                 <div className="mt-3 border-t border-border pt-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">{t("Tracked applications")}</span>
-                    <span className="font-mono font-semibold text-foreground">{numberFormat.format(Object.values(data.applicationCriticality).reduce((sum, count) => sum + count, 0))}</span>
+                    <span className="font-mono font-semibold text-foreground">{numberFormat.format(Object.values(data.applicationCriticality ?? {}).reduce((sum, count) => sum + safeNumber(count), 0))}</span>
                   </div>
                 </div>
               </CardContent>
@@ -394,22 +409,22 @@ export default function Dashboard() {
               <CardContent className="p-3 md:p-4">
                 <SectionTitle kicker="06 / Asset & commercial management" title="Spend and commitments" aside={<Wallet className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-2 sm:grid-cols-3">
-                  <DashboardLink href={metricLink("Hardware valuation")} className="dashboard-tint-blue block rounded-xl bg-blue-50 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <DashboardLink href={metricLink("Hardware valuation")} className="dashboard-tint-blue block rounded-xl bg-blue-50 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">{t("Hardware valuation")}</p>
-                    <p className="mt-2 font-mono text-xl font-semibold tracking-tight text-slate-900">{currencyFormat.format(data.itam.hardwareAssetValuation)}</p>
+                    <p className="mt-1.5 font-mono text-xl font-semibold tracking-tight text-slate-900">{currencyFormat.format(safeNumber(data.itam.hardwareAssetValuation))}</p>
                     <p className="mt-1 text-xs opacity-75">{t("asset portfolio value")}</p>
                   </DashboardLink>
-                  <DashboardLink href={metricLink("Software seats")} className="dashboard-tint-neutral block rounded-xl bg-slate-100 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <DashboardLink href={metricLink("Software seats")} className="dashboard-tint-neutral block rounded-xl bg-slate-100 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">{t("Software seats")}</p>
-                    <p className="mt-2 font-mono text-xl font-semibold tracking-tight text-slate-900">{data.itam.softwareSeatUtilization}%</p>
+                    <p className="mt-1.5 font-mono text-xl font-semibold tracking-tight text-slate-900">{safeNumber(data.itam.softwareSeatUtilization)}%</p>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(0, Math.min(data.itam.softwareSeatUtilization, 100))}%` }} />
+                      <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(0, Math.min(safeNumber(data.itam.softwareSeatUtilization), 100))}%` }} />
                     </div>
                     <p className="mt-1 text-xs opacity-75">{t("utilization")}</p>
                   </DashboardLink>
-                  <DashboardLink href={metricLink("Renewals due")} className="dashboard-tint-amber block rounded-xl bg-amber-50 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <DashboardLink href={metricLink("Renewals due")} className="dashboard-tint-amber block rounded-xl bg-amber-50 p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">{t("Renewals due")}</p>
-                    <p className="mt-2 font-mono text-xl font-semibold tracking-tight">{numberFormat.format(data.itam.contractsExpiring30Days)}</p>
+                    <p className="mt-1.5 font-mono text-xl font-semibold tracking-tight">{numberFormat.format(safeNumber(data.itam.contractsExpiring30Days))}</p>
                     <p className="mt-1 text-xs opacity-75">{t("contracts in 30 days")}</p>
                   </DashboardLink>
                 </div>
@@ -421,10 +436,10 @@ export default function Dashboard() {
             <SectionTitle
               kicker="07 / Prioritized action"
               title="Attention queue"
-              aside={<Badge variant="outline" className="border-border bg-card text-muted-foreground">{data.attentionQueue.length} {t(data.attentionQueue.length === 1 ? "item" : "items")}</Badge>}
+              aside={<Badge variant="outline" className="border-border bg-card text-muted-foreground">{attentionQueue.length} {t(attentionQueue.length === 1 ? "item" : "items")}</Badge>}
             />
             <Card className="overflow-hidden border-border bg-card shadow-sm">
-              {data.attentionQueue.length === 0 ? (
+              {attentionQueue.length === 0 ? (
                 <CardContent className="flex flex-col items-center px-6 py-10 text-center">
                   <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><Check className="h-5 w-5" /></span>
                   <p className="mt-3 text-sm font-semibold text-emerald-900">{t("No items need attention")}</p>
@@ -432,8 +447,8 @@ export default function Dashboard() {
                 </CardContent>
               ) : (
                 <div className="divide-y divide-border">
-                  {data.attentionQueue.map((item) => (
-                    <Link key={item.id} href={item.href} className="group flex items-center gap-3 px-4 py-4 transition-colors duration-150 hover:bg-accent/60 md:px-5">
+                  {attentionQueue.map((item) => (
+                    <Link key={item.id} href={item.href} className="group flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-accent/60 md:px-5">
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${priorityTone(item.priority)}`}>
                         {isHighPriority(item.priority) ? <ShieldAlert className="h-4 w-4" /> : <CircleHelp className="h-4 w-4" />}
                       </span>
@@ -461,15 +476,15 @@ export default function Dashboard() {
   );
 }
 
-function priorityData(counts: PriorityCounts) {
-  return (["P1", "P2", "P3", "P4"] as const).map((name) => ({ name, value: counts[name], fill: PRIORITY_COLORS[name] }));
+function priorityData(counts?: Partial<PriorityCounts> | null) {
+  return (["P1", "P2", "P3", "P4"] as const).map((name) => ({ name, value: safeNumber(counts?.[name]), fill: PRIORITY_COLORS[name] }));
 }
 
-function accessData(counts: ExecutiveDashboard["accessExpiry"], t: (text: string) => string) {
+function accessData(counts: Partial<ExecutiveDashboard["accessExpiry"]> | null | undefined, t: (text: string) => string) {
   return [
-    { name: t("Valid"), value: counts.valid, fill: "#059669" },
-    { name: t("Expiring"), value: counts.expiring, fill: "#d97706" },
-    { name: t("Expired"), value: counts.expired, fill: "#e11d48" },
+    { name: t("Valid"), value: safeNumber(counts?.valid), fill: "#059669" },
+    { name: t("Expiring"), value: safeNumber(counts?.expiring), fill: "#d97706" },
+    { name: t("Expired"), value: safeNumber(counts?.expired), fill: "#e11d48" },
   ];
 }
 
