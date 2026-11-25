@@ -49,6 +49,7 @@ import {
   RotateCcw,
   Percent,
   Palette,
+  Languages,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -71,12 +72,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { activeNavigationHref } from "@/lib/navigation-active";
 import { appearanceThemes, useAppearance } from "@/hooks/use-appearance";
+import { useLanguage } from "@/hooks/use-language";
 
 function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   const [location, navigate] = useLocation();
   const search = useSearch();
   const { user, logoutMutation } = useAuth();
   const { theme, setTheme } = useAppearance();
+  const { language, setLanguage, t } = useLanguage();
   const { data: catalogAccess } = useQuery<{ canManage: boolean; canApprove: boolean }>({
     queryKey: ["/api/service-catalog/options", user?.id],
     queryFn: async () => (await apiRequest("GET", "/api/service-catalog/options")).json(),
@@ -419,10 +422,10 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-b border-sidebar-border p-5 pr-10 md:pr-5">
         <div className="flex items-center space-x-3">
            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary shadow-sm">
-            <Server className="text-primary-foreground w-5 h-5" />
+            <Network className="text-primary-foreground w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <h1 className="truncate font-semibold text-base text-foreground leading-tight">IT Asset Manager</h1>
+            <h1 className="truncate font-semibold text-base text-foreground leading-tight">AssetFlow</h1>
             <p className="text-xs text-muted-foreground">v2.1.0</p>
           </div>
         </div>
@@ -446,7 +449,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   aria-expanded={isSectionExpanded}
                 >
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider group-hover:text-foreground">
-                    {section.title}
+                    {t(section.title)}
                   </h3>
                   {isSectionExpanded ? (
                     <ChevronDown className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground" />
@@ -475,7 +478,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                 data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                               >
                                 <Icon className="w-4 h-4 shrink-0" />
-                                <span>{item.name}</span>
+                                <span>{t(item.name)}</span>
                               </Link>
                               <button
                                 type="button"
@@ -497,14 +500,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                       type="button"
                                       onClick={() => setExpandedReportCategories(current => ({ ...current, [category.key]: !current[category.key] }))}
                                       className={cn(
-                                        "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                        "flex min-h-10 w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-start text-xs font-semibold transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                                         category.current ? "text-primary" : "text-muted-foreground",
                                       )}
                                       aria-expanded={Boolean(expandedReportCategories[category.key])}
                                       aria-controls={`report-navigation-${category.key}`}
                                       data-testid={`report-category-toggle-${category.key}`}
                                     >
-                                      <span>{category.name}</span>
+                                      <span>{t(category.name)}</span>
                                       {expandedReportCategories[category.key] ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                                     </button>
                                     {expandedReportCategories[category.key] ? (
@@ -521,7 +524,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                                             )}
                                             data-testid={`nav-${subitem.name.toLowerCase().replace(/\s+/g, '-')}`}
                                           >
-                                            {subitem.name}
+                                            {t(subitem.name)}
                                           </Link>
                                         ))}
                                       </div>
@@ -549,7 +552,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                           data-testid={`nav-${item.name.toLowerCase().replace(' ', '-')}`}
                         >
                           <Icon className="w-4 h-4 shrink-0" />
-                          <span>{item.name}</span>
+                          <span>{t(item.name)}</span>
                         </Link>
                       );
                     })}
@@ -590,12 +593,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 data-testid="my-profile-menu-item"
               >
                 <User className="mr-2 h-4 w-4" />
-                My Profile
+                {t("My Profile")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                 <Palette className="h-3.5 w-3.5" />
-                Appearance
+                {t("Theme")}
               </DropdownMenuLabel>
               <DropdownMenuRadioGroup value={theme} onValueChange={(value) => {
                 if (appearanceThemes.some((option) => option.id === value)) {
@@ -609,13 +612,24 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                 ))}
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                <Languages className="h-3.5 w-3.5" />
+                {t("Language")}
+              </DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={language} onValueChange={(value) => {
+                if (value === "en" || value === "ar") setLanguage(value);
+              }}>
+                <DropdownMenuRadioItem value="en" className="min-h-10">{t("English")}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="ar" className="min-h-10">{t("العربية")}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => logoutMutation.mutate()}
                 className="text-destructive focus:text-destructive cursor-pointer"
                 data-testid="signout-button"
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
+                {t("Sign Out")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -643,9 +657,12 @@ export default function Sidebar() {
         </button>
         <div className="flex min-w-0 items-center gap-2">
           <div className="w-7 h-7 bg-primary rounded-md flex items-center justify-center">
-            <Server className="text-primary-foreground w-4 h-4" />
+            <Network className="text-primary-foreground w-4 h-4" />
           </div>
-          <span className="truncate font-semibold text-sm text-foreground">IT Asset Manager</span>
+          <div className="min-w-0 leading-tight">
+            <span className="block truncate font-semibold text-sm text-foreground">AssetFlow</span>
+            <span className="block text-[10px] text-muted-foreground">v2.1.0</span>
+          </div>
         </div>
       </div>
 

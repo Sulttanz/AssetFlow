@@ -813,6 +813,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         department: employee?.department ?? employee?.legacyDepartment ?? "",
         status: user.isActive === false ? "Inactive" : "Active",
         roleLabels: userRoles.map(role => getRoleDisplayName(role.name)),
+        themePreference: user.themePreference ?? null,
       };
     },
     updateProfile: async (userId, fields) => {
@@ -839,6 +840,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         department: employee?.department ?? employee?.legacyDepartment ?? "",
         status: updated.isActive === false ? "Inactive" : "Active",
         roleLabels: userRoles.map(role => getRoleDisplayName(role.name)),
+        themePreference: updated.themePreference ?? null,
+      };
+    },
+    updateThemePreference: async (userId, themePreference) => {
+      const updated = await storage.updateUser(userId, { themePreference });
+      if (!updated) return null;
+      return {
+        id: updated.id,
+        username: updated.username,
+        email: updated.email ?? "",
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        phone: updated.phone ?? null,
+        jobTitle: updated.jobTitle ?? null,
+        department: "",
+        status: updated.isActive === false ? "Inactive" : "Active",
+        roleLabels: (await storage.getUserRoles(userId)).map(role => getRoleDisplayName(role.name)),
+        themePreference: updated.themePreference ?? null,
       };
     },
     changePassword: async (userId, currentPassword, newPassword) => {
@@ -862,6 +881,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     auditPasswordChange: async (req) => {
       await logAudit(req.user?.id, "UPDATE", "users", req.user.id, req.user.username,
         { passwordChanged: false }, { passwordChanged: true }, req);
+    },
+    auditThemePreference: async (req, before, after) => {
+      await logAudit(req.user?.id, "UPDATE", "users", req.user.id, req.user.username,
+        { themePreference: before }, { themePreference: after }, req);
     },
   });
 

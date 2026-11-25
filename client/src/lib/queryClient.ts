@@ -97,12 +97,17 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function markOutgoingActivity() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("assetflow:api-activity"));
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
   options?: Pick<RequestInit, "signal">,
 ): Promise<Response> {
+  markOutgoingActivity();
   const res = await fetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
@@ -122,6 +127,7 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    markOutgoingActivity();
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
     });

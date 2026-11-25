@@ -13,6 +13,7 @@ import {
 } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { ModuleSettingView } from "@/hooks/use-modules";
+import { installIdleLogout } from "@/lib/idle-timeout";
 
 type AuthContextType = {
   user: UserWithDetails | null;
@@ -27,6 +28,12 @@ type LoginData = Pick<InsertUser, "username" | "password">;
 
 const ITSM_ACCESS_RECHECK_INTERVAL_MS = 30_000;
 const AUTH_SESSION_RECHECK_INTERVAL_MS = 5 * 60_000;
+
+function markOutgoingApiActivity() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("assetflow:api-activity"));
+  }
+}
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -76,6 +83,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", checkSession);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    return installIdleLogout(() => {
+      void apiRequest("POST", "/api/logout")
+        .catch(() => undefined)
+        .finally(() => {
+          queryClient.setQueryData(["/api/user"], null);
+          queryClient.clear();
+          window.location.replace("/auth?reason=idle");
+        });
+    });
   }, [user?.id]);
 
   useEffect(() => {

@@ -4,7 +4,7 @@ import { getPersonaHomePath } from "@shared/personas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Redirect } from "wouter";
+import { Redirect, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import "@/components/auth/auth-page.css";
+import { useLanguage } from "@/hooks/use-language";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -74,6 +75,9 @@ const HIGHLIGHTS: Highlight[] = [
 
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
+  const { t } = useLanguage();
+  const search = useSearch();
+  const signedOutForInactivity = new URLSearchParams(search).get("reason") === "idle";
   const [passwordVisible, setPasswordVisible] = useState(false);
   const { data: systemStatus, isLoading: statusLoading } = useQuery<SystemStatus>({
     queryKey: ["/api/system/status"],
@@ -135,6 +139,11 @@ export default function AuthPage() {
             {statusLoading && (
               <p className="auth-status-note" role="status">
                 Checking sign-in availability…
+              </p>
+            )}
+            {signedOutForInactivity && (
+              <p className="auth-status-note" role="status" data-testid="idle-logout-notice">
+                {t("You were signed out due to 10 minutes of inactivity.")}
               </p>
             )}
 

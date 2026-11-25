@@ -18,6 +18,7 @@ const baseProfile: SelfProfileView = {
   department: "Operations",
   status: "Active",
   roleLabels: ["End User"],
+  themePreference: null,
 };
 
 describe("self profile routes", () => {
@@ -37,6 +38,7 @@ describe("self profile routes", () => {
     const changedPasswords: string[] = [];
     const auditProfileUpdate = vi.fn();
     const auditPasswordChange = vi.fn();
+    const auditThemePreference = vi.fn();
     const app = express();
     app.use(express.json());
     const requireAuth: express.RequestHandler = (req, res, next) => {
@@ -52,6 +54,11 @@ describe("self profile routes", () => {
         profile = { ...profile, ...fields };
         return profile;
       },
+      updateThemePreference: async (userId, themePreference) => {
+        if (userId !== profile.id) return null;
+        profile = { ...profile, themePreference };
+        return profile;
+      },
       changePassword: async (userId, currentPassword, newPassword) => {
         if (userId !== profile.id) return "not_found";
         if (currentPassword !== "current-password") return "invalid_current_password";
@@ -60,6 +67,7 @@ describe("self profile routes", () => {
       },
       auditProfileUpdate,
       auditPasswordChange,
+      auditThemePreference,
     });
     server = app.listen(0);
     await new Promise<void>((resolve) => server!.once("listening", resolve));
@@ -73,7 +81,7 @@ describe("self profile routes", () => {
         ...(init.headers ?? {}),
       },
     });
-    return { request, auditProfileUpdate, auditPasswordChange, changedPasswords };
+    return { request, auditProfileUpdate, auditPasswordChange, auditThemePreference, changedPasswords };
   }
 
   it("requires authentication and serves only the current account profile", async () => {
@@ -148,6 +156,26 @@ describe("self profile routes", () => {
     expect(changed.status).toBe(200);
     expect(changedPasswords).toEqual(["New-strong-password-123"]);
     expect(auditPasswordChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores only a valid per-user theme preference and audits the change", async () => {
+    const { request, auditThemePreference } = await startApi();
+    expect((await request("/api/profile/preferences")).status).toBe(401);
+    const response = await request("/api/profile/preferences", {
+      method: "PATCH",
+      headers: { "x-user-id": "user-1" },
+      body: JSON.stringify({ themePreference: "hybrid-navy" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ themePreference: "hybrid-navy" });
+    expect(auditThemePreference).toHaveBeenCalledWith(expect.anything(), null, "hybrid-navy");
+
+    const invalid = await request("/api/profile/preferences", {
+      method: "PATCH",
+      headers: { "x-user-id": "user-1" },
+      body: JSON.stringify({ themePreference: "os-default" }),
+    });
+    expect(invalid.status).toBe(400);
   });
 
   it("allows authenticated personas to use only the signed-in profile endpoints", () => {

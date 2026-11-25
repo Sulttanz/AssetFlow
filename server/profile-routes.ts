@@ -53,6 +53,10 @@ export type ProfilePasswordChangeResult = "changed" | "invalid_current_password"
 export type ProfileRouteServices = {
   getProfile: (userId: string) => Promise<SelfProfileView | null>;
   updateProfile: (userId: string, fields: SelfProfileFields) => Promise<SelfProfileView | null>;
+  updateThemePreference: (
+    userId: string,
+    theme: "daylight" | "hybrid-navy" | "midnight",
+  ) => Promise<SelfProfileView | null>;
   changePassword: (
     userId: string,
     currentPassword: string,
@@ -64,6 +68,11 @@ export type ProfileRouteServices = {
     after: SelfProfileView,
   ) => Promise<void>;
   auditPasswordChange?: (request: any) => Promise<void>;
+  auditThemePreference?: (
+    request: any,
+    before: string | null,
+    after: string | null,
+  ) => Promise<void>;
 };
 
 function authenticatedUserId(req: any): string | null {
@@ -83,6 +92,46 @@ export function registerProfileRoutes(
   requireAuth: RequestHandler,
   services: ProfileRouteServices,
 ) {
+  const themePreferenceSchema = z.object({
+    themePreference: z.enum(["daylight", "hybrid-navy", "midnight"]),
+  }).strict();
+
+  app.get("/api/profile/preferences", requireAuth, async (req: any, res) => {
+    try {
+      const userId = authenticatedUserId(req);
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
+      const profile = await services.getProfile(userId);
+      if (!profile) return res.status(404).json({ message: "Account not found" });
+      return res.json({ themePreference: profile.themePreference });
+    } catch (error) {
+      console.error("Failed to load user preferences:", error);
+      return res.status(500).json({ message: "Unable to load your preferences right now." });
+    }
+  });
+
+  app.patch("/api/profile/preferences", requireAuth, async (req: any, res) => {
+    try {
+      const userId = authenticatedUserId(req);
+      if (!userId) return res.status(401).json({ message: "Authentication required" });
+      const parsed = themePreferenceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: "Choose a supported appearance theme.",
+          errors: parsed.error.issues,
+        });
+      }
+      const before = await services.getProfile(userId);
+      if (!before) return res.status(404).json({ message: "Account not found" });
+      const after = await services.updateThemePreference(userId, parsed.data.themePreference);
+      if (!after) return res.status(404).json({ message: "Account not found" });
+      await services.auditThemePreference?.(req, before.themePreference, after.themePreference);
+      return res.json({ themePreference: after.themePreference });
+    } catch (error) {
+      console.error("Failed to save user preferences:", error);
+      return res.status(500).json({ message: "Unable to save your preferences right now." });
+    }
+  });
+
   app.get("/api/profile", requireAuth, async (req: any, res) => {
     try {
       const userId = authenticatedUserId(req);

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PersonaDashboard } from "@/components/dashboard/persona-dashboard";
+import { useLanguage } from "@/hooks/use-language";
 
 type PriorityCounts = { P1: number; P2: number; P3: number; P4: number };
 
@@ -82,6 +83,7 @@ function Metric({
   icon: ComponentType<{ className?: string }>;
   tone?: "blue" | "amber" | "red" | "slate";
 }) {
+  const { t } = useLanguage();
   const tones = {
     blue: "bg-blue-50 text-blue-700",
     amber: "bg-amber-50 text-amber-700",
@@ -91,21 +93,22 @@ function Metric({
   return (
     <div className="min-w-0 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors duration-200 hover:border-blue-200 sm:p-5">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{label}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">{t(label)}</p>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-4 w-4" /></span>
       </div>
       <p className="mt-3 font-mono text-[30px] font-semibold leading-none tracking-tight text-foreground">{value}</p>
-      {detail && <p className="mt-2 text-xs text-muted-foreground">{detail}</p>}
+      {detail && <p className="mt-2 text-xs text-muted-foreground">{t(detail)}</p>}
     </div>
   );
 }
 
 function SectionTitle({ kicker, title, aside }: { kicker: string; title: string; aside?: ReactNode }) {
+  const { t } = useLanguage();
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">{kicker}</p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">{t(kicker)}</p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">{t(title)}</h2>
       </div>
       {aside}
     </div>
@@ -123,11 +126,12 @@ function LoadingDashboard() {
 }
 
 function BreakdownBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+  const { t } = useLanguage();
   const percent = total > 0 ? (value / total) * 100 : 0;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
+        <span className="text-muted-foreground">{t(label)}</span>
         <span className="font-mono font-semibold text-foreground">{numberFormat.format(value)} <span className="font-sans font-normal text-muted-foreground">· {percent.toFixed(0)}%</span></span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
@@ -142,6 +146,7 @@ function EmptyChart({ children }: { children: ReactNode }) {
 }
 
 export default function Dashboard() {
+  const { t } = useLanguage();
   const { user, isLoading: isAuthLoading } = useAuth();
   const { isModuleEnabled, isLoading: isModulesLoading } = useModules();
   const assetEnabled = isModuleEnabled("asset_management");
@@ -183,33 +188,16 @@ export default function Dashboard() {
           </Card>
         </main>
       ) : (
-        <main className="space-y-7 p-4 pb-10 md:p-6" data-testid="executive-dashboard">
-          <section className="relative overflow-hidden rounded-2xl bg-slate-900 px-5 py-6 text-slate-50 shadow-sm md:px-7 md:py-7">
-            <div className="pointer-events-none absolute -right-12 -top-24 h-72 w-72 rounded-full border border-white/10" />
-            <div className="pointer-events-none absolute -right-2 -top-14 h-52 w-52 rounded-full border border-white/10" />
-            <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-end">
-              <div>
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-200">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Enterprise operations / live posture
-                </div>
-                <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.035em] md:text-[34px]">Know where the operation<br className="hidden sm:block" /> needs you next.</h2>
-                <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-300">A single view of service pressure, access exposure, infrastructure health, and near-term commitments.</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {isModuleEnabled("project_management") && <Button asChild><Link href="/projects">Project workspace</Link></Button>}
-                  {isModuleEnabled("risk_management") && <Button asChild variant="secondary"><Link href="/risks">Risk register</Link></Button>}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 md:min-w-[300px]">
-                {assetEnabled && <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Active employees</p>
-                  <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(data.identity.activeEmployees)}</p>
-                </div>}
-                {itsmEnabled && <div className="rounded-lg border border-white/10 bg-white/[0.06] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-blue-200">Open incidents</p>
-                  <p className="mt-1 font-mono text-2xl font-semibold">{numberFormat.format(Object.values(data.serviceDesk.openIncidentsByPriority).reduce((sum, n) => sum + n, 0))}</p>
-                </div>}
-              </div>
-            </div>
+        <main className="space-y-5 p-4 pb-8 md:p-5" data-testid="executive-dashboard">
+          <section className="grid grid-cols-2 gap-3 sm:max-w-2xl" aria-label="Operational snapshot">
+            {assetEnabled && <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold text-muted-foreground">{t("Active employees")}</p>
+              <p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(data.identity.activeEmployees)}</p>
+            </div>}
+            {itsmEnabled && <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold text-muted-foreground">{t("Open incidents")}</p>
+              <p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(Object.values(data.serviceDesk.openIncidentsByPriority).reduce((sum, n) => sum + n, 0))}</p>
+            </div>}
           </section>
 
           {assetEnabled && <section>
@@ -235,10 +223,10 @@ export default function Dashboard() {
           {(itsmEnabled || assetEnabled) && <div className={`grid gap-5 ${itsmEnabled && assetEnabled ? "xl:grid-cols-[1.05fr_0.95fr]" : ""}`}>
             {itsmEnabled && <Card className="border-border bg-card shadow-sm">
               <CardContent className="p-5 md:p-6">
-                <SectionTitle kicker="03 / Service management" title="Service desk pressure" aside={<TicketCheck className="h-4 w-4 text-primary" />} />
+              <SectionTitle kicker="03 / Service management" title="Service desk pressure" aside={<TicketCheck className="h-4 w-4 text-primary" />} />
                 <div className="grid gap-5 md:grid-cols-[1fr_1fr]">
                   <div>
-                    <p className="mb-3 text-xs font-semibold text-muted-foreground">Open incidents by priority</p>
+                    <p className="mb-3 text-xs font-semibold text-muted-foreground">{t("Open incidents by priority")}</p>
                     <div className="h-48 w-full">
                       {Object.values(data.serviceDesk.openIncidentsByPriority).some((n) => n > 0) ? (
                         <ResponsiveContainer width="100%" height="100%">
@@ -252,33 +240,33 @@ export default function Dashboard() {
                             </Bar>
                           </BarChart>
                         </ResponsiveContainer>
-                      ) : <EmptyChart>No open incidents reported.</EmptyChart>}
+                      ) : <EmptyChart>{t("No open incidents reported.")}</EmptyChart>}
                     </div>
                   </div>
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-lg bg-blue-50 p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700">CAB approvals</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700">{t("CAB approvals")}</p>
                         <p className="mt-1 font-mono text-2xl font-semibold text-slate-900">{numberFormat.format(data.serviceDesk.pendingCabApprovals)}</p>
-                        <p className="text-[11px] text-slate-500">awaiting decision</p>
+                        <p className="text-[11px] text-slate-500">{t("awaiting decision")}</p>
                       </div>
                       <div className="rounded-lg bg-amber-50 p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">SLA breach risk</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">{t("SLA breach risk")}</p>
                         <p className="mt-1 font-mono text-2xl font-semibold text-amber-800">{numberFormat.format(data.serviceDesk.slaBreachRiskCount)}</p>
-                        <p className="text-[11px] text-amber-700/70">at-risk incidents</p>
+                        <p className="text-[11px] text-amber-700/70">{t("at-risk incidents")}</p>
                       </div>
                     </div>
                     <div className="rounded-lg border border-border p-3.5">
                       <div className="mb-3 flex items-center justify-between">
-                        <p className="text-xs font-semibold text-muted-foreground">Resolution SLA</p>
-                        <span className="font-mono text-sm font-semibold text-foreground">{percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}% within SLA</span>
+                        <p className="text-xs font-semibold text-muted-foreground">{t("Resolution SLA")}</p>
+                        <span className="font-mono text-sm font-semibold text-foreground">{percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}% {t("within SLA")}</span>
                       </div>
                       <div className="flex h-2 overflow-hidden rounded-full bg-rose-100">
                         <div className="bg-emerald-600 transition-[width] duration-500" style={{ width: `${percent(data.serviceDesk.resolutionSla.withinSla, data.serviceDesk.resolutionSla.withinSla + data.serviceDesk.resolutionSla.breached)}%` }} />
                       </div>
                       <div className="mt-3 flex justify-between text-[11px]">
-                        <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{numberFormat.format(data.serviceDesk.resolutionSla.withinSla)} within</span>
-                        <span className="flex items-center gap-1.5 text-rose-700"><span className="h-1.5 w-1.5 rounded-full bg-rose-600" />{numberFormat.format(data.serviceDesk.resolutionSla.breached)} breached</span>
+                        <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />{numberFormat.format(data.serviceDesk.resolutionSla.withinSla)} {t("within")}</span>
+                        <span className="flex items-center gap-1.5 text-rose-700"><span className="h-1.5 w-1.5 rounded-full bg-rose-600" />{numberFormat.format(data.serviceDesk.resolutionSla.breached)} {t("breached")}</span>
                       </div>
                     </div>
                   </div>

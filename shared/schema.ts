@@ -1127,6 +1127,7 @@ export const users = pgTable("users", {
   createdBy: varchar("created_by"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
   twoFactorSecret: text("two_factor_secret"),
+  themePreference: text("theme_preference"),
 });
 
 export const assignmentGroups = pgTable("assignment_groups", {

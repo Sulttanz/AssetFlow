@@ -17,6 +17,7 @@ import { getPersonaHomePath } from "@shared/personas";
 import { createRecoverableRoute, createRecoverableLazyRoute as lazy } from "@/lib/recoverable-route";
 import { resetRouteScroll } from "@/lib/route-scroll";
 import { AppearanceProvider } from "@/hooks/use-appearance";
+import { LanguageProvider } from "@/hooks/use-language";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Projects = lazy(() => import("@/pages/projects"));
@@ -269,7 +270,9 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <AppearanceProvider>
-            <Router />
+            <LanguageProvider>
+              <Router />
+            </LanguageProvider>
           </AppearanceProvider>
         </TooltipProvider>
       </AuthProvider>

@@ -65,11 +65,12 @@ export function setupAuth(app: Express) {
     secret: process.env.SESSION_SECRET!,
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     store: sessionStore,
     cookie: {
       secure,
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 10 * 60 * 1000, // 10-minute inactivity timeout, renewed on activity
       sameSite: "strict",
     },
   };

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useModules } from "@/hooks/use-modules";
-import { appearanceThemes, useAppearance } from "@/hooks/use-appearance";
+import { useLanguage } from "@/hooks/use-language";
 
 interface Alert {
   type: "warranty" | "maintenance" | "budget" | "license" | "ticket" | "cab" | "service_contract" | "incident_sla";
@@ -81,7 +81,7 @@ export default function Header({
 }: HeaderProps) {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
-  const { theme, setTheme } = useAppearance();
+  const { t } = useLanguage();
   const { isModuleEnabled } = useModules();
   const assetEnabled = isModuleEnabled("asset_management");
   const itsmEnabled = isModuleEnabled("itsm");
@@ -109,10 +109,10 @@ export default function Header({
       <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl md:text-2xl font-semibold text-foreground leading-tight" data-testid="page-title">
-            {title}
+            {t(title)}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5" data-testid="page-description">
-            {description}
+            {t(description)}
           </p>
         </div>
 
@@ -124,24 +124,6 @@ export default function Header({
               <span>{addButtonText}</span>
             </Button>
           )}
-          <label className="sr-only" htmlFor="workspace-appearance">Appearance</label>
-          <select
-            id="workspace-appearance"
-            aria-label="Appearance"
-            value={theme}
-            onChange={(event) => {
-              const nextTheme = event.target.value;
-              if (appearanceThemes.some((option) => option.id === nextTheme)) {
-                setTheme(nextTheme as typeof theme);
-              }
-            }}
-            className="h-11 min-w-0 w-full rounded-lg border border-input bg-card px-2 text-sm text-foreground shadow-sm sm:w-44"
-            data-testid="appearance-select"
-          >
-            {appearanceThemes.map((option) => (
-              <option key={option.id} value={option.id}>{option.label}</option>
-            ))}
-          </select>
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <button
