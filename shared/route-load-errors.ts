@@ -9,3 +9,9 @@ export function isModuleTransportError(error: unknown): boolean {
 export function isHandledPurchaseOrderLoadError(error: Error): boolean {
   return isModuleTransportError(error) && /\/(?:src\/pages\/purchase-orders\.tsx|assets\/purchase-orders-[^/\s]+\.js)(?:[?\s:]|$)/i.test(error.message);
 }
+
+/** All lazy pages now own recovery UI; preserve overlays for actual code errors. */
+export function isHandledRouteLoadError(error: Error): boolean {
+  return isModuleTransportError(error) &&
+    /\/(?:src\/(?:pages|components)\/[^\s]+|assets\/[^/\s]+\.js)(?:[?\s:]|$)/i.test(error.message);
+}

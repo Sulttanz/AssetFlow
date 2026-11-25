@@ -62,3 +62,8 @@ export function createRecoverableRoute(title: string, loader: PageLoader) {
     );
   };
 }
+
+/** Use the same bounded retries and error isolation for every lazy page. */
+export function createRecoverableLazyRoute(loader: PageLoader) {
+  return createRecoverableRoute("This page", loader);
+}

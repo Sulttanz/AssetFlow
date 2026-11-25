@@ -57,3 +57,4 @@
 - [Report export test boundaries](report-export-test-boundaries.md) — test client export payloads and PDF table inputs deterministically; verify XLSX serialization at the server workbook layer.
 - [Global controls and test selectors](global-control-test-selectors.md) — header controls can change role-based test ordering; target filters by name or region rather than position.
 - [Authentication error semantics](authentication-error-semantics.md) — a 401 triggers cross-tab session revocation; return validation errors for bad input without signing users out.
+- [Route import recovery](route-import-recovery.md) — contain page-download failures locally; keep retries bounded and full reloads user-controlled to protect unsaved forms.

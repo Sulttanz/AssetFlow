@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRecoverableRoute, loadRouteModule } from "./recoverable-route";
-import { isHandledPurchaseOrderLoadError } from "@shared/route-load-errors";
+import { createRecoverableLazyRoute, createRecoverableRoute, loadRouteModule } from "./recoverable-route";
+import { isHandledPurchaseOrderLoadError, isHandledRouteLoadError } from "@shared/route-load-errors";
 
 // React's development build also dispatches caught errors to window in jsdom.
 // Silence only the two deliberately injected failures, not unexpected errors.
@@ -15,6 +15,28 @@ afterEach(() => {
 });
 
 describe("recoverable workspace loading", () => {
+  it("recognizes route transport failures without hiding application exceptions", () => {
+    for (const path of ["/src/pages/assets.tsx", "/src/pages/dashboard.tsx", "/src/components/service-contracts/service-contracts-register.tsx", "/assets/assets-abc123.js"]) {
+      expect(isHandledRouteLoadError(new TypeError(`Failed to fetch dynamically imported module: https://example.test${path}`))).toBe(true);
+    }
+    expect(isHandledRouteLoadError(new Error("Invalid hook call"))).toBe(false);
+    expect(isHandledRouteLoadError(new SyntaxError("Invalid module /src/pages/assets.tsx"))).toBe(false);
+  });
+
+  it.each(["Assets", "Dashboard", "Employees"])("isolates %s page load failures and supports retry", async (name) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const loader = vi.fn()
+      .mockRejectedValueOnce(new Error("Page initialization failed"))
+      .mockResolvedValue({ default: () => <div>{name} register</div> });
+    const Page = createRecoverableLazyRoute(loader);
+    render(<div><nav>Workspace navigation</nav><Page /></div>);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText("Workspace navigation")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(`${name} register`)).toBeTruthy();
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the development overlay for real application errors and other routes", () => {
     expect(isHandledPurchaseOrderLoadError(new TypeError("Failed to fetch dynamically imported module: https://example.test/src/pages/purchase-orders.tsx"))).toBe(true);
     expect(isHandledPurchaseOrderLoadError(new TypeError("Failed to fetch dynamically imported module: https://example.test/src/pages/assets.tsx"))).toBe(false);

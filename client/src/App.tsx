@@ -1,5 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
-import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
+import { Suspense, useEffect, useLayoutEffect } from "react";
 import { useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { applyMobileTableLayout } from "./lib/mobile-table-layout";
@@ -14,7 +14,7 @@ import AuthPage from "@/pages/auth-page";
 import SystemInitialization from "@/pages/system-initialization";
 import Sidebar from "@/components/layout/sidebar";
 import { getPersonaHomePath } from "@shared/personas";
-import { createRecoverableRoute } from "@/lib/recoverable-route";
+import { createRecoverableRoute, createRecoverableLazyRoute as lazy } from "@/lib/recoverable-route";
 import { resetRouteScroll } from "@/lib/route-scroll";
 import { AppearanceProvider } from "@/hooks/use-appearance";
 
