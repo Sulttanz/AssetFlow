@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { exportToExcel, exportToPDF, formatDate } from "@/lib/report-utils";
@@ -409,16 +409,19 @@ describe("change report page", () => {
     }));
     render(<QueryClientProvider client={queryClient}><ChangesReport /></QueryClientProvider>);
 
+    // Await the initial query before changing filters. These are export tests;
+    // date masking and individual keystrokes are covered by the input tests.
+    expect(await screen.findByText("Export batch 1")).toBeTruthy();
     const searchInput = screen.getByPlaceholderText("Search change #, title...");
-    await user.type(searchInput, "Export batch");
+    fireEvent.change(searchInput, { target: { value: "Export batch" } });
     const activeFilters = ["Completed", "Emergency", "High"];
+    const filterControls = screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance");
     for (let index = 0; index < activeFilters.length; index += 1) {
-      await user.click(screen.getAllByRole("combobox").filter(element => element.getAttribute("aria-label") !== "Appearance")[index]);
+      await user.click(filterControls[index]);
       await user.click(screen.getByRole("option", { name: activeFilters[index] }));
     }
-    await user.type(screen.getByLabelText("Scheduled start from"), "01-10-2026");
-    await user.type(screen.getByLabelText("Scheduled start through"), "03-10-2026");
-    expect(await screen.findByText("Export batch 1")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Scheduled start from"), { target: { value: "01-10-2026" } });
+    fireEvent.change(screen.getByLabelText("Scheduled start through"), { target: { value: "03-10-2026" } });
     await waitFor(() => {
       expect(requests.some(url => {
         const params = new URL(url, "http://report.test").searchParams;
@@ -430,9 +433,14 @@ describe("change report page", () => {
           && params.get("scheduledStartTo") === "2026-10-03";
       })).toBe(true);
     });
+    // A recorded fetch is not proof that React Query committed its response.
+    await waitFor(() => {
+      expect(queryClient.isFetching()).toBe(0);
+      expect(screen.getByText("Export batch 1")).toBeTruthy();
+    });
     requests = [];
 
-    await user.click(screen.getByRole("button", { name: exportType }));
+    fireEvent.click(screen.getByText(exportType, { selector: "button" }));
 
     await waitFor(() => {
       if (exportType === "Excel") expect(exportToExcel).toHaveBeenCalled();

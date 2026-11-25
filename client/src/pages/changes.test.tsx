@@ -1,6 +1,6 @@
 import { formatDateTime as appFormatDateTime } from "@/lib/date-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, within, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider } from "@tanstack/react-query";
 import Changes from "./changes";
@@ -713,16 +713,18 @@ describe("change detail CAB approvals", () => {
       cachedUsers[0],
       { id: "fresh-reviewer", username: "fresh", firstName: "Fresh", lastName: "Reviewer", isActive: true },
     ];
+    // Freeze background polling, not React Query's notification timeouts.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const { user, panel } = await openApprovals([], [], [], [], cachedUsers);
     let userListRequests = 0;
     let rejectInitialUserListRequest!: (error: Error) => void;
+    let resolveRetry!: (response: unknown) => void;
+    const initialRequest = new Promise((_, reject) => { rejectInitialUserListRequest = reject; });
+    const retryRequest = new Promise(resolve => { resolveRetry = resolve; });
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url === "/api/users") {
         userListRequests++;
-        if (userListRequests === 1) {
-          return new Promise((_, reject) => { rejectInitialUserListRequest = reject; });
-        }
-        return { ok: true, json: async () => freshUsers };
+        return userListRequests === 1 ? initialRequest : retryRequest;
       }
       if (url.startsWith("/api/changes?")) return { ok: true, json: async () => queryClient.getQueryData(["/api/changes", 1, "", "all", "all"]) };
       if (url === "/api/changes/pending-votes") return { ok: true, json: async () => [] };
@@ -732,21 +734,27 @@ describe("change detail CAB approvals", () => {
 
     await user.click(within(panel).getByRole("combobox"));
 
-    expect(await screen.findByText("Refreshing account eligibility…")).toBeTruthy();
+    expect(await within(panel).findByText("Refreshing account eligibility…")).toBeTruthy();
+    expect(userListRequests).toBe(1);
     expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
     await act(async () => { rejectInitialUserListRequest(new Error("Temporary user-list failure")); });
-    await waitFor(() => expect(userListRequests).toBe(1));
-    expect(await screen.findByText("Could not refresh account eligibility. No users are available until a refresh succeeds.")).toBeTruthy();
+    expect(await within(panel).findByText("Could not refresh account eligibility. No users are available until a refresh succeeds.")).toBeTruthy();
+    expect(userListRequests).toBe(1); // No automatic retry/backoff.
     expect(queryClient.getQueryData<UserSummaryFixture[]>(["/api/users"])?.some(account => account.id === "reviewer" && account.isActive)).toBe(true);
     expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
     const addButton = within(panel).getByText("Add Approver").closest("button") as HTMLButtonElement;
     expect(addButton.disabled).toBe(true);
 
-    await user.click(within(panel).getByText("Retry").closest("button")!);
+    fireEvent.click(within(panel).getByText("Retry").closest("button")!);
+    expect(await within(panel).findByText("Refreshing account eligibility…")).toBeTruthy();
+    expect(userListRequests).toBe(2);
+    expect(addButton.disabled).toBe(true);
+    expect(screen.queryByRole("option", { name: "Fresh Reviewer" })).toBeNull();
+    await act(async () => { resolveRetry({ ok: true, json: async () => freshUsers }); });
 
     expect(await screen.findByRole("option", { name: "Fresh Reviewer" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Riley Reviewer" })).toBeNull();
-    await user.click(screen.getByRole("option", { name: "Fresh Reviewer" }));
+    fireEvent.click(screen.getByRole("option", { name: "Fresh Reviewer" }));
     expect(addButton.disabled).toBe(false);
     expect(userListRequests).toBe(2);
   });
