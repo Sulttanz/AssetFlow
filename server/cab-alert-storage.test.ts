@@ -30,8 +30,8 @@ describe("CAB alert storage query", () => {
     { id: "change-2", changeNumber: "CHG-000002", title: "Legacy null decision", type: "emergency", createdAt: new Date("2026-10-03T10:00:00Z") },
   ];
   const disabledApproverRows = [
-    { id: "change-3", changeNumber: "CHG-000003", title: "Blocked change", type: "normal", approverLabel: "Inactive Reviewer", approverId: "inactive-user", createdAt: new Date("2026-10-02T10:00:00Z") },
-    { id: "change-4", changeNumber: "CHG-000004", title: "Deleted approver change", type: "normal", approverLabel: "Former Reviewer", approverId: null, createdAt: new Date("2026-10-01T10:00:00Z") },
+    { id: "change-3", changeNumber: "CHG-000003", title: "Blocked change", type: "normal", approverLabel: "Inactive Reviewer", approverId: "inactive-user", approverIsActive: false, createdAt: new Date("2026-10-02T10:00:00Z") },
+    { id: "change-4", changeNumber: "CHG-000004", title: "Deleted approver change", type: "normal", approverLabel: "Former Reviewer", approverId: null, approverIsActive: null, createdAt: new Date("2026-10-01T10:00:00Z") },
   ];
   let query: {
     selection?: Record<string, unknown>;
@@ -50,8 +50,10 @@ describe("CAB alert storage query", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    disabledApproverRows[0].approverIsActive = false;
     query = {};
     database.selectDistinct.mockImplementation((selection: Record<string, unknown>) => {
+      query = {};
       query.selection = selection;
       const builder = {
         from(source: unknown) {
@@ -82,7 +84,9 @@ describe("CAB alert storage query", () => {
         },
         then(resolve: (value: typeof joinedRows) => unknown, reject?: (reason: unknown) => unknown) {
           // Model PostgreSQL SELECT DISTINCT over the projected change fields.
-          const sourceRows = query.joins?.length === 2 ? disabledApproverRows : joinedRows;
+          const sourceRows = query.joins?.length === 2
+            ? disabledApproverRows.filter(row => row.approverId === null || row.approverIsActive === false)
+            : joinedRows;
           const uniqueRows = Array.from(new Map(
             sourceRows.map(row => [
               JSON.stringify(Object.keys(selection).map(key => (row as Record<string, unknown>)[key])),
@@ -171,6 +175,18 @@ describe("CAB alert storage query", () => {
     );
     expect(query.whereParams).toEqual([false, "pending"]);
     expect(query.selection).toHaveProperty("approverLabel");
+  });
+
+  it("stops returning an assigned approver as blocked after account reactivation", async () => {
+    const storage = new DatabaseStorage();
+
+    expect((await storage.getDisabledCabAlertChanges()).map(row => row.id)).toEqual(["change-3", "change-4"]);
+
+    disabledApproverRows[0].approverIsActive = true;
+    expect((await storage.getDisabledCabAlertChanges()).map(row => row.id)).toEqual(["change-4"]);
+    expect(query.joins?.map(join => join.table)).toEqual([changeApprovals, users]);
+    expect(query.whereSql).toContain('"users"."is_active" = $1');
+    expect(query.whereParams).toEqual([false, "pending"]);
   });
 
   describe.skipIf(!databaseIntegrationEnabled)("PostgreSQL query plan", () => {

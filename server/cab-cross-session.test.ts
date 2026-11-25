@@ -319,6 +319,77 @@ describe("CAB route notifications across signed-in sessions", () => {
     expect(store.getDisabledCabAlertChanges).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the manager blocker alert after an approver is re-enabled without changing assignments", async () => {
+    const manager = await login("manager");
+    let approverIsActive = false;
+    const assignedApproval: Approval = {
+      id: "approval-disabled-alice",
+      changeId: change.id,
+      approverId: "alice",
+      originalApproverId: "alice",
+      decision: "pending",
+      removedAt: null,
+      removedById: null,
+      decidedAt: null,
+    };
+    const unrelatedCabAlert = {
+      id: "change-2",
+      changeNumber: "CHG-000002",
+      title: "Other CAB review",
+      type: "emergency",
+    };
+    approvals.push(assignedApproval);
+    store.getPendingCabAlertChanges.mockImplementation(async (userId: string) =>
+      userId === "manager" ? [unrelatedCabAlert] : []);
+    store.getDisabledCabAlertChanges.mockImplementation(async () => approverIsActive ? [] : [{
+      id: change.id,
+      changeNumber: change.changeNumber,
+      title: change.title,
+      type: change.type,
+      approverLabel: "Disabled Reviewer",
+      approverAccountStatus: "disabled",
+    }]);
+
+    const blockedResponse = await request("/api/alerts", manager);
+    expect(blockedResponse.status).toBe(200);
+    expect((await blockedResponse.json()).filter((alert: { type: string }) => alert.type === "cab")).toMatchObject([
+      {
+        title: "CAB Vote Pending: CHG-000002",
+        changeId: "change-2",
+        link: "/changes?approval=change-2",
+      },
+      {
+        title: "Blocked CAB: CHG-000001",
+        changeId: "change-1",
+        link: "/changes?approval=change-1",
+      },
+    ]);
+
+    approverIsActive = true;
+    const refreshedResponse = await request("/api/alerts", manager);
+    expect(refreshedResponse.status).toBe(200);
+    expect((await refreshedResponse.json()).filter((alert: { type: string }) => alert.type === "cab")).toMatchObject([
+      {
+        type: "cab",
+        severity: "high",
+        title: "CAB Vote Pending: CHG-000002",
+        message: "Other CAB review is waiting for your CAB decision",
+        changeId: "change-2",
+        link: "/changes?approval=change-2",
+      },
+    ]);
+    expect(store.getDisabledCabAlertChanges).toHaveBeenCalledTimes(2);
+
+    const changesResponse = await request("/api/changes?page=1&pageSize=25", manager);
+    expect(changesResponse.status).toBe(200);
+    expect((await changesResponse.json()).changes[0].approvals).toMatchObject([{
+      id: assignedApproval.id,
+      approverId: "alice",
+      decision: "pending",
+      removedAt: null,
+    }]);
+  });
+
   async function openStream(cookie: string) {
     const controller = new AbortController();
     const response = await fetch(`${baseUrl}/api/changes/events`, {
