@@ -148,6 +148,8 @@ const arabic: Record<string, string> = {
   "Configuration files": "ملفات التهيئة",
   "Total active": "الإجمالي النشط",
   "Current": "الحالي",
+  "Users active now": "المستخدمون النشطون الآن",
+  "Unique signed-in users in the 10-minute idle window; separate from Active employees.": "المستخدمون المسجلون خلال نافذة خمول مدتها 10 دقائق؛ مستقلون عن عدد الموظفين النشطين.",
   "Priority": "الأولوية",
   "Validation complete": "اكتمل التحقق",
   "Validation details": "تفاصيل التحقق",

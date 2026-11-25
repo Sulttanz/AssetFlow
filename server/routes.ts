@@ -5729,6 +5729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pendingApprovals,
         expiredAccessItems,
         projectCounts,
+        activeUsersNow,
       ] = await Promise.all([
         assetEnabled ? db.select({
           activeEmployees: sql<number>`count(*) FILTER (WHERE ${employees.status} = 'active')::int`,
@@ -5824,6 +5825,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ),
         )).orderBy(asc(employeeAccessRights.expiresAt)).limit(8) : [],
         projectsEnabled ? db.select({ total: sql<number>`count(*)::int` }).from(projects) : [],
+        pool.query<{ activeUsersNow: number }>(`
+          SELECT COUNT(DISTINCT (s.sess::jsonb #>> '{passport,user}'))::int AS "activeUsersNow"
+          FROM "sessions" s
+          INNER JOIN "users" u
+            ON u."id" = s.sess::jsonb #>> '{passport,user}'
+          WHERE s."expire" > $1
+            AND u."is_active" = TRUE
+            AND NULLIF(s.sess::jsonb #>> '{passport,user}', '') IS NOT NULL
+        `, [now])
+          .then(result => Number(result.rows[0]?.activeUsersNow) || 0)
+          .catch(error => {
+            console.error("Failed to calculate active dashboard user count:", error);
+            return 0;
+          }),
       ]);
 
       const [contractCount] = assetEnabled ? await db.select({ total: sql<number>`count(*)::int` })
@@ -5856,6 +5871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         reportingWindow: { days, from: reportingFrom?.toISOString() ?? null, through: now.toISOString() },
+        presence: { activeUsersNow },
         projects: { totalProjects: projectCounts[0]?.total ?? 0 },
         identity: {
           activeEmployees: identityCounts[0]?.activeEmployees ?? 0,

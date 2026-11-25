@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installIdleLogout } from "./idle-timeout";
+import { apiRequest } from "./queryClient";
 
 describe("10-minute idle logout", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 
@@ -30,6 +32,25 @@ describe("10-minute idle logout", () => {
     expect(onIdle).toHaveBeenCalledTimes(1);
     window.dispatchEvent(new Event("mousemove"));
     vi.advanceTimersByTime(10 * 60_000);
+    expect(onIdle).toHaveBeenCalledTimes(1);
+    cleanup();
+  });
+
+  it("keeps timing out despite repeated executive dashboard GET polling", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+    }));
+    const onIdle = vi.fn();
+    const cleanup = installIdleLogout(onIdle);
+    for (let minute = 0; minute < 9; minute++) {
+      vi.advanceTimersByTime(60_000);
+      await apiRequest("GET", "/api/dashboard/executive?days=30");
+    }
+    expect(onIdle).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
     expect(onIdle).toHaveBeenCalledTimes(1);
     cleanup();
   });

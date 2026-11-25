@@ -20,6 +20,7 @@ import { apiRequest } from "@/lib/queryClient";
 type PriorityCounts = { P1: number; P2: number; P3: number; P4: number };
 
 interface ExecutiveDashboard {
+  presence?: { activeUsersNow: number };
   projects?: { totalProjects: number };
   reportingWindow?: { days: 7 | 30 | 90 | null; from: string | null; through: string | null };
   identity: {
@@ -194,6 +195,10 @@ export default function Dashboard() {
       ? permission.some((item) => user?.permissions?.includes(item))
       : !!user?.permissions?.includes(permission))) &&
     isPersonaPageAllowed(roleNames, user?.permissions ?? [], href, user?.employeeId, user?.assignedProjectIds ?? []);
+  const userManagementHref = (isSystemAdministrator(user) || !!user?.permissions?.includes("user_view")) &&
+    isPersonaPageAllowed(roleNames, user?.permissions ?? [], "/users", user?.employeeId, user?.assignedProjectIds ?? [])
+      ? "/users"
+      : undefined;
   const metricLink = (label: string) => {
     const routes: Record<string, [string, string, string | string[] | undefined]> = {
       "Active employees": ["/employees", "asset_management", ["employee_update", "offboarding_approve", "system_admin"]],
@@ -220,12 +225,12 @@ export default function Dashboard() {
     const href = metricLink(props.label);
     return href ? <Link key={props.label} href={href} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{metric}</Link> : <div key={props.label}>{metric}</div>;
   };
-  const snapshotCard = (label: string, value: number, href?: string) => {
+  const snapshotCard = (label: string, value: number, href?: string, detail = "Live database count · outside SLA timeframe") => {
     const safeValue = safeNumber(value);
-    const content = <><p className="text-xs font-semibold text-muted-foreground">{t(label)}</p><p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(safeValue)}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{t("Live database count · outside SLA timeframe")}</p></>;
+    const content = <><p className="text-xs font-semibold text-muted-foreground">{t(label)}</p><p className="mt-1 font-mono text-2xl font-semibold text-foreground">{numberFormat.format(safeValue)}</p><p title={t(detail)} className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t(detail)}</p></>;
     return href
       ? <Link key={label} href={href} aria-label={`${t(label)} ${numberFormat.format(safeValue)}`} className="min-w-0 rounded-xl border border-border bg-card px-3 py-2 shadow-sm transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{content}</Link>
-      : <div key={label} className="rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm">{content}</div>;
+      : <div key={label} className="min-w-0 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">{content}</div>;
   };
   const filteredPriorityData = data ? priorityData(data.serviceDesk?.openIncidentsByPriority).filter((item) => !hideZeroRows || item.value > 0) : [];
   const filteredAccessData = data ? accessData(data.accessExpiry, t).filter((item) => !hideZeroRows || item.value > 0) : [];
@@ -272,7 +277,13 @@ export default function Dashboard() {
         </main>
       ) : (
         <main className="space-y-2.5 p-3 pb-5 sm:p-4 lg:space-y-3 lg:p-4" data-testid="executive-dashboard">
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label={t("Operational snapshot")}>
+          <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label={t("Operational snapshot")}>
+            {snapshotCard(
+              "Users active now",
+              safeNumber(data.presence?.activeUsersNow),
+              userManagementHref,
+              "Unique signed-in users in the 10-minute idle window; separate from Active employees.",
+            )}
             {assetEnabled && snapshotCard("Active employees", safeNumber(data.identity?.activeEmployees), metricLink("Active employees"))}
             {itsmEnabled && snapshotCard("Open incidents", Object.values(data.serviceDesk?.openIncidentsByPriority ?? {}).reduce((sum, n) => sum + safeNumber(n), 0), metricLink("Open incidents"))}
             {isModuleEnabled("project_management") && snapshotCard("Total Projects", safeNumber(data.projects?.totalProjects), metricLink("Total Projects"))}

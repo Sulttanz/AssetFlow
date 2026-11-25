@@ -9,12 +9,13 @@ const state = vi.hoisted(() => ({
   disabled: new Set<string>(),
   reads: [] as Array<{ table: unknown; fields: string[]; sql?: string; params?: unknown[] }>,
   db: { select: vi.fn(), selectDistinct: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  pool: { query: vi.fn() },
   storage: {
     getPermissions: vi.fn(), getRolesWithDetails: vi.fn(),
     getUserRoles: vi.fn(), getUserPermissions: vi.fn(), getModuleSetting: vi.fn(),
   },
 }));
-vi.mock("./db", () => ({ db: state.db, pool: { query: vi.fn().mockResolvedValue({ rows: [] }) } }));
+vi.mock("./db", () => ({ db: state.db, pool: state.pool }));
 vi.mock("./storage", () => ({ storage: state.storage }));
 vi.mock("./auth", () => ({
   setupAuth: (app: express.Express) => app.use((req, _res, next) => {
@@ -53,6 +54,9 @@ describe("executive dashboard reporting controls", () => {
   beforeEach(() => {
     state.disabled.clear();
     state.reads = [];
+    state.pool.query.mockImplementation(async (query: string) => ({
+      rows: query.includes('FROM "sessions"') ? [{ activeUsersNow: 4 }] : [],
+    }));
     const select = (selection: Record<string, unknown>) => {
       const fields = Object.keys(selection);
       let rows: unknown[] = [];
@@ -91,6 +95,12 @@ describe("executive dashboard reporting controls", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.projects.totalProjects).toBe(17);
+    expect(body.presence.activeUsersNow).toBe(4);
+    const activeUsersQuery = state.pool.query.mock.calls.find(([query]) => String(query).includes('FROM "sessions"'));
+    expect(activeUsersQuery).toBeTruthy();
+    expect(activeUsersQuery![0]).toContain("COUNT(DISTINCT");
+    expect(activeUsersQuery![0]).toContain('s."expire" > $1');
+    expect(activeUsersQuery![1][0]).toBeInstanceOf(Date);
     expect(body.reportingWindow.days).toBe(days);
     expect(new Date(body.reportingWindow.through).getTime() - new Date(body.reportingWindow.from).getTime())
       .toBe(days * 86_400_000);
@@ -121,6 +131,15 @@ describe("executive dashboard reporting controls", () => {
     expect(response.status).toBe(200);
     expect((await response.json()).projects.totalProjects).toBe(0);
     expect(state.reads.some(read => read.table === projects)).toBe(false);
+  });
+  it("keeps the dashboard available with a zero active-user fallback if the session store read fails", async () => {
+    state.pool.query.mockRejectedValueOnce(new Error("session table unavailable"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = await get("?days=30");
+    expect(response.status).toBe(200);
+    expect((await response.json()).presence.activeUsersNow).toBe(0);
+    expect(log).toHaveBeenCalledWith("Failed to calculate active dashboard user count:", expect.any(Error));
+    log.mockRestore();
   });
   it("continues enforcing sign-in and executive role boundaries", async () => {
     expect((await get("", "")).status).toBe(401);

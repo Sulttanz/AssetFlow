@@ -36,6 +36,7 @@ vi.mock("recharts", () => ({
   Tooltip: () => null, XAxis: () => null, YAxis: () => null,
 }));
 const fixture = () => ({
+  presence: { activeUsersNow: 6 },
   projects: { totalProjects: 17 },
   identity: { activeEmployees: 8, pendingOffboardingClearances: 0, expiringAccessGrants: 0, expiredAccessGrants: 0 },
   infrastructure: { totalServers: 1, serversOnline: 1, serversMaintenance: 0, serversOffline: 0, activeApplications: 1, configurationFiles: 2 },
@@ -63,12 +64,14 @@ describe("compact executive dashboard controls", () => {
       expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     }
     const snapshot = screen.getByRole("region", { name: "Operational snapshot" });
+    expect(within(snapshot).getByText("Users active now")).toBeTruthy();
+    expect(within(snapshot).getByText("Unique signed-in users in the 10-minute idle window; separate from Active employees.")).toBeTruthy();
     expect(within(snapshot).getByText("Active employees")).toBeTruthy();
     expect(within(snapshot).getByText("Open incidents")).toBeTruthy();
+    expect(within(snapshot).getByRole("link", { name: "Users active now 6" }).getAttribute("href")).toBe("/users");
     expect(within(snapshot).getAllByText("Live database count · outside SLA timeframe")).toHaveLength(3);
-    expect(snapshot.className).toContain("grid-cols-1");
-    expect(snapshot.className).toContain("sm:grid-cols-2");
-    expect(snapshot.className).toContain("lg:grid-cols-3");
+    expect(snapshot.className).toContain("grid-cols-2");
+    expect(snapshot.className).toContain("lg:grid-cols-4");
     const project = within(snapshot).getByRole("link", { name: "Total Projects 17" });
     expect(project.getAttribute("href")).toBe("/projects");
     expect(screen.getByRole("link", { name: /Hardware valuation/ }).getAttribute("href")).toBe("/assets");
@@ -111,12 +114,14 @@ describe("compact executive dashboard controls", () => {
     expect(screen.queryByText("Total Projects")).toBeNull();
   });
   it("renders safe zero values when live database counts are missing or invalid", () => {
+    state.data.presence.activeUsersNow = undefined;
     state.data.identity.activeEmployees = undefined;
     state.data.serviceDesk.openIncidentsByPriority.P1 = Number.NaN;
     state.data.projects.totalProjects = Number.POSITIVE_INFINITY;
     render(<Dashboard />);
     const snapshot = screen.getByRole("region", { name: "Operational snapshot" });
     expect(within(snapshot).getByRole("link", { name: "Active employees 0" })).toBeTruthy();
+    expect(within(snapshot).getByRole("link", { name: "Users active now 0" })).toBeTruthy();
     expect(within(snapshot).getByRole("link", { name: "Open incidents 0" })).toBeTruthy();
     expect(within(snapshot).getByRole("link", { name: "Total Projects 0" })).toBeTruthy();
   });
