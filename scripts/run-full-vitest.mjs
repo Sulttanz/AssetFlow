@@ -176,21 +176,26 @@ try {
     }
     return result;
   };
-  const selectedTests = process.argv.slice(2);
-  const fullSuite = await runVitest(selectedTests.length
+  const cliArguments = process.argv.slice(2);
+  const selectedTests = cliArguments.filter(argument => !argument.startsWith("-"));
+  const vitestOptions = cliArguments.filter(argument => argument.startsWith("-"));
+  const runSuite = (tests, name, extraEnvironment = {}) =>
+    runVitest([...tests, ...vitestOptions], name, extraEnvironment);
+  const fullSuiteArgs = selectedTests.length
     ? selectedTests
     : [
         "--exclude", "server/change-overview-plan.test.ts",
         // This test changes the shared ITSM license flag. Run it after the
         // parallel HTTP suites, which require ITSM to stay enabled.
         "--exclude", "server/incident-sla-escalation.test.ts",
-      ], "full Vitest suite");
+      ];
+  const fullSuite = await runVitest([...fullSuiteArgs, ...vitestOptions], "full Vitest suite");
   if (fullSuite.error) throw fullSuite.error;
   if (fullSuite.status !== 0) {
     process.exitCode = fullSuite.status ?? 1;
   } else if (selectedTests.length === 0) {
     console.log("Running the ITSM license-toggle escalation test without concurrent portal requests.");
-    const isolatedEscalationSuite = await runVitest(
+    const isolatedEscalationSuite = await runSuite(
       ["server/incident-sla-escalation.test.ts"],
       "isolated incident SLA escalation suite",
     );
@@ -200,7 +205,7 @@ try {
       throw new Error("Isolated incident SLA escalation verification failed.");
     }
     console.log("Running the CAB overview planner benchmark separately to avoid overlapping PostgreSQL snapshots.");
-    const isolatedPlannerSuite = await runVitest(
+    const isolatedPlannerSuite = await runSuite(
       ["server/change-overview-plan.test.ts"],
       "isolated CAB overview planner suite",
     );
@@ -208,7 +213,7 @@ try {
     if (isolatedPlannerSuite.status !== 0) process.exitCode = isolatedPlannerSuite.status ?? 1;
     else {
       console.log("Running the CAB assignment lookup benchmark separately from other database tests.");
-      const isolatedAssignmentBenchmark = await runVitest(
+      const isolatedAssignmentBenchmark = await runSuite(
         ["server/cab-assignment-plan.test.ts"],
         "isolated CAB assignment lookup benchmark",
         { RUN_CAB_ASSIGNMENT_BENCHMARK: "1" },
