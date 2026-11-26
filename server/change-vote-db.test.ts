@@ -704,6 +704,40 @@ describe.skipIf(!databaseIntegrationEnabled)("concurrent CAB votes (PostgreSQL a
 )
 ;
 
+  it("stores and returns actualEnd when the dedicated completion action succeeds", async () => {
+    const userId = randomUUID();
+    const changeId = randomUUID();
+
+    await db.insert(users).values({
+      id: userId, username: `manager-${userId}`, email: `${userId}@example.invalid`,
+      password: "test-only", firstName: "Change", lastName: "Manager",
+    });
+    await db.insert(changes).values({
+      id: changeId, changeNumber: `TEST-${changeId}`, title: "Dedicated completion action",
+      type: "standard", status: "in_progress", risk: "low",
+    });
+
+    try {
+      const response = await fetch(`${baseUrl}/api/changes/${changeId}/complete`, {
+        method: "POST",
+        headers: { "x-test-user": userId },
+      });
+      expect(response.status).toBe(200);
+
+      const responseChange = await response.json() as { status: string; actualEnd: string };
+      const [savedChange] = await db.select().from(changes).where(eq(changes.id, changeId));
+
+      expect(responseChange.status).toBe("completed");
+      expect(responseChange.actualEnd).toBeTruthy();
+      expect(savedChange.status).toBe("completed");
+      expect(savedChange.actualEnd).toBeInstanceOf(Date);
+      expect(new Date(responseChange.actualEnd).getTime()).toBe(savedChange.actualEnd!.getTime());
+    } finally {
+      await db.delete(changes).where(eq(changes.id, changeId));
+      await db.delete(users).where(eq(users.id, userId));
+    }
+  });
+
 
   it.each(["pending", null] as const)(
     "accepts exactly one of two competing votes when the original decision is %s",
