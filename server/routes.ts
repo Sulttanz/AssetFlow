@@ -16,7 +16,7 @@ import { registerShutdownTask } from "./graceful-shutdown";
 import { calculateDepreciation, generateDepreciationSchedule } from "./depreciation";
 import { 
   insertAssetSchema, insertEmployeeSchema, insertAssignmentSchema, departments,
-  insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
+  locations, insertLocationSchema, insertDepartmentSchema, insertVendorSchema,
   insertPurchaseOrderSchema, insertPurchaseOrderItemSchema, insertBudgetSchema, insertMaintenanceScheduleSchema, 
   insertMaintenanceRecordSchema, maintenanceRecordSubmissionSchema, insertUserSchema, insertRoleSchema,
   insertPermissionSchema, insertUserRoleSchema, insertSystemSettingSchema, insertDropdownOptionSchema,
@@ -5515,6 +5515,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const employee = await storage.getEmployee(req.params.id);
     if (!employee) return res.status(404).json({ message: "Employee not found" });
     res.status(409).json({ message: "Employee records cannot be deleted. Use the offboarding workflow to preserve employment and access history." });
+  });
+
+  app.post("/api/employees/bulk-delete", requireAuth, requirePermission("employee_delete"), async (req, res) => {
+    const inputSchema = z.object({
+      employeeIds: z.array(z.string().trim().min(1).max(200)).min(1).max(5000)
+        .refine(ids => new Set(ids).size === ids.length, "Employee IDs must be unique."),
+    });
+    const parsed = inputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Select between 1 and 5,000 unique employees.", errors: parsed.error.issues });
+    }
+
+    try {
+      const result = await db.transaction(async tx => {
+        const selectedEmployees = await tx.select({
+          id: employees.id,
+          firstName: employees.firstName,
+          lastName: employees.lastName,
+          employeeId: employees.employeeId,
+        }).from(employees).where(inArray(employees.id, parsed.data.employeeIds)).for("update");
+        const foundIds = new Set(selectedEmployees.map(employee => employee.id));
+        const deleted: Array<{ id: string; employeeId: string | null; name: string }> = [];
+        const skipped: Array<{ id: string; employeeId: string | null; name: string; reason: string }> = [];
+
+        const fkResult = await tx.execute(sql`
+          SELECT child_namespace.nspname AS child_schema,
+                 child_table.relname AS child_table,
+                 child_column.attname AS child_column,
+                 constraint_row.confdeltype::text AS delete_action
+          FROM pg_constraint constraint_row
+          JOIN pg_class child_table ON child_table.oid = constraint_row.conrelid
+          JOIN pg_namespace child_namespace ON child_namespace.oid = child_table.relnamespace
+          JOIN LATERAL unnest(constraint_row.conkey, constraint_row.confkey) AS key(child_attnum, parent_attnum) ON true
+          JOIN pg_attribute child_column
+            ON child_column.attrelid = constraint_row.conrelid AND child_column.attnum = key.child_attnum
+          JOIN pg_attribute parent_column
+            ON parent_column.attrelid = constraint_row.confrelid AND parent_column.attnum = key.parent_attnum
+          WHERE constraint_row.contype = 'f'
+            AND constraint_row.confrelid = 'employees'::regclass
+            AND child_namespace.nspname = current_schema()
+            AND parent_column.attname = 'id'
+          ORDER BY child_namespace.nspname, child_table.relname, child_column.attname
+        `);
+        const executionRows = <T,>(result: unknown): T[] => {
+          if (Array.isArray(result)) return result as T[];
+          if (result && typeof result === "object" && "rows" in result && Array.isArray((result as { rows?: unknown }).rows)) {
+            return (result as { rows: T[] }).rows;
+          }
+          return [];
+        };
+        const foreignKeys = executionRows<{ child_schema: string; child_table: string; child_column: string; delete_action: string }>(fkResult);
+        const transactionReferenceTables = new Set([
+          "asset_bookings",
+          "asset_disposal_records",
+          "asset_handovers",
+          "asset_requests",
+          "assignments",
+          "employee_access_rights",
+          "employee_offboarding_clearances",
+          "software_license_allocations",
+        ]);
+        const quoteIdentifier = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
+        const blockersByEmployee = new Map<string, string[]>();
+        const selectedIdList = sql.join(parsed.data.employeeIds.map(id => sql`${id}`), sql`, `);
+        for (const foreignKey of foreignKeys) {
+          const childTable = quoteIdentifier(foreignKey.child_table);
+          const childColumn = quoteIdentifier(foreignKey.child_column);
+          const qualifiedTable = sql.raw(`${quoteIdentifier(foreignKey.child_schema)}.${childTable}`);
+          const countResult = await tx.execute(sql`
+            SELECT ${sql.raw(childColumn)}::text AS employee_id, count(*)::int AS count
+            FROM ${qualifiedTable}
+            WHERE ${sql.raw(childColumn)} IN (${selectedIdList})
+            GROUP BY ${sql.raw(childColumn)}
+          `);
+          for (const row of executionRows<{ employee_id: string; count: number | string }>(countResult)) {
+            if (Number(row.count) <= 0 || (foreignKey.delete_action === "n" && !transactionReferenceTables.has(foreignKey.child_table))) continue;
+            const references = blockersByEmployee.get(row.employee_id) ?? [];
+            references.push(`${foreignKey.child_table} (${Number(row.count)})`);
+            blockersByEmployee.set(row.employee_id, references);
+          }
+        }
+
+        for (const id of parsed.data.employeeIds) {
+          const employee = selectedEmployees.find(candidate => candidate.id === id);
+          const name = employee ? `${employee.firstName} ${employee.lastName}` : "Unknown employee";
+          if (!employee) {
+            skipped.push({ id, employeeId: null, name, reason: "Employee was not found." });
+            continue;
+          }
+
+          const references = blockersByEmployee.get(employee.id) ?? [];
+
+          if (references.length) {
+            skipped.push({
+              id: employee.id,
+              employeeId: employee.employeeId,
+              name,
+              reason: `Linked records must be retained: ${references.join(", ")}.`,
+            });
+            continue;
+          }
+
+          // Clear legacy manager references that predate database foreign keys.
+          await tx.update(employees).set({ managerId: null }).where(eq(employees.managerId, employee.id));
+          await tx.update(departments).set({ managerId: null }).where(eq(departments.managerId, employee.id));
+          await tx.update(locations).set({ managerId: null }).where(eq(locations.managerId, employee.id));
+          // Preserve login accounts while detaching their optional employee profile.
+          await tx.update(users).set({ employeeId: null }).where(eq(users.employeeId, employee.id));
+          await tx.delete(employees).where(eq(employees.id, employee.id));
+          await tx.insert(auditLogs).values({
+            userId: req.user?.id ?? null,
+            action: "DELETE",
+            tableName: "employees",
+            recordId: employee.id,
+            recordName: name,
+            oldValues: JSON.stringify({ employeeId: employee.employeeId, firstName: employee.firstName, lastName: employee.lastName }),
+            newValues: null,
+            timestamp: new Date(),
+            ipAddress: req.ip || null,
+            userAgent: req.get("user-agent") || null,
+          });
+          deleted.push({ id: employee.id, employeeId: employee.employeeId, name });
+        }
+        return {
+          requested: parsed.data.employeeIds.length,
+          deletedCount: deleted.length,
+          skippedCount: skipped.length,
+          deleted,
+          skipped,
+          missingCount: parsed.data.employeeIds.filter(id => !foundIds.has(id)).length,
+        };
+      });
+      res.json(result);
+    } catch (error) {
+      respondWithApiError(res, error, "Bulk delete employees");
+    }
   });
 
   // Assignments routes

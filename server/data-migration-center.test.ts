@@ -126,12 +126,14 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     expect((await fetch(`${base}/api/import/modules`, { headers: headers(noRoleId) })).status).toBe(403);
   });
 
-  it("provides all fifteen supported templates and an additive staging migration", async () => {
+  it("provides all seventeen supported templates and additive staging migrations", async () => {
     const source = await readFile("migrations/onprem/20261109_data_migration_center.sql", "utf8");
     expect(() => assertAdditiveMigration(source, "data-migration-center")).not.toThrow();
-    expect(dataMigrationModules).toHaveLength(15);
+    const directoryMigration = await readFile("migrations/onprem/20261217_location_department_imports.sql", "utf8");
+    expect(() => assertAdditiveMigration(directoryMigration, "20261217_location_department_imports.sql")).not.toThrow();
+    expect(dataMigrationModules).toHaveLength(17);
     expect(dataMigrationModules.map(module => module.key)).toEqual([
-      "assets", "consumables", "employees", "applications", "servers", "network", "backups",
+      "locations", "departments", "assets", "consumables", "employees", "applications", "servers", "network", "backups",
       "vendors", "finance", "knowledge", "project_tasks", "project_milestones", "incidents",
       "service_requests", "risks",
     ]);
@@ -139,7 +141,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     expect(dataMigrationModules.find(module => module.key === "consumables")?.title).toBe("Consumables");
     expect(dataMigrationModules.some(module => ["components", "spare_parts"].includes(module.key))).toBe(false);
     const enabledModules = await (await fetch(`${base}/api/import/modules`, { headers: headers() })).json();
-    expect(enabledModules).toHaveLength(15);
+    expect(enabledModules).toHaveLength(17);
     for (const module of dataMigrationModules) {
       const response = await fetch(`${base}/api/import/${module.key}/template`, { headers: headers() });
       expect(response.status).toBe(200);
@@ -165,16 +167,74 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     }
   });
 
+  it("imports locations before departments and reports an unknown location without writing the row", async () => {
+    const importedLocation = `${prefix}-imported-location`;
+    const locationPreview = await previewCsv("locations", [{
+      name: importedLocation,
+      code: `${prefix}-LOC`,
+      city: "Riyadh",
+      address: "King Fahd Road",
+      notes: "Imported location",
+    }]);
+    expect(locationPreview).toMatchObject({ validCount: 1, invalidCount: 0 });
+    const locationCommit = await post(`/api/import/locations/${locationPreview.batchId}/commit`, { confirm: true });
+    expect(locationCommit.status).toBe(200);
+    expect(await locationCommit.json()).toMatchObject({ importedRows: 1, failedRows: 0 });
+    const [storedLocation] = await db.select().from(locations).where(eq(locations.name, importedLocation));
+    expect(storedLocation).toMatchObject({
+      code: `${prefix}-LOC`,
+      city: "Riyadh",
+      address: "King Fahd Road",
+      notes: "Imported location",
+    });
+
+    const departmentNameImported = `${prefix}-imported-department`;
+    const departmentPreview = await previewCsv("departments", [{
+      name: departmentNameImported,
+      code: `${prefix}-DEPT`,
+      locationName: `  ${importedLocation.toUpperCase()}  `,
+      costCenter: "CC-100",
+    }]);
+    expect(departmentPreview).toMatchObject({ validCount: 1, invalidCount: 0 });
+    const departmentCommit = await post(`/api/import/departments/${departmentPreview.batchId}/commit`, { confirm: true });
+    expect(departmentCommit.status).toBe(200);
+    expect(await departmentCommit.json()).toMatchObject({ importedRows: 1, failedRows: 0 });
+    const [storedDepartment] = await db.select().from(departments).where(eq(departments.name, departmentNameImported));
+    expect(storedDepartment).toMatchObject({ code: `${prefix}-DEPT`, locationId: storedLocation.id, costCenter: "CC-100" });
+
+    const missingLocation = `${prefix}-not-imported`;
+    const invalidPreview = await previewCsv("departments", [{
+      name: `${prefix}-invalid-department`,
+      locationName: missingLocation,
+    }]);
+    expect(invalidPreview).toMatchObject({ validCount: 0, invalidCount: 1 });
+    expect(invalidPreview.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowNumber: 2,
+        field: "Location",
+        submittedValue: missingLocation,
+        lookupLabel: "Locations",
+        message: `Location "${missingLocation}" was not found. Import Locations first.`,
+      }),
+    ]));
+    const rejectedCommit = await post(`/api/import/departments/${invalidPreview.batchId}/commit`, { confirm: true });
+    expect(rejectedCommit.status).toBe(409);
+    expect(await db.select().from(departments).where(eq(departments.name, `${prefix}-invalid-department`))).toHaveLength(0);
+  });
+
   it("reports invalid rows for every supported import type and refuses to write invalid-only batches", async () => {
     for (const module of dataMigrationModules) {
       const typedField = module.fields.find(field => field.kind && field.kind !== "string");
-      if (!typedField) throw new Error(`${module.key} has no typed field for a malformed-row regression test.`);
-      const invalidValue = typedField.kind === "date" ? "31-02-2026"
-        : typedField.kind === "integer" || typedField.kind === "number" ? "not-a-number"
-        : typedField.kind === "boolean" ? "not-a-boolean"
-        : typedField.kind === "email" ? "not-an-email"
+      const uniquenessRows = module.key === "locations" ? [{ name: locationName }]
+        : module.key === "departments" ? [{ name: departmentName }]
+        : undefined;
+      if (!typedField && !uniquenessRows) throw new Error(`${module.key} has no typed or uniqueness field for a malformed-row regression test.`);
+      const invalidValue = typedField?.kind === "date" ? "31-02-2026"
+        : typedField?.kind === "integer" || typedField?.kind === "number" ? "not-a-number"
+        : typedField?.kind === "boolean" ? "not-a-boolean"
+        : typedField?.kind === "email" ? "not-an-email"
         : "__invalid_enum__";
-      const preview = await previewCsv(module.key, [{ [typedField.key]: invalidValue }]);
+      const preview = await previewCsv(module.key, uniquenessRows ?? [{ [typedField!.key]: invalidValue }]);
       expect(preview.moduleKey).toBe(module.key);
       expect(preview, module.key).toMatchObject({ totalRows: 1, validRows: 0, invalidRows: 1 });
       expect(preview.errors.length).toBeGreaterThan(0);

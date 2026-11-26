@@ -82,6 +82,7 @@ type ParsedRecord = {
 type LookupContext = {
   locations: Map<string, string>;
   departments: Map<string, string>;
+  employeesByManager: Map<string, { id: string; name: string }>;
   warehouses: Map<string, { id: string; isActive: boolean }>;
   vendors: Map<string, { id: string; name: string; code: string | null }>;
   vendorsByCode: Map<string, { id: string; name: string }>;
@@ -290,11 +291,11 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
     ["itsm", itsmEnabled],
     ["risk_management", await isFeatureEnabled("risk_management")],
   ] as const) if (enabled) enabledFeatures.add(key);
-  const needsLocation = ["assets", "employees", "finance"].includes(moduleKey);
-  const needsDepartment = ["assets", "employees", "finance"].includes(moduleKey);
+  const needsLocation = ["assets", "employees", "finance", "departments"].includes(moduleKey);
+  const needsDepartment = ["assets", "employees", "finance", "departments"].includes(moduleKey);
   const needsWarehouse = moduleKey === "consumables";
   const needsVendor = ["consumables", "vendors", "finance"].includes(moduleKey);
-  const needsEmployee = moduleKey === "employees" || (moduleKey === "applications" && assetEnabled);
+  const needsEmployee = moduleKey === "employees" || moduleKey === "departments" || (moduleKey === "applications" && assetEnabled);
   const needsUser = ["backups", "project_tasks", "risks", "incidents", "service_requests"].includes(moduleKey);
   const needsApplication = moduleKey === "backups";
   const needsServer = moduleKey === "backups";
@@ -319,7 +320,14 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
     needsDepartment ? db.select({ id: departments.id, name: departments.name }).from(departments) : Promise.resolve([]),
     needsWarehouse ? db.select({ id: warehouseLocations.id, code: warehouseLocations.code, isActive: warehouseLocations.isActive }).from(warehouseLocations) : Promise.resolve([]),
     needsVendor ? db.select({ id: vendors.id, name: vendors.name, code: vendors.code }).from(vendors) : Promise.resolve([]),
-    needsEmployee ? db.select({ id: employees.id, email: employees.email, employeeId: employees.employeeId, status: employees.status }).from(employees) : Promise.resolve([]),
+    needsEmployee ? db.select({
+      id: employees.id,
+      email: employees.email,
+      employeeId: employees.employeeId,
+      firstName: employees.firstName,
+      lastName: employees.lastName,
+      status: employees.status,
+    }).from(employees) : Promise.resolve([]),
     needsUser ? db.select({ id: users.id, email: users.email, isActive: users.isActive }).from(users) : Promise.resolve([]),
     needsApplication ? db.select({ id: cmdbApplications.id, name: cmdbApplications.name }).from(cmdbApplications) : Promise.resolve([]),
     needsServer ? db.select({ id: servers.id, hostname: servers.hostname }).from(servers) : Promise.resolve([]),
@@ -360,6 +368,14 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
   const applicationsByName = new Map(applicationRows.map(row => [normalizedKey(row.name), { id: row.id, name: row.name }]));
   const serversByHostname = new Map(serverRows.map(row => [normalizedKey(row.hostname), { id: row.id, hostname: row.hostname }]));
   const projectsByName = new Map<string, { id: string; name: string; isActive: boolean }>();
+  const employeesByManager = new Map<string, { id: string; name: string }>();
+  employeeRows.forEach(row => {
+    const employee = { id: row.id, name: `${row.firstName} ${row.lastName}`.trim() };
+    for (const candidate of [row.employeeId, row.email, employee.name]) {
+      const key = normalizedKey(candidate);
+      if (key && !employeesByManager.has(key)) employeesByManager.set(key, employee);
+    }
+  });
   projectRows.forEach(row => {
     const value = { id: row.id, name: row.title || row.name, isActive: Boolean(row.isActive) };
     if (row.title) projectsByName.set(normalizedKey(row.title), value);
@@ -371,6 +387,7 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
   return {
     locations: new Map(locationRows.map(row => [normalizedKey(row.name), row.id])),
     departments: new Map(departmentRows.map(row => [normalizedKey(row.name), row.id])),
+    employeesByManager,
     warehouses,
     vendors: vendorsByName,
     vendorsByCode,
@@ -392,6 +409,11 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
       vendors: vendorRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
       vendorCodes: vendorRows.map(row => row.code).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
       employeeEmails: employeeRows.map(row => row.email).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
+      employeeManagers: Array.from(new Set(employeeRows.flatMap(row => [
+        `${row.firstName} ${row.lastName}`.trim(),
+        row.employeeId,
+        row.email,
+      ]).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b)),
       userEmails: userRows.map(row => row.email).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b)),
       applications: applicationRows.map(row => row.name).filter(Boolean).sort((a, b) => a.localeCompare(b)),
       servers: serverRows.map(row => row.hostname).filter(Boolean).sort((a, b) => a.localeCompare(b)),
@@ -404,6 +426,8 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
       assetTag: new Set(assetRows.map(row => normalizedKey(row.assetTag)).filter(Boolean)),
       employeeId: new Set(employeeRows.map(row => normalizedKey(row.employeeId)).filter(Boolean)),
       employeeEmail: new Set(employeeRows.map(row => normalizedKey(row.email))),
+      locationName: new Set(locationRows.map(row => normalizedKey(row.name))),
+      departmentName: new Set(departmentRows.map(row => normalizedKey(row.name))),
       applicationName: new Set(applicationRows.map(row => normalizedKey(row.name))),
       serverHostname: new Set(serverRows.map(row => normalizedKey(row.hostname))),
       networkHostname: new Set(networkRows.map(row => normalizedKey(row.hostname)).filter(Boolean)),
@@ -430,6 +454,7 @@ function addUnique(
     networkZoneName: "network zone name", networkZoneCode: "network zone code",
     vendorName: "vendor name", vendorCode: "vendor code", poNumber: "purchase order number",
     contractNumber: "contract number", kbSlug: "knowledge article slug",
+    locationName: "location name", departmentName: "department name",
   };
   for (const key of keys) {
     const separator = key.indexOf(":");
@@ -474,7 +499,21 @@ function buildNormalized(
     return record;
   };
 
-  if (moduleKey === "assets") {
+  if (moduleKey === "locations") {
+    if (value("name")) uniqueKeys.push(`locationName:${value("name")}`);
+    normalized = {
+      ...optional(["name", "code", "city", "address", "notes"]),
+    };
+  } else if (moduleKey === "departments") {
+    const location = resolve(context.locations, value("locationName"), "Location");
+    const manager = resolve(context.employeesByManager, value("manager"), "Manager");
+    if (value("name")) uniqueKeys.push(`departmentName:${value("name")}`);
+    normalized = {
+      ...optional(["name", "code", "costCenter"]),
+      locationId: location ?? null,
+      managerId: manager?.id ?? null,
+    };
+  } else if (moduleKey === "assets") {
     const location = resolve(context.locations, value("locationName"), "Location");
     const department = resolve(context.departments, value("departmentName"), "Department");
     const assetStatus = value("status") ?? "available";
@@ -840,6 +879,8 @@ type ValidationDetail = {
 };
 
 function recordIdentifier(moduleKey: string, values: Record<string, CellValue>): string {
+  if (moduleKey === "locations") return [textValue(values.code), textValue(values.name)].filter(Boolean).join(" - ") || "Location row";
+  if (moduleKey === "departments") return [textValue(values.code), textValue(values.name)].filter(Boolean).join(" - ") || "Department row";
   if (moduleKey === "employees") {
     const employeeId = textValue(values.employeeId);
     const name = [textValue(values.firstName), textValue(values.lastName)].filter(Boolean).join(" ");
@@ -857,6 +898,10 @@ function recordIdentifier(moduleKey: string, values: Record<string, CellValue>):
 
 function lookupReference(moduleKey: string, fieldKey: string, values: Record<string, CellValue>): { label: string; optionsKey: string } | undefined {
   const references: Record<string, Record<string, { label: string; optionsKey: string }>> = {
+    departments: {
+      locationName: { label: "Locations", optionsKey: "locations" },
+      manager: { label: "Employee directory (employee ID, email, or full name)", optionsKey: "employeeManagers" },
+    },
     employees: {
       departmentName: { label: "Departments", optionsKey: "departments" },
       locationName: { label: "Locations", optionsKey: "locations" },
@@ -959,7 +1004,11 @@ function validationDetails(moduleKey: string, records: ParsedRecord[], context: 
       validValues = context.dropdownValues.get(normalizedKey(dropdown.category)) ?? [];
       if (/must be one of:/i.test(error) && field.enumValues) validValues = field.enumValues;
     }
-    if (reference && submittedValue) message = `${label} "${submittedValue}" was not found in system ${reference.label}.`;
+    if (reference && submittedValue) {
+      message = moduleKey === "departments" && field?.key === "locationName"
+        ? `Location "${submittedValue}" was not found. Import Locations first.`
+        : `${label} "${submittedValue}" was not found in system ${reference.label}.`;
+    }
     return {
       rowNumber: record.rowNumber,
       identifier: recordIdentifier(moduleKey, record.values),
@@ -1028,6 +1077,14 @@ function makeTemplate(moduleKey: string) {
 }
 
 async function importOne(tx: any, moduleKey: string, row: Record<string, unknown>, actorId: string, batchId: string, poIds: Map<string, string>) {
+  if (moduleKey === "locations") {
+    await tx.insert(locations).values(row as any);
+    return;
+  }
+  if (moduleKey === "departments") {
+    await tx.insert(departments).values(row as any);
+    return;
+  }
   if (moduleKey === "assets") {
     await tx.insert(assets).values({ ...row, updatedBy: actorId });
     return;

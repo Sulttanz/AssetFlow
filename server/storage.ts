@@ -1119,12 +1119,14 @@ export class MemStorage implements IStorage {
     const location: Location = { 
       ...insertLocation, 
       id,
+      code: insertLocation.code === "" ? null : (insertLocation.code ?? null),
       address: insertLocation.address === "" ? null : (insertLocation.address ?? null),
       city: insertLocation.city === "" ? null : (insertLocation.city ?? null),
       state: insertLocation.state === "" ? null : (insertLocation.state ?? null),
       zipCode: insertLocation.zipCode === "" ? null : (insertLocation.zipCode ?? null),
       country: insertLocation.country || "USA",
       description: insertLocation.description === "" ? null : (insertLocation.description ?? null),
+      notes: insertLocation.notes === "" ? null : (insertLocation.notes ?? null),
       managerId: insertLocation.managerId === "" ? null : (insertLocation.managerId ?? null)
     };
     this.locations.set(id, location);
@@ -1137,11 +1139,13 @@ export class MemStorage implements IStorage {
     
     const normalizedData = {
       ...updateData,
+      code: updateData.code === undefined ? location.code : (updateData.code === "" ? null : (updateData.code ?? null)),
       address: updateData.address === undefined ? location.address : (updateData.address === "" ? null : (updateData.address ?? null)),
       city: updateData.city === undefined ? location.city : (updateData.city === "" ? null : (updateData.city ?? null)),
       state: updateData.state === undefined ? location.state : (updateData.state === "" ? null : (updateData.state ?? null)),
       zipCode: updateData.zipCode === undefined ? location.zipCode : (updateData.zipCode === "" ? null : (updateData.zipCode ?? null)),
       description: updateData.description === undefined ? location.description : (updateData.description === "" ? null : (updateData.description ?? null)),
+      notes: updateData.notes === undefined ? location.notes : (updateData.notes === "" ? null : (updateData.notes ?? null)),
       managerId: updateData.managerId === undefined ? location.managerId : (updateData.managerId === "" ? null : (updateData.managerId ?? null))
     };
     
@@ -1190,10 +1194,12 @@ export class MemStorage implements IStorage {
     const department: Department = { 
       ...insertDepartment, 
       id,
+      code: insertDepartment.code === "" ? null : (insertDepartment.code ?? null),
       description: insertDepartment.description === "" ? null : (insertDepartment.description ?? null),
       managerId: insertDepartment.managerId === "" ? null : (insertDepartment.managerId ?? null),
       budget: insertDepartment.budget === "" ? null : (insertDepartment.budget ?? null),
-      locationId: insertDepartment.locationId === "" ? null : (insertDepartment.locationId ?? null)
+      locationId: insertDepartment.locationId === "" ? null : (insertDepartment.locationId ?? null),
+      costCenter: insertDepartment.costCenter === "" ? null : (insertDepartment.costCenter ?? null)
     };
     this.departments.set(id, department);
     return department;
@@ -1205,10 +1211,12 @@ export class MemStorage implements IStorage {
     
     const normalizedData = {
       ...updateData,
+      code: updateData.code === undefined ? department.code : (updateData.code === "" ? null : (updateData.code ?? null)),
       description: updateData.description === undefined ? department.description : (updateData.description === "" ? null : (updateData.description ?? null)),
       managerId: updateData.managerId === undefined ? department.managerId : (updateData.managerId === "" ? null : (updateData.managerId ?? null)),
       budget: updateData.budget === undefined ? department.budget : (updateData.budget === "" ? null : (updateData.budget ?? null)),
-      locationId: updateData.locationId === undefined ? department.locationId : (updateData.locationId === "" ? null : (updateData.locationId ?? null))
+      locationId: updateData.locationId === undefined ? department.locationId : (updateData.locationId === "" ? null : (updateData.locationId ?? null)),
+      costCenter: updateData.costCenter === undefined ? department.costCenter : (updateData.costCenter === "" ? null : (updateData.costCenter ?? null))
     };
     
     const updatedDepartment = { ...department, ...normalizedData };

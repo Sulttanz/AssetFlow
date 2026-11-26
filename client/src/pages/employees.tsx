@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import Header from "@/components/layout/header";
 import EmployeeForm from "@/components/employees/employee-form";
 import EmployeeOffboardingDialog from "@/components/employees/employee-offboarding-dialog";
-import { Edit, Eye, KeyRound, Upload, UserCheck, UserX, Users } from "lucide-react";
+import { Edit, Eye, KeyRound, Trash2, Upload, UserCheck, UserX, Users } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -30,10 +31,20 @@ import {
 
 const ITEMS_PER_PAGE = 10;
 
+type BulkDeleteResult = {
+  requested: number;
+  deletedCount: number;
+  skippedCount: number;
+  deleted: Array<{ id: string; employeeId: string | null; name: string }>;
+  skipped: Array<{ id: string; employeeId: string | null; name: string; reason: string }>;
+  missingCount: number;
+};
+
 export default function Employees() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const canManageEmployees = !!user?.permissions?.includes("employee_update");
+  const canDeleteEmployees = !!user?.permissions?.includes("employee_delete");
   const canApproveOffboarding = canManageEmployees || !!user?.permissions?.includes("offboarding_approve");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeWithDetails | null>(null);
@@ -46,6 +57,9 @@ export default function Employees() {
   const [isReactivationOpen, setIsReactivationOpen] = useState(false);
   const [employeeFormTab, setEmployeeFormTab] = useState<"profile" | "access">("profile");
   const [employeeView, setEmployeeView] = useState<"active" | "disabled">("active");
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteResult, setBulkDeleteResult] = useState<BulkDeleteResult | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const { toast } = useToast();
 
@@ -68,6 +82,33 @@ export default function Employees() {
     },
     onError: (error: Error) => toast({
       title: "Could not reactivate employee",
+      description: error.message,
+      variant: "destructive",
+    }),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (employeeIds: string[]) => {
+      const response = await apiRequest("POST", "/api/employees/bulk-delete", { employeeIds });
+      return response.json() as Promise<BulkDeleteResult>;
+    },
+    onSuccess: result => {
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/managers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      setSelectedEmployeeIds(new Set());
+      setIsBulkDeleteConfirmOpen(false);
+      setBulkDeleteResult(result);
+      toast({
+        title: `${result.deletedCount} employee${result.deletedCount === 1 ? "" : "s"} deleted`,
+        description: result.skippedCount
+          ? `${result.skippedCount} employee${result.skippedCount === 1 ? " was" : "s were"} kept because linked records must be retained.`
+          : "The selected unlinked employee records were removed.",
+        variant: result.deletedCount === 0 && result.skippedCount > 0 ? "destructive" : "default",
+      });
+    },
+    onError: (error: Error) => toast({
+      title: "Could not delete employees",
       description: error.message,
       variant: "destructive",
     }),
@@ -105,7 +146,28 @@ export default function Employees() {
   // Reset to page 1 when search changes
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedEmployeeIds(new Set());
   }, [searchQuery, employeeView]);
+
+  const allFilteredSelected = filteredEmployees.length > 0 &&
+    filteredEmployees.every(employee => selectedEmployeeIds.has(employee.id));
+  const someFilteredSelected = filteredEmployees.some(employee => selectedEmployeeIds.has(employee.id));
+  const toggleAllFiltered = (checked: boolean) => {
+    setSelectedEmployeeIds(current => {
+      const next = new Set(current);
+      if (checked) filteredEmployees.forEach(employee => next.add(employee.id));
+      else filteredEmployees.forEach(employee => next.delete(employee.id));
+      return next;
+    });
+  };
+  const toggleEmployeeSelection = (employeeId: string, checked: boolean) => {
+    setSelectedEmployeeIds(current => {
+      const next = new Set(current);
+      if (checked) next.add(employeeId);
+      else next.delete(employeeId);
+      return next;
+    });
+  };
 
   // Clamp currentPage to valid range when total pages changes
   useEffect(() => {
@@ -189,6 +251,24 @@ export default function Employees() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value={employeeView} className="mt-4">
+            {canDeleteEmployees && selectedEmployeeIds.size > 0 && (
+              <div className="mb-3 flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-medium">
+                  {selectedEmployeeIds.size} employee{selectedEmployeeIds.size === 1 ? "" : "s"} selected
+                  <span className="ms-2 font-normal text-muted-foreground">Selection includes all filtered results.</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="min-h-11 w-full gap-2 sm:w-auto"
+                  disabled={bulkDeleteMutation.isPending}
+                  onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Delete Selected
+                </Button>
+              </div>
+            )}
             {isLoading ? (
               <div className="space-y-4">
                 {[...Array(5)].map((_, i) => (
@@ -200,6 +280,13 @@ export default function Employees() {
                 <Table className="w-full table-fixed">
                   <TableHeader>
                     <TableRow className="h-9">
+                      {canDeleteEmployees && <TableHead className="w-[5%] px-2 py-2">
+                        <Checkbox
+                          aria-label="Select all filtered employees"
+                          checked={allFilteredSelected ? true : someFilteredSelected ? "indeterminate" : false}
+                          onCheckedChange={checked => toggleAllFiltered(checked === true)}
+                        />
+                      </TableHead>}
                       <TableHead className="w-[16%] px-2 py-2">Employee ID</TableHead>
                       <TableHead className="w-[14%] px-2 py-2">Name</TableHead>
                       <TableHead className="w-[21%] px-2 py-2">Email</TableHead>
@@ -216,6 +303,16 @@ export default function Employees() {
                         data-testid={`employee-row-${employee.id}`}
                         onClick={() => handleViewEmployee(employee)}
                       >
+                        {canDeleteEmployees && <TableCell
+                          className="px-2 py-1.5"
+                          onClick={event => event.stopPropagation()}
+                        >
+                          <Checkbox
+                            aria-label={`Select ${employee.firstName} ${employee.lastName}`}
+                            checked={selectedEmployeeIds.has(employee.id)}
+                            onCheckedChange={checked => toggleEmployeeSelection(employee.id, checked === true)}
+                          />
+                        </TableCell>}
                         <TableCell
                           className="break-all px-2 py-1.5 text-xs font-medium md:whitespace-nowrap"
                           data-testid={`employee-id-${employee.id}`}
@@ -306,7 +403,7 @@ export default function Employees() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="px-2 py-6 text-center">
+                        <TableCell colSpan={canDeleteEmployees ? 7 : 6} className="px-2 py-6 text-center">
                           <div className="text-muted-foreground">
                             <Users className="mx-auto h-12 w-12 mb-4" />
                             <p>No employees found</p>
@@ -479,6 +576,65 @@ export default function Employees() {
             setCurrentPage(1);
           }}
         />
+        <Dialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Delete selected employees?</DialogTitle>
+              <DialogDescription>
+                Unlinked employee profiles will be permanently deleted. Employees with booking, asset, access, or other protected history will be kept and listed after the check.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-48 overflow-y-auto rounded-md border p-3 text-sm">
+              <p className="mb-2 font-medium">{selectedEmployeeIds.size} selected</p>
+              <ul className="list-inside list-disc space-y-1 text-muted-foreground">
+                {filteredEmployees.filter(employee => selectedEmployeeIds.has(employee.id)).slice(0, 10).map(employee => (
+                  <li key={employee.id} className="break-words">
+                    {employee.firstName} {employee.lastName}{employee.employeeId ? ` · ${employee.employeeId}` : ""}
+                  </li>
+                ))}
+                {selectedEmployeeIds.size > 10 && <li>and {selectedEmployeeIds.size - 10} more</li>}
+              </ul>
+            </div>
+            <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setIsBulkDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full sm:w-auto"
+                disabled={bulkDeleteMutation.isPending || selectedEmployeeIds.size === 0}
+                onClick={() => bulkDeleteMutation.mutate(Array.from(selectedEmployeeIds))}
+              >
+                {bulkDeleteMutation.isPending ? "Checking and deleting…" : "Confirm Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={Boolean(bulkDeleteResult)} onOpenChange={open => { if (!open) setBulkDeleteResult(null); }}>
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Employee deletion results</DialogTitle>
+              <DialogDescription>
+                {bulkDeleteResult?.deletedCount ?? 0} deleted · {bulkDeleteResult?.skippedCount ?? 0} kept because linked records require retention.
+              </DialogDescription>
+            </DialogHeader>
+            {bulkDeleteResult?.skipped.length ? (
+              <div className="max-h-[50dvh] space-y-2 overflow-y-auto">
+                <h3 className="text-sm font-semibold">Employees kept</h3>
+                {bulkDeleteResult.skipped.map(employee => (
+                  <div key={employee.id} className="rounded-md border p-3 text-sm">
+                    <p className="font-medium">{employee.name}{employee.employeeId ? ` · ${employee.employeeId}` : ""}</p>
+                    <p className="mt-1 break-words text-muted-foreground">{employee.reason}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-sm text-muted-foreground">All selected employee profiles had no retained records.</p>}
+            <DialogFooter>
+              <Button type="button" onClick={() => setBulkDeleteResult(null)}>Done</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

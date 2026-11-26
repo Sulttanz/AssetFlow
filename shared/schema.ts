@@ -67,22 +67,28 @@ export const employeeOffboardingClearances = pgTable("employee_offboarding_clear
 export const locations = pgTable("locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
+  code: text("code"),
   address: text("address"),
   city: text("city"),
   state: text("state"),
   zipCode: text("zip_code"),
   country: text("country").default("USA"),
   description: text("description"),
+  notes: text("notes"),
   managerId: varchar("manager_id"),
-});
+}, table => [
+  uniqueIndex("locations_name_normalized_uidx").on(sql`lower(btrim(${table.name}))`),
+]);
 
 export const departments = pgTable("departments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull().unique(),
+  code: text("code"),
   description: text("description"),
   managerId: varchar("manager_id"),
   budget: decimal("budget", { precision: 15, scale: 2 }),
-  locationId: varchar("location_id"),
+  costCenter: text("cost_center"),
+  locationId: varchar("location_id").references(() => locations.id, { onDelete: "set null" }),
 });
 
 export const projects = pgTable("projects", {

@@ -6,6 +6,7 @@ import { applyMobileTableLayout } from "@/lib/mobile-table-layout";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   employees: [] as Record<string, unknown>[],
+  mutations: [] as ReturnType<typeof vi.fn>[],
 }));
 
 vi.mock("wouter", () => ({ useLocation: () => ["/employees", mocks.navigate] }));
@@ -14,11 +15,15 @@ vi.mock("@tanstack/react-query", async importOriginal => {
   return {
     ...actual,
     useQuery: () => ({ data: mocks.employees, isLoading: false }),
-    useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+    useMutation: () => {
+      const mutate = vi.fn();
+      mocks.mutations.push(mutate);
+      return { mutate, isPending: false };
+    },
   };
 });
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { permissions: ["employee_update"] } }),
+  useAuth: () => ({ user: { permissions: ["employee_update", "employee_delete"] } }),
 }));
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 vi.mock("@/components/layout/header", () => ({
@@ -33,6 +38,7 @@ afterEach(() => {
   cleanup();
   mocks.navigate.mockReset();
   mocks.employees = [];
+  mocks.mutations = [];
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
 });
 
@@ -82,5 +88,22 @@ describe("Employees page import action", () => {
     expect(screen.getByTestId("employee-details-dialog").textContent).toContain("Service Analyst");
 
     Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+  });
+
+  it("selects all filtered employees and asks for confirmation before bulk delete", () => {
+    mocks.employees = [
+      { id: "employee-1", employeeId: "EMP-1", firstName: "Avery", lastName: "Morgan", email: null, department: "IT", position: "Analyst", status: "active" },
+      { id: "employee-2", employeeId: "EMP-2", firstName: "Sam", lastName: "Lee", email: null, department: "IT", position: "Engineer", status: "active" },
+    ];
+
+    render(<Employees />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all filtered employees" }));
+    expect(screen.getByText("2 employees selected")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Delete Selected" }));
+    expect(screen.getByRole("heading", { name: "Delete selected employees?" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Delete" }));
+    expect(mocks.mutations.some(mutation =>
+      mutation.mock.calls.some(([ids]) => JSON.stringify(ids) === JSON.stringify(["employee-1", "employee-2"])),
+    )).toBe(true);
   });
 });

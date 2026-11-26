@@ -22,6 +22,32 @@ export type DataMigrationModule = {
 
 export const dataMigrationModules: DataMigrationModule[] = [
   {
+    key: "locations",
+    title: "Locations",
+    summary: "Location directory records used by employee, department, and asset imports.",
+    featureKey: "asset_management",
+    fields: [
+      { key: "name", header: "Name*", required: true, sample: "Riyadh HQ", note: "Required. Must be unique after trimming and case normalization." },
+      { key: "code", header: "Code", sample: "RUH-HQ", note: "Optional location code." },
+      { key: "city", header: "City", sample: "Riyadh", note: "Optional city." },
+      { key: "address", header: "Address", sample: "King Fahd Road", note: "Optional street or site address." },
+      { key: "notes", header: "Notes", sample: "Main office", note: "Optional notes." },
+    ],
+  },
+  {
+    key: "departments",
+    title: "Departments",
+    summary: "Department records. Optional location names must match Locations imported or configured first.",
+    featureKey: "asset_management",
+    fields: [
+      { key: "name", header: "Name*", required: true, sample: "Information Technology", note: "Required department name; must not duplicate an existing department." },
+      { key: "code", header: "Code", sample: "IT", note: "Optional department code." },
+      { key: "locationName", header: "Location", sample: "Riyadh HQ", note: "Optional; if supplied, must match an existing location name, ignoring surrounding whitespace and letter case. Import Locations first." },
+      { key: "manager", header: "Manager", sample: "EMP-0001", note: "Optional; must match an existing employee ID, email, or full name." },
+      { key: "costCenter", header: "Cost Center", sample: "CC-100", note: "Optional finance cost-center code." },
+    ],
+  },
+  {
     key: "assets",
     title: "Assets",
     summary: "Hardware inventory, endpoint devices, serials, specifications, and audit baseline fields.",

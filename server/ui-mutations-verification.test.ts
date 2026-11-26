@@ -30,6 +30,8 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
   let contractId: number | undefined;
   let assignmentGroupId: number | undefined;
   const employeeIds: string[] = [];
+  const bulkDeleteBookingIds: string[] = [];
+  const bulkDeleteAssetIds: string[] = [];
   const results: { method: string; path: string; status: number; expectedStatus: number }[] = [];
 
   async function request(method: string, path: string, input?: unknown, expectedStatus = 200) {
@@ -59,7 +61,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       email: `${username}@example.test`, firstName: "Mutation", lastName: "Verifier", isActive: true,
     });
     await db.insert(s.roles).values({ id: roleId, name: `Mutation Verification ${suffix}` });
-    for (const name of ["system_admin", "employee_create", "employee_update", "role_view", "role_create", "role_update", "role_delete"]) {
+    for (const name of ["system_admin", "employee_create", "employee_update", "employee_delete", "role_view", "role_create", "role_update", "role_delete"]) {
       await db.insert(s.permissions).values({ name, description: name }).onConflictDoNothing();
       const [permission] = await db.select().from(s.permissions).where(eq(s.permissions.name, name));
       await db.insert(s.rolePermissions).values({ roleId, permissionId: permission.id });
@@ -80,6 +82,8 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       if (contractId) await db.delete(s.serviceContracts).where(eq(s.serviceContracts.id, contractId));
       if (projectId) await db.delete(s.projects).where(eq(s.projects.id, projectId));
       if (assignmentGroupId) await db.delete(s.assignmentGroups).where(eq(s.assignmentGroups.id, assignmentGroupId));
+      for (const id of bulkDeleteBookingIds) await db.delete(s.assetBookings).where(eq(s.assetBookings.id, id));
+      for (const id of bulkDeleteAssetIds) await db.delete(s.assets).where(eq(s.assets.id, id));
       for (const id of employeeIds) await db.delete(s.employees).where(eq(s.employees.id, id));
       await db.delete(s.userRoles).where(eq(s.userRoles.userId, actorId));
       await db.delete(s.rolePermissions).where(eq(s.rolePermissions.roleId, roleId));
@@ -159,6 +163,55 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     }
     const invalid = await request("POST", "/api/employees", { ...input, email: "invalid" }, 400);
     expect(invalid.errors).toEqual(expect.arrayContaining([expect.objectContaining({ path: "email" })]));
+  });
+
+  it("bulk deletes unlinked employees and reports employees protected by booking history", async () => {
+    const freeEmployee = await request("POST", "/api/employees", {
+      firstName: "Unlinked",
+      lastName: "Bulk Delete",
+      position: "Analyst",
+      employeeId: `${suffix}-bulk-free`,
+    }, 201);
+    employeeIds.push(freeEmployee.id);
+    const bookedEmployee = await request("POST", "/api/employees", {
+      firstName: "Booked",
+      lastName: "Bulk Delete",
+      position: "Technician",
+      employeeId: `${suffix}-bulk-booked`,
+    }, 201);
+    employeeIds.push(bookedEmployee.id);
+
+    const [asset] = await db.insert(s.assets).values({
+      name: `Bulk delete booking asset ${suffix}`,
+      type: "laptop",
+    }).returning({ id: s.assets.id });
+    bulkDeleteAssetIds.push(asset.id);
+    const [booking] = await db.insert(s.assetBookings).values({
+      assetId: asset.id,
+      requestedBy: bookedEmployee.id,
+      startDate: "2026-01-01",
+      endDate: "2026-01-02",
+      purpose: "Ensure employee history is retained",
+      status: "pending",
+    }).returning({ id: s.assetBookings.id });
+    bulkDeleteBookingIds.push(booking.id);
+
+    const result = await request("POST", "/api/employees/bulk-delete", {
+      employeeIds: [freeEmployee.id, bookedEmployee.id],
+    });
+    expect(result).toMatchObject({
+      requested: 2,
+      deletedCount: 1,
+      skippedCount: 1,
+      deleted: [expect.objectContaining({ id: freeEmployee.id })],
+      skipped: [expect.objectContaining({
+        id: bookedEmployee.id,
+        reason: expect.stringContaining("asset_bookings (1)"),
+      })],
+    });
+    expect(await db.select().from(s.employees).where(eq(s.employees.id, freeEmployee.id))).toHaveLength(0);
+    expect(await db.select().from(s.employees).where(eq(s.employees.id, bookedEmployee.id))).toHaveLength(1);
+    expect(await db.select().from(s.assetBookings).where(eq(s.assetBookings.id, booking.id))).toHaveLength(1);
   });
 
   it("normalizes legacy blank emails idempotently without changing real addresses", async () => {

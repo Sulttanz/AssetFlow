@@ -204,6 +204,8 @@ export function assertAdditiveMigration(sql: string, name: string): void {
       /^CREATE TABLE IF NOT EXISTS\b/i.test(statement) ||
       /^CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\b/i.test(statement) ||
       /^ALTER TABLE\b[\s\S]*\bADD COLUMN IF NOT EXISTS\b/i.test(statement) ||
+      (name === "20261217_location_department_imports.sql" &&
+        /^DO \$locations_departments\$\s*BEGIN\s*IF NOT EXISTS\s*\([\s\S]*\)\s*THEN\s*ALTER TABLE departments\s+ADD CONSTRAINT departments_location_id_fkey\s+FOREIGN KEY \(location_id\) REFERENCES locations\(id\)\s+ON DELETE SET NULL NOT VALID;\s*END IF;\s*END;\s*\$locations_departments\$$/i.test(statement)) ||
       /^INSERT INTO\b[\s\S]*\bON CONFLICT\b[\s\S]*\bDO NOTHING$/i.test(statement) ||
       /^INSERT INTO module_settings\s*\(module_key,\s*enabled\)\s*VALUES\s*\('project_management',\s*true\)\s*ON CONFLICT\s*\(module_key\)\s*DO UPDATE SET enabled = true\s+WHERE module_settings\.updated_by IS NULL$/i.test(statement) ||
       /^CREATE OR REPLACE FUNCTION project_management_touch_updated_at\(\)\s+RETURNS trigger\s+LANGUAGE plpgsql\s+AS \$\$\s*BEGIN\s*NEW\.updated_at\s*:=\s*CURRENT_TIMESTAMP;\s*RETURN NEW;\s*END;\s*\$\$$/i.test(statement) ||
