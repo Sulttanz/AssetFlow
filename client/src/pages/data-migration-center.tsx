@@ -117,13 +117,15 @@ export default function DataMigrationCenter() {
   const invalidCount = preview ? (preview.invalidCount ?? preview.invalidRows) : 0;
   const validCount = preview ? (preview.validCount ?? preview.validRows) : 0;
 
-  const downloadTemplate = async (moduleKey: string) => {
+  const downloadTemplate = async (moduleKey: string, format: "xlsx" | "csv" = "xlsx") => {
     setBusy("template");
     try {
-      const response = await fetch(`/api/import/${moduleKey}/template`, { credentials: "include" });
+      const response = await fetch(`/api/import/${moduleKey}/template${format === "csv" ? "?format=csv" : ""}`, { credentials: "include" });
       if (!response.ok) throw new Error(await responseError(response));
-      saveBlob(await response.blob(), `${moduleKey}-import-template.xlsx`);
-      toast({ title: "Template downloaded", description: "The Field Guide worksheet explains required columns and formats." });
+      saveBlob(await response.blob(), `${moduleKey}-import-template.${format}`);
+      toast({ title: "Template downloaded", description: format === "csv"
+        ? "Replace the sample row with your data. The Excel template includes a detailed Field Guide."
+        : "The Field Guide worksheet explains required columns and formats." });
     } catch (error) {
       toast({ title: "Template download failed", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
     } finally {
@@ -286,6 +288,18 @@ export default function DataMigrationCenter() {
                         {busy === "template" ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="mr-2 h-4 w-4" aria-hidden="true" />}
                         Template
                       </Button>
+                      {module.key === "assets" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-9 w-full shrink-0 sm:w-auto"
+                          disabled={busy !== null}
+                          aria-label={`Download CSV template for ${module.title}`}
+                          onClick={() => void downloadTemplate(module.key, "csv")}
+                        >
+                          CSV
+                        </Button>
+                      )}
                       <label
                         className={`group flex min-h-11 h-auto min-w-0 flex-1 flex-wrap cursor-pointer items-center gap-2 overflow-visible rounded-md border border-dashed px-3 py-2 text-start transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 md:h-9 md:min-h-9 md:flex-nowrap md:overflow-hidden md:py-0 ${isDragging ? "border-primary bg-primary/5" : active ? "border-primary/45 bg-background hover:bg-primary/[0.035]" : "border-border bg-muted/25 hover:border-primary/40 hover:bg-muted/50"}`}
                         title={moduleFile?.name ?? "Upload a completed .xlsx or .csv file"}

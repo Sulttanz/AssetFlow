@@ -526,7 +526,7 @@ function buildNormalized(
     }
     if (value("assetTag")) uniqueKeys.push(`assetTag:${value("assetTag")}`);
     normalized = {
-      ...optional(["name", "type", "category", "assetTag", "serialNumber", "manufacturer", "model", "status", "ipAddress", "operatingSystem", "processor", "ram", "storage", "version", "siteBuilding", "configurationBaseline", "complianceStatus", "lastAuditDate", "auditFindings", "remediationStatus", "antivirusEdrStatus", "installedSoftware", "licenseType", "licenseQuantity", "licenseExpiryDate"]),
+      ...optional(["name", "type", "category", "assetTag", "serialNumber", "manufacturer", "model", "status", "ipAddress", "operatingSystem", "processor", "ram", "storage", "specifications", "version", "siteBuilding", "configurationBaseline", "complianceStatus", "lastAuditDate", "auditFindings", "remediationStatus", "antivirusEdrStatus", "installedSoftware", "licenseType", "licenseQuantity", "licenseExpiryDate"]),
       status: assetStatus,
       locationId: location ?? null,
       departmentId: department ?? null,
@@ -1393,11 +1393,18 @@ export function registerDataMigrationRoutes(
   app.get("/api/import/history", ...guards, historyHandler);
 
   const templateHandler: RequestHandler = async (req, res) => {
+    const format = req.query.format ?? "xlsx";
+    if (format !== "xlsx" && format !== "csv") {
+      res.status(400).json({ message: "Template format must be xlsx or csv." });
+      return;
+    }
     try {
       const workbook = makeTemplate(req.params.moduleKey);
-      const buffer = await workbook.xlsx.writeBuffer();
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename="${req.params.moduleKey}-import-template.xlsx"`);
+      const buffer = format === "csv"
+        ? await workbook.csv.writeBuffer({ sheetName: "Import Data" })
+        : await workbook.xlsx.writeBuffer();
+      res.setHeader("Content-Type", format === "csv" ? "text/csv; charset=utf-8" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${req.params.moduleKey}-import-template.${format}"`);
       res.send(Buffer.from(buffer));
     } catch (error) {
       res.status(404).json({ message: error instanceof Error ? error.message : "Template not available" });

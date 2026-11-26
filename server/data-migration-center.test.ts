@@ -3,9 +3,10 @@ import express, { type RequestHandler } from "express";
 import type { Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   assets, backupSchedules, budgets, catalogItems, cmdbApplications, consumables, consumableStockMovements,
   dataMigrationBatches, departments, dropdownOptions, employees, incidents, incidentActivities, kbArticleControlMappings,
@@ -124,6 +125,100 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     expect((await fetch(`${base}/api/data-migrations/modules`)).status).toBe(401);
     expect((await fetch(`${base}/api/data-migrations/modules`, { headers: headers(noRoleId) })).status).toBe(403);
     expect((await fetch(`${base}/api/import/modules`, { headers: headers(noRoleId) })).status).toBe(403);
+  });
+
+  it("adds nullable asset specifications idempotently without changing existing data", async () => {
+    const migration = await readFile("migrations/onprem/20261218_asset_specifications.sql", "utf8");
+    expect(() => assertAdditiveMigration(migration, "asset-specifications")).not.toThrow();
+    // Shadow the real table on this transaction's connection only. The entire
+    // test runs in the disposable database, and the temporary table self-cleans.
+    await db.transaction(async tx => {
+      await tx.execute(sql`CREATE TEMP TABLE assets (id text PRIMARY KEY, name text NOT NULL) ON COMMIT DROP`);
+      await tx.execute(sql`INSERT INTO assets (id, name) VALUES ('existing', 'Existing asset')`);
+      await tx.execute(sql.raw(migration));
+      const column = await tx.execute(sql`
+        SELECT data_type, is_nullable FROM information_schema.columns
+        WHERE table_schema = (SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema())
+          AND table_name = 'assets' AND column_name = 'specifications'
+      `);
+      expect(column.rows).toEqual([{ data_type: "text", is_nullable: "YES" }]);
+      expect((await tx.execute(sql`SELECT name, specifications FROM assets`)).rows)
+        .toEqual([{ name: "Existing asset", specifications: null }]);
+      await tx.execute(sql`UPDATE assets SET specifications = 'Keep original specifications' WHERE id = 'existing'`);
+      await tx.execute(sql.raw(migration));
+      expect((await tx.execute(sql`SELECT name, specifications FROM assets`)).rows)
+        .toEqual([{ name: "Existing asset", specifications: "Keep original specifications" }]);
+    });
+  });
+
+  it.each(["xlsx", "csv"] as const)("downloads and imports optional Specifications in the %s template", async format => {
+    const response = await fetch(`${base}/api/import/assets/template?format=${format}`, { headers: headers() });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain(`assets-import-template.${format}`);
+    const workbook = new ExcelJS.Workbook();
+    if (format === "xlsx") {
+      await workbook.xlsx.load(Buffer.from(await response.arrayBuffer()));
+    } else {
+      expect(response.headers.get("content-type")).toContain("text/csv");
+      await workbook.csv.read(Readable.from([await response.text()]));
+    }
+    const sheet = workbook.worksheets[0];
+    const fields = dataMigrationModules.find(module => module.key === "assets")!.fields;
+    const specificationColumn = fields.findIndex(field => field.key === "specifications") + 1;
+    expect(specificationColumn).toBeGreaterThan(0);
+    expect(sheet.getCell(1, specificationColumn).text).toBe("Specifications");
+    expect(sheet.getCell(2, specificationColumn).text).toContain("16 GB RAM");
+    if (format === "xlsx") {
+      expect(sheet.getCell(1, specificationColumn).note).toContain("Optional");
+      const guide = workbook.getWorksheet("Field Guide")!;
+      const guideRow = guide.getRows(2, fields.length)!.find(row => row.getCell(2).text === "specifications");
+      expect(guideRow?.getCell(1).text).toBe("Specifications");
+      expect(guideRow?.getCell(3).text).toBe("No");
+    } else {
+      // Spreadsheet authors can use the backend key, not only the title case.
+      sheet.getCell(1, specificationColumn).value = "specifications";
+    }
+    sheet.spliceRows(2, 1);
+    const specs = '  CPU: Intel i7\nRAM: 16 GB, SSD: "512 GB"\nتفاصيل: شاشة 14 بوصة  ';
+    const records: Record<string, unknown>[] = [
+      { name: `${prefix}-${format}-specs`, type: "laptop", assetTag: `${prefix}-${format}-specs`, specifications: specs },
+      { name: `${prefix}-${format}-blank`, type: "laptop", assetTag: `${prefix}-${format}-blank`, specifications: "" },
+      { name: `${prefix}-${format}-whitespace`, type: "laptop", assetTag: `${prefix}-${format}-whitespace`, specifications: "  \t " },
+    ];
+    for (const record of records) sheet.addRow(fields.map(field => record[field.key] ?? null));
+    const buffer = format === "xlsx" ? await workbook.xlsx.writeBuffer() : await workbook.csv.writeBuffer({ sheetName: sheet.name });
+    const body = new FormData();
+    body.append("file", new Blob([buffer]), `asset-specifications.${format}`);
+    const previewResponse = await fetch(`${base}/api/data-migrations/assets/preview`, { method: "POST", headers: headers(), body });
+    expect(previewResponse.status, await previewResponse.clone().text()).toBe(201);
+    const preview = await previewResponse.json();
+    expect(preview).toMatchObject({ validRows: 3, invalidRows: 0 });
+    const imported = await post(`/api/data-migrations/${preview.batchId}/import`, { confirm: true });
+    expect(imported.status).toBe(200);
+    expect(await imported.json()).toMatchObject({ importedRows: 3, failedRows: 0 });
+    for (const [index, record] of records.entries()) {
+      const [saved] = await db.select().from(assets).where(eq(assets.assetTag, String(record.assetTag)));
+      expect(saved.specifications).toBe(index === 0 ? specs.trim() : null);
+    }
+    // Existing imports are insert-only. Adding Specifications must not turn a
+    // duplicate tag into an upsert or overwrite the saved technical details.
+    const duplicate = await previewCsv("assets", [{ ...records[0], specifications: "Do not overwrite" }]);
+    expect(duplicate).toMatchObject({ validRows: 0, invalidRows: 1 });
+    expect((await db.select().from(assets).where(eq(assets.assetTag, String(records[0].assetTag))))[0].specifications)
+      .toBe(specs.trim());
+  });
+
+  it("keeps older asset uploads without a Specifications column valid", async () => {
+    const tag = `${prefix}-legacy-specs`;
+    const body = new FormData();
+    body.append("file", new Blob([`Asset Name*,Asset Tag,Type*\r\nLegacy asset,${tag},laptop`]), "legacy-assets.csv");
+    const response = await fetch(`${base}/api/data-migrations/assets/preview`, { method: "POST", headers: headers(), body });
+    expect(response.status).toBe(201);
+    const preview = await response.json();
+    expect(preview).toMatchObject({ validRows: 1, invalidRows: 0 });
+    expect((await post(`/api/data-migrations/${preview.batchId}/import`, { confirm: true })).status).toBe(200);
+    expect((await db.select().from(assets).where(eq(assets.assetTag, tag)))[0].specifications).toBeNull();
+    expect((await fetch(`${base}/api/import/assets/template?format=pdf`, { headers: headers() })).status).toBe(400);
   });
 
   it("provides all seventeen supported templates and additive staging migrations", async () => {

@@ -66,6 +66,7 @@ export const dataMigrationModules: DataMigrationModule[] = [
       { key: "processor", header: "Processor", sample: "8-core CPU", note: "Optional processor specification." },
       { key: "ram", header: "RAM", sample: "16 GB", note: "Optional memory specification." },
       { key: "storage", header: "Storage", sample: "512 GB SSD", note: "Optional storage specification." },
+      { key: "specifications", header: "Specifications", sample: "Intel Core i7; 16 GB RAM; 512 GB SSD", note: "Optional free-form technical specifications. Surrounding whitespace is trimmed; leave blank if not applicable." },
       { key: "version", header: "Version", sample: "1.0", note: "Optional software or firmware version." },
       { key: "locationName", header: "Location", sample: "Sample Office", note: "Optional; must match an existing location name." },
       { key: "departmentName", header: "Department", sample: "IT", note: "Optional; must match an existing department name." },

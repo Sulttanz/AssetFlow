@@ -141,6 +141,7 @@ describe("employee bulk import validation", () => {
     expect(screen.queryByTestId("migration-module-components")).toBeNull();
     expect(screen.queryByTestId("migration-module-spare_parts")).toBeNull();
     expect(screen.getByRole("button", { name: "Download Excel template for Assets" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download CSV template for Assets" })).toBeTruthy();
     expect(screen.getByLabelText("Upload and import XLSX or CSV for Consumables")).toBeTruthy();
   });
 

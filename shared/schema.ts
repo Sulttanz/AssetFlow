@@ -374,7 +374,7 @@ export const assets = pgTable("assets", {
   operatingSystem: text("operating_system"), // OS type and version
   ipAddress: text("ip_address"), // Network identification
   macAddress: text("mac_address"), // Hardware network identifier
-  specifications: text("specifications"), // Legacy field
+  specifications: text("specifications"), // Optional free-form technical specifications, shared by forms and imports
   configurationDetails: text("configuration_details"), // Technical specifications
   dependencies: text("dependencies"), // Related assets and services
   interfaces: text("interfaces"), // Network connections
