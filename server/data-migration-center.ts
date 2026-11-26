@@ -291,7 +291,7 @@ async function loadLookups(moduleKey: string): Promise<LookupContext> {
     ["itsm", itsmEnabled],
     ["risk_management", await isFeatureEnabled("risk_management")],
   ] as const) if (enabled) enabledFeatures.add(key);
-  const needsLocation = ["assets", "employees", "finance", "departments"].includes(moduleKey);
+  const needsLocation = ["assets", "employees", "finance", "locations", "departments"].includes(moduleKey);
   const needsDepartment = ["assets", "employees", "finance", "departments"].includes(moduleKey);
   const needsWarehouse = moduleKey === "consumables";
   const needsVendor = ["consumables", "vendors", "finance"].includes(moduleKey);
@@ -981,6 +981,9 @@ function validationDetails(moduleKey: string, records: ParsedRecord[], context: 
     }
     if (moduleKey === "employees" && /duplicate employee id/i.test(error)) {
       field = module?.fields.find(candidate => candidate.key === "employeeId");
+    }
+    if (moduleKey === "departments" && /^Location "/i.test(error)) {
+      field = module?.fields.find(candidate => candidate.key === "locationName");
     }
     const label = field?.header.replace(/\*+$/, "").trim() ?? "Record";
     let message = error.replace(/\*+/g, "");

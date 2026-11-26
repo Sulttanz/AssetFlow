@@ -42,9 +42,9 @@ export const dataMigrationModules: DataMigrationModule[] = [
     fields: [
       { key: "name", header: "Name*", required: true, sample: "Information Technology", note: "Required department name; must not duplicate an existing department." },
       { key: "code", header: "Code", sample: "IT", note: "Optional department code." },
-      { key: "locationName", header: "Location", sample: "Riyadh HQ", note: "Optional; if supplied, must match an existing location name, ignoring surrounding whitespace and letter case. Import Locations first." },
+      { key: "locationName", header: "location_name", sample: "Riyadh HQ", note: "Optional; if supplied, must match an existing location name, ignoring surrounding whitespace and letter case. Import Locations first." },
       { key: "manager", header: "Manager", sample: "EMP-0001", note: "Optional; must match an existing employee ID, email, or full name." },
-      { key: "costCenter", header: "Cost Center", sample: "CC-100", note: "Optional finance cost-center code." },
+      { key: "costCenter", header: "cost_center", sample: "CC-100", note: "Optional finance cost-center code." },
     ],
   },
   {

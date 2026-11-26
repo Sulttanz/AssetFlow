@@ -180,6 +180,7 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
       employeeId: `${suffix}-bulk-booked`,
     }, 201);
     employeeIds.push(bookedEmployee.id);
+    await db.update(s.users).set({ employeeId: freeEmployee.id }).where(eq(s.users.id, actorId));
 
     const [asset] = await db.insert(s.assets).values({
       name: `Bulk delete booking asset ${suffix}`,
@@ -212,6 +213,8 @@ describe.runIf(enabled)("UI mutation HTTP and persistence verification", () => {
     expect(await db.select().from(s.employees).where(eq(s.employees.id, freeEmployee.id))).toHaveLength(0);
     expect(await db.select().from(s.employees).where(eq(s.employees.id, bookedEmployee.id))).toHaveLength(1);
     expect(await db.select().from(s.assetBookings).where(eq(s.assetBookings.id, booking.id))).toHaveLength(1);
+    expect(await db.select({ employeeId: s.users.employeeId }).from(s.users).where(eq(s.users.id, actorId)))
+      .toEqual([{ employeeId: null }]);
   });
 
   it("normalizes legacy blank emails idempotently without changing real addresses", async () => {

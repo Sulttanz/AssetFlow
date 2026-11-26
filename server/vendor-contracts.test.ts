@@ -261,12 +261,14 @@ describe("governed vendor and SLA API", () => {
     expect((await response.json())[0]).toMatchObject({ status: "Expired", lifecycleStatus: "Expired", renewalDue: true, assetIds: [assetId] });
   });
   it("returns a vendor 360 profile with supplied assets, support contracts and purchase history", async () => {
+    // Keep the fixture inside the expiry window regardless of the calendar date.
+    const expiryDate = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
     mock.state.selects.push(
       [{ ...vendor, tier: "Tier 1 - Strategic", accountManager: "Taylor", supportUrl: "https://support.example.com", slaTerms: "24/7" }],
       [{ id: assetId, name: "Workstation", type: "laptop", assetTag: "AST-1", serialNumber: "SER-1", status: "assigned", warrantyExpiry: "2027-01-01", manufacturer: "OEM", model: "X1" }],
       [{ ...oldContract, vendorName: "Supplier" }], [], [], [],
       [{ id: poId, poNumber: "PO-1", orderDate: "2026-01-01", status: "delivered", totalAmount: "500.00" }],
-      [{ id: "cert-1", vendorId, certificationName: "SOC 2 Type II", issueDate: "2025-01-01", expiryDate: "2026-11-25" }],
+      [{ id: "cert-1", vendorId, certificationName: "SOC 2 Type II", issueDate: "2025-01-01", expiryDate }],
       [{ incidentCount: 3, resolvedIncidentCount: 2, averageResolutionHours: "4.5", slaBreachCount: 1 }],
     );
     const response = await request(`/api/vendor-management/vendors/${vendorId}`);

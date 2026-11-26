@@ -5566,15 +5566,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return [];
         };
         const foreignKeys = executionRows<{ child_schema: string; child_table: string; child_column: string; delete_action: string }>(fkResult);
-        const transactionReferenceTables = new Set([
-          "asset_bookings",
-          "asset_disposal_records",
-          "asset_handovers",
-          "asset_requests",
-          "assignments",
-          "employee_access_rights",
-          "employee_offboarding_clearances",
-          "software_license_allocations",
+        // Only known directory links may be detached. A new foreign key must
+        // protect its history by default, even if it declares SET NULL.
+        const detachableReferences = new Set([
+          "users.employee_id",
+          "employees.manager_id",
+          "departments.manager_id",
+          "locations.manager_id",
         ]);
         const quoteIdentifier = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
         const blockersByEmployee = new Map<string, string[]>();
@@ -5590,7 +5588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             GROUP BY ${sql.raw(childColumn)}
           `);
           for (const row of executionRows<{ employee_id: string; count: number | string }>(countResult)) {
-            if (Number(row.count) <= 0 || (foreignKey.delete_action === "n" && !transactionReferenceTables.has(foreignKey.child_table))) continue;
+            if (Number(row.count) <= 0 || detachableReferences.has(`${foreignKey.child_table}.${foreignKey.child_column}`)) continue;
             const references = blockersByEmployee.get(row.employee_id) ?? [];
             references.push(`${foreignKey.child_table} (${Number(row.count)})`);
             blockersByEmployee.set(row.employee_id, references);

@@ -211,7 +211,7 @@ describe.runIf(integrationEnabled)("Data Migration Center on disposable PostgreS
     expect(invalidPreview.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({
         rowNumber: 2,
-        field: "Location",
+        field: "location_name",
         submittedValue: missingLocation,
         lookupLabel: "Locations",
         message: `Location "${missingLocation}" was not found. Import Locations first.`,
