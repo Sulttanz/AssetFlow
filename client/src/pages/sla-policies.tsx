@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
@@ -478,14 +479,14 @@ export default function SlaPolicies() {
                   <FormField control={form.control} name="responseEscalationGroup" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Assignment group</FormLabel>
-                      <FormControl><select aria-label="Response escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</select></FormControl>
+                      <FormControl><SearchableSelect aria-label="Response escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</SearchableSelect></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="responseEscalationUserId" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Additional staff member</FormLabel>
-                      <FormControl><select aria-label="Response escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FormControl>
+                      <FormControl><SearchableSelect aria-label="Response escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</SearchableSelect></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -501,14 +502,14 @@ export default function SlaPolicies() {
                   <FormField control={form.control} name="resolutionEscalationGroup" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Assignment group</FormLabel>
-                      <FormControl><select aria-label="Resolution escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</select></FormControl>
+                      <FormControl><SearchableSelect aria-label="Resolution escalation group" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">Use incident assignment</option>{(escalationOptions?.assignmentGroups ?? []).map(group => <option key={group.id} value={group.name}>{group.name}</option>)}</SearchableSelect></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="resolutionEscalationUserId" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Additional staff member</FormLabel>
-                      <FormControl><select aria-label="Resolution escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></FormControl>
+                      <FormControl><SearchableSelect aria-label="Resolution escalation staff member" className="h-10 w-full rounded-md border bg-background px-3 text-sm" {...field} value={field.value ?? ""}><option value="">No additional person</option>{(escalationOptions?.staff ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</SearchableSelect></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />

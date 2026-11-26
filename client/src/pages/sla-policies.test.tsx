@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
@@ -19,6 +20,8 @@ function response(data: unknown, status = 200): Response {
 
 beforeEach(() => {
   requests.length = 0;
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -44,6 +47,7 @@ afterEach(() => {
 
 describe("SLA policy escalation configuration", () => {
   it("saves different response and resolution breach recipients", async () => {
+    const user = userEvent.setup();
     const client = new QueryClient({
       defaultOptions: {
         queries: {
@@ -61,14 +65,12 @@ describe("SLA policy escalation configuration", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add Policy" }));
     fireEvent.change(screen.getByLabelText("Policy Name"), { target: { value: "Critical network SLA" } });
-    await waitFor(() => expect(
-      Array.from((screen.getByLabelText("Response escalation group") as HTMLSelectElement).options).map(option => option.value),
-    ).toContain("Network"));
-    fireEvent.change(screen.getByLabelText("Response escalation group"), { target: { value: "Network" } });
-    expect((screen.getByLabelText("Response escalation group") as HTMLSelectElement).value).toBe("Network");
-    fireEvent.change(screen.getByLabelText("Response escalation staff member"), { target: { value: "agent-1" } });
-    expect((screen.getByLabelText("Response escalation staff member") as HTMLSelectElement).value).toBe("agent-1");
-    fireEvent.change(screen.getByLabelText("Resolution escalation group"), { target: { value: "" } });
+    await user.click(screen.getByRole("combobox", { name: "Response escalation group" }));
+    await user.click(await screen.findByRole("option", { name: "Network" }));
+    expect(screen.getByRole("combobox", { name: "Response escalation group" }).textContent).toContain("Network");
+    await user.click(screen.getByRole("combobox", { name: "Response escalation staff member" }));
+    await user.click(await screen.findByRole("option", { name: "Grace Hopper" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Response escalation staff member" }).textContent).toContain("Grace Hopper"));
     fireEvent.click(screen.getByRole("button", { name: "Create Policy" }));
 
     await waitFor(() => expect(requests.some(({ url, method }) => url === "/api/sla-policies" && method === "POST")).toBe(true));

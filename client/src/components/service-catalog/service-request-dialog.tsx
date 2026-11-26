@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
@@ -101,7 +102,7 @@ export function ServiceRequestDialog({ item, onClose }: { item: CatalogItem | nu
         <form className="grid gap-4" onSubmit={event => { event.preventDefault(); submit.mutate(); }}>
           {!item?.projectId && isEndUser && assignedProjects.length > 0 && <label className="grid gap-1.5 text-sm font-medium">
             Request scope
-            <select
+            <SearchableSelect
               className="min-h-11 rounded-md border bg-background px-3"
               value={projectId}
               required={!user?.employeeId}
@@ -109,7 +110,7 @@ export function ServiceRequestDialog({ item, onClose }: { item: CatalogItem | nu
             >
               {user?.employeeId && <option value="">Company-wide / no project</option>}
               {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
+            </SearchableSelect>
             <span className="text-xs font-normal text-muted-foreground">Only your assigned projects are available.</span>
           </label>}
           {fields.map(field => <DynamicField key={field.key} field={field} value={values[field.key]} error={errors[field.key]} onChange={value => updateField(field, value)} />)}

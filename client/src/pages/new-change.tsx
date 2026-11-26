@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, CalendarClock, ClipboardList, RefreshCw, ShieldCheck } from "lucide-react";
@@ -186,10 +187,10 @@ export default function NewChangePage() {
               <Field label={isEndUser ? "Assigned project" : "Project (optional)"}>
                 {isEndUser && assignedProjects.length === 1
                   ? <Input value={assignedProjects[0].name} readOnly aria-label="Assigned project" className={inputClass} />
-                  : <select className={selectClass} value={projectId} required={isEndUser} onChange={event => setProjectId(event.target.value)}>
+                  : <SearchableSelect className={selectClass} value={projectId} required={isEndUser} onChange={event => setProjectId(event.target.value)}>
                     {!isEndUser && <option value="">No project</option>}
                     {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-                  </select>}
+                  </SearchableSelect>}
                 {options.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading projects…</span>}
                 {options.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Project options could not load. <button type="button" className="font-semibold underline" onClick={() => void options.refetch()}>Retry</button></span>}
               </Field>

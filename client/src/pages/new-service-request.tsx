@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, Check, FilePlus2, Paperclip, RefreshCw, Wrench, X } from "lucide-react";
@@ -245,13 +246,13 @@ export default function NewServiceRequestPage() {
             <div className="border-b border-[#e5ece8] pb-4"><h2 className="font-semibold tracking-[-.02em]">Request details</h2><p className="mt-1 text-sm text-[#768987]">Tell us what you need and how it will be used.</p></div>
             {staffIntake && <Field label="Requested for / Affected user" hint="Search by name or email when recording a request on someone's behalf.">
               <Input type="search" value={requestedForSearch} onChange={event => setRequestedForSearch(event.target.value)} placeholder="Search users…" className={inputClass} />
-              <select className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
+              <SearchableSelect className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
                 <option value="">Me ({user?.username ?? "current user"})</option>
                 {(optionsQuery.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
-              </select>
+              </SearchableSelect>
             </Field>}
             <Field label="Service or catalog item" hint="Choose a service, or leave this as a general request.">
-              <select className={selectClass} value={catalogItemId} onChange={event => {
+              <SearchableSelect className={selectClass} value={catalogItemId} onChange={event => {
                 setFieldValues({});
                 setFieldErrors({});
                 const nextId = event.target.value;
@@ -261,7 +262,7 @@ export default function NewServiceRequestPage() {
               }}>
                 <option value="">General service request</option>
                 {catalogItems.map(item => <option key={item.id} value={item.id}>{item.name}{item.projectName ? ` · ${item.projectName}` : ""}{item.approvalRequired ? " · approval required" : ""}</option>)}
-              </select>
+              </SearchableSelect>
               {catalogQuery.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading available services…</span>}
               {catalogQuery.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Catalog options could not load. You may still submit a general request. <button type="button" className="font-semibold underline" onClick={() => void catalogQuery.refetch()}>Retry</button></span>}
             </Field>
@@ -313,10 +314,10 @@ export default function NewServiceRequestPage() {
               <Field label={isEndUser && !user?.employeeId && assignedProjects.length ? "Assigned project" : "Project (optional)"}>
                 {selectedItem?.projectId
                   ? <Input value={selectedItem.projectName ?? assignedProjects.find(project => project.id === selectedItem.projectId)?.name ?? "Assigned project"} readOnly className={inputClass} aria-label="Project" />
-                  : <select className={selectClass} value={projectId} required={isEndUser && !user?.employeeId && assignedProjects.length > 0} onChange={event => setProjectId(event.target.value)}>
+                  : <SearchableSelect className={selectClass} value={projectId} required={isEndUser && !user?.employeeId && assignedProjects.length > 0} onChange={event => setProjectId(event.target.value)}>
                     {(!isEndUser || user?.employeeId || assignedProjects.length === 0) && <option value="">Company-wide / No project</option>}
                     {assignedProjects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-                  </select>}
+                  </SearchableSelect>}
                 {optionsQuery.isLoading && <span role="status" className="text-xs font-normal text-[#788d8e]">Loading projects…</span>}
                 {optionsQuery.isError && <span role="alert" className="text-xs font-normal text-[#9b604a]">Projects unavailable. <button type="button" className="font-semibold underline" onClick={() => void optionsQuery.refetch()}>Retry</button></span>}
               </Field>

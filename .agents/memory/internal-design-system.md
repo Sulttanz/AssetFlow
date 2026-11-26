@@ -20,3 +20,9 @@ Use Daylight Clean on desktop and Midnight Command on mobile only when no manual
 **Why:** The user requested device-aware defaults without overriding a person's explicit choice or sharing one user's theme with another.
 
 **How to apply:** Treat themes as personal preferences, not tenant settings. English/Arabic switching should preserve the same colors, spacing, and typography; Arabic uses RTL with English fallback for untranslated technical labels.
+
+Keep Departments and Locations as structured table rows, including on mobile; horizontal scrolling should expose their row actions rather than switching these directories into cards.
+
+**Why:** The user explicitly requested row-based directory views with horizontally scrollable actions on smaller screens.
+
+**How to apply:** Preserve this exception when changing shared responsive table behavior or adding directory columns.

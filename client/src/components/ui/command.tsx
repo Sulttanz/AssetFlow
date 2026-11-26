@@ -58,7 +58,7 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    className={cn("min-h-0 max-h-[min(300px,calc(var(--radix-popover-content-available-height,24rem)_-_4rem))] overflow-y-auto overflow-x-hidden overscroll-contain", className)}
     {...props}
   />
 ))

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { ArrowLeft, CircleAlert, ClipboardCheck, LifeBuoy, RefreshCw } from "lucide-react";
@@ -178,16 +179,16 @@ export default function NewIncidentPage() {
           </div>
           {staffIntake && <Field label="Requested for / Affected user" hint="Search by name or email when logging this incident on someone's behalf.">
             <Input type="search" value={requestedForSearch} onChange={event => setRequestedForSearch(event.target.value)} placeholder="Search users…" className={inputClass} />
-            <select className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
+            <SearchableSelect className={selectClass} value={requestedForId} onChange={event => setRequestedForId(event.target.value)}>
               <option value="">Me ({user?.username ?? "current user"})</option>
               {(options.data?.requesterUsers ?? []).filter(person => `${person.name} ${person.email}`.toLowerCase().includes(requestedForSearch.toLowerCase())).map(person => <option key={person.id} value={person.id}>{person.name} · {person.email}</option>)}
-            </select>
+            </SearchableSelect>
           </Field>}
           <Field label="Incident type" hint={selectedCatalog?.description ?? "Choose the closest service or issue category."}>
-            <select className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required>
+            <SearchableSelect className={selectClass} value={incidentCatalogItemId} onChange={event => setIncidentCatalogItemId(event.target.value)} required>
               <option value="">Select an incident type</option>
               {visibleIncidentCatalog.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category}</option>)}
-            </select>
+            </SearchableSelect>
           </Field>
           <Field label={staffIntake ? "Incident title" : "Subject"}>
             <Input required maxLength={180} value={title} onChange={event => setTitle(event.target.value)} placeholder="For example, finance team cannot access shared drive" className={inputClass} />
@@ -196,10 +197,10 @@ export default function NewIncidentPage() {
             <Textarea required rows={6} maxLength={8000} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the symptoms and their effect on your work." className={textAreaClass} />
           </Field>
           {!staffIntake && options.data?.linkedEmployee && (options.data.assignedAssets?.length ?? 0) > 0 && <Field label="Affected device (optional)">
-            <select className={selectClass} value={assetId} onChange={event => setAssetId(event.target.value)}>
+            <SearchableSelect className={selectClass} value={assetId} onChange={event => setAssetId(event.target.value)}>
               <option value="">No specific device</option>
               {options.data?.assignedAssets?.map(asset => <option key={asset.id} value={asset.id}>{asset.name}{asset.assetTag ? ` · ${asset.assetTag}` : ""}{asset.serialNumber ? ` · ${asset.serialNumber}` : ""}</option>)}
-            </select>
+            </SearchableSelect>
           </Field>}
           <Field label="Attachments (optional)" hint="Add screenshots or relevant files (PDF, Word, Excel, images, or text/config files; up to 20 MB each).">
             <Input type="file" multiple accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.conf,.ini,.txt,.log" className={inputClass} onChange={event => setAttachments(Array.from(event.target.files ?? []))} />
@@ -227,9 +228,9 @@ export default function NewIncidentPage() {
                   </select>
                 </Field>}
                 {(staffIntake || (projectScope === "project" && (options.data?.projects.length ?? 0) >= 2)) && <Field label={staffIntake ? "Project (optional)" : "Project"}>
-                  <select className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
+                  <SearchableSelect className={selectClass} value={projectId} required={!staffIntake} disabled={!staffIntake && options.data?.projects.length === 1} onChange={event => { setProjectId(event.target.value); setIncidentCatalogItemId(""); }}>
                     <option value="">{staffIntake ? "No project" : "Select your project"}</option>{(options.data?.projects ?? []).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-                  </select>
+                  </SearchableSelect>
                 </Field>}
                 {!staffIntake && projectScope === "project" && options.data?.projects.length === 1 && <p className="text-sm">Project: <strong>{options.data.projects[0].name}</strong> · automatically selected</p>}
                 {!staffIntake && options.data?.projects.length === 0 && <p className="text-sm">Internal company incident · no project required.</p>}

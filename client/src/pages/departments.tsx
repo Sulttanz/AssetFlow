@@ -1,20 +1,16 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Building2, Edit2, Trash2, MapPin, Users, DollarSign, BarChart3, ChevronsUpDown, Check } from "lucide-react";
+import { Plus, Building2, Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { SearchableCombobox } from "@/components/ui/searchable-combobox";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 import { insertDepartmentSchema, type DepartmentWithDetails, type Employee, type Location } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
@@ -41,7 +37,6 @@ export default function Departments() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<DepartmentWithDetails | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [managerOpen, setManagerOpen] = useState(false);
 
   // Fetch departments
   const { data: departments = [], isLoading } = useQuery<DepartmentWithDetails[]>({
@@ -196,66 +191,31 @@ export default function Departments() {
           <FormField
             control={form.control}
             name="managerId"
-            render={({ field }) => {
-              const selectedEmployee = employees.find(e => e.id === field.value);
-              return (
-                <FormItem>
-                  <FormLabel>Manager</FormLabel>
-                  <Popover open={managerOpen} onOpenChange={setManagerOpen}>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          className={cn("w-full justify-between font-normal", !selectedEmployee && "text-muted-foreground")}
-                          data-testid="select-manager"
-                        >
-                          {selectedEmployee
-                            ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
-                            : "Select manager"}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Search employees..." />
-                        <CommandList>
-                          <CommandEmpty>No employee found.</CommandEmpty>
-                          <CommandGroup>
-                            <CommandItem
-                              value="none"
-                              onSelect={() => {
-                                field.onChange("none");
-                                setManagerOpen(false);
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", field.value === "none" || !field.value ? "opacity-100" : "opacity-0")} />
-                              No Manager
-                            </CommandItem>
-                            {employees.map((employee) => (
-                              <CommandItem
-                                key={employee.id}
-                                value={`${employee.firstName} ${employee.lastName} ${employee.email}`}
-                                onSelect={() => {
-                                  field.onChange(employee.id);
-                                  setManagerOpen(false);
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", field.value === employee.id ? "opacity-100" : "opacity-0")} />
-                                {employee.firstName} {employee.lastName}
-                                {employee.position && <span className="ml-1 text-muted-foreground text-xs">— {employee.position}</span>}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              );
-            }}
+            render={({ field }) => (
+              <FormItem data-testid="select-manager">
+                <FormLabel>Manager</FormLabel>
+                <FormControl>
+                  <SearchableCombobox
+                    ariaLabel="Select department manager"
+                    placeholder="Select manager"
+                    searchPlaceholder="Search employees..."
+                    emptyMessage="No employee found."
+                    value={field.value || "none"}
+                    onChange={field.onChange}
+                    options={[
+                      { value: "none", label: "No Manager" },
+                      ...employees.map((employee) => ({
+                        value: employee.id,
+                        label: `${employee.firstName} ${employee.lastName}`,
+                        description: employee.position || employee.email || undefined,
+                        keywords: [employee.employeeId ?? "", employee.email ?? ""],
+                      })),
+                    ]}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
         </div>
 
@@ -264,23 +224,21 @@ export default function Departments() {
             control={form.control}
             name="locationId"
             render={({ field }) => (
-              <FormItem>
+              <FormItem data-testid="select-location">
                 <FormLabel>Location</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-location">
-                      <SelectValue placeholder="Select location" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none">No Location</SelectItem>
-                    {locations.map((location) => (
-                      <SelectItem key={location.id} value={location.id}>
-                        {location.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FormControl>
+                  <SearchableCombobox
+                    ariaLabel="Select department location"
+                    placeholder="Select location"
+                    searchPlaceholder="Search locations..."
+                    value={field.value || "none"}
+                    onChange={field.onChange}
+                    options={[
+                      { value: "none", label: "No Location" },
+                      ...locations.map((location) => ({ value: location.id, label: location.name, description: [location.code, location.city].filter(Boolean).join(" · ") || undefined })),
+                    ]}
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -336,9 +294,9 @@ export default function Departments() {
   }
 
   return (
-    <div className="flex-1 p-8 overflow-auto" data-testid="departments-page">
+    <div className="flex-1 p-4 sm:p-8 overflow-auto" data-testid="departments-page">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Departments</h1>
             <p className="text-muted-foreground">Manage your organization's departments</p>
@@ -366,76 +324,81 @@ export default function Departments() {
           </Dialog>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {paginatedDepartments.map((department) => (
-            <Card key={department.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Building2 className="w-5 h-5 text-primary" />
-                    <CardTitle className="text-lg">{department.name}</CardTitle>
+        <Table aria-label="Departments" data-mobile-layout="scroll" data-mobile-cards="false" className="min-w-[760px]">
+          <TableHeader className="bg-muted/40">
+            <TableRow>
+              <TableHead scope="col" className="text-start">Department</TableHead>
+              <TableHead scope="col" className="text-start">Assignment</TableHead>
+              <TableHead scope="col" className="text-start">Overview</TableHead>
+              <TableHead scope="col" className="text-end">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedDepartments.map((department) => (
+              <TableRow key={department.id} data-testid={`row-department-${department.id}`}>
+                <TableCell className="min-w-52 text-start">
+                  <div className="flex items-start gap-2">
+                    <Building2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground">{department.name}</div>
+                      {department.description && (
+                        <p className="mt-0.5 max-w-sm truncate text-xs text-muted-foreground" title={department.description}>
+                          {department.description}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex space-x-1">
+                </TableCell>
+                <TableCell className="min-w-48 text-start">
+                  <div className="space-y-1">
+                    <div>{department.location?.name || locations.find(location => location.id === department.locationId)?.name || <span className="text-muted-foreground">No Location</span>}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {department.manager
+                        ? `${department.manager.firstName} ${department.manager.lastName}`
+                        : "No Manager"}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="min-w-48 text-start">
+                  <div className="space-y-1 text-sm">
+                    <div>{department.employeeCount || 0} employees · {department.assetCount || 0} assets</div>
+                    <div className="text-xs text-muted-foreground">
+                      {department.budget
+                        ? `Budget: $${parseFloat(department.budget).toLocaleString()}`
+                        : "No budget set"}
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="min-w-48 text-end">
+                  <div className="flex justify-end gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="shrink-0 !whitespace-nowrap"
                       onClick={() => handleEdit(department)}
+                      aria-label={`Edit department ${department.name}`}
                       data-testid={`button-edit-${department.id}`}
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 aria-hidden="true" className="me-1 h-4 w-4" />
+                      Edit
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="shrink-0 !whitespace-nowrap"
                       onClick={() => deleteMutation.mutate(department.id)}
+                      aria-label={`Delete department ${department.name}`}
                       data-testid={`button-delete-${department.id}`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 aria-hidden="true" className="me-1 h-4 w-4" />
+                      Delete
                     </Button>
                   </div>
-                </div>
-                {department.description && (
-                  <CardDescription>{department.description}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {department.location && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <MapPin className="w-4 h-4 text-muted-foreground" />
-                      <span>Location: {department.location.name}</span>
-                    </div>
-                  )}
-                  
-                  {department.manager && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Users className="w-4 h-4 text-muted-foreground" />
-                      <span>Manager: {department.manager.firstName} {department.manager.lastName}</span>
-                    </div>
-                  )}
-
-                  {department.budget && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <DollarSign className="w-4 h-4 text-muted-foreground" />
-                      <span>Budget: ${parseFloat(department.budget).toLocaleString()}</span>
-                    </div>
-                  )}
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Users className="w-4 h-4 text-muted-foreground" />
-                      <span>{department.employeeCount || 0} Employees</span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-sm">
-                      <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                      <span>{department.assetCount || 0} Assets</span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
 
         {/* Pagination */}
         {totalPages > 1 && (

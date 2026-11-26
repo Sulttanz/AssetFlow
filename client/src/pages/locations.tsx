@@ -1,14 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, MapPin, Edit2, Trash2, Building2, Users, BarChart3 } from "lucide-react";
+import { Plus, MapPin, Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableCombobox } from "@/components/ui/searchable-combobox";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
@@ -191,23 +190,26 @@ export default function Locations() {
             control={form.control}
             name="managerId"
             render={({ field }) => (
-              <FormItem>
+              <FormItem data-testid="select-manager">
                 <FormLabel>Manager</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-manager">
-                      <SelectValue placeholder="Select manager" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="none">No Manager</SelectItem>
-                    {employees.map((employee) => (
-                      <SelectItem key={employee.id} value={employee.id}>
-                        {employee.firstName} {employee.lastName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <FormControl>
+                  <SearchableCombobox
+                    ariaLabel="Select location manager"
+                    placeholder="Select manager"
+                    searchPlaceholder="Search employees..."
+                    value={field.value || "none"}
+                    onChange={field.onChange}
+                    options={[
+                      { value: "none", label: "No Manager" },
+                      ...employees.map((employee) => ({
+                        value: employee.id,
+                        label: `${employee.firstName} ${employee.lastName}`,
+                        description: employee.position || employee.email || undefined,
+                        keywords: [employee.employeeId ?? "", employee.email ?? ""],
+                      })),
+                    ]}
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -320,9 +322,9 @@ export default function Locations() {
   }
 
   return (
-    <div className="flex-1 p-8 overflow-auto" data-testid="locations-page">
+    <div className="flex-1 p-4 sm:p-8 overflow-auto" data-testid="locations-page">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Locations</h1>
             <p className="text-muted-foreground">Manage your organization's locations</p>
@@ -350,74 +352,79 @@ export default function Locations() {
           </Dialog>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {paginatedLocations.map((location) => (
-            <Card key={location.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2">
-                    <MapPin className="w-5 h-5 text-primary" />
-                    <CardTitle className="text-lg">{location.name}</CardTitle>
-                  </div>
-                  <div className="flex space-x-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(location)}
-                      data-testid={`button-edit-${location.id}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(location.id)}
-                      data-testid={`button-delete-${location.id}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-                {location.description && (
-                  <CardDescription>{location.description}</CardDescription>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {(location.address || location.city || location.state) && (
-                    <div className="text-sm text-muted-foreground">
-                      {location.address && <p>{location.address}</p>}
-                      {(location.city || location.state) && (
-                        <p>
-                          {location.city}{location.city && location.state && ", "}{location.state} {location.zipCode}
+        <Table aria-label="Locations" data-mobile-layout="scroll" data-mobile-cards="false" className="min-w-[760px]">
+          <TableHeader className="bg-muted/40">
+            <TableRow>
+              <TableHead scope="col" className="text-start">Location</TableHead>
+              <TableHead scope="col" className="text-start">Manager</TableHead>
+              <TableHead scope="col" className="text-start">Coverage</TableHead>
+              <TableHead scope="col" className="text-end">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedLocations.map((location) => (
+              <TableRow key={location.id} data-testid={`row-location-${location.id}`}>
+                <TableCell className="min-w-64 text-start">
+                  <div className="flex items-start gap-2">
+                    <MapPin aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <div className="font-medium text-foreground">{location.name}</div>
+                      {location.description && (
+                        <p className="mt-0.5 max-w-sm truncate text-xs text-muted-foreground" title={location.description}>
+                          {location.description}
                         </p>
                       )}
-                      {location.country && location.country !== "USA" && <p>{location.country}</p>}
-                    </div>
-                  )}
-                  
-                  {location.manager && (
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Users className="w-4 h-4 text-muted-foreground" />
-                      <span>Manager: {location.manager.firstName} {location.manager.lastName}</span>
-                    </div>
-                  )}
-                  
-                  <div className="grid grid-cols-2 gap-4 pt-2">
-                    <div className="flex items-center space-x-2 text-sm">
-                      <Building2 className="w-4 h-4 text-muted-foreground" />
-                      <span>{location.departmentCount || 0} Departments</span>
-                    </div>
-                    <div className="flex items-center space-x-2 text-sm">
-                      <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                      <span>{location.assetCount || 0} Assets</span>
+                      {(location.address || location.city || location.state || location.country) && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {[location.address, [location.city, location.state].filter(Boolean).join(", "), location.zipCode, location.country !== "USA" ? location.country : ""]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </TableCell>
+                <TableCell className="min-w-40 text-start">
+                  {location.manager
+                    ? `${location.manager.firstName} ${location.manager.lastName}`
+                    : <span className="text-muted-foreground">No Manager</span>}
+                </TableCell>
+                <TableCell className="min-w-44 text-start">
+                  <div className="space-y-1 text-sm">
+                    <div>{location.departmentCount || 0} departments</div>
+                    <div className="text-xs text-muted-foreground">{location.assetCount || 0} assets</div>
+                  </div>
+                </TableCell>
+                <TableCell className="min-w-48 text-end">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 !whitespace-nowrap"
+                      onClick={() => handleEdit(location)}
+                      aria-label={`Edit location ${location.name}`}
+                      data-testid={`button-edit-${location.id}`}
+                    >
+                      <Edit2 aria-hidden="true" className="me-1 h-4 w-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0 !whitespace-nowrap"
+                      onClick={() => deleteMutation.mutate(location.id)}
+                      aria-label={`Delete location ${location.name}`}
+                      data-testid={`button-delete-${location.id}`}
+                    >
+                      <Trash2 aria-hidden="true" className="me-1 h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
 
         {/* Pagination */}
         {totalPages > 1 && (

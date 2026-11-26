@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +58,7 @@ export function ContractEditor({ contract, vendors, options, saving, onSave, onC
 
   return <form onSubmit={submit} className="space-y-5">
     <div className="grid gap-4 sm:grid-cols-2">
-      <label className="space-y-1.5 text-sm font-medium"><span>Supplier</span><select required className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.vendorId} onChange={event => set("vendorId", event.target.value)}><option value="">Choose supplier</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label>
+      <label className="space-y-1.5 text-sm font-medium"><span>Supplier</span><SearchableSelect required className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.vendorId} onChange={event => set("vendorId", event.target.value)}><option value="">Choose supplier</option>{vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</SearchableSelect></label>
       {field("Contract title", "title")}
       {field("Contract number", "contractNumber")}
       <label className="space-y-1.5 text-sm font-medium"><span>Contract type</span><select required className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={form.contractType} onChange={event => set("contractType", event.target.value)}><option value="">Choose type</option>{form.contractType && !options.contractTypes.some(item => item.value === form.contractType) && <option value={form.contractType}>{form.contractType} (legacy)</option>}{options.contractTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>

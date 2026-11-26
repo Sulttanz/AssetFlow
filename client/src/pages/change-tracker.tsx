@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatDateDisplay as appFormatDate } from "@/lib/date-utils";
 import { IT_RISK_CATEGORIES } from "@shared/risk-management";
 import { useMemo, useState } from "react";
@@ -229,9 +230,9 @@ export default function ChangeTracker() {
                 <select aria-label="Filter by change risk" className={selectClass} value={changeRiskFilter} onChange={(event) => setChangeRiskFilter(event.target.value)}>
                   <option value="all">All risk levels</option>{["low","medium","high","critical"].map((risk) => <option key={risk} value={risk}>{risk}</option>)}
                 </select>
-                <select aria-label="Filter by assigned owner" className={selectClass} value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
+                <SearchableSelect aria-label="Filter by assigned owner" className={selectClass} value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
                   <option value="all">All owners</option>{assignees.map((person) => <option key={person.id} value={person.id}>{personName(person)}</option>)}
-                </select>
+                </SearchableSelect>
               </div> : <div className="sm:w-44">
                 <select aria-label="Filter risk status" className={selectClass} value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}>
                   <option value="all">All risk statuses</option><option value="identified">Identified</option><option value="mitigating">Mitigating</option><option value="accepted">Accepted</option><option value="closed">Closed</option>
@@ -307,10 +308,10 @@ export default function ChangeTracker() {
               </div>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
-              {!editingRisk && <Field label="Linked change"><select className={selectClass} required value={riskChangeId} onChange={(event) => setRiskChangeId(event.target.value)}><option value="">Select a change…</option>{changes.map((change) => <option key={change.id} value={change.id}>{change.changeNumber} — {change.title}</option>)}</select>{(() => { const linkedChange = changes.find(change => change.id === riskChangeId); return linkedChange && (linkedChange.impactSummary?.services.length || linkedChange.impactSummary?.assets.length) ? <span className="block text-xs font-normal text-teal-800">Impact: {linkedChange.impactSummary?.services.join(", ") || "No services"} · {linkedChange.impactSummary?.assets.join(", ") || "No assets"}</span> : null; })()}</Field>}
+              {!editingRisk && <Field label="Linked change"><SearchableSelect className={selectClass} required value={riskChangeId} onChange={(event) => setRiskChangeId(event.target.value)}><option value="">Select a change…</option>{changes.map((change) => <option key={change.id} value={change.id}>{change.changeNumber} — {change.title}</option>)}</SearchableSelect>{(() => { const linkedChange = changes.find(change => change.id === riskChangeId); return linkedChange && (linkedChange.impactSummary?.services.length || linkedChange.impactSummary?.assets.length) ? <span className="block text-xs font-normal text-teal-800">Impact: {linkedChange.impactSummary?.services.join(", ") || "No services"} · {linkedChange.impactSummary?.assets.join(", ") || "No assets"}</span> : null; })()}</Field>}
               <Field label="Risk title" className={!editingRisk ? "" : "sm:col-span-2"}><Input required value={riskForm.title} onChange={(event) => setRiskField("title", event.target.value)} placeholder="e.g. Database failover exceeds window" /></Field>
                <Field label="Category"><select className={selectClass} value={riskForm.category} onChange={(event) => setRiskField("category", event.target.value)}>{IT_RISK_CATEGORIES.map(category => <option key={category}>{category}</option>)}</select></Field>
-              <Field label="Risk owner"><select className={selectClass} value={riskForm.ownerId} onChange={(event) => setRiskField("ownerId", event.target.value)}><option value="">Select owner…</option>{users.map((user) => <option key={user.id} value={user.id}>{personName(user)}</option>)}</select></Field>
+              <Field label="Risk owner"><SearchableSelect className={selectClass} value={riskForm.ownerId} onChange={(event) => setRiskField("ownerId", event.target.value)}><option value="">Select owner…</option>{users.map((user) => <option key={user.id} value={user.id}>{personName(user)}</option>)}</SearchableSelect></Field>
               <Field label="Description" className="sm:col-span-2"><Textarea value={riskForm.description} onChange={(event) => setRiskField("description", event.target.value)} rows={2} placeholder="What could happen, and what service or outcome is exposed?" /></Field>
               <Field label="Mitigation plan"><Textarea value={riskForm.mitigation} onChange={(event) => setRiskField("mitigation", event.target.value)} rows={3} placeholder="Actions to reduce likelihood or impact" /></Field>
               <Field label="Contingency plan"><Textarea value={riskForm.contingency} onChange={(event) => setRiskField("contingency", event.target.value)} rows={3} placeholder="Response if the risk materializes" /></Field>

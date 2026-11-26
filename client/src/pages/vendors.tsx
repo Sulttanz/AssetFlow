@@ -1,3 +1,4 @@
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowUpRight, Award, Building2, CalendarClock, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, FileText, Globe2, Mail, Pencil, Phone, Plus, Search, Server, ShieldAlert, ShieldCheck, Users, Wallet } from "lucide-react";
@@ -252,7 +253,7 @@ export default function Vendors() {
             <select aria-label="Filter vendor status" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={vendorStatus} onChange={event => { setVendorStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option>{(["active", "onboarding", "under_review", "blacklisted", "inactive"] as VendorStatus[]).map(status => <option key={status} value={status}>{vendorStatusLabel(status)}</option>)}</select>
           </> : <>
             <select aria-label="Filter contract lifecycle" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractStatus} onChange={event => { setContractStatus(event.target.value); setPage(1); }}><option value="all">All lifecycles</option>{(["Active", "Expiring Soon", "Expired", "Terminated"] as ContractStatus[]).map(status => <option key={status} value={status}>{status}</option>)}</select>
-            <select aria-label="Filter contract vendor" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractVendor} onChange={event => { setContractVendor(event.target.value); setPage(1); }}><option value="all">All vendors</option>{vendors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <SearchableSelect aria-label="Filter contract vendor" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractVendor} onChange={event => { setContractVendor(event.target.value); setPage(1); }}><option value="all">All vendors</option>{vendors.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</SearchableSelect>
             <select aria-label="Filter contract type" className="h-11 w-full rounded-md border bg-background px-3 text-sm lg:w-auto" value={contractType} onChange={event => { setContractType(event.target.value); setPage(1); }}><option value="all">All contract types</option>{options.contractTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
           </>}
         </div>

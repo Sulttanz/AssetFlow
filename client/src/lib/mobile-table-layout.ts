@@ -28,7 +28,7 @@ export function applyMobileTableLayout(root: ParentNode): void {
           Array.from({ length: cell.colSpan || 1 }, () => getHeaderText(cell, cellIndex)),
         )
       : [];
-    const useCards = headerLabels.length >= MIN_CARD_COLUMNS;
+    const useCards = table.dataset.mobileLayout !== "scroll" && headerLabels.length >= MIN_CARD_COLUMNS;
 
     table.dataset.mobileCards = String(useCards);
     if (!useCards) {
